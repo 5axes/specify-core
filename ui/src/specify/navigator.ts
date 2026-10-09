@@ -338,6 +338,7 @@ export function createNavigator(
 
   // --- size and loop ---------------------------------------------------------
   function resize() {
+    if (!container.clientWidth || !container.clientHeight) return;
     const [w, h] = size();
     camera.aspect = w / h;
     camera.setViewOffset(w, h, panelRoom() / 2, 0, w, h);
@@ -352,6 +353,7 @@ export function createNavigator(
   let frame = 0;
   const tick = () => {
     frame = requestAnimationFrame(tick);
+    if (!container.clientWidth || !container.clientHeight) return;
     advanceFlight();
     controls.update();
     for (const f of frameListeners) f();

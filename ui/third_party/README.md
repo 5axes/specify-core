@@ -4,8 +4,12 @@
 at commit `61647f9` (current main when this prototype was scaffolded).
 The original MIT licence is preserved in `draftwright-io/LICENSE`.
 
-The reusable parts are the Three.js model picker, camera/navigation, annotation
-renderer, characteristic formatting, and question review helpers. The original
+The Specify review workspace, answer inputs, suggestion cards, requirement and
+datum editors, characteristics table, styles, Three.js picker, camera/navigation,
+and annotation renderer are ported from that editor. `SpecifyReview.tsx` retains
+its review interactions; `SpecifyEditor.tsx` adapts the engine contract to local
+WASM and project history. Host changes cover tab layout, external undo/redo,
+local STEP downloads and drawing handoff, and a local unavailable-QIF notice. The original
 application's authentication, HTTP transport, durable server sessions, analytics,
 and drawing handoff are not included in this standalone browser prototype.
 
