@@ -14,3 +14,10 @@ writer (Specify `42ff22c0`) with H7 and 6082-T6 answers, using stored-answer sch
 The geometry is `public/samples/plate.step` from Specify's AGPL sample corpus.
 It verifies that the shared alpha kernel resumes existing browser exports and
 that rewriting them migrates the payload to schema 2 without losing answers.
+
+`alpha1_bolt_thread_knurl.step.gz` is copied unchanged from
+`pzfreo/draftwright-rust` tag `v0.1.0-alpha.1`, commit
+`d4ed8d128f0383ea504f8a0ce61502bd05bf33e1`, at
+`tests/fixtures/pmi/step/bolt_thread_knurl.step.gz` (AGPL-3.0-only).
+It checks native manufacturing thread/knurl callouts alongside the separate
+semantic AP242 thread fallback exercised by the plate fixture.

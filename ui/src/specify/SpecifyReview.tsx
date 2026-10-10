@@ -34,9 +34,9 @@ function asError(error: unknown): PmiLabError {
   return { code: 'failed', message: String(error) };
 }
 
-export function SpecifyReview({ engine, session, onDrawing, onClose, externalAnswers, externalReview, disabled }: {
+export function SpecifyReview({ engine, session, onDrawing, onClose, externalAnswers, externalReview, disabled, focusRequest }: {
   engine: SpecifyEngine; session: PmiLabSession; onDrawing: () => void; onClose: () => void;
-  externalAnswers: PmiAnswers; externalReview: IntentReview; disabled: boolean;
+  externalAnswers: PmiAnswers; externalReview: IntentReview; disabled: boolean; focusRequest?: { questionId: string } | null;
 }) {
   const stage = useRef<HTMLDivElement>(null);
   const picker = useRef<Picker | null>(null);
@@ -117,6 +117,13 @@ export function SpecifyReview({ engine, session, onDrawing, onClose, externalAns
     () => characteristics(preview, session.analysis, titles), [preview, session.analysis, titles],
   );
   const balloons = useMemo(() => balloonsBySource(chars), [chars]);
+
+  useEffect(() => {
+    const id = focusRequest?.questionId;
+    if (!id || !questions.some(question => question.id === id)) return;
+    setView('review'); setOnlySuggestions(false); setSheetOpen(true); setCurrent(id);
+    setUnfolded(id.startsWith('part.') ? id : id.startsWith('datum.') ? 'datums' : null);
+  }, [focusRequest]);
 
   // The picker lives as long as the session; React state reaches it through refs.
   const handlers = useRef({ face: (_face: number) => {}, label: (_label: PmiLabel) => {} });
