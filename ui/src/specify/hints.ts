@@ -91,13 +91,13 @@ export function optionHint(q: PmiQuestion, option: string): string | null {
 }
 
 function zoneHint(q: PmiQuestion, size: string): string | null {
-  if (q.id.startsWith('hole.position:')) {
+  if (q.characteristic === 'position' && q.id.startsWith('hole.position:')) {
     return `Each hole's axis must lie in a cylinder Ø${size} around where it should be.`;
   }
-  if (q.id.startsWith('diameter.runout:')) {
+  if (q.characteristic === 'runout') {
     return `As the part turns on its axis, the diameter may wobble by at most ${size}.`;
   }
-  const kind = /^(\w+)/.exec(q.prompt)?.[1]?.toLowerCase();
+  const kind = q.characteristic;
   if (kind === 'flatness') return `The face must lie between two parallel planes ${size} apart.`;
   if (kind === 'perpendicularity') return `Must lie within a zone ${size} wide, square to the datum it refers to.`;
   if (kind === 'parallelism') return `Must lie within a zone ${size} wide, parallel to the datum it refers to.`;

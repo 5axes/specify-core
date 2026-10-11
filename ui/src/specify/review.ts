@@ -8,7 +8,7 @@
 // accepted unless changed; only required and unconfirmed checks need a person.
 import type { PmiAnswers, PmiQuestion } from '../types/pmi';
 
-import { codeOf } from './choose';
+import { codeOf } from './choose.ts';
 
 export interface QuestionGroup {
   readonly key: string;
@@ -45,11 +45,7 @@ function datumOrder(id: string): string {
 }
 
 function titleOf(q: PmiQuestion): string {
-  const hole = /^What (?:are|is) the (.+) for\?$/.exec(q.prompt);
-  if (hole?.[1]) return hole[1];
-  const turned = /turned ((?:\d+× )?Ø[\d.]+) diameter/.exec(q.prompt);
-  if (turned?.[1]) return `Turned ${turned[1]}`;
-  return q.prompt;
+  return q.title ?? q.prompt;
 }
 
 /** A question's value: its answer, or its default. */
