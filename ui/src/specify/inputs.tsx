@@ -381,12 +381,10 @@ export function SuggestionCard({ c, onKeep, onPick, onMore }: {
  * on demand: there may be a hundred, and few of them matter.
  */
 export function CharacteristicsTable({
-  rows, selected, onSelect, onDownload, onQif, skipped, onSkip, onEdit, onCallOut, generalTolerance, calledOut,
+  rows, selected, onSelect, onDownload, skipped, onSkip, onEdit, onCallOut, generalTolerance, calledOut,
 }: {
   rows: readonly Characteristic[]; selected: string | null;
   onSelect: (id: string, faces: readonly number[]) => void; onDownload: () => void;
-  /** QIF export is demand research: this asks whether someone would use it. */
-  onQif: () => void;
   /** What is left out of the inspection list (``inspectKey``), and leaving out or back. */
   skipped: ReadonlySet<string>; onSkip: (keys: readonly string[], skip: boolean) => void;
   /** Opens where a row's PMI is changed; absent where it cannot be. */
@@ -468,7 +466,6 @@ export function CharacteristicsTable({
         </span>
         <span className="btns">
           <button type="button" className="csv" onClick={onDownload} disabled={left === rows.length}>⬇ Download CSV</button>
-          <button type="button" onClick={onQif} title="Not available yet: tell us if you would use it">Export QIF</button>
         </span>
       </div>
       <table>

@@ -83,7 +83,7 @@ export function createNavigator(
   const centreOf = () => framed().getCenter(new THREE.Vector3());
 
   const scene = new THREE.Scene();
-  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   container.appendChild(renderer.domElement);
   const size = (): [number, number] => [
