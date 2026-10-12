@@ -135,8 +135,6 @@
 .pmi-lab .pmi-lab-quick button { padding: 2px 7px; font-size: 12px; }
 .pmi-lab .pmi-lab-call-out { margin: 4px 0 0; align-self: flex-start; max-width: 100%; font-size: 12px;
   white-space: normal; text-align: left; }
-.pmi-lab-progress { height: 5px; border-radius: 3px; background: #e3e7ec; margin: 7px 0 4px; overflow: hidden; }
-.pmi-lab-progress span { display: block; height: 100%; background: #2e8b57; transition: width .2s; }
 .pmi-lab-rows { flex: 1; min-height: 0; overflow-y: auto; overflow-anchor: none; }
 .pmi-lab-fields { display: grid; gap: 2px; padding: 11px 12px 12px; background: #fff; border-bottom: 1px solid #d9dee4; }
 .pmi-lab-field { display: grid; gap: 3px; }
@@ -162,12 +160,6 @@
 .pmi-lab-chev { display: inline-block; width: 1em; margin-right: 4px; color: #2f6fb5; font-size: 11px;
   transition: transform .15s; transform-origin: 40% 50%; }
 .pmi-lab-chev.open { transform: rotate(90deg); }
-.pmi-lab .pmi-lab-next { display: block; width: 100%; text-align: left; border: 0; border-radius: 4px; background: none;
-  padding: 2px 0; cursor: pointer; }
-.pmi-lab .pmi-lab-next:disabled { cursor: default; }
-.pmi-lab .pmi-lab-next:not(:disabled):hover .pmi-lab-progress { background: #d5dbe2; }
-.pmi-lab-next small { color: #707880; }
-.pmi-lab-next .go { color: #2f6fb5; font-weight: 600; }
 .pmi-lab-field .why { color: #707880; font-size: 11.5px; }
 .pmi-lab-field.stated .value { font-size: 14px; padding: 2px 0; }
 .pmi-lab-rows-title { margin: 0; padding: 10px 12px 4px; font-size: 11px; font-weight: 600; letter-spacing: .04em;
