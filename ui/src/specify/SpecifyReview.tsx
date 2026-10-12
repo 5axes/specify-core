@@ -166,9 +166,10 @@ export function SpecifyReview({ engine, session, slots, after, onPick, showFaces
   }, [session, faces]);
 
   useEffect(() => {
-    if (!showFaces?.faces.length) return;
+    if (!showFaces) return;
     // Lit, not turned to: selecting on the drawing, often to drag, should not swing the part round.
-    picker.current?.highlight(showFaces.faces);
+    // Nothing selected there gives the part back to the open question.
+    picker.current?.highlight(showFaces.faces.length ? showFaces.faces : currentQuestion?.faces ?? []);
   }, [showFaces?.n]);
 
   // Point the picker at the current question -- only when the question changes:
