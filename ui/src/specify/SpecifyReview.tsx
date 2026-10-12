@@ -66,6 +66,8 @@ export function SpecifyReview({ engine, session, slots, after, onClose, external
   const [peek, setPeek] = useState<number | null>(null);
   // Set by a label clicked: the question it opens is turned to without moving the view.
   const stayPut = useRef(false);
+  // The question or added requirement a focus request opened without asking to be scrolled to.
+  const quiet = useRef<string | null>(null);
   const [transparency, setTransparency] = useState(50);
   const [wide, setWide] = useState(() => !window.matchMedia?.(NARROW).matches);
   useEffect(() => {
@@ -122,8 +124,10 @@ export function SpecifyReview({ engine, session, slots, after, onClose, external
   useEffect(() => {
     const id = focusRequest?.questionId;
     if (!id) return;
+    // Opened from the queue above, it is not followed down the list unless asked.
+    quiet.current = focusRequest.scroll ? null : id;
     // A problem about an added requirement is not a question: it opens as the problem's line does.
-    if (!questions.some(question => question.id === id)) { openProblem(id, focusRequest.faces ?? []); return; }
+    if (!questions.some(question => question.id === id)) { setView('review'); openProblem(id, focusRequest.faces ?? []); return; }
     setView('review'); setOnlySuggestions(false); setCurrent(id);
     setUnfolded(NOTE_FIELDS.has(id) ? `note:${id}` : id.startsWith('part.') ? id : id.startsWith('datum.') ? 'datums' : null);
     // Brought into view only when asked: the queue that asked may be above it in the same column.
@@ -526,12 +530,12 @@ export function SpecifyReview({ engine, session, slots, after, onClose, external
   const scrolled = useRef(false);
   useEffect(() => {
     if (!here) return;
-    if (scrolled.current) rowsBox.current?.querySelector('.pmi-lab-row.current')?.scrollIntoView({ block: 'nearest' });
+    if (scrolled.current && quiet.current !== current) rowsBox.current?.querySelector('.pmi-lab-row.current')?.scrollIntoView({ block: 'nearest' });
     scrolled.current = true;
   }, [here?.key]);
   // An added requirement or call-out opened is brought into sight, wherever it was opened from.
   useEffect(() => {
-    if (draft) rowsBox.current?.querySelector('.pmi-lab-extra')?.scrollIntoView?.({ block: 'nearest' });
+    if (draft && quiet.current !== draft.key) rowsBox.current?.querySelector('.pmi-lab-extra')?.scrollIntoView?.({ block: 'nearest' });
   }, [draft?.key]);
 
   // The balloon numbers of what a row specifies, beside its title.
