@@ -91,16 +91,6 @@ export function summary(group: QuestionGroup, answers: PmiAnswers): string {
     || (group.key === 'datums' ? "the file's datums" : 'general tolerance');
 }
 
-/** How many questions still need a person, by kind. */
-export function counts(questions: readonly PmiQuestion[], answers: PmiAnswers) {
-  const out = { required: 0, check: 0 };
-  for (const q of questions) {
-    const need = needs(q, answers);
-    if (need) out[need] += 1;
-  }
-  return out;
-}
-
 /**
  * The question to open when ``face`` is clicked: a feature on that face before
  * a datum, and within a row the first still needing a person, else the first.
@@ -116,12 +106,6 @@ export function questionForFace(groups: readonly QuestionGroup[], face: number):
 export function nextNeeding(groups: readonly QuestionGroup[], answers: PmiAnswers): string | null {
   for (const g of groups) for (const q of g.questions) if (needs(q, answers)) return q.id;
   return null;
-}
-
-/** Of the questions that asked for a person, how many have had one. */
-export function progress(questions: readonly PmiQuestion[], answers: PmiAnswers) {
-  const asked = questions.filter((q) => q.attention === 'required' || q.attention === 'check');
-  return { done: asked.filter((q) => q.id in answers).length, total: asked.length };
 }
 
 /** ``answers`` with every check in ``group`` confirmed at its default. */
