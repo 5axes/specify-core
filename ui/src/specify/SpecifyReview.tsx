@@ -537,6 +537,10 @@ export function SpecifyReview({ engine, session, slots, after, onClose, external
   useEffect(() => {
     if (draft && quiet.current !== draft.key) rowsBox.current?.querySelector('.pmi-lab-extra')?.scrollIntoView?.({ block: 'nearest' });
   }, [draft?.key]);
+  // Quiet lasts one visit: once the person moves on, rows are followed again.
+  useEffect(() => {
+    if (quiet.current !== current && quiet.current !== draft?.key) quiet.current = null;
+  }, [current, draft?.key]);
 
   // The balloon numbers of what a row specifies, beside its title.
   const rowBalloons = (g: QuestionGroup) => {
