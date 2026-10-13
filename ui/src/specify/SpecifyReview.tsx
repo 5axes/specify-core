@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { createPortal } from 'react-dom';
 import type { PmiAnswers, PmiIntent, PmiInterpretation, PmiLabError, PmiLabSession, PmiQuestion, PmiLabEngine } from '../types/pmi';
 import type { IntentReview } from '../types/editor';
+import type { PartTint } from '../model/links';
 import { addedOf, CALL_OUTS, describe, kindsFor, MAY_HAVE_DATUM, nextKey } from './added';
 import { codeOf } from './choose';
 import { appliedByRule, chosenForYou, type Chosen } from './chosen';
@@ -36,7 +37,7 @@ function asError(error: unknown): PmiLabError {
   return { code: 'failed', message: String(error) };
 }
 
-export function SpecifyReview({ engine, session, slots, after, onPick, showFaces, onClose, externalAnswers, externalReview, disabled, focusRequest }: {
+export function SpecifyReview({ engine, session, slots, after, onPick, showFaces, tints, onClose, externalAnswers, externalReview, disabled, focusRequest }: {
   engine: SpecifyEngine; session: PmiLabSession; slots: SpecifySlots; onClose: () => void;
   /** Shown after the questions: the drawing's own issues, in the same list. */
   after?: ReactNode;
@@ -44,6 +45,8 @@ export function SpecifyReview({ engine, session, slots, after, onPick, showFaces
   onPick?: (faces: readonly number[]) => void;
   /** Faces selected elsewhere (the drawing), lit on the part; a new ``n`` each time. */
   showFaces?: { faces: readonly number[]; n: number };
+  /** The queue's state on the part, by face; a new map when it changes. */
+  tints?: ReadonlyMap<number, PartTint>;
   externalAnswers: PmiAnswers; externalReview: IntentReview; disabled: boolean; focusRequest?: { questionId: string; faces?: readonly number[]; scroll?: boolean } | null;
 }) {
   const stage = useRef<HTMLDivElement>(null);
@@ -164,6 +167,8 @@ export function SpecifyReview({ engine, session, slots, after, onPick, showFaces
       picker.current = null;
     };
   }, [session, faces]);
+
+  useEffect(() => { picker.current?.tint(tints ?? new Map()); }, [tints, session, faces]);
 
   useEffect(() => {
     if (!showFaces) return;

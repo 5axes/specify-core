@@ -14,9 +14,13 @@ import {
 
 const COLOURS = {
   plain: new THREE.Color(0xc9ced4),
-  hover: new THREE.Color(0x9cc3ea),
-  focus: new THREE.Color(0xf2b134), // what the current question is about
-  selected: new THREE.Color(0x2f6fb5),
+  // The editor's colour scheme (docs/WORKFLOW.md), chosen to stay apart for colour-blind eyes:
+  hover: new THREE.Color(0xf4f8fb), // under the pointer: a slight whitening
+  focus: new THREE.Color(0x1ec8ff), // the current question: active, cyan
+  selected: new THREE.Color(0x003b73), // faces picked: chosen, navy
+  required: new THREE.Color(0xeda07a), // needs an answer: vermillion, pale
+  check: new THREE.Color(0xf3dc6a), // a default to check: yellow, pale
+  problem: new THREE.Color(0x8f7fe0), // a problem on the drawing: violet
 };
 /** Points of a feature tested for being in sight. */
 const SAMPLES = 24;
@@ -59,6 +63,8 @@ export interface Picker {
   setSelection(faces: readonly number[]): void;
   getSelection(): number[];
   highlight(faces: readonly number[]): void;
+  /** Faces tinted by the queue's state, under the selection, hover and focus. */
+  tint(states: ReadonlyMap<number, 'required' | 'check' | 'problem'>): void;
   lookAt(faces: readonly number[]): void;
   on<K extends keyof PickerEvents>(name: K, listener: PickerEvents[K]): void;
   dispose(): void;
@@ -123,6 +129,7 @@ export function createPicker(
   let mode: PickMode = 'face';
   let selection = new Set<number>();
   let focus = new Set<number>();
+  let tints = new Map<number, 'required' | 'check' | 'problem'>();
   let hovered: number[] = [];
   let pickable = true;
   const listeners: { [K in keyof PickerEvents]: PickerEvents[K][] } = {
@@ -135,7 +142,8 @@ export function createPicker(
       const colour = selection.has(face) ? COLOURS.selected
         : hover.has(face) ? COLOURS.hover
           : focus.has(face) ? COLOURS.focus
-            : COLOURS.plain;
+            : tints.has(face) ? COLOURS[tints.get(face)!]
+              : COLOURS.plain;
       for (let v = lo; v <= hi; v++) colour.toArray(colours, v * 3);
     });
     colourAttribute.needsUpdate = true;
@@ -329,6 +337,10 @@ export function createPicker(
     getSelection: () => [...selection].sort((a, b) => a - b),
     highlight(faces) {
       focus = new Set(faces);
+      paint();
+    },
+    tint(states) {
+      tints = new Map(states);
       paint();
     },
     lookAt(faces) {
