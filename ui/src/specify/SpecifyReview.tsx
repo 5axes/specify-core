@@ -36,10 +36,14 @@ function asError(error: unknown): PmiLabError {
   return { code: 'failed', message: String(error) };
 }
 
-export function SpecifyReview({ engine, session, slots, after, onClose, externalAnswers, externalReview, disabled, focusRequest }: {
+export function SpecifyReview({ engine, session, slots, after, onPick, showFaces, onClose, externalAnswers, externalReview, disabled, focusRequest }: {
   engine: SpecifyEngine; session: PmiLabSession; slots: SpecifySlots; onClose: () => void;
   /** Shown after the questions: the drawing's own issues, in the same list. */
   after?: ReactNode;
+  /** Faces picked on the part, by a face or a label: the drawing locates what measures them. */
+  onPick?: (faces: readonly number[]) => void;
+  /** Faces selected elsewhere (the drawing), lit on the part; a new ``n`` each time. */
+  showFaces?: { faces: readonly number[]; n: number };
   externalAnswers: PmiAnswers; externalReview: IntentReview; disabled: boolean; focusRequest?: { questionId: string; faces?: readonly number[]; scroll?: boolean } | null;
 }) {
   const stage = useRef<HTMLDivElement>(null);
@@ -160,6 +164,13 @@ export function SpecifyReview({ engine, session, slots, after, onClose, external
       picker.current = null;
     };
   }, [session, faces]);
+
+  useEffect(() => {
+    if (!showFaces) return;
+    // Lit, not turned to: selecting on the drawing, often to drag, should not swing the part round.
+    // Nothing selected there gives the part back to the open question.
+    picker.current?.highlight(showFaces.faces.length ? showFaces.faces : currentQuestion?.faces ?? []);
+  }, [showFaces?.n]);
 
   // Point the picker at the current question -- only when the question changes:
   // a pick must not be reset by its own answer. Turning to it shows what is asked.
@@ -493,6 +504,7 @@ export function SpecifyReview({ engine, session, slots, after, onClose, external
       setNote('');
       setNoteGeneral(null);
       if (id) setCurrent(id);
+      onPick?.([face]);
     },
     // A label opens its question, which turns to it; one already open, or the
     // file's own PMI, which no question is about, is turned to here.
@@ -503,6 +515,7 @@ export function SpecifyReview({ engine, session, slots, after, onClose, external
     // on -- for a dimension, both ends -- is lit.
     label: (label) => {
       picker.current?.highlight([...label.faces, ...(label.span?.reference ?? [])]);
+      onPick?.(label.faces);
       stayPut.current = view !== 'table' && Boolean(label.question) && label.question !== current;
       if (view === 'table') {
         const n = balloons.get(label.id.split(':').slice(0, 2).join(':'))?.[0];
