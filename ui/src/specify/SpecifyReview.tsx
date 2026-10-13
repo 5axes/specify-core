@@ -36,7 +36,7 @@ function asError(error: unknown): PmiLabError {
   return { code: 'failed', message: String(error) };
 }
 
-export function SpecifyReview({ engine, session, slots, after, onPick, showFaces, onClose, externalAnswers, externalReview, disabled, focusRequest }: {
+export function SpecifyReview({ engine, session, slots, after, onPick, showFaces, tints, onClose, externalAnswers, externalReview, disabled, focusRequest }: {
   engine: SpecifyEngine; session: PmiLabSession; slots: SpecifySlots; onClose: () => void;
   /** Shown after the questions: the drawing's own issues, in the same list. */
   after?: ReactNode;
@@ -44,6 +44,8 @@ export function SpecifyReview({ engine, session, slots, after, onPick, showFaces
   onPick?: (faces: readonly number[]) => void;
   /** Faces selected elsewhere (the drawing), lit on the part; a new ``n`` each time. */
   showFaces?: { faces: readonly number[]; n: number };
+  /** The queue's state on the part, by face; ``key`` changes when it does. */
+  tints?: { faces: ReadonlyMap<number, 'answer' | 'problem'>; key: string };
   externalAnswers: PmiAnswers; externalReview: IntentReview; disabled: boolean; focusRequest?: { questionId: string; faces?: readonly number[]; scroll?: boolean } | null;
 }) {
   const stage = useRef<HTMLDivElement>(null);
@@ -164,6 +166,8 @@ export function SpecifyReview({ engine, session, slots, after, onPick, showFaces
       picker.current = null;
     };
   }, [session, faces]);
+
+  useEffect(() => { picker.current?.tint(tints?.faces ?? new Map()); }, [tints?.key, session, faces]);
 
   useEffect(() => {
     if (!showFaces) return;
