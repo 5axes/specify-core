@@ -71,6 +71,8 @@ export interface PmiMesh {
 export type PmiAttention = 'required' | 'check' | 'routine' | 'refine';
 
 export interface PmiQuestion {
+  readonly title?: string;
+  readonly characteristic?: 'flatness' | 'perpendicularity' | 'parallelism' | 'position' | 'runout';
   readonly diameter?: number;
   readonly depth?: number;
   readonly id: string;

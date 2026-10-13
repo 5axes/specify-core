@@ -118,8 +118,8 @@
 .pmi-lab button:disabled { cursor: default; opacity: .55; }
 .pmi-lab button.on { background: #2f6fb5; border-color: #2f6fb5; color: #fff; }
 .pmi-lab button.default { box-shadow: inset 0 -2px #f2b134; }
-.pmi-lab button.ok { background: #e7f3ec; border-color: #9fcdb0; color: #1d6b3c; font-weight: 600; }
-.pmi-lab button.ok:hover { border-color: #1d6b3c; }
+.pmi-lab button.ok { background: #e6f6f0; border-color: #8fd3bf; color: #00684c; font-weight: 600; }
+.pmi-lab button.ok:hover { border-color: #00684c; }
 .pmi-lab-panel { position: absolute; top: 10px; right: 10px; bottom: 10px; width: 358px; z-index: 10;
   background: #f7f8fa; border: 1px solid #d9dee4; border-radius: 6px; display: flex; flex-direction: column;
   overflow: hidden; box-shadow: 0 2px 10px rgba(0, 0, 0, .08); }
@@ -135,16 +135,14 @@
 .pmi-lab .pmi-lab-quick button { padding: 2px 7px; font-size: 12px; }
 .pmi-lab .pmi-lab-call-out { margin: 4px 0 0; align-self: flex-start; max-width: 100%; font-size: 12px;
   white-space: normal; text-align: left; }
-.pmi-lab-progress { height: 5px; border-radius: 3px; background: #e3e7ec; margin: 7px 0 4px; overflow: hidden; }
-.pmi-lab-progress span { display: block; height: 100%; background: #2e8b57; transition: width .2s; }
 .pmi-lab-rows { flex: 1; min-height: 0; overflow-y: auto; overflow-anchor: none; }
 .pmi-lab-fields { display: grid; gap: 2px; padding: 11px 12px 12px; background: #fff; border-bottom: 1px solid #d9dee4; }
 .pmi-lab-field { display: grid; gap: 3px; }
 .pmi-lab-field .name { font-weight: 600; font-size: 12px; }
-.pmi-lab-field .name em { font-style: normal; font-weight: 600; color: #b3261e; font-size: 11px; margin-left: 4px; }
+.pmi-lab-field .name em { font-style: normal; font-weight: 600; color: #b04a00; font-size: 11px; margin-left: 4px; }
 .pmi-lab-field input, .pmi-lab-field select { font: inherit; font-size: 14px; padding: 6px 8px; border: 1px solid #c3cad3;
   border-radius: 4px; background: #fff; color: inherit; width: 100%; box-sizing: border-box; }
-.pmi-lab-field.required input { border-color: #b3261e; box-shadow: 0 0 0 2px rgba(179, 38, 30, .12); }
+.pmi-lab-field.required input { border-color: #d55e00; box-shadow: 0 0 0 2px rgba(213, 94, 0, .14); }
 .pmi-lab-notes summary { cursor: pointer; display: grid; gap: 2px; padding: 2px 0; }
 .pmi-lab-notes summary .name { font-weight: 600; font-size: 12px; }
 .pmi-lab-notes summary .value { color: #5a626b; font-size: 12.5px; }
@@ -162,24 +160,18 @@
 .pmi-lab-chev { display: inline-block; width: 1em; margin-right: 4px; color: #2f6fb5; font-size: 11px;
   transition: transform .15s; transform-origin: 40% 50%; }
 .pmi-lab-chev.open { transform: rotate(90deg); }
-.pmi-lab .pmi-lab-next { display: block; width: 100%; text-align: left; border: 0; border-radius: 4px; background: none;
-  padding: 2px 0; cursor: pointer; }
-.pmi-lab .pmi-lab-next:disabled { cursor: default; }
-.pmi-lab .pmi-lab-next:not(:disabled):hover .pmi-lab-progress { background: #d5dbe2; }
-.pmi-lab-next small { color: #707880; }
-.pmi-lab-next .go { color: #2f6fb5; font-weight: 600; }
 .pmi-lab-field .why { color: #707880; font-size: 11.5px; }
 .pmi-lab-field.stated .value { font-size: 14px; padding: 2px 0; }
 .pmi-lab-rows-title { margin: 0; padding: 10px 12px 4px; font-size: 11px; font-weight: 600; letter-spacing: .04em;
   text-transform: uppercase; color: #707880; }
 .pmi-lab-row { border-bottom: 1px solid #d9dee4; }
-.pmi-lab-row.current { background: #fff; box-shadow: inset 3px 0 #f2b134; }
+.pmi-lab-row.current { background: #fff; box-shadow: inset 3px 0 #009ccf; }
 .pmi-lab .pmi-lab-row-head { display: block; width: 100%; text-align: left; border: 0; border-radius: 0;
   background: none; padding: 8px 12px; }
 .pmi-lab .pmi-lab-row-head:hover { background: rgba(47, 111, 181, .06); }
 .pmi-lab-row-head .st { float: right; font-size: 11px; color: #707880; border-radius: 9px; padding: 0 7px;
   background: #eceff2; }
-.pmi-lab-row.required .st { color: #fff; background: #b3261e; font-weight: 600; }
+.pmi-lab-row.required .st { color: #fff; background: #d55e00; font-weight: 600; }
 .pmi-lab-row.check .st { color: #7a4a00; background: #fde7b8; font-weight: 600; }
 .pmi-lab-row.set .st { color: #1d4f86; background: #dde9f6; }
 .pmi-lab-row-head .sum { display: block; color: #707880; font-size: 12px; }
@@ -222,7 +214,7 @@
 .pmi-lab-table td.tol { font-size: 10.5px; line-height: 1.25; white-space: nowrap; }
 .pmi-lab-table tbody tr { cursor: pointer; }
 .pmi-lab-table tbody tr:hover { background: #f3f6fa; }
-.pmi-lab-table tbody tr.on { background: #fff6e5; box-shadow: inset 3px 0 #f2b134; }
+.pmi-lab-table tbody tr.on { background: #1ec8ff1f; box-shadow: inset 3px 0 #009ccf; }
 .pmi-lab-table tbody tr.on td:last-child { background: #fff6e5; }
 .pmi-lab-table tbody tr.sub td { color: #4a5360; }
 .pmi-lab-table tbody tr.sub:not(.on) { background: #fafbfc; }
@@ -278,9 +270,9 @@
   width: calc(100% - 24px); margin: 0 12px 6px; text-align: left; background: #fff; border: 1px solid #e1e5ea;
   border-radius: 4px; padding: 6px 8px; }
 .pmi-lab .pmi-lab-item .value { color: #2f6fb5; white-space: nowrap; font-size: 12px; }
-.pmi-lab .pmi-lab-item.on { display: block; border-color: #f2b134; cursor: default; }
+.pmi-lab .pmi-lab-item.on { display: block; border-color: #009ccf; cursor: default; }
 .pmi-lab-item .prompt { font-weight: 600; font-size: 12.5px; }
-.pmi-lab-item.required .prompt::after { content: " · needs an answer"; color: #b3261e; font-weight: 400; }
+.pmi-lab-item.required .prompt::after { content: " · needs an answer"; color: #b04a00; font-weight: 400; }
 .pmi-lab-item.check .prompt::after { content: " · please check"; color: #a86500; font-weight: 400; }
 .pmi-lab-item .reset { float: right; font-size: 11px; padding: 1px 6px; color: #707880; }
 .pmi-lab-item .reason { background: #fff6e5; border-left: 3px solid #f2b134; padding: 5px 7px; margin: 5px 0; font-size: 12px; }
@@ -302,7 +294,7 @@
 .pmi-lab .pmi-lab-spec input[type=text] { flex: 1; min-width: 0; font-size: 14px; padding: 5px 8px; }
 .pmi-lab-spec button { flex: none; }
 .pmi-lab-suggest { position: relative; }
-.pmi-lab-field .pmi-lab-suggest input.invalid { border-color: #b3261e; box-shadow: 0 0 0 2px rgba(179, 38, 30, .12); }
+.pmi-lab-field .pmi-lab-suggest input.invalid { border-color: #d55e00; box-shadow: 0 0 0 2px rgba(213, 94, 0, .14); }
 .pmi-lab-suggestions { position: absolute; z-index: 5; left: 0; right: 0; top: calc(100% + 2px); max-height: 260px;
   overflow-y: auto; margin: 0; padding: 0 0 4px; list-style: none; background: #fff; border: 1px solid #c3cad3;
   border-radius: 4px; box-shadow: 0 4px 14px rgba(0, 0, 0, .14); }
@@ -350,14 +342,4 @@
 .pmi-lab .tolpair { display: inline-flex; flex-direction: column; align-items: flex-start; font-size: 8.5px;
   line-height: 1.12; font-weight: 500; margin-left: 2px; vertical-align: middle; }
 .pmi-lab .tolsym { font-weight: 500; font-size: 10.5px; margin-left: 2px; }
-/* Embed the original Specify workspace inside the editor's tabs. */
-.specify-host { width: 100%; height: 100%; min-width: 0; }
-.specify-host[hidden] { display: none; }
-.specify-host .pmi-lab { position: relative; inset: auto; width: 100%; height: 100%; }
-.workspace.specify-workspace { display: block; }
 fieldset.pmi-lab-rows { min-width: 0; margin: 0; padding: 0; border: 0; }
-@media (max-width: 700px) {
-  .specify-host .pmi-lab-view { bottom: 46%; }
-  .specify-host .pmi-lab-panel { height: 46%; }
-  .specify-host .pmi-lab.sheet-open .pmi-lab-panel { height: 88%; }
-}

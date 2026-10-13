@@ -1,7 +1,9 @@
 // Ported from Draftwright.io's PmiLabReview; see third_party/README.md.
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import type { PmiAnswers, PmiIntent, PmiInterpretation, PmiLabError, PmiLabSession, PmiQuestion, PmiLabEngine } from '../types/pmi';
 import type { IntentReview } from '../types/editor';
+import type { PartTint } from '../model/links';
 import { addedOf, CALL_OUTS, describe, kindsFor, MAY_HAVE_DATUM, nextKey } from './added';
 import { codeOf } from './choose';
 import { appliedByRule, chosenForYou, type Chosen } from './chosen';
@@ -11,11 +13,12 @@ import { balloonsBySource, type Characteristic, characteristics, ranges, toCsv }
 import { CharacteristicsTable, ExtraEditor, PurposeChoice, SpecBox, SuggestBox, SuggestionCard, TOLERANCE_PICKS, type ExtraDraft } from './inputs';
 import type { PmiLabel } from './labels';
 import { createPicker, type Picker } from './picker';
-import { answerOf, confirmRow, counts, display, groupQuestions, needs, nextNeeding, progress, questionForFace, rowState, summary, type QuestionGroup } from './review';
+import { answerOf, confirmRow, display, groupQuestions, needs, nextNeeding, questionForFace, rowState, summary, type QuestionGroup } from './review';
 import { MODES, type PickMode } from './selection';
 import './PmiLab.css';
-export type SpecifyEngine = Pick<PmiLabEngine, 'questions' | 'interpret' | 'preview' | 'finish' | 'download'>;
-const PANEL_PX = 380;
+export type SpecifyEngine = Pick<PmiLabEngine, 'questions' | 'interpret' | 'preview'>;
+/** Where the workspace shows Specify: the part in the 3D pane, the questions in the edit pane. */
+export interface SpecifySlots { view: HTMLElement; panel: HTMLElement; exports: HTMLElement | null }
 /** Below this width the panel is a sheet under the part, not beside it. */
 const NARROW = '(max-width: 700px)';
 const STATE_TEXT = { required: 'needs an answer', check: 'please check', set: 'answered', ok: 'default' } as const;
@@ -34,9 +37,17 @@ function asError(error: unknown): PmiLabError {
   return { code: 'failed', message: String(error) };
 }
 
-export function SpecifyReview({ engine, session, onDrawing, onClose, externalAnswers, externalReview, disabled, focusRequest }: {
-  engine: SpecifyEngine; session: PmiLabSession; onDrawing: () => void; onClose: () => void;
-  externalAnswers: PmiAnswers; externalReview: IntentReview; disabled: boolean; focusRequest?: { questionId: string } | null;
+export function SpecifyReview({ engine, session, slots, after, onPick, showFaces, tints, onClose, externalAnswers, externalReview, disabled, focusRequest }: {
+  engine: SpecifyEngine; session: PmiLabSession; slots: SpecifySlots; onClose: () => void;
+  /** Shown after the questions: the drawing's own issues, in the same list. */
+  after?: ReactNode;
+  /** Faces picked on the part, by a face or a label: the drawing locates what measures them. */
+  onPick?: (faces: readonly number[]) => void;
+  /** Faces selected elsewhere (the drawing), lit on the part; a new ``n`` each time. */
+  showFaces?: { faces: readonly number[]; n: number };
+  /** The queue's state on the part, by face; a new map when it changes. */
+  tints?: ReadonlyMap<number, PartTint>;
+  externalAnswers: PmiAnswers; externalReview: IntentReview; disabled: boolean; focusRequest?: { questionId: string; faces?: readonly number[]; scroll?: boolean } | null;
 }) {
   const stage = useRef<HTMLDivElement>(null);
   const picker = useRef<Picker | null>(null);
@@ -62,6 +73,8 @@ export function SpecifyReview({ engine, session, onDrawing, onClose, externalAns
   const [peek, setPeek] = useState<number | null>(null);
   // Set by a label clicked: the question it opens is turned to without moving the view.
   const stayPut = useRef(false);
+  // The question or added requirement a focus request opened without asking to be scrolled to.
+  const quiet = useRef<string | null>(null);
   const [transparency, setTransparency] = useState(50);
   const [wide, setWide] = useState(() => !window.matchMedia?.(NARROW).matches);
   useEffect(() => {
@@ -71,9 +84,6 @@ export function SpecifyReview({ engine, session, onDrawing, onClose, externalAns
     query.addEventListener('change', changed);
     return () => query.removeEventListener('change', changed);
   }, []);
-  const [finishing, setFinishing] = useState(false);
-  const [askingQif, setAskingQif] = useState(false);
-  const [sheetOpen, setSheetOpen] = useState(false);
   // Specs typed and read, by question: their callouts, which no offered choice has.
   const [typed, setTyped] = useState<Record<string, PmiInterpretation>>({});
   // A datum being added: picked on the part before pmi-assist knows of it.
@@ -120,9 +130,19 @@ export function SpecifyReview({ engine, session, onDrawing, onClose, externalAns
 
   useEffect(() => {
     const id = focusRequest?.questionId;
-    if (!id || !questions.some(question => question.id === id)) return;
-    setView('review'); setOnlySuggestions(false); setSheetOpen(true); setCurrent(id);
-    setUnfolded(id.startsWith('part.') ? id : id.startsWith('datum.') ? 'datums' : null);
+    if (!id) return;
+    // Opened from the queue above, it is not followed down the list unless asked.
+    quiet.current = focusRequest.scroll ? null : id;
+    // A problem about an added requirement is not a question: it opens as the problem's line does.
+    if (!questions.some(question => question.id === id)) { setView('review'); openProblem(id, focusRequest.faces ?? []); return; }
+    setView('review'); setOnlySuggestions(false); setCurrent(id);
+    setUnfolded(NOTE_FIELDS.has(id) ? `note:${id}` : id.startsWith('part.') ? id : id.startsWith('datum.') ? 'datums' : null);
+    // Brought into view only when asked: the queue that asked may be above it in the same column.
+    if (focusRequest.scroll) window.setTimeout(() => {
+      const field = rowsBox.current?.querySelector<HTMLElement>(`[data-question="${CSS.escape(id)}"]`);
+      field?.scrollIntoView({ block: 'center' });
+      field?.querySelector<HTMLElement>('input, select')?.focus({ preventScroll: true });
+    }, 50);
   }, [focusRequest]);
 
   // The picker lives as long as the session; React state reaches it through refs.
@@ -131,7 +151,6 @@ export function SpecifyReview({ engine, session, onDrawing, onClose, externalAns
     if (!stage.current) return undefined;
     const created = createPicker(stage.current, {
       mesh: session.mesh, analysis: session.analysis,
-      panelRoom: () => (window.matchMedia(NARROW).matches ? 0 : PANEL_PX),
     });
     created.on('change', setSelection);
     created.on('face', (face) => handlers.current.face(face));
@@ -148,6 +167,15 @@ export function SpecifyReview({ engine, session, onDrawing, onClose, externalAns
       picker.current = null;
     };
   }, [session, faces]);
+
+  useEffect(() => { picker.current?.tint(tints ?? new Map()); }, [tints, session, faces]);
+
+  useEffect(() => {
+    if (!showFaces) return;
+    // Lit, not turned to: selecting on the drawing, often to drag, should not swing the part round.
+    // Nothing selected there gives the part back to the open question.
+    picker.current?.highlight(showFaces.faces.length ? showFaces.faces : currentQuestion?.faces ?? []);
+  }, [showFaces?.n]);
 
   // Point the picker at the current question -- only when the question changes:
   // a pick must not be reset by its own answer. Turning to it shows what is asked.
@@ -393,20 +421,6 @@ export function SpecifyReview({ engine, session, onDrawing, onClose, externalAns
     void commit(key, next, () => { setDraft(null); return null; });
   };
 
-  // The next thing needing a person: a part setting is unfolded and focused,
-  // anything else opened (which turns the part to it).
-  const goNext = () => {
-    const id = nextNeeding(groups, answers);
-    if (!id) return;
-    if (id.startsWith('part.')) {
-      setUnfolded(id);
-      rowsBox.current?.scrollTo({ top: 0, behavior: 'smooth' });
-      window.setTimeout(() => rowsBox.current?.querySelector<HTMLElement>('.pmi-lab-field input, .pmi-lab-field select')?.focus(), 50);
-      return;
-    }
-    setCurrent(id);
-  };
-
   // What pmi-assist chose, to keep (answered as it stands) or change (opened).
   const chosen = chosenForYou(questions, answers, session.analysis);
   const chosenById = new Map(chosen.map((c) => [c.id, c]));
@@ -495,6 +509,7 @@ export function SpecifyReview({ engine, session, onDrawing, onClose, externalAns
       setNote('');
       setNoteGeneral(null);
       if (id) setCurrent(id);
+      onPick?.([face]);
     },
     // A label opens its question, which turns to it; one already open, or the
     // file's own PMI, which no question is about, is turned to here.
@@ -505,6 +520,7 @@ export function SpecifyReview({ engine, session, onDrawing, onClose, externalAns
     // on -- for a dimension, both ends -- is lit.
     label: (label) => {
       picker.current?.highlight([...label.faces, ...(label.span?.reference ?? [])]);
+      onPick?.(label.faces);
       stayPut.current = view !== 'table' && Boolean(label.question) && label.question !== current;
       if (view === 'table') {
         const n = balloons.get(label.id.split(':').slice(0, 2).join(':'))?.[0];
@@ -522,24 +538,7 @@ export function SpecifyReview({ engine, session, onDrawing, onClose, externalAns
     },
   };
 
-  const finish = async (save = false) => {
-    setFinishing(true);
-    setError(null);
-    try {
-      const report = await live((id) => engine.finish(id, answers));
-      if (save) saveFile(await live((id) => engine.download(id, report.filename)));
-      else onDrawing();
-    } catch (failure) {
-      const problem = asError(failure);
-      setError({ at: null, problem: problem.missing?.length
-        ? { ...problem, message: `Still to answer: ${problem.missing.join(', ')}` } : problem });
-    } finally { setFinishing(false); }
-  };
-
-  const tally = counts(questions, answers);
-  const { done, total } = progress(questions, answers);
   const here = rows.find((g) => g.questions.some((q) => q.id === current));
-  const toDo = tally.required + tally.check;
   const errorAt = (id: string) => (error?.at === id ? error.problem : null);
   const shown = new Set(questions.map((q) => q.id));
   const looseError = error && (error.at === null || !shown.has(error.at)) ? error.problem : null;
@@ -549,13 +548,17 @@ export function SpecifyReview({ engine, session, onDrawing, onClose, externalAns
   const scrolled = useRef(false);
   useEffect(() => {
     if (!here) return;
-    if (scrolled.current) rowsBox.current?.querySelector('.pmi-lab-row.current')?.scrollIntoView({ block: 'nearest' });
+    if (scrolled.current && quiet.current !== current) rowsBox.current?.querySelector('.pmi-lab-row.current')?.scrollIntoView({ block: 'nearest' });
     scrolled.current = true;
   }, [here?.key]);
   // An added requirement or call-out opened is brought into sight, wherever it was opened from.
   useEffect(() => {
-    if (draft) rowsBox.current?.querySelector('.pmi-lab-extra')?.scrollIntoView?.({ block: 'nearest' });
+    if (draft && quiet.current !== draft.key) rowsBox.current?.querySelector('.pmi-lab-extra')?.scrollIntoView?.({ block: 'nearest' });
   }, [draft?.key]);
+  // Quiet lasts one visit: once the person moves on, rows are followed again.
+  useEffect(() => {
+    if (quiet.current !== current && quiet.current !== draft?.key) quiet.current = null;
+  }, [current, draft?.key]);
 
   // The balloon numbers of what a row specifies, beside its title.
   const rowBalloons = (g: QuestionGroup) => {
@@ -662,8 +665,8 @@ export function SpecifyReview({ engine, session, onDrawing, onClose, externalAns
     );
   };
 
-  return (
-    <main className={`pmi-lab${sheetOpen ? ' sheet-open' : ''}`}>
+  return (<>
+    {createPortal(<div className="pmi-lab pmi-lab-pane">
       <div className="pmi-lab-view">
         <div className="pmi-lab-stage" ref={stage} />
         <div className="pmi-lab-nav">
@@ -711,6 +714,8 @@ export function SpecifyReview({ engine, session, onDrawing, onClose, externalAns
           {status || (picker.current?.missing.length ? `faces ${picker.current.missing.join(', ')} could not be shown` : '')}
         </div>
       </div>
+    </div>, slots.view)}
+    {createPortal(<div className="pmi-lab pmi-lab-pane">
       <aside className="pmi-lab-panel">
         <header>
           <div className="title">
@@ -720,9 +725,6 @@ export function SpecifyReview({ engine, session, onDrawing, onClose, externalAns
               onClick={onClose}
             >
               Upload new STEP
-            </button>
-            <button type="button" className="sheet-toggle" onClick={() => setSheetOpen(!sheetOpen)}>
-              {sheetOpen ? 'Show part' : 'Expand'}
             </button>
           </div>
           {note && <p className="pmi-lab-note" role="status">{note}</p>}
@@ -742,25 +744,6 @@ export function SpecifyReview({ engine, session, onDrawing, onClose, externalAns
               Saved by Specify: your answers are back to change. Saving writes the PMI afresh.
             </p>
           )}
-          {/* The progress is a way to what is left: a tap goes to the next thing to check. */}
-          <button
-            type="button" className="pmi-lab-next" disabled={!toDo} onClick={goNext}
-            aria-label={toDo ? `${done} of ${total} checked: go to the next` : 'All checked'}
-          >
-            {total > 0 && (
-              <div className="pmi-lab-progress">
-                <span style={{ width: `${(100 * done) / total}%` }} />
-              </div>
-            )}
-            <small>
-              {toDo
-                ? `${done} of ${total} checked · ${[
-                  tally.required && `${tally.required} to answer`, tally.check && `${tally.check} to check`,
-                ].filter(Boolean).join(', ')}`
-                : 'All checked. Anything you have not changed keeps its default.'}
-              {toDo > 0 && <span className="go"> · Next ›</span>}
-            </small>
-          </button>
           <div className="pmi-lab-views" role="tablist">
             <button
               type="button" role="tab" aria-selected={view === 'review'} className={view === 'review' ? 'on' : ''}
@@ -809,7 +792,6 @@ export function SpecifyReview({ engine, session, onDrawing, onClose, externalAns
                 ? () => callOut(Number(row.source.slice('general:'.length)), row.text) : null)}
               generalTolerance={preview?.part['general_tolerance'] ?? ''}
               calledOut={added.filter(([, extra]) => CALL_OUTS.includes(extra.kind)).length}
-              onQif={() => setAskingQif(true)}
             />
           ) : (<>
           {(partGroup || stated.length > 0) && (
@@ -939,50 +921,17 @@ export function SpecifyReview({ engine, session, onDrawing, onClose, externalAns
               {applied.map((line) => <div key={line}>{line}</div>)}
             </div>
           )}
+          {after}
           </>)}
         </fieldset>
-        <footer>
-          {looseError && <p role="alert" className="pmi-lab-error">{looseError.message}</p>}
-          <div className="pmi-lab-actions">
-            <button
-              type="button" className="pmi-lab-go" disabled={disabled || finishing || tally.required > 0}
-              onClick={() => void finish()}
-              title="Writes this PMI into the STEP and draws it. Anything unchecked keeps its default."
-            >
-              {finishing ? 'Writing PMI…' : 'Generate drawing'}
-            </button>
-            <button
-              type="button" className="pmi-lab-save" disabled={disabled || finishing || tally.required > 0}
-              onClick={() => void finish(true)}
-              title="Download the STEP with its PMI"
-            >
-              Save STEP
-            </button>
-          </div>
-          <div className="pmi-lab-exports">
-            <button
-              type="button" className="pmi-lab-csv" onClick={downloadCsv} disabled={!chars.length}
-              title="Every characteristic, ballooned, with its nominal and limits"
-            >
-              ⬇ CSV
-            </button>
-            <button
-              type="button" className="pmi-lab-qif" onClick={() => setAskingQif(true)}
-              title="Not available yet: tell us if you would use it"
-            >
-              QIF for CMM
-            </button>
-          </div>
-          {askingQif && <div role="dialog" aria-label="QIF for CMM" className="pmi-lab-register"><p>QIF export is not available yet.</p><button onClick={() => setAskingQif(false)}>Close</button></div>}
-          {tally.required > 0 && (
-            <small className="pmi-lab-go-note blocked">
-              {`Answer ${tally.required === 1 ? 'the question marked required' : `the ${tally.required} required questions`} first.`}
-            </small>
-          )}
-        </footer>
+        {looseError && <footer><p role="alert" className="pmi-lab-error">{looseError.message}</p></footer>}
       </aside>
-    </main>
-  );
+    </div>, slots.panel)}
+    {slots.exports && createPortal(
+      <button type="button" onClick={downloadCsv} disabled={!chars.length} title="Every characteristic, ballooned, with its nominal and limits">
+        Export CSV
+      </button>, slots.exports)}
+  </>);
 }
 
 /** Hands ``file`` to the browser to save, under its own name. */
@@ -1046,7 +995,7 @@ function PartField({ q, answers, error, onAnswer }: {
   // focus the box again and reopen the list.
   if (q.kind === 'text' && q.suggestions?.length) {
     return (
-      <div className={`pmi-lab-field${need ? ` ${need}` : ''}`} title={q.why} role="group" aria-label={label}>
+      <div className={`pmi-lab-field${need ? ` ${need}` : ''}`} title={q.why} role="group" aria-label={label} data-question={q.id}>
         {name}
         <SuggestBox
           label={label} value={typeof answers[q.id] === 'string' ? answers[q.id] as string : ''}
@@ -1058,7 +1007,7 @@ function PartField({ q, answers, error, onAnswer }: {
     );
   }
   return (
-    <label className={`pmi-lab-field${need ? ` ${need}` : ''}`} title={q.why}>
+    <label className={`pmi-lab-field${need ? ` ${need}` : ''}`} title={q.why} data-question={q.id}>
       {name}
       {q.kind === 'choice' ? (
         <select value={typeof value === 'string' ? value : ''} onChange={(event) => onAnswer(event.target.value)}>
@@ -1108,14 +1057,14 @@ function QuestionItem({
     ?? (typed && typed.value === chosen ? typed.callout : undefined);
   if (!active) {
     return (
-      <button type="button" className={`pmi-lab-item${need ? ` ${need}` : ''}`} onClick={onOpen}>
+      <button type="button" className={`pmi-lab-item${need ? ` ${need}` : ''}`} onClick={onOpen} data-question={q.id}>
         <span className="prompt">{q.prompt}{optional}</span>
         <span className="value">{shortValue(q, answerOf(q, answers))} ›</span>
       </button>
     );
   }
   return (
-    <div className={`pmi-lab-item on${need ? ` ${need}` : ''}`}>
+    <div className={`pmi-lab-item on${need ? ` ${need}` : ''}`} data-question={q.id}>
       <div className="prompt">
         {q.prompt}{optional}
         {q.id in answers && q.default !== null && (

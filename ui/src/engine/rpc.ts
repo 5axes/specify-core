@@ -1,6 +1,7 @@
 export class WorkerClient {
   private worker: Worker;
   private sequence = 0;
+  generation = 0;
   private pending = new Map<number, {
     resolve: (value: unknown) => void;
     reject: (reason: Error) => void;
@@ -49,6 +50,7 @@ export class WorkerClient {
   private restart(error: Error) {
     this.fail(error);
     this.worker.terminate();
+    this.generation++;
     this.worker = this.factory();
     this.attach();
   }
