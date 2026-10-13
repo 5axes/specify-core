@@ -14,13 +14,13 @@ import {
 
 const COLOURS = {
   plain: new THREE.Color(0xc9ced4),
-  hover: new THREE.Color(0x9cc3ea),
-  focus: new THREE.Color(0xf2b134), // what the current question is about
-  selected: new THREE.Color(0x2f6fb5),
-  // The queue on the part (docs/WORKFLOW.md), in Specify's palette and paler than the focus:
-  required: new THREE.Color(0xe8aaa5), // needs an answer: Specify's required red (#b3261e)
-  check: new THREE.Color(0xf0d79a), // a default to check: Specify's check amber
-  problem: new THREE.Color(0xc9b0e6), // has a problem on the drawing: violet, red and amber being taken
+  // The editor's colour scheme (docs/WORKFLOW.md), chosen to stay apart for colour-blind eyes:
+  hover: new THREE.Color(0xf4f8fb), // under the pointer: a slight whitening
+  focus: new THREE.Color(0x1ec8ff), // the current question: active, cyan
+  selected: new THREE.Color(0x003b73), // faces picked: chosen, navy
+  required: new THREE.Color(0xeda07a), // needs an answer: vermillion, pale
+  check: new THREE.Color(0xf3dc6a), // a default to check: yellow, pale
+  problem: new THREE.Color(0x8f7fe0), // a problem on the drawing: violet
 };
 /** Points of a feature tested for being in sight. */
 const SAMPLES = 24;
