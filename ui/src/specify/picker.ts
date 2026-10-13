@@ -17,9 +17,10 @@ const COLOURS = {
   hover: new THREE.Color(0x9cc3ea),
   focus: new THREE.Color(0xf2b134), // what the current question is about
   selected: new THREE.Color(0x2f6fb5),
-  // The queue on the part (docs/WORKFLOW.md): paler than the current question's focus.
-  answer: new THREE.Color(0xf3d9a4), // needs an answer
-  problem: new THREE.Color(0xeba8a4), // has a problem on the drawing
+  // The queue on the part (docs/WORKFLOW.md), in Specify's palette and paler than the focus:
+  required: new THREE.Color(0xe8aaa5), // needs an answer: Specify's required red (#b3261e)
+  check: new THREE.Color(0xf0d79a), // a default to check: Specify's check amber
+  problem: new THREE.Color(0xc9b0e6), // has a problem on the drawing: violet, red and amber being taken
 };
 /** Points of a feature tested for being in sight. */
 const SAMPLES = 24;
@@ -63,7 +64,7 @@ export interface Picker {
   getSelection(): number[];
   highlight(faces: readonly number[]): void;
   /** Faces tinted by the queue's state, under the selection, hover and focus. */
-  tint(states: ReadonlyMap<number, 'answer' | 'problem'>): void;
+  tint(states: ReadonlyMap<number, 'required' | 'check' | 'problem'>): void;
   lookAt(faces: readonly number[]): void;
   on<K extends keyof PickerEvents>(name: K, listener: PickerEvents[K]): void;
   dispose(): void;
@@ -128,7 +129,7 @@ export function createPicker(
   let mode: PickMode = 'face';
   let selection = new Set<number>();
   let focus = new Set<number>();
-  let tints = new Map<number, 'answer' | 'problem'>();
+  let tints = new Map<number, 'required' | 'check' | 'problem'>();
   let hovered: number[] = [];
   let pickable = true;
   const listeners: { [K in keyof PickerEvents]: PickerEvents[K][] } = {
