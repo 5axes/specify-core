@@ -44,8 +44,8 @@ export function SpecifyReview({ engine, session, slots, after, onPick, showFaces
   onPick?: (faces: readonly number[]) => void;
   /** Faces selected elsewhere (the drawing), lit on the part; a new ``n`` each time. */
   showFaces?: { faces: readonly number[]; n: number };
-  /** The queue's state on the part, by face; ``key`` changes when it does. */
-  tints?: { faces: ReadonlyMap<number, 'answer' | 'problem'>; key: string };
+  /** The queue's state on the part, by face; a new map when it changes. */
+  tints?: ReadonlyMap<number, 'answer' | 'problem'>;
   externalAnswers: PmiAnswers; externalReview: IntentReview; disabled: boolean; focusRequest?: { questionId: string; faces?: readonly number[]; scroll?: boolean } | null;
 }) {
   const stage = useRef<HTMLDivElement>(null);
@@ -167,7 +167,7 @@ export function SpecifyReview({ engine, session, slots, after, onPick, showFaces
     };
   }, [session, faces]);
 
-  useEffect(() => { picker.current?.tint(tints?.faces ?? new Map()); }, [tints?.key, session, faces]);
+  useEffect(() => { picker.current?.tint(tints ?? new Map()); }, [tints, session, faces]);
 
   useEffect(() => {
     if (!showFaces) return;
