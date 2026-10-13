@@ -31,29 +31,37 @@ export function intentPart(q: PmiQuestion, answers: PmiAnswers): IntentPart {
 
 /**
  * The answers the default path adds, so that Specify proposes no tolerancing scheme: holes
- * located by ± dimensions (no datums, no position), and plain holes except a proposed tap.
- * Only questions not yet answered are given one.
+ * located by ± dimensions (no datums, no position), plain holes except a proposed tap, and plain
+ * diameters except a proposed thread or knurl. Runout is none by default already. Only questions
+ * not yet answered are given one.
  */
 export function defaultPathAnswers(questions: readonly PmiQuestion[], answers: PmiAnswers): Record<string, string> {
   const added: Record<string, string> = {};
   for (const q of questions) {
     if (q.id in answers) continue;
     if (q.id === 'part.locating') added[q.id] = '± dimensions';
-    else if (q.id.startsWith('hole.function:') && !String(q.default ?? '').startsWith('tapped:')) added[q.id] = 'general';
+    else if ((q.id.startsWith('hole.function:') || q.id.startsWith('diameter.fit:'))
+      && ![...factOptions, 'general'].some(option => String(q.default ?? '').startsWith(option))) added[q.id] = 'general';
   }
   return added;
 }
 
-// Answers that only GD&T gives: a project saved with any of them was already tolerancing.
-const schemePrefixes = ['datum.', 'hole.position:', 'hole.frame:', 'hole.location:', 'diameter.runout:', 'extra.'];
+/**
+ * The mode of a project saved before the default path: Specify's defaults were then the geometric
+ * scheme, so it keeps it, unless it was already located by ± dimensions.
+ */
+export function inferredMode(answers: PmiAnswers): GdtMode {
+  return answers['part.locating'] === '± dimensions' ? 'plusminus' : 'geometric';
+}
 
-/** The mode a project saved before the default path was already in, from its answers. */
-export function inferredMode(answers: PmiAnswers): GdtMode | undefined {
-  const ids = Object.keys(answers);
-  if (ids.some(id => schemePrefixes.some(prefix => id.startsWith(prefix)))) return 'geometric';
-  const holes = ids.filter(id => id.startsWith('hole.function:') || id.startsWith('diameter.fit:'));
-  if (holes.some(id => !['general', ...factOptions].some(option => String(answers[id]).startsWith(option)))) {
-    return answers['part.locating'] === '± dimensions' ? 'plusminus' : 'geometric';
-  }
-  return undefined;
+/** What the default path answered and the person has since left alone. */
+export function stillAuto(auto: readonly string[] | undefined, before: PmiAnswers, after: PmiAnswers): string[] | undefined {
+  return auto?.filter(id => JSON.stringify(after[id]) === JSON.stringify(before[id]));
+}
+
+/** The answers once GD&T is asked for: the default path's are given back, but for ± locating. */
+export function gdtAnswers(answers: PmiAnswers, auto: readonly string[] | undefined, mode: GdtMode): PmiAnswers {
+  const kept = { ...answers };
+  for (const id of auto ?? []) if (!(mode === 'plusminus' && id === 'part.locating')) delete kept[id];
+  return kept;
 }
