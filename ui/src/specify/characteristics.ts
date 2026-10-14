@@ -235,7 +235,8 @@ export function byBalloon(rows: readonly Characteristic[]): Characteristic[][] {
 
 /** Numbers as a person reads a run: "3–8", "2, 5". */
 export function ranges(numbers: readonly number[]): string {
-  const sorted = [...numbers].sort((a, b) => a - b);
+  // A pattern's members share a balloon: each number once.
+  const sorted = [...new Set(numbers)].sort((a, b) => a - b);
   const out: string[] = [];
   for (let i = 0; i < sorted.length; i++) {
     let j = i;
