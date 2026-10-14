@@ -800,6 +800,8 @@ export function SpecifyReview({ engine, session, slots, after, onPick, showFaces
               ))}
               {partGroup?.questions.filter((q) => !NOTE_FIELDS.has(q.id)).map((q) => {
                 const c = chosenById.get(q.id);
+                // Shown in its queue row instead while it is being answered there.
+                if (slots.question && q.id === current) return null;
                 if (needs(q, answers) === 'required' || unfolded === q.id) {
                   return (
                     <PartField
@@ -817,7 +819,7 @@ export function SpecifyReview({ engine, session, slots, after, onPick, showFaces
                   <button type="button" className="pmi-lab-line open" aria-expanded onClick={() => setUnfolded(null)}>
                     <span className="name"><Chevron open />Finish and notes</span><span className="value">fold</span>
                   </button>
-                  {notes.map((q) => (unfolded === `note:${q.id}` ? (
+                  {notes.filter((q) => !(slots.question && q.id === current)).map((q) => (unfolded === `note:${q.id}` ? (
                     <PartField
                       key={`${q.id}:${JSON.stringify(answers[q.id])}`} q={q} answers={answers} error={errorAt(q.id)}
                       onAnswer={(value) => { setUnfolded('notes'); answer(q, value); }}
@@ -927,7 +929,11 @@ export function SpecifyReview({ engine, session, slots, after, onPick, showFaces
     {slots.question && (() => {
       const g = groups.find((x) => x.questions.some((q) => q.id === current));
       const q = g?.questions.find((x) => x.id === current);
-      return g && q && createPortal(<div className="pmi-lab pmi-lab-inline">{questionItem(q, g, false)}</div>, slots.question);
+      // The part's own fields (material, tolerance, finish and notes) in the same box as in
+      // the list, with its suggestions; a feature's question as its chips.
+      return g && q && createPortal(<div className="pmi-lab pmi-lab-inline">{g === partGroup
+        ? <PartField key={`${q.id}:${JSON.stringify(answers[q.id])}`} q={q} answers={answers} error={errorAt(q.id)} onAnswer={(value) => answer(q, value)} />
+        : questionItem(q, g, false)}</div>, slots.question);
     })()}
     {slots.exports && createPortal(
       <button type="button" onClick={downloadCsv} disabled={!chars.length} title="Every characteristic, ballooned, with its nominal and limits">
