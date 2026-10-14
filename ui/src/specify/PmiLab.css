@@ -78,12 +78,6 @@
 .pmi-lab-nav details.pmi-lab-show > div { position: absolute; top: calc(100% + 4px); left: 0; display: grid; gap: 4px;
   min-width: 170px; padding: 8px 10px; background: #fff; border: 1px solid #d9dee4; border-radius: 6px;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12); white-space: nowrap; }
-/* On a wide screen the view's options are a row of switches, always in sight. */
-@media (min-width: 701px) {
-  .pmi-lab-nav details.pmi-lab-show > summary { display: none; }
-  .pmi-lab-nav details.pmi-lab-show > div { position: static; display: flex; gap: 10px; min-width: 0;
-    padding: 4px 8px; font-size: 12px; box-shadow: none; background: rgba(255, 255, 255, 0.9); }
-}
 .pmi-lab-resumed { margin: 4px 0 0; padding: 4px 8px; border-radius: 4px; background: #e9f6ee; color: #14632f;
   font-size: 12px; }
 .pmi-front-button { display: inline-block; margin-top: 6px; padding: 8px 16px; border-radius: 6px;
