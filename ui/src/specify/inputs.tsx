@@ -137,11 +137,17 @@ export function SuggestBox({ label, value, suggestions, placeholder, invalid, on
         aria-activedescendant={active >= 0 ? `${list}-${active}` : undefined}
         onFocus={() => setOpen(true)}
         onChange={(event) => { setText(event.target.value); setOpen(true); setActive(-1); }}
-        onBlur={() => commit(text)}
+        // Leaving the box keeps a catalogue choice; anything else typed waits for Enter, so a
+        // half-typed "alu" is not taken as the answer.
+        onBlur={() => {
+          const typed = text.trim();
+          if (suggestions.some((s) => s.value.toLowerCase() === typed.toLowerCase())) commit(suggestions.find((s) => s.value.toLowerCase() === typed.toLowerCase())!.value);
+          else setOpen(false);
+        }}
         onKeyDown={(event) => {
           if (event.key === 'ArrowDown') { event.preventDefault(); move(1); }
           else if (event.key === 'ArrowUp') { event.preventDefault(); move(-1); }
-          else if (event.key === 'Escape') setOpen(false);
+          else if (event.key === 'Escape') { setText(value); setOpen(false); setActive(-1); }
           else if (event.key === 'Enter') {
             event.preventDefault();
             commit(open && active >= 0 ? matches[active]?.value ?? text : text);
@@ -168,6 +174,7 @@ export function SuggestBox({ label, value, suggestions, placeholder, invalid, on
           })}
         </ul>
       )}
+      {!open && text.trim() !== value && text.trim() !== '' && <small className="pmi-lab-pending">Press Enter to use “{text.trim()}”, or Esc to go back.</small>}
     </div>
   );
 }
