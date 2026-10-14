@@ -122,7 +122,6 @@
 .pmi-lab-panel header strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pmi-lab-panel header small { display: block; color: #707880; }
 .pmi-lab .sheet-toggle { display: none; }
-.pmi-lab .new-part { font-size: 12px; white-space: nowrap; }
 .pmi-lab-note { margin: 4px 0 0; padding: 4px 8px; border-radius: 4px; background: #e8f3ee; color: #2c6650; font-size: 12px; }
 .pmi-lab-quick { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 4px 0 0; font-size: 12px; }
 .pmi-lab-quick > span { margin-right: 2px; color: #2c6650; font-weight: 600; }
@@ -337,3 +336,5 @@
   line-height: 1.12; font-weight: 500; margin-left: 2px; vertical-align: middle; }
 .pmi-lab .tolsym { font-weight: 500; font-size: 10.5px; margin-left: 2px; }
 fieldset.pmi-lab-rows { min-width: 0; margin: 0; padding: 0; border: 0; }
+
+.pmi-lab-pending { display: block; margin-top: 3px; font-size: 11.5px; color: #8a5a00; }

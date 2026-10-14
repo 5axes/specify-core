@@ -39,8 +39,8 @@ function asError(error: unknown): PmiLabError {
   return { code: 'failed', message: String(error) };
 }
 
-export function SpecifyReview({ engine, session, slots, after, onPick, showFaces, tints, onClose, externalAnswers, externalReview, disabled, focusRequest }: {
-  engine: SpecifyEngine; session: PmiLabSession; slots: SpecifySlots; onClose: () => void;
+export function SpecifyReview({ engine, session, slots, after, onPick, showFaces, tints, externalAnswers, externalReview, disabled, focusRequest }: {
+  engine: SpecifyEngine; session: PmiLabSession; slots: SpecifySlots;
   /** Shown after the questions: the drawing's own issues, in the same list. */
   after?: ReactNode;
   /** Faces picked on the part, by a face or a label: the drawing locates what measures them. */
@@ -716,12 +716,6 @@ export function SpecifyReview({ engine, session, slots, after, onPick, showFaces
         <header>
           <div className="title">
             <strong>{session.filename}</strong>
-            <button
-              type="button" className="new-part"
-              onClick={onClose}
-            >
-              Upload new STEP
-            </button>
           </div>
           {note && <p className="pmi-lab-note" role="status">{note}</p>}
           {note && noteGeneral && (
@@ -737,7 +731,7 @@ export function SpecifyReview({ engine, session, slots, after, onPick, showFaces
           )}
           {resumed && (
             <p className="pmi-lab-resumed" role="status">
-              Saved by Specify: your answers are back to change. Saving writes the PMI afresh.
+              Opened with the answers this STEP was saved with: change any of them below.
             </p>
           )}
           <div className="pmi-lab-views" role="tablist">
