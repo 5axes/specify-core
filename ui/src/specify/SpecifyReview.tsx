@@ -19,8 +19,6 @@ import './PmiLab.css';
 export type SpecifyEngine = Pick<PmiLabEngine, 'questions' | 'interpret' | 'preview'>;
 /** Where the workspace shows Specify: the part in the 3D pane, the questions in the edit pane. */
 export interface SpecifySlots { view: HTMLElement; panel: HTMLElement; exports: HTMLElement | null }
-/** Below this width the panel is a sheet under the part, not beside it. */
-const NARROW = '(max-width: 700px)';
 const STATE_TEXT = { required: 'needs an answer', check: 'please check', set: 'answered', ok: 'default' } as const;
 /** Short names for the part's own fields; any other part question is shown by its prompt. */
 const PART_FIELD: Record<string, string> = {
@@ -76,14 +74,6 @@ export function SpecifyReview({ engine, session, slots, after, onPick, showFaces
   // The question or added requirement a focus request opened without asking to be scrolled to.
   const quiet = useRef<string | null>(null);
   const [transparency, setTransparency] = useState(50);
-  const [wide, setWide] = useState(() => !window.matchMedia?.(NARROW).matches);
-  useEffect(() => {
-    const query = window.matchMedia?.(NARROW);
-    if (!query) return undefined;
-    const changed = () => setWide(!query.matches);
-    query.addEventListener('change', changed);
-    return () => query.removeEventListener('change', changed);
-  }, []);
   // Specs typed and read, by question: their callouts, which no offered choice has.
   const [typed, setTyped] = useState<Record<string, PmiInterpretation>>({});
   // A datum being added: picked on the part before pmi-assist knows of it.
@@ -670,10 +660,10 @@ export function SpecifyReview({ engine, session, slots, after, onPick, showFaces
       <div className="pmi-lab-view">
         <div className="pmi-lab-stage" ref={stage} />
         <div className="pmi-lab-nav">
-          {/* What the view shows: about the part, so on it, not in the panel -- in
-              sight on a wide screen, folded on a phone, where it would cover the part. */}
-          <details className="pmi-lab-show" open={wide || undefined}>
-            <summary>Show ▾</summary>
+          {/* What the view shows: about the part, so on it, not in the panel; folded,
+              so it does not cover the part. */}
+          <details className="pmi-lab-show">
+            <summary title="What the 3D view shows">⚙ Show ▾</summary>
             <div>
               {(['labels', 'defaults', 'existing', 'general', 'farSide'] as const).map((key) => (
                 <label key={key}>

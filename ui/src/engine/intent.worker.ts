@@ -2,7 +2,7 @@ interface IntentModule {
   default(): Promise<unknown>;
   review(analysis: string, answers: string): string;
   interpret(analysis: string, answers: string, question: string, text: string): string;
-  IntentEngine: new (name: string, bytes: Uint8Array) => { free(): void; snapshot(): string; review(answers: string): string; writePmi(answers: string): string };
+  IntentEngine: new (name: string, bytes: Uint8Array) => { free(): void; snapshot(): string; review(answers: string): string; writePmi(answers: string, project?: string): string };
 }
 
 let engine: InstanceType<IntentModule['IntentEngine']> | undefined;
@@ -32,7 +32,7 @@ self.onmessage = ({ data: { id, operation, args } }) => {
           sourceId = args.sourceId;
         }
         if (operation === 'write') {
-          const document = JSON.parse(engine.writePmi(JSON.stringify(args.answers)));
+          const document = JSON.parse(engine.writePmi(JSON.stringify(args.answers), args.project));
           result = { ...document, bytes: new Uint8Array(document.bytes) };
         } else result = operation === 'open' ? JSON.parse(engine.snapshot()) : JSON.parse(engine.review(JSON.stringify(args.answers)));
       } else if (operation === 'interpret') {
