@@ -18,7 +18,11 @@ import { MODES, type PickMode } from './selection';
 import './PmiLab.css';
 export type SpecifyEngine = Pick<PmiLabEngine, 'questions' | 'interpret' | 'preview'>;
 /** Where the workspace shows Specify: the part in the 3D pane, the questions in the edit pane. */
-export interface SpecifySlots { view: HTMLElement; panel: HTMLElement; exports: HTMLElement | null }
+export interface SpecifySlots {
+  view: HTMLElement; panel: HTMLElement; exports: HTMLElement | null;
+  /** The selected queue row's: the current question, answered where it is listed. */
+  question?: HTMLElement | null;
+}
 const STATE_TEXT = { required: 'needs an answer', check: 'please check', set: 'answered', ok: 'default' } as const;
 /** Short names for the part's own fields; any other part question is shown by its prompt. */
 const PART_FIELD: Record<string, string> = {
@@ -587,6 +591,23 @@ export function SpecifyReview({ engine, session, slots, after, onPick, showFaces
   };
 
   // A row: its head and summary, a check to confirm, and when open its questions.
+  const questionItem = (q: PmiQuestion, g: QuestionGroup, titled = true) => (
+    <QuestionItem titled={titled}
+      key={`${q.id}:${JSON.stringify(answers[q.id])}`} q={q} answers={answers} active={q.id === current}
+      selection={selection} mode={mode} error={errorAt(q.id)} typed={typed[q.id] ?? null}
+      onSpec={(text) => spec(q, text)}
+      onOpen={() => setCurrent(q.id)}
+      onAnswer={(value) => answer(q, value)}
+      onConfirm={() => confirm(g)}
+      onReset={() => answer(q, undefined, true)}
+      onMode={(m) => { setMode(m); picker.current?.setMode(m); }}
+      onDefaultSelection={() => {
+        const value = Array.isArray(q.default) ? q.default as number[] : [];
+        picker.current?.setSelection(value);
+        setSelection(value);
+      }}
+    />
+  );
   // ``extra`` goes under the head, open or not (the datums row's chips).
   // ``sum`` and ``onHead`` replace the row's own summary and open/close, for
   // rows that are more than their questions (the datums).
@@ -620,23 +641,8 @@ export function SpecifyReview({ engine, session, slots, after, onPick, showFaces
         {rowProblems}
         {extra}
         {cards.length > 0 && <div className="pmi-lab-cards">{cards.map(card)}</div>}
-        {open && g.questions.map((q) => (
-          <QuestionItem
-            key={`${q.id}:${JSON.stringify(answers[q.id])}`} q={q} answers={answers} active={q.id === current}
-            selection={selection} mode={mode} error={errorAt(q.id)} typed={typed[q.id] ?? null}
-            onSpec={(text) => spec(q, text)}
-            onOpen={() => setCurrent(q.id)}
-            onAnswer={(value) => answer(q, value)}
-            onConfirm={() => confirm(g)}
-            onReset={() => answer(q, undefined, true)}
-            onMode={(m) => { setMode(m); picker.current?.setMode(m); }}
-            onDefaultSelection={() => {
-              const value = Array.isArray(q.default) ? q.default as number[] : [];
-              picker.current?.setSelection(value);
-              setSelection(value);
-            }}
-          />
-        ))}
+        {/* Not twice: the current question shown in its queue row is answered there. */}
+        {open && g.questions.filter((q) => !(slots.question && q.id === current)).map((q) => questionItem(q, g))}
         {g.key === 'datums' && adding && (
           <>
             <QuestionItem
@@ -917,6 +923,12 @@ export function SpecifyReview({ engine, session, slots, after, onPick, showFaces
         {looseError && <footer><p role="alert" className="pmi-lab-error">{looseError.message}</p></footer>}
       </aside>
     </div>, slots.panel)}
+    {/* The current question again in the selected queue row, so it is answered where it is listed. */}
+    {slots.question && (() => {
+      const g = groups.find((x) => x.questions.some((q) => q.id === current));
+      const q = g?.questions.find((x) => x.id === current);
+      return g && q && createPortal(<div className="pmi-lab pmi-lab-inline">{questionItem(q, g, false)}</div>, slots.question);
+    })()}
     {slots.exports && createPortal(
       <button type="button" onClick={downloadCsv} disabled={!chars.length} title="Every characteristic, ballooned, with its nominal and limits">
         Export CSV
@@ -1028,8 +1040,10 @@ function shortValue(q: PmiQuestion, value: unknown): string {
 
 function QuestionItem({
   q, answers, active, selection, mode, error, typed, onOpen, onAnswer, onSpec, onConfirm, onReset, onMode,
-  onDefaultSelection,
+  onDefaultSelection, titled = true,
 }: {
+  /** Whether it shows its prompt: not under a queue row that already does. */
+  titled?: boolean;
   q: PmiQuestion; answers: PmiAnswers; active: boolean; selection: number[]; mode: PickMode;
   error: PmiLabError | null; typed: PmiInterpretation | null; onOpen: () => void; onAnswer: (value: unknown) => void;
   onSpec: (text: string) => Promise<string | null>; onConfirm: () => void;
@@ -1056,7 +1070,7 @@ function QuestionItem({
   return (
     <div className={`pmi-lab-item on${need ? ` ${need}` : ''}`} data-question={q.id}>
       <div className="prompt">
-        {q.prompt}{optional}
+        {titled && <>{q.prompt}{optional}</>}
         {q.id in answers && q.default !== null && (
           <button type="button" className="reset" onClick={onReset}>Reset to default</button>
         )}
