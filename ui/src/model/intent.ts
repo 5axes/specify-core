@@ -39,11 +39,16 @@ export function defaultPathAnswers(questions: readonly PmiQuestion[], answers: P
   const added: Record<string, string> = {};
   for (const q of questions) {
     if (q.id in answers) continue;
-    if (q.id === 'part.locating') added[q.id] = '± dimensions';
+    if (q.id === 'part.locating') added[q.id] = editorDefault(q) as string;
     else if ((q.id.startsWith('hole.function:') || q.id.startsWith('diameter.fit:'))
       && ![...factOptions, 'general'].some(option => String(q.default ?? '').startsWith(option))) added[q.id] = 'general';
   }
   return added;
+}
+
+/** A question's default as the editor applies it: ± locating where Specify's own is position tolerances. */
+export function editorDefault(q: PmiQuestion): unknown {
+  return q.id === 'part.locating' ? '± dimensions' : q.default;
 }
 
 /**
@@ -59,9 +64,15 @@ export function stillAuto(auto: readonly string[] | undefined, before: PmiAnswer
   return auto?.filter(id => JSON.stringify(after[id]) === JSON.stringify(before[id]));
 }
 
-/** The answers once GD&T is asked for: the default path's are given back, but for ± locating. */
+/**
+ * The answers once GD&T is asked for: the default path's are given back, but for ± locating.
+ * Either way can be chosen after the other: ± locates by dimensions whatever was answered before,
+ * and geometric lets Specify propose the locating again.
+ */
 export function gdtAnswers(answers: PmiAnswers, auto: readonly string[] | undefined, mode: GdtMode): PmiAnswers {
   const kept = { ...answers };
   for (const id of auto ?? []) if (!(mode === 'plusminus' && id === 'part.locating')) delete kept[id];
+  if (mode === 'plusminus') kept['part.locating'] = '± dimensions';
+  else if (kept['part.locating'] === '± dimensions') delete kept['part.locating'];
   return kept;
 }
