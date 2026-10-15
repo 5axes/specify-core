@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom';
 import type { PmiAnswers, PmiIntent, PmiInterpretation, PmiLabError, PmiLabSession, PmiQuestion, PmiLabEngine } from '../types/pmi';
 import type { IntentReview } from '../types/editor';
 import type { PartTint } from '../model/links';
+import { editorDefault } from '../model/intent';
 import { addedOf, CALL_OUTS, describe, kindsFor, MAY_HAVE_DATUM, nextKey } from './added';
 import { codeOf } from './choose';
 import { appliedByRule, chosenForYou, type Chosen } from './chosen';
@@ -39,8 +40,12 @@ function asError(error: unknown): PmiLabError {
   return { code: 'failed', message: String(error) };
 }
 
-export function SpecifyReview({ engine, session, slots, after, onPick, showFaces, tints, externalAnswers, externalReview, disabled, focusRequest }: {
+export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, after, onPick, showFaces, tints, externalAnswers, externalReview, disabled, focusRequest }: {
   engine: SpecifyEngine; session: PmiLabSession; slots: SpecifySlots;
+  /** The question the queue's selected row is about: what the question slot shows. */
+  slotQuestion?: string | null;
+  /** A file handed to the browser to save, by name. */
+  onSaved?: (name: string) => void;
   /** Shown after the questions: the drawing's own issues, in the same list. */
   after?: ReactNode;
   /** Faces picked on the part, by a face or a label: the drawing locates what measures them. */
@@ -121,6 +126,12 @@ export function SpecifyReview({ engine, session, slots, after, onPick, showFaces
     () => characteristics(preview, session.analysis, titles), [preview, session.analysis, titles],
   );
   const balloons = useMemo(() => balloonsBySource(chars), [chars]);
+
+  // The slot shows the selected row's question whatever else moved ``current``: the session
+  // reloading, or an answer opening the next question down the list.
+  useEffect(() => {
+    if (slots.question && slotQuestion && slotQuestion !== current && questions.some((q) => q.id === slotQuestion)) setCurrent(slotQuestion);
+  }, [slots.question, slotQuestion, current, questions]);
 
   useEffect(() => {
     const id = focusRequest?.questionId;
@@ -588,6 +599,7 @@ export function SpecifyReview({ engine, session, slots, after, onPick, showFaces
   const downloadCsv = () => {
     const stem = session.filename.replace(/\.(step|stp|p21)$/i, '');
     saveFile(new File([toCsv(chars, skipped)], `${stem}-characteristics.csv`, { type: 'text/csv' }));
+    onSaved?.(`${stem}-characteristics.csv`);
   };
 
   // A row: its head and summary, a check to confirm, and when open its questions.
@@ -930,8 +942,8 @@ export function SpecifyReview({ engine, session, slots, after, onPick, showFaces
         : questionItem(q, g, false)}</div>, slots.question);
     })()}
     {slots.exports && createPortal(
-      <button type="button" onClick={downloadCsv} disabled={!chars.length} title="Every characteristic, ballooned, with its nominal and limits">
-        Export CSV
+      <button type="button" onClick={downloadCsv} disabled={!chars.length} title="Every dimension and tolerance, numbered, with its nominal and limits">
+        Inspection list (CSV)
       </button>, slots.exports)}
   </>);
 }
@@ -1014,7 +1026,7 @@ function PartField({ q, answers, error, onAnswer }: {
       {q.kind === 'choice' ? (
         <select value={typeof value === 'string' ? value : ''} onChange={(event) => onAnswer(event.target.value)}>
           {(q.options ?? []).map((option) => (
-            <option key={option} value={option}>{option}{option === q.default ? ' (default)' : ''}</option>
+            <option key={option} value={option}>{option}{option === editorDefault(q) ? ' (default)' : ''}</option>
           ))}
         </select>
       ) : (
