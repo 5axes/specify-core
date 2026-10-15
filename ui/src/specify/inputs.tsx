@@ -148,8 +148,9 @@ export function SuggestBox({ label, value, suggestions, placeholder, invalid, on
           if (event.key === 'ArrowDown') { event.preventDefault(); move(1); }
           else if (event.key === 'ArrowUp') { event.preventDefault(); move(-1); }
           else if (event.key === 'Escape') { setText(value); setOpen(false); setActive(-1); }
-          else if (event.key === 'Enter') {
-            event.preventDefault();
+          else if (event.key === 'Enter' || event.key === 'Tab') {
+            // Enter and Tab both mean "done here": Tab then moves on as usual.
+            if (event.key === 'Enter') event.preventDefault();
             commit(open && active >= 0 ? matches[active]?.value ?? text : text);
           }
         }}
