@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom';
 import type { PmiAnswers, PmiIntent, PmiInterpretation, PmiLabError, PmiLabSession, PmiQuestion, PmiLabEngine } from '../types/pmi';
 import type { IntentReview } from '../types/editor';
 import type { PartTint } from '../model/links';
+import { editorDefault } from '../model/intent';
 import { addedOf, CALL_OUTS, describe, kindsFor, MAY_HAVE_DATUM, nextKey } from './added';
 import { codeOf } from './choose';
 import { appliedByRule, chosenForYou, type Chosen } from './chosen';
@@ -1025,7 +1026,7 @@ function PartField({ q, answers, error, onAnswer }: {
       {q.kind === 'choice' ? (
         <select value={typeof value === 'string' ? value : ''} onChange={(event) => onAnswer(event.target.value)}>
           {(q.options ?? []).map((option) => (
-            <option key={option} value={option}>{option}{option === q.default ? ' (default)' : ''}</option>
+            <option key={option} value={option}>{option}{option === editorDefault(q) ? ' (default)' : ''}</option>
           ))}
         </select>
       ) : (

@@ -39,11 +39,16 @@ export function defaultPathAnswers(questions: readonly PmiQuestion[], answers: P
   const added: Record<string, string> = {};
   for (const q of questions) {
     if (q.id in answers) continue;
-    if (q.id === 'part.locating') added[q.id] = '± dimensions';
+    if (q.id === 'part.locating') added[q.id] = editorDefault(q) as string;
     else if ((q.id.startsWith('hole.function:') || q.id.startsWith('diameter.fit:'))
       && ![...factOptions, 'general'].some(option => String(q.default ?? '').startsWith(option))) added[q.id] = 'general';
   }
   return added;
+}
+
+/** A question's default as the editor applies it: ± locating where Specify's own is position tolerances. */
+export function editorDefault(q: PmiQuestion): unknown {
+  return q.id === 'part.locating' ? '± dimensions' : q.default;
 }
 
 /**
