@@ -40,12 +40,13 @@ function asError(error: unknown): PmiLabError {
   return { code: 'failed', message: String(error) };
 }
 
-export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, after, onPick, showFaces, tints, externalAnswers, externalReview, disabled, focusRequest, toReview, onKeep }: {
+export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, onExport, after, onPick, showFaces, tints, externalAnswers, externalReview, disabled, focusRequest, toReview, onKeep }: {
   engine: SpecifyEngine; session: PmiLabSession; slots: SpecifySlots;
   /** The question the queue's selected row is about: what the question slot shows. */
   slotQuestion?: string | null;
   /** A file handed to the browser to save, by name. */
   onSaved?: (name: string) => void;
+  onExport: (action: () => void) => void;
   /** Shown after the questions: the drawing's own issues, in the same list. */
   after?: ReactNode;
   /** Faces picked on the part, by a face or a label: the drawing locates what measures them. */
@@ -602,11 +603,11 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, a
     setView(next);
     if (next === 'review') picker.current?.highlight(currentQuestion?.faces ?? []);
   };
-  const downloadCsv = () => {
+  const downloadCsv = () => onExport(() => {
     const stem = session.filename.replace(/\.(step|stp|p21)$/i, '');
     saveFile(new File([toCsv(chars, skipped)], `${stem}-characteristics.csv`, { type: 'text/csv' }));
     onSaved?.(`${stem}-characteristics.csv`);
-  };
+  });
 
   // A row: its head and summary, a check to confirm, and when open its questions.
   const questionItem = (q: PmiQuestion, g: QuestionGroup, titled = true) => (
