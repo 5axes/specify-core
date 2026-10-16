@@ -3,9 +3,9 @@
 // Pure, no DOM.
 import type { PmiAnalysis, PmiAnswers, PmiIntent, PmiQuestion } from '../types/pmi';
 
-import { codeOf, purposes } from './choose';
-import { describeFaces } from './datums';
-import { groupQuestions, needs } from './review';
+import { codeOf, purposes } from './choose.ts';
+import { describeFaces } from './datums.ts';
+import { groupQuestions, needs } from './review.ts';
 
 export interface Chosen {
   readonly id: string;
@@ -27,16 +27,16 @@ export interface Chosen {
 /** Alternatives shown beside a choice, beyond it. */
 const SHOWN = 4;
 
-function optionsOf(q: PmiQuestion): { options: Chosen['options']; more: boolean } {
-  if (q.kind !== 'choice' || typeof q.default !== 'string') return { options: [], more: false };
+function optionsOf(q: PmiQuestion, chosen: unknown): { options: Chosen['options']; more: boolean } {
+  if (q.kind !== 'choice' || typeof chosen !== 'string') return { options: [], more: false };
   const all = q.options ?? [];
   // A hole's alternatives: one per purpose (the likeliest code of each), not
   // every fit; anything else: its options in order.
   const candidates = q.choices?.length
-    ? purposes(q).map((p) => p.choices.find((c) => c.value === q.default)?.value ?? p.choices[0]?.value ?? '')
+    ? purposes(q).map((p) => p.choices.find((c) => c.value === chosen)?.value ?? p.choices[0]?.value ?? '')
     : [...all];
-  const others = candidates.filter((v) => v && v !== q.default).slice(0, SHOWN);
-  const options = [q.default, ...others].map((value) => ({ value, label: label(q, value) }));
+  const others = candidates.filter((v) => v && v !== chosen).slice(0, SHOWN);
+  const options = [chosen, ...others].map((value) => ({ value, label: label(q, value) }));
   return { options, more: all.length > options.length };
 }
 
@@ -52,34 +52,40 @@ const PART: Record<string, string> = {
   'part.edges': 'Edges', 'part.locating': 'Holes located by',
 };
 
-/** The defaults still standing that pmi-assist chose and can say why. */
+/**
+ * The defaults still standing that pmi-assist chose and can say why, and those ``answeredForYou``
+ * (left to a default or answered on the person's behalf, still to review) as they stand.
+ */
 export function chosenForYou(
-  questions: readonly PmiQuestion[], answers: PmiAnswers, analysis: PmiAnalysis,
+  questions: readonly PmiQuestion[], answers: PmiAnswers, analysis: PmiAnalysis, answeredForYou: readonly string[] = [],
 ): Chosen[] {
   const titles = new Map(groupQuestions(questions).map((g) => [g.key, g.title]));
   const out: Chosen[] = [];
   for (const q of questions) {
-    const empty = q.default === null || q.default === undefined || (Array.isArray(q.default) && !q.default.length);
-    // A choice it can explain, or a default it doubts (with the reason it doubts it).
-    const check = needs(q, answers) === 'check';
-    if ((!q.basis && !check) || q.id in answers || empty) continue;
+    const forYou = answeredForYou.includes(q.id);
+    const value = q.id in answers ? answers[q.id] : q.default;
+    const empty = value === null || value === undefined || (Array.isArray(value) && !value.length);
+    // A choice it can explain, or a default it doubts (with the reason it doubts it); one to
+    // review it cannot explain is doubted too.
+    const check = needs(q, answers) === 'check' || (forYou && !q.basis);
+    if ((!q.basis && !check) || (q.id in answers && !forYou) || empty) continue;
     const title = (q.feature && titles.get(q.feature)) ?? '';
     const letter = /^datum\.([A-H])$/.exec(q.id)?.[1];
     let what: string;
-    if (letter) what = `Datum ${letter}: ${describeFaces(q.default as number[], analysis)}`;
-    else if (q.id in PART) what = `${PART[q.id]}: ${String(q.default)}`;
-    else if (q.id.startsWith('hole.function:')) what = `${title}: ${codeOf(q, q.default)}`;
-    else if (q.id.startsWith('hole.position:')) what = `${title}: position ⌀${String(q.default)}`;
-    else if (q.id.startsWith('hole.frame:')) what = `${title}: measured from ${String(q.default)}`;
-    else what = `${q.prompt} ${String(q.default)}`;
+    if (letter) what = `Datum ${letter}: ${describeFaces(value as number[], analysis)}`;
+    else if (q.id in PART) what = `${PART[q.id]}: ${String(value)}`;
+    else if (q.id.startsWith('hole.function:') || q.id.startsWith('diameter.fit:')) what = `${title}: ${codeOf(q, value)}`;
+    else if (q.id.startsWith('hole.position:')) what = `${title}: position ⌀${String(value)}`;
+    else if (q.id.startsWith('hole.frame:')) what = `${title}: measured from ${String(value)}`;
+    else what = `${q.prompt} ${String(value)}`;
     const about = letter ? `Datum ${letter}` : q.id in PART ? PART[q.id] as string
       : q.id.startsWith('hole.position:') ? `${title} position` : title || q.prompt;
-    const why = check && q.reason ? q.reason : q.basis ?? '';
+    const why = check && q.reason ? q.reason : q.basis ?? q.why ?? '';
     const field = letter ? `Datum ${letter}` : q.id in PART ? PART[q.id] as string
       : q.id.startsWith('hole.function:') ? 'What for'
         : q.id.startsWith('hole.position:') ? 'Position'
           : q.id.startsWith('hole.frame:') ? 'Measured from' : about;
-    out.push({ id: q.id, what, why, about, check, field, ...optionsOf(q) });
+    out.push({ id: q.id, what, why, about, check, field, ...optionsOf(q, value) });
   }
   return out;
 }
