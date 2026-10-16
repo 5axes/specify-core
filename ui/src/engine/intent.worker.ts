@@ -11,7 +11,7 @@ let sourceId = '';
 let modulePromise: Promise<IntentModule> | undefined;
 function load() {
   modulePromise ??= (async () => {
-    const modulePath = new URL('/wasm/intent/dw_intent.js', self.location.origin).href;
+    const modulePath = new URL('/wasm/intent/specify_core_wasm.js', self.location.origin).href;
     const module: IntentModule = await import(/* @vite-ignore */ modulePath);
     await module.default();
     return module;
