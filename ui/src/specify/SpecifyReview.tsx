@@ -40,13 +40,15 @@ function asError(error: unknown): PmiLabError {
   return { code: 'failed', message: String(error) };
 }
 
-export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, onExport, after, onPick, showFaces, tints, externalAnswers, externalReview, disabled, focusRequest, toReview, onKeep }: {
+export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, onExport, gated, after, onPick, showFaces, tints, externalAnswers, externalReview, disabled, focusRequest, toReview, onKeep }: {
   engine: SpecifyEngine; session: PmiLabSession; slots: SpecifySlots;
   /** The question the queue's selected row is about: what the question slot shows. */
   slotQuestion?: string | null;
   /** A file handed to the browser to save, by name. */
   onSaved?: (name: string) => void;
   onExport: (action: () => void) => void;
+  /** Structured exports ask for sign-in first. */
+  gated?: boolean;
   /** Shown after the questions: the drawing's own issues, in the same list. */
   after?: ReactNode;
   /** Faces picked on the part, by a face or a label: the drawing locates what measures them. */
@@ -603,9 +605,11 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     setView(next);
     if (next === 'review') picker.current?.highlight(currentQuestion?.faces ?? []);
   };
+  // Read when the file is written: an export resumed after sign-in carries edits made meanwhile.
+  const csvRows = useRef({ chars, skipped }); csvRows.current = { chars, skipped };
   const downloadCsv = () => onExport(() => {
     const stem = session.filename.replace(/\.(step|stp|p21)$/i, '');
-    saveFile(new File([toCsv(chars, skipped)], `${stem}-characteristics.csv`, { type: 'text/csv' }));
+    saveFile(new File([toCsv(csvRows.current.chars, csvRows.current.skipped)], `${stem}-characteristics.csv`, { type: 'text/csv' }));
     onSaved?.(`${stem}-characteristics.csv`);
   });
 
@@ -952,7 +956,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     })()}
     {slots.exports && createPortal(
       <button type="button" onClick={downloadCsv} disabled={!chars.length} title="Every dimension and tolerance, numbered, with its nominal and limits">
-        Inspection list (CSV)
+        {gated ? 'Inspection list (CSV) · Sign in' : 'Inspection list (CSV)'}
       </button>, slots.exports)}
   </>);
 }
