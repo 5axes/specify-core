@@ -2,6 +2,7 @@
 // belongs to, and the answers that keep Specify to the default path until GD&T is asked for.
 // Pure, no DOM.
 import type { PmiAnswers, PmiQuestion } from '../types/pmi';
+import type { EditState } from '../types/editor';
 
 /** How the tolerancing is specified: not yet (the default path), ± only, or geometric (GD&T). */
 export type GdtMode = 'plusminus' | 'geometric';
@@ -59,6 +60,14 @@ export function inferredMode(answers: PmiAnswers): GdtMode {
   return answers['part.locating'] === '± dimensions' ? 'plusminus' : 'geometric';
 }
 
+/** A locating answer in All specs chooses the same mode as the tolerancing controls. */
+export function modeAfterAnswers(mode: GdtMode | undefined, before: PmiAnswers, after: PmiAnswers): GdtMode | undefined {
+  if (before['part.locating'] === after['part.locating']) return mode;
+  // Removing the answer returns to the editor's default path.
+  if (after['part.locating'] === undefined) return undefined;
+  return inferredMode(after);
+}
+
 /** What the default path answered and the person has since left alone. */
 export function stillAuto(auto: readonly string[] | undefined, before: PmiAnswers, after: PmiAnswers): string[] | undefined {
   return auto?.filter(id => JSON.stringify(after[id]) === JSON.stringify(before[id]));
@@ -75,4 +84,15 @@ export function gdtAnswers(answers: PmiAnswers, auto: readonly string[] | undefi
   if (mode === 'plusminus') kept['part.locating'] = '± dimensions';
   else if (kept['part.locating'] === '± dimensions') delete kept['part.locating'];
   return kept;
+}
+
+/** Both ways of changing tolerancing give automatic answers and accepted defaults back. */
+export function tolerancingEdit(state: EditState, mode: GdtMode | undefined, answers: PmiAnswers = state.answers): EditState {
+  const auto = stillAuto(state.auto, state.answers, answers) ?? [];
+  const next = { ...answers };
+  for (const id of auto) delete next[id];
+  return {
+    ...state, answers: mode ? gdtAnswers(answers, auto, mode) : next, gdt: mode, auto: [],
+    ...(state.accepted ? { accepted: state.accepted.filter(id => !id.startsWith('q:')) } : {}),
+  };
 }
