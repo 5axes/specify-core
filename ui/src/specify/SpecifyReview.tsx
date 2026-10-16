@@ -40,7 +40,7 @@ function asError(error: unknown): PmiLabError {
   return { code: 'failed', message: String(error) };
 }
 
-export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, after, onPick, showFaces, tints, externalAnswers, externalReview, disabled, focusRequest }: {
+export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, after, onPick, showFaces, tints, externalAnswers, externalReview, disabled, focusRequest, toReview, onKeep }: {
   engine: SpecifyEngine; session: PmiLabSession; slots: SpecifySlots;
   /** The question the queue's selected row is about: what the question slot shows. */
   slotQuestion?: string | null;
@@ -55,6 +55,10 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, a
   /** The queue's state on the part, by face; a new map when it changes. */
   tints?: ReadonlyMap<number, PartTint>;
   externalAnswers: PmiAnswers; externalReview: IntentReview; disabled: boolean; focusRequest?: { questionId: string; faces?: readonly number[]; scroll?: boolean } | null;
+  /** The editor's decisions to review, by question: the suggestions are exactly these (agreed 2026-10-16). */
+  toReview?: readonly string[];
+  /** Keeps suggestions as they stand, the editor's way: accepted, as in its list, not answered. */
+  onKeep?: (ids: readonly string[]) => void;
 }) {
   const stage = useRef<HTMLDivElement>(null);
   const picker = useRef<Picker | null>(null);
@@ -427,7 +431,8 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, a
   };
 
   // What pmi-assist chose, to keep (answered as it stands) or change (opened).
-  const chosen = chosenForYou(questions, answers, session.analysis);
+  const chosen = toReview ? chosenForYou(questions, answers, session.analysis, toReview).filter((c) => toReview.includes(c.id))
+    : chosenForYou(questions, answers, session.analysis);
   const chosenById = new Map(chosen.map((c) => [c.id, c]));
   const applied = appliedByRule(preview);
   const card = (c: Chosen) => (
@@ -450,6 +455,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, a
     </button>
   ));
   const keepChosen = (ids: readonly string[]) => {
+    if (onKeep) { onKeep(ids); return; }
     const next: Record<string, unknown> = { ...answers };
     for (const id of ids) {
       const q = questions.find((x) => x.id === id);
@@ -626,7 +632,9 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, a
   const renderRow = (
     g: QuestionGroup, extra?: ReactNode, sum?: string, onHead?: () => void, unfoldedHere = false,
   ) => {
-    const state = rowState(g, answers);
+    // A doubted default the editor has recorded as reviewed is not "please check" any more.
+    const own = rowState(g, answers);
+    const state = own === 'check' && toReview && !g.questions.some((q) => toReview.includes(q.id)) ? 'ok' : own;
     const open = g === here;
     const expanded = open || unfoldedHere;
     const firstOpen = () => (g.questions.find((q) => needs(q, answers)) ?? g.questions[0])?.id ?? null;
