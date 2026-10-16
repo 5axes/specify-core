@@ -57,7 +57,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, a
   externalAnswers: PmiAnswers; externalReview: IntentReview; disabled: boolean; focusRequest?: { questionId: string; faces?: readonly number[]; scroll?: boolean } | null;
   /** The editor's decisions to review, by question: the suggestions are exactly these (agreed 2026-10-16). */
   toReview?: readonly string[];
-  /** Keeps suggestions as they stand, the editor's way: the same as accepting them in its list. */
+  /** Keeps suggestions as they stand, the editor's way: accepted, as in its list, not answered. */
   onKeep?: (ids: readonly string[]) => void;
 }) {
   const stage = useRef<HTMLDivElement>(null);
@@ -632,7 +632,9 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, a
   const renderRow = (
     g: QuestionGroup, extra?: ReactNode, sum?: string, onHead?: () => void, unfoldedHere = false,
   ) => {
-    const state = rowState(g, answers);
+    // A doubted default the editor has recorded as reviewed is not "please check" any more.
+    const own = rowState(g, answers);
+    const state = own === 'check' && toReview && !g.questions.some((q) => toReview.includes(q.id)) ? 'ok' : own;
     const open = g === here;
     const expanded = open || unfoldedHere;
     const firstOpen = () => (g.questions.find((q) => needs(q, answers)) ?? g.questions[0])?.id ?? null;
