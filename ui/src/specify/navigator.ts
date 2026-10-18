@@ -37,7 +37,8 @@ export interface Navigator {
   home(now?: boolean): void;
   roll(quarters: number): void;
   dolly(factor: number): void;
-  lookFrom(direction: PmiVec): void;
+  /** Turn to look along ``direction``; with ``around``, frame that box instead of the whole part. */
+  lookFrom(direction: PmiVec, around?: THREE.Box3): void;
   rayAt(x: number, y: number): THREE.Raycaster;
   size(): [number, number];
   onClick(listener: (x: number, y: number, event: PointerEvent) => void): void;
@@ -203,10 +204,9 @@ export function createNavigator(
   // against the field of view, from where it stands -- a corner nearer the
   // camera than the centre looks bigger, and a long flat part seen at a slant
   // is cropped if only the centre's distance is counted.
-  function standoff(heading: THREE.Vector3, up: THREE.Vector3) {
+  function standoff(heading: THREE.Vector3, up: THREE.Vector3, box = framed()) {
     const across = new THREE.Vector3().crossVectors(heading, up).normalize();
     const over = new THREE.Vector3().crossVectors(across, heading).normalize();
-    const box = framed();
     const centre = box.getCenter(new THREE.Vector3());
     const [w, h] = size();
     const clear = Math.max(w - panelRoom(), 1);
@@ -228,11 +228,11 @@ export function createNavigator(
    * Stand in ``direction`` from the part, the whole of it fitted to what is left
    * of the screen: turned to a feature or a side, the part is never cropped.
    */
-  function lookFrom(direction: PmiVec) {
+  function lookFrom(direction: PmiVec, around?: THREE.Box3) {
     const heading = new THREE.Vector3(...direction).normalize();
     const up = new THREE.Vector3(...(Math.abs(heading.z) > 0.9 ? [0, 1, 0] : [0, 0, 1]) as [number, number, number]);
-    const centre = centreOf();
-    flyTo(centre.clone().addScaledVector(heading, standoff(heading, up)), up, centre);
+    const centre = around ? around.getCenter(new THREE.Vector3()) : centreOf();
+    flyTo(centre.clone().addScaledVector(heading, standoff(heading, up, around)), up, centre);
   }
   function fit() {
     const centre = centreOf();

@@ -22,6 +22,8 @@ const COLOURS = {
   check: new THREE.Color(0xf3dc6a), // a default to check: yellow, pale
   problem: new THREE.Color(0x8f7fe0), // a problem on the drawing: violet
 };
+/** How much of the part a close look keeps around a feature, as a share of its diagonal. */
+const CLOSE_CONTEXT = 0.35;
 /** Points of a feature tested for being in sight. */
 const SAMPLES = 24;
 /** How far off its axis a hole or shaft is looked at: a deep one, a shallow one. */
@@ -65,7 +67,8 @@ export interface Picker {
   highlight(faces: readonly number[]): void;
   /** Faces tinted by the queue's state, under the selection, hover and focus. */
   tint(states: ReadonlyMap<number, 'required' | 'check' | 'problem'>): void;
-  lookAt(faces: readonly number[]): void;
+  /** Turn to see ``faces``; ``close`` also frames them (with some of the part around) instead of the whole part. */
+  lookAt(faces: readonly number[], options?: { close?: boolean }): void;
   on<K extends keyof PickerEvents>(name: K, listener: PickerEvents[K]): void;
   dispose(): void;
 }
@@ -291,7 +294,7 @@ export function createPicker(
         + 0.3 * Math.max(...ideals.map((ideal) => direction.dot(ideal))) + 0.1 * direction.dot(heading);
       if (score > best.score) best = { score, direction };
     });
-    return { direction: best.direction.toArray() as unknown as PmiVec };
+    return { direction: best.direction.toArray() as unknown as PmiVec, box };
   }
 
   paint();
@@ -343,9 +346,15 @@ export function createPicker(
       tints = new Map(states);
       paint();
     },
-    lookAt(faces) {
+    lookAt(faces, options) {
       const view = bestView(faces);
-      if (view) nav.lookFrom(view.direction);
+      if (!view) return;
+      if (!options?.close) { nav.lookFrom(view.direction); return; }
+      // Close, but not so close the feature loses its place on the part.
+      const around = view.box.clone();
+      const size = around.getSize(new THREE.Vector3()).length();
+      around.expandByScalar(Math.max(0, (CLOSE_CONTEXT * nav.diagonal - size) / 2));
+      nav.lookFrom(view.direction, around);
     },
     on(name, listener) {
       (listeners[name] as typeof listener[]).push(listener);
