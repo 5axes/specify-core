@@ -1,8 +1,7 @@
 // A drawing by default, GD&T on request (docs/WORKFLOW.md): which part of the intent a question
-// belongs to, and the answers that keep Specify to the default path until GD&T is asked for.
-// Pure, no DOM.
+// belongs to, for showing it. The default path's answers and the mode changes are specify-core's
+// (its tolerancing module), shared with the MCP server. Pure, no DOM.
 import type { PmiAnswers, PmiQuestion } from '../types/pmi';
-import type { EditState } from '../types/editor';
 
 /** How the tolerancing is specified: not yet (the default path), ± only, or geometric (GD&T). */
 export type GdtMode = 'plusminus' | 'geometric';
@@ -30,69 +29,8 @@ export function intentPart(q: PmiQuestion, answers: PmiAnswers): IntentPart {
   return 'scheme';
 }
 
-/**
- * The answers the default path adds, so that Specify proposes no tolerancing scheme: holes
- * located by ± dimensions (no datums, no position), plain holes except a proposed tap, and plain
- * diameters except a proposed thread or knurl. Runout is none by default already. Only questions
- * not yet answered are given one.
- */
-export function defaultPathAnswers(questions: readonly PmiQuestion[], answers: PmiAnswers): Record<string, string> {
-  const added: Record<string, string> = {};
-  for (const q of questions) {
-    if (q.id in answers) continue;
-    if (q.id === 'part.locating') added[q.id] = editorDefault(q) as string;
-    else if ((q.id.startsWith('hole.function:') || q.id.startsWith('diameter.fit:'))
-      && ![...factOptions, 'general'].some(option => String(q.default ?? '').startsWith(option))) added[q.id] = 'general';
-  }
-  return added;
-}
-
-/** A question's default as the editor applies it: ± locating where Specify's own is position tolerances. */
+/** A question's default as the editor shows it: ± locating where Specify's own is position
+ * tolerances (as specify-core's tolerancing::editor_default). */
 export function editorDefault(q: PmiQuestion): unknown {
   return q.id === 'part.locating' ? '± dimensions' : q.default;
-}
-
-/**
- * The mode of a project saved before the default path: Specify's defaults were then the geometric
- * scheme, so it keeps it, unless it was already located by ± dimensions.
- */
-export function inferredMode(answers: PmiAnswers): GdtMode {
-  return answers['part.locating'] === '± dimensions' ? 'plusminus' : 'geometric';
-}
-
-/** A locating answer in All specs chooses the same mode as the tolerancing controls. */
-export function modeAfterAnswers(mode: GdtMode | undefined, before: PmiAnswers, after: PmiAnswers): GdtMode | undefined {
-  if (before['part.locating'] === after['part.locating']) return mode;
-  // Removing the answer returns to the editor's default path.
-  if (after['part.locating'] === undefined) return undefined;
-  return inferredMode(after);
-}
-
-/** What the default path answered and the person has since left alone. */
-export function stillAuto(auto: readonly string[] | undefined, before: PmiAnswers, after: PmiAnswers): string[] | undefined {
-  return auto?.filter(id => JSON.stringify(after[id]) === JSON.stringify(before[id]));
-}
-
-/**
- * The answers once GD&T is asked for: the default path's are given back, but for ± locating.
- * Either way can be chosen after the other: ± locates by dimensions whatever was answered before,
- * and geometric lets Specify propose the locating again.
- */
-export function gdtAnswers(answers: PmiAnswers, auto: readonly string[] | undefined, mode: GdtMode): PmiAnswers {
-  const kept = { ...answers };
-  for (const id of auto ?? []) if (!(mode === 'plusminus' && id === 'part.locating')) delete kept[id];
-  if (mode === 'plusminus') kept['part.locating'] = '± dimensions';
-  else if (kept['part.locating'] === '± dimensions') delete kept['part.locating'];
-  return kept;
-}
-
-/** Both ways of changing tolerancing give automatic answers and accepted defaults back. */
-export function tolerancingEdit(state: EditState, mode: GdtMode | undefined, answers: PmiAnswers = state.answers): EditState {
-  const auto = stillAuto(state.auto, state.answers, answers) ?? [];
-  const next = { ...answers };
-  for (const id of auto) delete next[id];
-  return {
-    ...state, answers: mode ? gdtAnswers(answers, auto, mode) : next, gdt: mode, auto: [],
-    ...(state.accepted ? { accepted: state.accepted.filter(id => !id.startsWith('q:')) } : {}),
-  };
 }
