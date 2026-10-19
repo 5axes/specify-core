@@ -7,9 +7,9 @@ import type { PmiAnswers, PmiQuestion } from '../types/pmi';
 export type GdtMode = 'plusminus' | 'geometric';
 
 /** The groups of the intent, in the order stage 1 shows them. */
-export type IntentPart = 'material' | 'threads' | 'notes' | 'scheme';
+export type IntentPart = 'material' | 'threads' | 'notes' | 'faces' | 'scheme';
 export const intentParts: Record<IntentPart, string> = {
-  material: 'Material', threads: 'Threads and taps', notes: 'General notes', scheme: 'GD&T',
+  material: 'Material', threads: 'Threads and taps', notes: 'General notes', faces: 'Not recognised', scheme: 'GD&T',
 };
 
 // The general notes: blanket statements for the whole part, in every drawing's default path.
