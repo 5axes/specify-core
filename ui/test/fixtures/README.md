@@ -12,8 +12,15 @@ AGPL-3.0-only. They exercise assembly refusal and single-part placement restorat
 `legacy_specify.step` is the mounting-plate sample saved by the pre-alpha browser
 writer (Specify `42ff22c0`) with H7 and 6082-T6 answers, using stored-answer schema 1.
 The geometry is `public/samples/plate.step` from Specify's AGPL sample corpus.
-It verifies that the shared alpha kernel resumes existing browser exports and
-that rewriting them migrates the payload to schema 2 without losing answers.
+Under quiddity v0.1.1 its schema 1 fingerprint no longer matches (some zero centroids
+change sign), so it now opens as a foreign file with its PMI read as existing; upstream
+says schema 1 still reads, so this is to be fixed in specify-core-rust.
+
+`alpha6_specify.step` is `public/samples/plate.step` written by the Specify
+v0.1.0-alpha.6 WASM (stored-answer schema 2, quiddity alpha.8) with 6082-T6, an H7 fit on
+`holes:9` and an answer for `holes:99`, a feature the plate does not have. It verifies
+that alpha.6 exports resume under the current kernel and that an answer that cannot be
+matched is reported with its value.
 
 `alpha1_bolt_thread_knurl.step.gz` is copied unchanged from
 `pzfreo/draftwright-rust` tag `v0.1.0-alpha.1`, commit

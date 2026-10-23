@@ -52,7 +52,11 @@ export interface PmiAnalysis {
    * A STEP Specify wrote, opened again: the answers it was written from, to carry
    * on editing. Its PMI is theirs, so it is not shown as the file's own.
    */
-  readonly resume?: { readonly answers: PmiAnswers };
+  readonly resume?: {
+    readonly answers: PmiAnswers;
+    /** Saved answers Specify alpha.7+ could not match to this geometry: not applied, and not written again. */
+    readonly unresolved?: readonly { readonly id: string; readonly feature?: string | null; readonly answer: unknown; readonly reason: string }[];
+  };
 }
 
 /** Triangles of the part, ranged face by face in the analysis's face numbering. */
