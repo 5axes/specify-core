@@ -56,6 +56,8 @@ export interface PmiAnalysis {
     readonly answers: PmiAnswers;
     /** Saved answers Specify alpha.7+ could not match to this geometry: not applied, and not written again. */
     readonly unresolved?: readonly { readonly id: string; readonly feature?: string | null; readonly answer: unknown; readonly reason: string }[];
+    /** Specify alpha.8+: why the answers were matched by feature ID, without checking the faces (a pre-alpha file). */
+    readonly unverified?: string;
   };
 }
 
