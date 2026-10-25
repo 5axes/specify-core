@@ -5,7 +5,9 @@ interface IntentModule {
   answerEdit(state: string, answers: string): string;
   tolerancingEdit(state: string, mode: string | undefined, answers: string): string;
   openedTolerancing(state: string, resume?: string): string;
-  IntentEngine: new (name: string, bytes: Uint8Array) => { free(): void; snapshot(): string; review(answers: string): string; settle(state: string): string; writePmi(answers: string, project?: string): string; acceptDefaults(answers: string): string };
+  IntentEngine: new (name: string, bytes: Uint8Array) => { free(): void; snapshot(): string; review(answers: string): string; settle(state: string): string; writePmi(answers: string, project?: string): string; acceptDefaults(answers: string): string;
+    evidence(): string; rematchAnswers(answers: string, evidence?: string | null, automatic?: string | null): string;
+    payload(name: string): string | undefined; original(): Uint8Array | undefined };
 }
 
 let engine: InstanceType<IntentModule['IntentEngine']> | undefined;
@@ -50,7 +52,7 @@ self.onmessage = ({ data: { id, operation, args } }) => {
     try {
       const module = await load();
       let result: unknown = true;
-      if (operation === 'open' || operation === 'review' || operation === 'settle' || operation === 'write') {
+      if (operation === 'open' || operation === 'review' || operation === 'settle' || operation === 'write' || operation === 'rematch') {
         if (!engine || sourceId !== args.sourceId || operation === 'open') {
           engine?.free(); engine = undefined;
           engine = new module.IntentEngine(args.name, args.bytes);
@@ -62,7 +64,13 @@ self.onmessage = ({ data: { id, operation, args } }) => {
         } else if (operation === 'settle') {
           const { state } = JSON.parse(engine.settle(JSON.stringify(args.state)));
           result = { review: reviewed(state.answers), state };
-        } else result = operation === 'open' ? JSON.parse(engine.snapshot()) : reviewed(args.answers);
+        } else if (operation === 'rematch') {
+          result = JSON.parse(engine.rematchAnswers(JSON.stringify(args.answers), args.evidence ? JSON.stringify(args.evidence) : null, args.automatic ? JSON.stringify(args.automatic) : null));
+        } else result = operation === 'open' ? { ...JSON.parse(engine.snapshot()), evidence: JSON.parse(engine.evidence()) } : reviewed(args.answers);
+      } else if (operation === 'carried') {
+        // What a STEP carries, read on an engine of its own: the open part's is kept.
+        const file = new module.IntentEngine(args.name, args.bytes);
+        try { result = { project: file.payload(args.payload) ?? null, original: file.original() ?? null }; } finally { file.free(); }
       } else if (operation === 'answer-edit') {
         result = JSON.parse(module.answerEdit(JSON.stringify(args.state), JSON.stringify(args.answers)));
       } else if (operation === 'tolerancing-edit') {
