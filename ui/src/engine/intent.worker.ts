@@ -5,6 +5,7 @@ interface IntentModule {
   answerEdit(state: string, answers: string): string;
   tolerancingEdit(state: string, mode: string | undefined, answers: string): string;
   openedTolerancing(state: string, resume?: string): string;
+  diff(oldName: string, old: Uint8Array, newName: string, next: Uint8Array, answers: string, title: string): string;
   IntentEngine: new (name: string, bytes: Uint8Array) => { free(): void; snapshot(): string; review(answers: string): string; settle(state: string): string; writePmi(answers: string, project?: string): string; acceptDefaults(answers: string): string;
     evidence(): string; rematchAnswers(answers: string, evidence?: string | null, automatic?: string | null): string;
     payload(name: string): string | undefined; original(): Uint8Array | undefined };
@@ -77,6 +78,9 @@ self.onmessage = ({ data: { id, operation, args } }) => {
         result = JSON.parse(module.tolerancingEdit(JSON.stringify(args.state), args.mode, JSON.stringify(args.answers)));
       } else if (operation === 'opened') {
         result = JSON.parse(module.openedTolerancing(JSON.stringify(args.state), args.resume && JSON.stringify(args.resume)));
+      } else if (operation === 'diff') {
+        // Two revisions of a part compared, as `specify-core diff` compares them.
+        result = JSON.parse(module.diff(args.oldName, args.old, args.newName, args.new, JSON.stringify(args.answers), args.title));
       } else if (operation === 'interpret') {
         result = JSON.parse(module.interpret(
           JSON.stringify(args.analysis), JSON.stringify(args.answers), args.question, args.text,
