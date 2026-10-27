@@ -4,7 +4,8 @@
  * what changed, with the old part's gone or moved faces over it in translucent red. The STEP
  * diff action links its picture here: /diff?repo=owner/name&base=SHA&head=SHA&path=a/b.step
  * (&was=old/path.step for a renamed file). Public repositories only: raw.githubusercontent.com
- * serves them to any page.
+ * serves them to any page. Without a link, the page compares two STEP files the person picks,
+ * in the browser: they are never uploaded.
  */
 
 export interface DiffQuery { repo: string; base: string; head: string; path: string; was: string }
@@ -34,6 +35,14 @@ export async function fileAt(repo: string, sha: string, path: string): Promise<U
   if (response.status === 404) return null;
   if (!response.ok) throw new Error(`GitHub answered ${response.status} for ${path} at ${sha.slice(0, 7)}.`);
   return new Uint8Array(await response.arrayBuffer());
+}
+
+/** A picked file's STEP text: a gzipped one (.step.gz) is unpacked here, in the browser. */
+export async function stepBytes(file: Blob): Promise<Uint8Array> {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  if (bytes[0] !== 0x1f || bytes[1] !== 0x8b) return bytes;
+  const unpacked = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
+  return new Uint8Array(await new Response(unpacked).arrayBuffer());
 }
 
 const escape = (text: string) => text.replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`);

@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { diffQuery, fileAt, reportHtml } from '../src/model/diff.ts';
+import { gzipSync } from 'node:zlib';
+import { diffQuery, fileAt, reportHtml, stepBytes } from '../src/model/diff.ts';
 
 const sha = 'a8622c3f0e1d2c3b4a5968778695a4b3c2d1e0f9';
 
@@ -49,4 +50,12 @@ test('only the "What changed" lines are numbered, in order', () => {
   ].join('\n'));
   assert.match(html, /<li data-change="0" tabindex="0">a<\/li><li data-change="1" tabindex="0">b<\/li>/);
   assert.match(html, /<li>c<\/li>/);
+});
+
+test('a picked file is read as it is, or unpacked when gzipped', async () => {
+  const step = 'ISO-10303-21;\nHEADER;\nENDSEC;\n';
+  const read = async bytes => new TextDecoder().decode(await stepBytes(new Blob([bytes])));
+  assert.equal(await read(new TextEncoder().encode(step)), step);
+  assert.equal(await read(gzipSync(step)), step);
+  await assert.rejects(read(new Uint8Array([0x1f, 0x8b, 0, 1, 2])));
 });
