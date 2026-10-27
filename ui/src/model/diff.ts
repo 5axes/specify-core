@@ -40,7 +40,8 @@ const escape = (text: string) => text.replace(/[&<>"']/g, c => `&#${c.charCodeAt
 
 /**
  * The report's Markdown as HTML: its headings, paragraphs, lists, tables, bold and code. Its
- * own heading and summary are left out: the page shows them above the part.
+ * own heading and summary are left out: the page shows them above the part. Each "What changed"
+ * line is numbered, `<li data-change="0">` and on, in the order of the view's `changes`.
  */
 export function reportHtml(markdown: string): string {
   const inline = (text: string) => escape(text)
@@ -53,9 +54,12 @@ export function reportHtml(markdown: string): string {
     const summary = lines.findIndex((line, i) => i > first && line.trim() !== '');
     lines.splice(first, summary - first + 1);
   }
+  let changes = false;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]!;
     if (!line.trim() || line.startsWith('![')) continue;
+    const listed = changes;
+    changes = line.trim() === '**What changed**';
     if (line.startsWith('#')) {
       const level = Math.min(line.match(/^#+/)![0].length + 1, 6);
       html.push(`<h${level}>${inline(line.replace(/^#+\s*/, ''))}</h${level}>`);
@@ -71,7 +75,10 @@ export function reportHtml(markdown: string): string {
         body.map(r => `<tr>${r.map(c => `<td>${inline(c)}</td>`).join('')}</tr>`).join('')}</tbody></table>`);
     } else if (/^\s*- /.test(line)) {
       const items: string[] = [];
-      for (; i < lines.length && /^\s*- /.test(lines[i]!); i++) items.push(`<li>${inline(lines[i]!.replace(/^\s*- /, ''))}</li>`);
+      for (; i < lines.length && /^\s*- /.test(lines[i]!); i++) {
+        const text = inline(lines[i]!.replace(/^\s*- /, ''));
+        items.push(listed ? `<li data-change="${items.length}" tabindex="0">${text}</li>` : `<li>${text}</li>`);
+      }
       i--;
       html.push(`<ul>${items.join('')}</ul>`);
     } else html.push(`<p>${inline(line)}</p>`);

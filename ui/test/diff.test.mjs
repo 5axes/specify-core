@@ -40,5 +40,13 @@ test('the report renders without its heading and summary, and escapes what it sh
   assert.doesNotMatch(html, /a\.step: Specify|1 hole moved/);
   assert.match(html, /<thead><tr><th><\/th><th>Before<\/th><th>After<\/th><\/tr><\/thead><tbody><tr><td>Volume<\/td><td>1<\/td><td>2<\/td><\/tr><\/tbody>/);
   assert.match(html, /<p><strong>What changed<\/strong><\/p>/);
-  assert.match(html, /<li>Ø5 hole &#60;b&#62;: moved <code>X \+2<\/code><\/li>/);
+  assert.match(html, /<li data-change="0" tabindex="0">Ø5 hole &#60;b&#62;: moved <code>X \+2<\/code><\/li>/);
+});
+
+test('only the "What changed" lines are numbered, in order', () => {
+  const html = reportHtml([
+    '**What changed**', '', '- a', '- b', '', '**Answers carried to a changed feature**', '', '- c', '',
+  ].join('\n'));
+  assert.match(html, /<li data-change="0" tabindex="0">a<\/li><li data-change="1" tabindex="0">b<\/li>/);
+  assert.match(html, /<li>c<\/li>/);
 });
