@@ -96,9 +96,10 @@
 }
 .pmi-lab-view { position: absolute; inset: 0; }
 .pmi-lab-stage { position: absolute; inset: 0; overflow: hidden; }
-.pmi-lab-nav { position: absolute; left: 14px; top: 14px; z-index: 9; display: flex; gap: 4px; }
-/* Bottom left, above the orientation cube the canvas draws there (84 px, 14 in). */
-.pmi-lab-pad { position: absolute; left: 14px; bottom: 106px; z-index: 9;
+/* Clear of three-cad-viewer's own toolbar (top), tree (top left) and filter (top right). */
+.pmi-lab-nav { position: absolute; right: 14px; top: 92px; z-index: 9; display: flex; gap: 4px; }
+/* Bottom right, clear of the viewer's axes (bottom left). */
+.pmi-lab-pad { position: absolute; right: 14px; bottom: 40px; z-index: 9;
   display: flex; flex-direction: column; align-items: center; gap: 6px; }
 .pmi-lab-pad > div { display: flex; gap: 4px; }
 .pmi-lab .pmi-lab-pad button { width: 26px; height: 24px; padding: 0; font: 600 13px/1 ui-sans-serif, sans-serif; }
@@ -312,7 +313,7 @@
     border-width: 1px 0 0; box-shadow: 0 -2px 12px rgba(0, 0, 0, .12); }
   .pmi-lab.sheet-open .pmi-lab-panel { height: 88dvh; }
   .pmi-lab .sheet-toggle { display: inline-block; font-size: 12px; }
-  .pmi-lab-nav { left: 8px; top: 8px; }
+  .pmi-lab-nav { right: 8px; top: 84px; }
   .pmi-lab-status, .pmi-lab-go-note:not(.blocked) { display: none; }
 }
 

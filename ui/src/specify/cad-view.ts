@@ -48,6 +48,22 @@ export interface CadView {
   show(path: string, visible: boolean): void;
   /** The viewer's transparency, on or off. */
   transparent(on: boolean): void;
+  /** Replace leaves (or add them) under a group, by name: how a face changes colour. */
+  replace(group: string | null, ...leaves: CadLeaf[]): void;
+  /** The canvas's size in CSS pixels, and the element over it to lay overlays in. */
+  size(): [number, number];
+  readonly overlayHost: HTMLElement;
+  /** Called every frame while the view is open. */
+  onFrame(listener: () => void): void;
+  /** Look along a direction at the whole part, or along the current one. */
+  home(direction: PmiVec): void;
+  fit(): void;
+  /** Turn the view about the line of sight, in quarter turns. */
+  roll(quarters: number): void;
+  /** Move in (under 1) or out (over 1). */
+  dolly(factor: number): void;
+  /** Whether the person has moved the view since it opened. */
+  moved(): boolean;
   dispose(): void;
 }
 
@@ -116,7 +132,10 @@ function shapeOf(leaf: CadLeaf, soup: ReturnType<typeof soupOf>) {
  * the viewer's tree (or a face double-clicked on its canvas), in place of the viewer's own
  * bounding box for it.
  */
-export function createCadView(container: HTMLElement, nodes: CadNode[], { onPick }: { onPick?: (path: string) => void } = {}): CadView {
+export function createCadView(
+  container: HTMLElement, nodes: CadNode[],
+  { onPick, control = 'orbit' }: { onPick?: (path: string) => void; control?: 'orbit' | 'trackball' } = {},
+): CadView {
   const box = new THREE.Box3();
   // Each leaf drawn, by path, with what a ray needs to find its faces.
   const drawn = new Map<string, { mesh: THREE.Mesh; faceOf: number[] }>();
@@ -147,7 +166,7 @@ export function createCadView(container: HTMLElement, nodes: CadNode[], { onPick
     measureTools: true, selectTool: true, zebraTool: true, externalMeasurementBackend: false,
   });
   // Lit softly enough that a face's colour still reads.
-  const options = { target: box.getCenter(new THREE.Vector3()).toArray(), up: 'Z' as const };
+  const options = { target: box.getCenter(new THREE.Vector3()).toArray(), up: 'Z' as const, control };
   const viewer: Viewer = new Viewer(display, options, change => {
     const picked = (change as { lastPick?: { new?: { path: string; name: string } | null } }).lastPick?.new;
     if (!picked || !onPick) return;
@@ -184,6 +203,18 @@ export function createCadView(container: HTMLElement, nodes: CadNode[], { onPick
   resized.observe(container);
   const hidden = new Set<string>();
   const ray = new THREE.Raycaster();
+  // Overlays sit over the canvas, in its parent, sized to it.
+  const overlayHost = canvas.parentElement as HTMLElement;
+  if (getComputedStyle(overlayHost).position === 'static') overlayHost.style.position = 'relative';
+  let moved = false;
+  const press = () => { moved = true; };
+  canvas.addEventListener('pointerdown', press);
+  canvas.addEventListener('wheel', press, { passive: true });
+  const frames: (() => void)[] = [];
+  let ticking = 0;
+  const tick = () => { for (const f of frames) f(); ticking = requestAnimationFrame(tick); };
+  const vector = (v: readonly number[]) => new THREE.Vector3(v[0], v[1], v[2]);
+  const heading = () => vector(viewer.getCameraPosition()).sub(vector(viewer.getCameraTarget())).normalize();
   // The node in hand stays lit: the viewer's own pointer hover, on its canvas or leaving a row
   // of its tree, clears the same highlight, so it is put back after each move. Over the tree,
   // the viewer's hover of a row is left to show.
@@ -217,8 +248,20 @@ export function createCadView(container: HTMLElement, nodes: CadNode[], { onPick
     lookFrom(direction, around) {
       const target = (around ?? box).getCenter(new THREE.Vector3());
       const span = (around ?? box).getSize(new THREE.Vector3()).length();
+      // Placed outright, at the distance the camera keeps: a relative placement is from the
+      // viewer's own idea of the target, which the trackball does not keep up to date.
+      const distance = vector(viewer.getCameraPosition()).distanceTo(vector(viewer.getCameraTarget()));
+      const eye = target.clone().addScaledVector(new THREE.Vector3(...direction).normalize(), distance);
       viewer.setCameraTarget(target.toArray() as [number, number, number], false);
-      viewer.setCameraPosition(direction as unknown as [number, number, number], true, false);
+      viewer.setCameraPosition(eye.toArray() as [number, number, number], false, false);
+      // Aimed at the target, keeping the way up it had (or Z, if looking along it): the
+      // trackball does not turn the camera to its target by itself.
+      const turned = new THREE.Quaternion(...viewer.getCameraQuaternion());
+      let up = new THREE.Vector3(0, 1, 0).applyQuaternion(turned);
+      const along = target.clone().sub(eye).normalize();
+      if (Math.abs(up.dot(along)) > 0.999) up = new THREE.Vector3(0, 0, 1);
+      const aim = new THREE.Matrix4().lookAt(eye, target, up);
+      viewer.setCameraQuaternion(new THREE.Quaternion().setFromRotationMatrix(aim).toArray() as [number, number, number, number], false);
       viewer.setCameraZoom(Math.min(8, Math.max(0.5, box.getSize(new THREE.Vector3()).length() / Math.max(span, 1e-6))), false);
     },
     show(path, visible) {
@@ -226,7 +269,33 @@ export function createCadView(container: HTMLElement, nodes: CadNode[], { onPick
       viewer.setState(path, visible ? [1, 1] : [0, 0]);
     },
     transparent(on) { viewer.setTransparent(on); },
+    size() { const r = canvas.getBoundingClientRect(); return [r.width, r.height]; },
+    overlayHost,
+    onFrame(listener) { frames.push(listener); if (!ticking) ticking = requestAnimationFrame(tick); },
+    home(direction) { this.lookFrom(direction); },
+    fit() { this.lookFrom(heading().toArray() as unknown as PmiVec); },
+    roll(quarters) {
+      const q = new THREE.Quaternion(...viewer.getCameraQuaternion());
+      q.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), (quarters * Math.PI) / 2));
+      viewer.setCameraQuaternion(q.toArray() as [number, number, number, number], false);
+    },
+    dolly(factor) { viewer.setCameraZoom(Math.min(40, Math.max(0.05, viewer.getCameraZoom() / factor)), false); },
+    moved: () => moved,
+    replace(group, ...leaves) {
+      const names = group === null ? [] : [group];
+      for (const leaf of leaves) {
+        const path = pathOf(...names, leaf.name);
+        if (drawn.has(path)) { viewer.removePart(path, { skipBounds: true }); drawn.get(path)!.mesh.geometry.dispose(); drawn.delete(path); }
+        if (leaf.faces.length) viewer.addPart(pathOf(...names), part(leaf, ...names) as unknown as Shapes, { skipBounds: true });
+      }
+      // Once for the lot: the viewer's bounds, clipping and tree.
+      viewer.updateBounds();
+    },
     dispose() {
+      cancelAnimationFrame(ticking);
+      frames.length = 0;
+      canvas.removeEventListener('pointerdown', press);
+      canvas.removeEventListener('wheel', press);
       clearTimeout(opened);
       cancelAnimationFrame(frame);
       for (const type of ['pointermove', 'pointerleave', 'pointerup']) container.removeEventListener(type, relight, true);

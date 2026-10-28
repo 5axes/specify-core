@@ -13,7 +13,8 @@ import { optionHint } from './hints';
 import { balloonsBySource, type Characteristic, characteristics, ranges, toCsv } from './characteristics';
 import { CharacteristicsTable, ExtraEditor, PurposeChoice, SpecBox, SuggestBox, SuggestionCard, TOLERANCE_PICKS, type ExtraDraft } from './inputs';
 import type { PmiLabel } from './labels';
-import { createPicker, type Picker } from './picker';
+import type { Picker } from './picker';
+import { createReviewView } from './review-view';
 import { answerOf, confirmRow, display, groupQuestions, needs, nextNeeding, questionForFace, rowState, summary, type QuestionGroup } from './review';
 import { MODES, type PickMode } from './selection';
 import './PmiLab.css';
@@ -161,7 +162,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   const handlers = useRef({ face: (_face: number) => {}, label: (_label: PmiLabel) => {} });
   useEffect(() => {
     if (!stage.current) return undefined;
-    const created = createPicker(stage.current, {
+    const created = createReviewView(stage.current, {
       mesh: session.mesh, analysis: session.analysis,
     });
     created.on('change', setSelection);
