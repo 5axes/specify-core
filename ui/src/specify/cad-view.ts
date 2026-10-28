@@ -138,12 +138,12 @@ export function createCadView(container: HTMLElement, nodes: CadNode[]): CadView
   const [width, height] = size();
   // Studio mode is off: it fetches its lighting from polyhaven.org, which the CSP refuses.
   const display = new Display(container, {
-    cadWidth: width, height, treeWidth: 220, glass: true, theme: 'light', tools: true,
+    cadWidth: width, height, treeWidth: 260, glass: true, theme: 'light', tools: true,
     pinning: false, studioTool: false, zscaleTool: false, explodeTool: false,
     measureTools: true, selectTool: true, zebraTool: true, externalMeasurementBackend: false,
   });
-  // The tree opened to its leaves; lit softly enough that a face's colour still reads.
-  const options = { target: box.getCenter(new THREE.Vector3()).toArray(), up: 'Z' as const, collapse: 2 };
+  // The tree opened one level, its nodes closed; lit softly enough that a face's colour still reads.
+  const options = { target: box.getCenter(new THREE.Vector3()).toArray(), up: 'Z' as const, collapse: 1 };
   const viewer = new Viewer(display, options, () => {});
   viewer.render(shapes, {
     ambientIntensity: 0.55, directIntensity: 0.7, metalness: 0.04, roughness: 0.6,
@@ -151,8 +151,16 @@ export function createCadView(container: HTMLElement, nodes: CadNode[]): CadView
   }, options);
 
   const canvas = viewer.getCanvas() as HTMLElement;
-  const fit = new ResizeObserver(() => { const [w, h] = size(); viewer.resizeCadView(w, 220, h, true); });
-  fit.observe(container);
+  // The canvas takes what the container has left after the viewer's own toolbar.
+  const fit = () => {
+    const root = container.firstElementChild as HTMLElement | null;
+    const chrome = root ? Math.max(0, root.getBoundingClientRect().height - canvas.getBoundingClientRect().height) : 0;
+    const [w, h] = size();
+    viewer.resizeCadView(w, 260, Math.max(h - chrome, 160), true);
+  };
+  fit();
+  const resized = new ResizeObserver(fit);
+  resized.observe(container);
   const hidden = new Set<string>();
   const ray = new THREE.Raycaster();
 
@@ -187,7 +195,7 @@ export function createCadView(container: HTMLElement, nodes: CadNode[]): CadView
     },
     transparent(on) { viewer.setTransparent(on); },
     dispose() {
-      fit.disconnect();
+      resized.disconnect();
       for (const { mesh } of drawn.values()) mesh.geometry.dispose();
       viewer.dispose();
       container.replaceChildren();
