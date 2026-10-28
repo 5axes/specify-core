@@ -111,8 +111,12 @@ function shapeOf(leaf: CadLeaf, soup: ReturnType<typeof soupOf>) {
   };
 }
 
-/** ``nodes`` drawn in ``container``, sized to it. */
-export function createCadView(container: HTMLElement, nodes: CadNode[]): CadView {
+/**
+ * ``nodes`` drawn in ``container``, sized to it. ``onPick`` hears the path of a node picked in
+ * the viewer's tree (or a face double-clicked on its canvas), in place of the viewer's own
+ * bounding box for it.
+ */
+export function createCadView(container: HTMLElement, nodes: CadNode[], { onPick }: { onPick?: (path: string) => void } = {}): CadView {
   const box = new THREE.Box3();
   // Each leaf drawn, by path, with what a ray needs to find its faces.
   const drawn = new Map<string, { mesh: THREE.Mesh; faceOf: number[] }>();
@@ -144,7 +148,13 @@ export function createCadView(container: HTMLElement, nodes: CadNode[]): CadView
   });
   // The tree opened one level, its nodes closed; lit softly enough that a face's colour still reads.
   const options = { target: box.getCenter(new THREE.Vector3()).toArray(), up: 'Z' as const, collapse: 1 };
-  const viewer = new Viewer(display, options, () => {});
+  const viewer: Viewer = new Viewer(display, options, change => {
+    const picked = (change as { lastPick?: { new?: { path: string; name: string } | null } }).lastPick?.new;
+    if (!picked || !onPick) return;
+    // The viewer draws its box after it says what was picked.
+    setTimeout(() => { viewer.removeLastBbox(); viewer.update(true, false); });
+    onPick(`${picked.path}/${picked.name}`);
+  });
   viewer.render(shapes, {
     ambientIntensity: 0.55, directIntensity: 0.7, metalness: 0.04, roughness: 0.6,
     edgeColor: 0x4a5058, defaultOpacity: 0.5, normalLen: 0,
@@ -163,13 +173,24 @@ export function createCadView(container: HTMLElement, nodes: CadNode[]): CadView
   resized.observe(container);
   const hidden = new Set<string>();
   const ray = new THREE.Raycaster();
+  // The node in hand stays lit: the viewer's own pointer hover, on its canvas or leaving a row
+  // of its tree, clears the same highlight, so it is put back after each move. Over the tree,
+  // the viewer's hover of a row is left to show.
+  let lit: string | null = null;
+  let frame = 0;
+  const relight = (event: Event) => {
+    if ((event.target as Element | null)?.closest?.('.tcv_cad_tree')) return;
+    cancelAnimationFrame(frame);
+    frame = requestAnimationFrame(() => viewer.handleTreeHover(lit));
+  };
+  for (const type of ['pointermove', 'pointerleave', 'pointerup']) container.addEventListener(type, relight, true);
 
   return {
     viewer,
     canvas,
     get camera() { return viewer.camera.getCamera() as unknown as THREE.Camera; },
     diagonal: box.getSize(new THREE.Vector3()).length(),
-    light(path) { viewer.handleTreeHover(path); },
+    light(path) { lit = path; viewer.handleTreeHover(path); },
     facesAt(x, y) {
       const rect = canvas.getBoundingClientRect();
       ray.setFromCamera(new THREE.Vector2((2 * x) / rect.width - 1, 1 - (2 * y) / rect.height), viewer.camera.getCamera() as unknown as THREE.Camera);
@@ -195,6 +216,8 @@ export function createCadView(container: HTMLElement, nodes: CadNode[]): CadView
     },
     transparent(on) { viewer.setTransparent(on); },
     dispose() {
+      cancelAnimationFrame(frame);
+      for (const type of ['pointermove', 'pointerleave', 'pointerup']) container.removeEventListener(type, relight, true);
       resized.disconnect();
       for (const { mesh } of drawn.values()) mesh.geometry.dispose();
       viewer.dispose();
