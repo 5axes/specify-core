@@ -29,3 +29,12 @@ package, including upstream licensing and font notices, is served beside its JS
 and WASM. Local Rust engine wrappers and the adapted PMI writer have been removed.
 The native integration harness uses the same upstream crates through Cargo.
 The upstream Specify licence is preserved in `specify-core-rust/LICENSE`.
+
+`three-cad-viewer/` is Bernhard Walter's three-cad-viewer
+(`bernhard-42/three-cad-viewer`) at tag `v5.1.3`, commit
+`060536e89805db13abb863120e93cff1ec4da15e`, MIT, unmodified: its `src`, `css`, `icons`
+and `LICENSE`. Its published package bundles its own three.js, so the editor builds it
+from these sources against its own (`vite.config.ts` aliases `three-cad-viewer`), one copy
+shared with the code drawn into its scene. `src/specify/cad-view.ts` is the only code that
+uses it; `npm run test:diff` checks that use. Replace it with
+`node scripts/vendor-three-cad-viewer.mjs <tag>`.

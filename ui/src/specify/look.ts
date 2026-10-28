@@ -5,7 +5,12 @@ import * as THREE from 'three';
 
 import type { PmiMesh, PmiVec } from '../types/pmi';
 
-import type { Navigator } from './navigator';
+/** What a look turns: a view's camera, the part's size, and a way to stand. */
+export interface Viewpoint {
+  readonly camera: THREE.Camera;
+  readonly diagonal: number;
+  lookFrom(direction: PmiVec, around?: THREE.Box3): void;
+}
 
 /** How much of the part a close look keeps around a feature, as a share of its diagonal. */
 const CLOSE_CONTEXT = 0.35;
@@ -33,7 +38,7 @@ export interface LookOptions {
 export type LookAt = (faces: readonly number[], options?: { close?: boolean }) => void;
 
 /** Turns ``nav``'s view to ``faces``, close up with ``close``. */
-export function createLook(nav: Navigator, { mesh, occluder, faceOf, faceInfo }: LookOptions): LookAt {
+export function createLook(nav: Viewpoint, { mesh, occluder, faceOf, faceInfo }: LookOptions): LookAt {
   const centre = new THREE.Vector3(...mesh.bbox[0]).add(new THREE.Vector3(...mesh.bbox[1])).multiplyScalar(0.5);
 
   // Points inside the faces (triangle centres: a vertex is shared with the
