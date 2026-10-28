@@ -4,7 +4,7 @@
 // against this file's copy of the meshes, so nothing of the editor's is drawn into its scene
 // (the package carries its own three.js).
 import * as THREE from 'three';
-import { Display, Viewer, type Shapes } from 'three-cad-viewer';
+import { CollapseState, Display, Viewer, type Shapes } from 'three-cad-viewer';
 import 'three-cad-viewer/css';
 
 import type { PmiMesh, PmiVec } from '../types/pmi';
@@ -146,8 +146,8 @@ export function createCadView(container: HTMLElement, nodes: CadNode[], { onPick
     pinning: false, studioTool: false, zscaleTool: false, explodeTool: false,
     measureTools: true, selectTool: true, zebraTool: true, externalMeasurementBackend: false,
   });
-  // The tree opened one level, its nodes closed; lit softly enough that a face's colour still reads.
-  const options = { target: box.getCenter(new THREE.Vector3()).toArray(), up: 'Z' as const, collapse: 1 };
+  // Lit softly enough that a face's colour still reads.
+  const options = { target: box.getCenter(new THREE.Vector3()).toArray(), up: 'Z' as const };
   const viewer: Viewer = new Viewer(display, options, change => {
     const picked = (change as { lastPick?: { new?: { path: string; name: string } | null } }).lastPick?.new;
     if (!picked || !onPick) return;
@@ -159,14 +159,25 @@ export function createCadView(container: HTMLElement, nodes: CadNode[], { onPick
     ambientIntensity: 0.55, directIntensity: 0.7, metalness: 0.04, roughness: 0.6,
     edgeColor: 0x4a5058, defaultOpacity: 0.5, normalLen: 0,
   }, options);
+  // The tree opened one level, its nodes closed. Set once the caller has set up what is shown:
+  // the viewer's tree closes again as nodes are first shown or hidden.
+  const opened = setTimeout(() => viewer.collapseNodes(CollapseState.ROOT, false));
 
   const canvas = viewer.getCanvas() as HTMLElement;
-  // The canvas takes what the container has left after the viewer's own toolbar.
+  // The canvas takes what the container has left after the viewer's own toolbar, margins and
+  // borders, measured as drawn.
   const fit = () => {
     const root = container.firstElementChild as HTMLElement | null;
-    const chrome = root ? Math.max(0, root.getBoundingClientRect().height - canvas.getBoundingClientRect().height) : 0;
+    let [chromeX, chromeY] = [0, 0];
+    if (root) {
+      const outer = root.getBoundingClientRect();
+      const style = getComputedStyle(root);
+      const inner = canvas.getBoundingClientRect();
+      chromeX = Math.max(0, outer.width + parseFloat(style.marginLeft) + parseFloat(style.marginRight) - inner.width);
+      chromeY = Math.max(0, outer.height + parseFloat(style.marginTop) + parseFloat(style.marginBottom) - inner.height);
+    }
     const [w, h] = size();
-    viewer.resizeCadView(w, 260, Math.max(h - chrome, 160), true);
+    viewer.resizeCadView(Math.max(w - chromeX, 200), 260, Math.max(h - chromeY, 160), true);
   };
   fit();
   const resized = new ResizeObserver(fit);
@@ -216,6 +227,7 @@ export function createCadView(container: HTMLElement, nodes: CadNode[], { onPick
     },
     transparent(on) { viewer.setTransparent(on); },
     dispose() {
+      clearTimeout(opened);
       cancelAnimationFrame(frame);
       for (const type of ['pointermove', 'pointerleave', 'pointerup']) container.removeEventListener(type, relight, true);
       resized.disconnect();
