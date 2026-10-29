@@ -6,13 +6,20 @@ interface IntentModule {
   tolerancingEdit(state: string, mode: string | undefined, answers: string): string;
   openedTolerancing(state: string, resume?: string): string;
   diff(oldName: string, old: Uint8Array, newName: string, next: Uint8Array, answers: string, title: string): string;
-  IntentEngine: new (name: string, bytes: Uint8Array) => { free(): void; snapshot(): string; review(answers: string): string; settle(state: string): string; writePmi(answers: string, project?: string): string; acceptDefaults(answers: string): string;
-    evidence(): string; rematchAnswers(answers: string, evidence?: string | null, automatic?: string | null): string;
-    payload(name: string): string | undefined; original(): Uint8Array | undefined };
+  IntentEngine: {
+    new (name: string, bytes: Uint8Array): IntentInstance;
+    openPart(name: string, bytes: Uint8Array, part: number): IntentInstance;
+    parts(name: string, bytes: Uint8Array): string;
+  };
 }
+interface IntentInstance { free(): void; snapshot(): string; review(answers: string): string; settle(state: string): string; writePmi(answers: string, project?: string): string; acceptDefaults(answers: string): string;
+    evidence(): string; rematchAnswers(answers: string, evidence?: string | null, automatic?: string | null): string;
+    payload(name: string): string | undefined; original(): Uint8Array | undefined }
 
-let engine: InstanceType<IntentModule['IntentEngine']> | undefined;
+let engine: IntentInstance | undefined;
 let sourceId = '';
+// The part of an assembly the engine is of, if its file is one.
+let part: number | undefined;
 
 // The editor draws and writes Specify's defaults, listed for review (agreed 2026-10-16). From
 // specify-core alpha.6 an unanswered default is not written unless accepted, so every review and
@@ -54,10 +61,11 @@ self.onmessage = ({ data: { id, operation, args } }) => {
       const module = await load();
       let result: unknown = true;
       if (operation === 'open' || operation === 'review' || operation === 'settle' || operation === 'write' || operation === 'rematch') {
-        if (!engine || sourceId !== args.sourceId || operation === 'open') {
+        if (!engine || sourceId !== args.sourceId || part !== args.part || operation === 'open') {
           engine?.free(); engine = undefined;
-          engine = new module.IntentEngine(args.name, args.bytes);
-          sourceId = args.sourceId;
+          engine = args.part === undefined ? new module.IntentEngine(args.name, args.bytes)
+            : module.IntentEngine.openPart(args.name, args.bytes, args.part);
+          sourceId = args.sourceId; part = args.part;
         }
         if (operation === 'write') {
           const document = JSON.parse(engine.writePmi(accepted(args.answers), args.project));
@@ -68,6 +76,12 @@ self.onmessage = ({ data: { id, operation, args } }) => {
         } else if (operation === 'rematch') {
           result = JSON.parse(engine.rematchAnswers(JSON.stringify(args.answers), args.evidence ? JSON.stringify(args.evidence) : null, args.automatic ? JSON.stringify(args.automatic) : null));
         } else result = operation === 'open' ? { ...JSON.parse(engine.snapshot()), evidence: JSON.parse(engine.evidence()) } : reviewed(args.answers);
+      } else if (operation === 'parts') {
+        result = JSON.parse(module.IntentEngine.parts(args.name, args.bytes));
+      } else if (operation === 'part-mesh') {
+        // One part's mesh for the assembly's view, on an engine of its own: the open part's is kept.
+        const one = module.IntentEngine.openPart(args.name, args.bytes, args.part);
+        try { result = JSON.parse(one.snapshot()).mesh; } finally { one.free(); }
       } else if (operation === 'carried') {
         // What a STEP carries, read on an engine of its own: the open part's is kept.
         const file = new module.IntentEngine(args.name, args.bytes);
