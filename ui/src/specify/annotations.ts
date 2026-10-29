@@ -15,7 +15,15 @@ import type { PmiAnalysis, PmiAnchor, PmiMesh } from '../types/pmi';
 
 import { ranges } from './characteristics';
 import type { PmiLabel } from './labels';
-import type { Navigator } from './navigator';
+/** What labels are drawn over: a scene of their own, the view's camera, the part's size. */
+export interface AnnotationHost {
+  readonly scene: THREE.Scene;
+  /** Read each time: a view can change camera (perspective, orthographic). */
+  readonly camera: THREE.Camera;
+  readonly diagonal: number;
+  size(): [number, number];
+  onFrame(listener: () => void): void;
+}
 
 export const GROUP_COLOUR = {
   answered: '#2f6fb5', default: '#6f8db3', existing: '#707880', general: '#3d8a6e', current: '#c47f00',
@@ -61,7 +69,7 @@ export interface Annotations {
 
 /** Labels over ``nav``'s scene, anchored on ``mesh`` faces. */
 export function createAnnotations(
-  nav: Navigator,
+  nav: AnnotationHost,
   container: HTMLElement,
   { mesh, analysis, onClick, occluders }: {
     mesh: PmiMesh; analysis: PmiAnalysis; onClick: (label: PmiLabel) => void;
@@ -69,7 +77,7 @@ export function createAnnotations(
     occluders: () => THREE.Object3D[];
   },
 ): Annotations {
-  const { scene, camera, diagonal: d } = nav;
+  const { scene, diagonal: d } = nav;
   const overlay = new CSS2DRenderer();
   overlay.domElement.style.cssText = 'position:absolute;inset:0;pointer-events:none';
   container.appendChild(overlay.domElement);
@@ -341,7 +349,7 @@ export function createAnnotations(
         p.el.style.visibility = 'hidden';
         continue;
       }
-      proj.copy(p.world).project(camera);
+      proj.copy(p.world).project(nav.camera);
       if (proj.z > 1) {
         p.el.style.visibility = 'hidden';
         continue;
@@ -378,9 +386,9 @@ export function createAnnotations(
     const solids = occluders();
     const bias = d * 0.004;
     const hidden = (point: THREE.Vector3) => {
-      const toward = point.clone().sub(camera.position);
+      const toward = point.clone().sub(nav.camera.position);
       const reach = toward.length();
-      occluder.set(camera.position, toward.normalize());
+      occluder.set(nav.camera.position, toward.normalize());
       occluder.near = 0;
       occluder.far = Math.max(reach - bias, 0);
       return occluder.intersectObjects(solids, false).length > 0;
@@ -400,11 +408,11 @@ export function createAnnotations(
     const [w, h] = nav.size();
     overlay.setSize(w, h);
     for (const m of materials) m.resolution.set(w, h);
-    overlay.render(scene, camera);
+    overlay.render(scene, nav.camera);
     if ((frame++ & 1) === 0) declutter();
     // Held still for a few frames running: settled.
-    if (lastEye.distanceToSquared(camera.position) > 1e-12) {
-      lastEye.copy(camera.position);
+    if (lastEye.distanceToSquared(nav.camera.position) > 1e-12) {
+      lastEye.copy(nav.camera.position);
       still = 0;
     } else if (still >= 0 && ++still === 6) {
       testOcclusion();

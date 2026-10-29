@@ -44,6 +44,9 @@ export interface Picker {
       reveal?: ReadonlySet<string>;
     },
   ): void;
+  /** The review's rows, as the panel names them, with their faces: a view with a tree lists
+   * them there. */
+  features?(rows: readonly { title: string; faces: readonly number[] }[]): void;
   setLabelsVisible(on: boolean): void;
   /** Whether labels on the far side of the part are hidden. */
   setFarSideHidden(on: boolean): void;

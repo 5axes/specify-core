@@ -13,7 +13,8 @@ import { optionHint } from './hints';
 import { balloonsBySource, type Characteristic, characteristics, ranges, toCsv } from './characteristics';
 import { CharacteristicsTable, ExtraEditor, PurposeChoice, SpecBox, SuggestBox, SuggestionCard, TOLERANCE_PICKS, type ExtraDraft } from './inputs';
 import type { PmiLabel } from './labels';
-import { createPicker, type Picker } from './picker';
+import type { Picker } from './picker';
+import { createReviewView } from './review-view';
 import { answerOf, confirmRow, display, groupQuestions, needs, nextNeeding, questionForFace, rowState, summary, type QuestionGroup } from './review';
 import { MODES, type PickMode } from './selection';
 import './PmiLab.css';
@@ -161,7 +162,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   const handlers = useRef({ face: (_face: number) => {}, label: (_label: PmiLabel) => {} });
   useEffect(() => {
     if (!stage.current) return undefined;
-    const created = createPicker(stage.current, {
+    const created = createReviewView(stage.current, {
       mesh: session.mesh, analysis: session.analysis,
     });
     created.on('change', setSelection);
@@ -181,6 +182,12 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   }, [session, faces]);
 
   useEffect(() => { picker.current?.tint(tints ?? new Map()); }, [tints, session, faces]);
+  // The view's tree lists the rows by feature, as the panel does.
+  useEffect(() => {
+    picker.current?.features?.(groups.filter((g) => g.key !== 'part' && g.key !== 'datums').map((g) => ({
+      title: g.title, faces: [...new Set(g.questions.flatMap((q) => q.faces))],
+    })));
+  }, [groups, session]);
 
   useEffect(() => {
     if (!showFaces) return;
@@ -690,9 +697,10 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     {createPortal(<div className="pmi-lab pmi-lab-pane">
       <div className="pmi-lab-view">
         <div className="pmi-lab-stage" ref={stage} />
-        <div className="pmi-lab-nav">
-          {/* What the view shows: about the part, so on it, not in the panel; folded,
-              so it does not cover the part. */}
+        {/* The view's controls, together at its bottom right: what it shows, then how it is
+            turned. What the view shows is about the part, so on it, not in the panel; folded,
+            so it does not cover the part. */}
+        <div className="pmi-lab-pad">
           <details className="pmi-lab-show">
             <summary title="What the 3D view shows">⚙ Show ▾</summary>
             <div>
@@ -710,9 +718,6 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
               ))}
             </div>
           </details>
-        </div>
-        {/* As step-pmi-viewer has them: above the orientation cube. */}
-        <div className="pmi-lab-pad">
           <div>
             <button type="button" title="Roll a quarter turn anticlockwise" onClick={() => picker.current?.navigator.roll(-1)}>↺</button>
             <button type="button" title="Roll a quarter turn clockwise" onClick={() => picker.current?.navigator.roll(1)}>↻</button>
