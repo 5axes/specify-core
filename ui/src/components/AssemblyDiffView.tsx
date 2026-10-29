@@ -30,14 +30,18 @@ const label = (name: string) => name.replace(/[/<>&"]/g, ' ');
  * coloured by what became of it, and each removed part a ghost at its old placements. Picking
  * a changed part opens its own comparison.
  */
-export default function AssemblyDiffView({ engine, old, next, rows, lit, onOpen }: {
+export default function AssemblyDiffView({ engine, old, next, rows, lit, meshes, onOpen, onPoint }: {
   engine: WorkerClient;
+  /** Each part's mesh by its name, kept for opening it alone. */
+  meshes: Map<string, PmiMesh>;
   /** The part in hand in the parts table, lit here. */
   lit: string | null;
   old: StepFile;
   next: StepFile;
   rows: AssemblyRow[];
   onOpen: (name: string) => void;
+  /** The part under the pointer on the assembly, or none. */
+  onPoint: (name: string | null) => void;
 }) {
   const stage = useRef<HTMLDivElement>(null);
   const view = useRef<CadView | null>(null);
@@ -47,6 +51,10 @@ export default function AssemblyDiffView({ engine, old, next, rows, lit, onOpen 
 
   useEffect(() => {
     let live = true;
+    let stopPointer = () => {};
+    // The row a tree path is under.
+    const rowAt = (path: string | undefined) => path === undefined ? undefined
+      : drawn.find(r => path === pathOf(label(r.name)) || path.startsWith(`${pathOf(label(r.name))}/`));
     void (async () => {
       try {
         const [oldParts, newParts] = await Promise.all([
@@ -57,7 +65,8 @@ export default function AssemblyDiffView({ engine, old, next, rows, lit, onOpen 
         for (const row of drawn) {
           // A part in the new revision is drawn from it; a removed one from the old.
           const [file, parts, at] = row.new ? [next, newParts, row.new.part] : [old, oldParts, row.old!.part];
-          const mesh = await engine.request<PmiMesh>('part-mesh', { name: file.name, bytes: file.bytes, part: at });
+          const mesh = meshes.get(row.name) ?? await engine.request<PmiMesh>('part-mesh', { name: file.name, bytes: file.bytes, part: at });
+          meshes.set(row.name, mesh);
           if (!live) return;
           setRead(n => n + 1);
           const placements = parts[at]?.placements ?? [];
@@ -73,18 +82,34 @@ export default function AssemblyDiffView({ engine, old, next, rows, lit, onOpen 
           });
         }
         if (!stage.current || !live) return;
-        view.current = createCadView(stage.current, nodes, {
-          onPick: path => {
-            const row = drawn.find(r => path === pathOf(label(r.name)) || path.startsWith(`${pathOf(label(r.name))}/`));
-            if (row && row.status === 'changed') onOpen(row.name);
-            else if (row) view.current?.light(pathOf(label(row.name)));
-          },
+        const cad = createCadView(stage.current, nodes, {
+          onPick: path => { const row = rowAt(path); if (row) onOpen(row.name); },
         });
+        view.current = cad;
+        // The part under a point is found by our own ray, as the single part's view finds its
+        // faces: the viewer's pick draws a box round what it picked. A press that stays put is a
+        // click; one that moves turns the assembly.
+        const canvas = cad.canvas;
+        const at = (e: PointerEvent) => { const r = canvas.getBoundingClientRect(); return rowAt(cad.facesAt(e.clientX - r.left, e.clientY - r.top)[0]?.path); };
+        let down: { x: number; y: number; row: AssemblyRow | undefined } | null = null;
+        const onDown = (e: PointerEvent) => { down = { x: e.screenX, y: e.screenY, row: at(e) }; };
+        const onMove = (e: PointerEvent) => { if (e.buttons === 0) onPoint(at(e)?.name ?? null); };
+        const onLeave = () => onPoint(null);
+        const onUp = (e: PointerEvent) => {
+          const press = down; down = null;
+          if (press?.row && Math.hypot(e.screenX - press.x, e.screenY - press.y) <= 4) onOpen(press.row.name);
+        };
+        canvas.addEventListener('pointerdown', onDown); canvas.addEventListener('pointermove', onMove);
+        canvas.addEventListener('pointerleave', onLeave); canvas.addEventListener('pointerup', onUp);
+        stopPointer = () => {
+          canvas.removeEventListener('pointerdown', onDown); canvas.removeEventListener('pointermove', onMove);
+          canvas.removeEventListener('pointerleave', onLeave); canvas.removeEventListener('pointerup', onUp);
+        };
       } catch (e) {
         if (live) setError(e instanceof Error ? e.message : String(e));
       }
     })();
-    return () => { live = false; view.current?.dispose(); view.current = null; };
+    return () => { live = false; stopPointer(); view.current?.dispose(); view.current = null; };
   }, [old, next, rows]);
 
   useEffect(() => { view.current?.light(lit === null ? null : pathOf(label(lit))); }, [lit, read]);
