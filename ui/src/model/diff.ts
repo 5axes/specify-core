@@ -27,10 +27,11 @@ export function diffQuery(search: string): DiffQuery {
   const head = query.get('head') ?? '';
   const path = query.get('path') ?? '';
   const was = query.get('was') || path;
-  // A part's name, to show it: nothing is fetched by it.
+  // A part's name, matched against the parts list and shown: nothing is fetched by it, so any
+  // name core gives a part will do.
   const part = query.get('part') ?? '';
   const relative = (p: string) => p !== '' && !p.startsWith('/') && !p.split('/').some(s => s === '' || s === '.' || s === '..');
-  if (!REPO.test(repo) || !SHA.test(base) || !SHA.test(head) || !relative(path) || !relative(was) || part.length > 200) {
+  if (!REPO.test(repo) || !SHA.test(base) || !SHA.test(head) || !relative(path) || !relative(was)) {
     throw new Error('This link does not name a repository, two commits and a STEP file.');
   }
   return { repo, base, head, path, was, part };

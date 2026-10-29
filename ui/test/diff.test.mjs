@@ -12,6 +12,7 @@ test('a diff link names a repository, two commits and relative paths, and nothin
   // An assembly's part, as the action's link names it (jq's @uri), or a URLSearchParams one.
   assert.equal(diffQuery(`?repo=o/r&base=${sha}&head=${sha}&path=a.step&part=GRM-04%20drive%20plate`).part, 'GRM-04 drive plate');
   assert.equal(diffQuery(`?repo=o/r&base=${sha}&head=${sha}&path=a.step&part=GRM-02+shaft`).part, 'GRM-02 shaft');
+  assert.equal(diffQuery(`?repo=o/r&base=${sha}&head=${sha}&path=a.step&part=${'x'.repeat(500)}`).part, 'x'.repeat(500));
   for (const bad of [
     `?repo=o&base=${sha}&head=${sha}&path=a.step`,
     `?repo=o/r/x&base=${sha}&head=${sha}&path=a.step`,
@@ -20,7 +21,6 @@ test('a diff link names a repository, two commits and relative paths, and nothin
     `?repo=o/r&base=${sha}&head=${sha}&path=/a.step`,
     `?repo=o/r&base=${sha}&head=${sha}&path=a.step&was=x//a.step`,
     `?repo=o/r&base=${sha}&head=${sha}`,
-    `?repo=o/r&base=${sha}&head=${sha}&path=a.step&part=${'x'.repeat(201)}`,
   ]) assert.throws(() => diffQuery(bad), /does not name/, bad);
 });
 
