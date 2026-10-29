@@ -200,7 +200,12 @@ export function createCadView(
   }, options);
   // The tree opened one level, its nodes closed. Set once the caller has set up what is shown:
   // the viewer's tree closes again as nodes are first shown or hidden.
-  const opened = setTimeout(() => viewer.collapseNodes(CollapseState.ROOT, false));
+  // On a narrow view (a phone), its tools and tree start folded too: they would cover half the
+  // part. Its Tools toggle opens them.
+  const opened = setTimeout(() => {
+    viewer.collapseNodes(CollapseState.ROOT, false);
+    if (container.clientWidth < 700) viewer.showToolsPanel(false);
+  });
 
   const canvas = viewer.getCanvas() as HTMLElement;
   // The canvas takes what the container has left after the viewer's own toolbar, margins and
