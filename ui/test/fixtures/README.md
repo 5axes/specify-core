@@ -34,3 +34,12 @@ semantic AP242 thread fallback exercised by the plate fixture.
 `8103d57768f9fa7ddda57c0b126cfd4d1ceefb88` and `9f1018816812bb0d305f7b7d06d4d5262afd60a2`,
 gzipped: the demo pull request's two revisions. `scripts/diff-browser.mjs` compares them
 on the /diff page.
+
+`gramil_assembly_before.step.gz` and `gramil_assembly_after.step.gz` are gramil's assembly
+(`pzfreo/gramil` at `9171ef6`, Open Community License v1), 12 distinct parts, the same bytes
+as `tests/fixtures/revisions/gramil_assembly.old.step.gz` and `.new.step.gz` in
+`pzfreo/specify-core-rust` (branch `assembly-diff`), made there by `gramil_assembly.py`. Both
+are the production build (`process.prototype=False`, as gramil's `scripts/build_production.py`).
+After is gramil's defaults; before has `shaft.drive_plate_mount_depth` 4 (not 5) and
+`drive_plate.mount_hole_diameter` 2.2 (not 2.4): GRM-02 shaft and GRM-04 drive plate change,
+the other 10 parts do not. `scripts/diff-browser.mjs` compares them as an assembly.

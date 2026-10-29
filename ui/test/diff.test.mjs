@@ -7,8 +7,12 @@ const sha = 'a8622c3f0e1d2c3b4a5968778695a4b3c2d1e0f9';
 
 test('a diff link names a repository, two commits and relative paths, and nothing else', () => {
   const q = diffQuery(`?repo=pzfreo/step-diff-demo&base=${sha}&head=0153025&path=parts/a%20%23b.step`);
-  assert.deepEqual(q, { repo: 'pzfreo/step-diff-demo', base: sha, head: '0153025', path: 'parts/a #b.step', was: 'parts/a #b.step' });
+  assert.deepEqual(q, { repo: 'pzfreo/step-diff-demo', base: sha, head: '0153025', path: 'parts/a #b.step', was: 'parts/a #b.step', part: '' });
   assert.equal(diffQuery(`?repo=o/r&base=${sha}&head=${sha}&path=new.step&was=old.step`).was, 'old.step');
+  // An assembly's part, as the action's link names it (jq's @uri), or a URLSearchParams one.
+  assert.equal(diffQuery(`?repo=o/r&base=${sha}&head=${sha}&path=a.step&part=GRM-04%20drive%20plate`).part, 'GRM-04 drive plate');
+  assert.equal(diffQuery(`?repo=o/r&base=${sha}&head=${sha}&path=a.step&part=GRM-02+shaft`).part, 'GRM-02 shaft');
+  assert.equal(diffQuery(`?repo=o/r&base=${sha}&head=${sha}&path=a.step&part=${'x'.repeat(500)}`).part, 'x'.repeat(500));
   for (const bad of [
     `?repo=o&base=${sha}&head=${sha}&path=a.step`,
     `?repo=o/r/x&base=${sha}&head=${sha}&path=a.step`,
@@ -89,7 +93,7 @@ test('a pull request\'s or commit\'s changed STEP files, each as a diff link', a
   };
   const pull = await changedSteps({ kind: 'pull', repo: 'o/r', number: 2 });
   assert.deepEqual(pull.files.map(f => [f.path, f.was]), [['parts/a.step', 'parts/a.step'], ['parts/new.step', 'parts/old.stp']]);
-  assert.deepEqual(diffQuery(pull.files[1].query), { repo: 'o/r', base: sha, head, path: 'parts/new.step', was: 'parts/old.stp' });
+  assert.deepEqual(diffQuery(pull.files[1].query), { repo: 'o/r', base: sha, head, path: 'parts/new.step', was: 'parts/old.stp', part: '' });
   assert.ok(asked.every(u => u.startsWith('https://api.github.com/repos/o/r/')), 'only GitHub\'s API, for that repository');
   const commit = await changedSteps({ kind: 'commit', repo: 'o/r', sha: head });
   assert.equal(diffQuery(commit.files[0].query).base, parent, 'a commit against its parent');

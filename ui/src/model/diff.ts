@@ -3,7 +3,8 @@
  * diff and drawn as the pull request comment's picture is: the new part, its faces coloured by
  * what changed, with the old part's gone or moved faces over it in translucent red. The STEP
  * diff action links its picture here: /diff?repo=owner/name&base=SHA&head=SHA&path=a/b.step
- * (&was=old/path.step for a renamed file); a pasted pull request or commit's address gives
+ * (&was=old/path.step for a renamed file, &part=NAME for one part of an assembly, by its
+ * name in the comparison's parts list); a pasted pull request or commit's address gives
  * the same link. Public repositories only: raw.githubusercontent.com and GitHub's API serve them
  * to any page. Without a link, the page compares two STEP files the person picks, in the
  * browser: they are never uploaded.
@@ -13,7 +14,7 @@
  * go from that page to this one in the browser, and are compared here like two picked ones.
  */
 
-export interface DiffQuery { repo: string; base: string; head: string; path: string; was: string }
+export interface DiffQuery { repo: string; base: string; head: string; path: string; was: string; part: string }
 
 const REPO = /^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/;
 const SHA = /^[0-9a-f]{7,40}$/;
@@ -26,11 +27,14 @@ export function diffQuery(search: string): DiffQuery {
   const head = query.get('head') ?? '';
   const path = query.get('path') ?? '';
   const was = query.get('was') || path;
+  // A part's name, matched against the parts list and shown: nothing is fetched by it, so any
+  // name core gives a part will do.
+  const part = query.get('part') ?? '';
   const relative = (p: string) => p !== '' && !p.startsWith('/') && !p.split('/').some(s => s === '' || s === '.' || s === '..');
   if (!REPO.test(repo) || !SHA.test(base) || !SHA.test(head) || !relative(path) || !relative(was)) {
     throw new Error('This link does not name a repository, two commits and a STEP file.');
   }
-  return { repo, base, head, path, was };
+  return { repo, base, head, path, was, part };
 }
 
 /** The file at a commit of a public repository, or null where it has none. */
