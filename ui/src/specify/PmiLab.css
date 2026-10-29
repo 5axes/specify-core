@@ -71,11 +71,12 @@
 .pmi-lab .pmi-lab-exports button { padding: 3px 8px; font-size: 12px; }
 .pmi-lab-account { padding-top: 4px; font-size: 11.5px; }
 .pmi-lab-account .pmi-account { font-size: 11.5px; }
-.pmi-lab-nav details.pmi-lab-show { position: relative; display: block; font-size: 12.5px; color: #1a1d21; }
-.pmi-lab-nav details.pmi-lab-show summary { list-style: none; cursor: pointer; padding: 3px 8px; border: 1px solid #d9dee4;
+.pmi-lab-pad details.pmi-lab-show { position: relative; display: block; align-self: flex-end; font-size: 12.5px; color: #1a1d21; }
+.pmi-lab-pad details.pmi-lab-show summary { list-style: none; cursor: pointer; padding: 3px 8px; border: 1px solid #d9dee4;
   border-radius: 4px; background: #fff; }
-.pmi-lab-nav details.pmi-lab-show summary::-webkit-details-marker { display: none; }
-.pmi-lab-nav details.pmi-lab-show > div { position: absolute; top: calc(100% + 4px); left: 0; display: grid; gap: 4px;
+.pmi-lab-pad details.pmi-lab-show summary::-webkit-details-marker { display: none; }
+/* Opens up and to the left, inside the view: the menu sits at its bottom right. */
+.pmi-lab-pad details.pmi-lab-show > div { position: absolute; bottom: calc(100% + 4px); right: 0; display: grid; gap: 4px;
   min-width: 170px; padding: 8px 10px; background: #fff; border: 1px solid #d9dee4; border-radius: 6px;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12); white-space: nowrap; }
 .pmi-lab-resumed { margin: 4px 0 0; padding: 4px 8px; border-radius: 4px; background: #e9f6ee; color: #14632f;
@@ -96,15 +97,14 @@
 }
 .pmi-lab-view { position: absolute; inset: 0; }
 .pmi-lab-stage { position: absolute; inset: 0; overflow: hidden; }
-/* Clear of three-cad-viewer's own toolbar (top), tree (top left) and filter (top right). */
-.pmi-lab-nav { position: absolute; right: 14px; top: 92px; z-index: 9; display: flex; gap: 4px; }
-/* Bottom right, clear of the viewer's axes (bottom left). */
+/* Bottom right, clear of three-cad-viewer's toolbar (top), tree (top left), filter (top right)
+   and axes (bottom left). */
 .pmi-lab-pad { position: absolute; right: 14px; bottom: 40px; z-index: 9;
   display: flex; flex-direction: column; align-items: center; gap: 6px; }
 .pmi-lab-pad > div { display: flex; gap: 4px; }
 .pmi-lab .pmi-lab-pad button { width: 26px; height: 24px; padding: 0; font: 600 13px/1 ui-sans-serif, sans-serif; }
 .pmi-lab .pmi-lab-pad button.wide { width: 46px; font-size: 11px; font-weight: 500; }
-.pmi-lab-pad label { display: flex; align-items: center; gap: 4px; color: #707880; }
+.pmi-lab-pad > label { display: flex; align-items: center; gap: 4px; color: #707880; }
 .pmi-lab-pad input[type=range] { width: 120px; }
 .pmi-lab-status { position: absolute; left: 110px; bottom: 14px; z-index: 9; color: #707880; font-size: 12px; }
 .pmi-lab button { font: inherit; border: 1px solid #d9dee4; background: #fff; color: #1a1d21;
@@ -313,7 +313,6 @@
     border-width: 1px 0 0; box-shadow: 0 -2px 12px rgba(0, 0, 0, .12); }
   .pmi-lab.sheet-open .pmi-lab-panel { height: 88dvh; }
   .pmi-lab .sheet-toggle { display: inline-block; font-size: 12px; }
-  .pmi-lab-nav { right: 8px; top: 84px; }
   .pmi-lab-status, .pmi-lab-go-note:not(.blocked) { display: none; }
 }
 
