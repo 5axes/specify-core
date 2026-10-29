@@ -232,7 +232,6 @@ export function createReviewView(
       // its edges.
       const groups = new Set([...drawnKey.values()].map((k) => k.split('\u0000')[0]!));
       for (const group of groups) cad.replace(group, ...STATES.map(([state]) => leaf(state, [])));
-      cad.replace(null, { ...EDGES, edges: false });
       for (const f of all) drawnKey.set(f, '');
       featureOf = next;
       const order = [...new Set([...next.values()]), OTHER];
@@ -241,6 +240,9 @@ export function createReviewView(
         cad.replace(group, ...states.map((state) => leaf(state, all.filter((f) => groupOf(f) === group && stateOf(f) === state))));
       }
       for (const f of all) drawnKey.set(f, key(groupOf(f), stateOf(f)));
+      // The edges, kept until the groups were back (the viewer's tree hides what is added to a
+      // node with nothing under it), then moved after them.
+      cad.replace(null, { ...EDGES, edges: false });
       cad.replace(null, EDGES);
       cad.collapse();
     },

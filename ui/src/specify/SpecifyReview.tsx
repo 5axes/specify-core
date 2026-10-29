@@ -697,9 +697,10 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     {createPortal(<div className="pmi-lab pmi-lab-pane">
       <div className="pmi-lab-view">
         <div className="pmi-lab-stage" ref={stage} />
-        <div className="pmi-lab-nav">
-          {/* What the view shows: about the part, so on it, not in the panel; folded,
-              so it does not cover the part. */}
+        {/* The view's controls, together at its bottom right: what it shows, then how it is
+            turned. What the view shows is about the part, so on it, not in the panel; folded,
+            so it does not cover the part. */}
+        <div className="pmi-lab-pad">
           <details className="pmi-lab-show">
             <summary title="What the 3D view shows">⚙ Show ▾</summary>
             <div>
@@ -717,9 +718,6 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
               ))}
             </div>
           </details>
-        </div>
-        {/* As step-pmi-viewer has them: above the orientation cube. */}
-        <div className="pmi-lab-pad">
           <div>
             <button type="button" title="Roll a quarter turn anticlockwise" onClick={() => picker.current?.navigator.roll(-1)}>↺</button>
             <button type="button" title="Roll a quarter turn clockwise" onClick={() => picker.current?.navigator.roll(1)}>↻</button>
