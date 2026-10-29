@@ -113,8 +113,8 @@ function shapeOf(leaf: CadLeaf, soup: ReturnType<typeof soupOf>) {
 
 /**
  * ``nodes`` drawn in ``container``, sized to it. ``onPick`` hears the path of a node picked in
- * the viewer's tree (or a face double-clicked on its canvas), in place of the viewer's own
- * bounding box for it.
+ * the viewer's tree (or a face double-clicked on its canvas). The viewer's own bounding box for
+ * what was picked is never shown.
  */
 export function createCadView(container: HTMLElement, nodes: CadNode[], { onPick }: { onPick?: (path: string) => void } = {}): CadView {
   const box = new THREE.Box3();
@@ -150,10 +150,11 @@ export function createCadView(container: HTMLElement, nodes: CadNode[], { onPick
   const options = { target: box.getCenter(new THREE.Vector3()).toArray(), up: 'Z' as const };
   const viewer: Viewer = new Viewer(display, options, change => {
     const picked = (change as { lastPick?: { new?: { path: string; name: string } | null } }).lastPick?.new;
-    if (!picked || !onPick) return;
-    // The viewer draws its box after it says what was picked.
+    if (!picked) return;
+    // Never the viewer's box for what was picked: it reads as part of the model. It draws the
+    // box after it says what was picked.
     setTimeout(() => { viewer.removeLastBbox(); viewer.update(true, false); });
-    onPick(`${picked.path}/${picked.name}`);
+    onPick?.(`${picked.path}/${picked.name}`);
   });
   viewer.render(shapes, {
     ambientIntensity: 0.55, directIntensity: 0.7, metalness: 0.04, roughness: 0.6,
