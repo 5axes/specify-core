@@ -3,9 +3,10 @@
  * diff and drawn as the pull request comment's picture is: the new part, its faces coloured by
  * what changed, with the old part's gone or moved faces over it in translucent red. The STEP
  * diff action links its picture here: /diff?repo=owner/name&base=SHA&head=SHA&path=a/b.step
- * (&was=old/path.step for a renamed file). Public repositories only: raw.githubusercontent.com
- * serves them to any page. Without a link, the page compares two STEP files the person picks,
- * in the browser: they are never uploaded.
+ * (&was=old/path.step for a renamed file); a pasted pull request or commit's address gives
+ * the same link. Public repositories only: raw.githubusercontent.com and GitHub's API serve them
+ * to any page. Without a link, the page compares two STEP files the person picks, in the
+ * browser: they are never uploaded.
  */
 
 export interface DiffQuery { repo: string; base: string; head: string; path: string; was: string }
@@ -35,6 +36,57 @@ export async function fileAt(repo: string, sha: string, path: string): Promise<U
   if (response.status === 404) return null;
   if (!response.ok) throw new Error(`GitHub answered ${response.status} for ${path} at ${sha.slice(0, 7)}.`);
   return new Uint8Array(await response.arrayBuffer());
+}
+
+/** A pull request or a commit on GitHub, as its page's address names it. */
+export type GithubLink = { repo: string } & ({ kind: 'pull'; number: number } | { kind: 'commit'; sha: string });
+
+/** A pasted GitHub address (`github.com/owner/name/pull/12`, `…/commit/<sha>`), or null. */
+export function githubLink(text: string): GithubLink | null {
+  const m = text.trim().match(/^(?:https?:\/\/)?(?:www\.)?github\.com\/([A-Za-z0-9-]+\/[A-Za-z0-9._-]+)\/(pull|commit)\/([0-9a-fA-F]+)(?:[/?#].*)?$/);
+  if (!m || !REPO.test(m[1]!)) return null;
+  if (m[2] === 'pull') return /^\d+$/.test(m[3]!) ? { kind: 'pull', repo: m[1]!, number: Number(m[3]) } : null;
+  return SHA.test(m[3]!.toLowerCase()) ? { kind: 'commit', repo: m[1]!, sha: m[3]!.toLowerCase() } : null;
+}
+
+/** A STEP file a link changed, as the diff page's own link names it (`?repo=…&path=…`). */
+export interface ChangedStep { path: string; was: string; query: string }
+
+const isStep = (path: string) => /\.(step|stp)$/i.test(path);
+
+/**
+ * The STEP files a pull request or commit changed (renamed or modified; not added or removed,
+ * which have no other revision to compare), each with its diff link: a pull request between its
+ * base and head, a commit against its first parent. Public repositories only: GitHub's API
+ * answers them without a sign-in.
+ */
+export async function changedSteps(link: GithubLink): Promise<{ base: string; head: string; files: ChangedStep[] }> {
+  const api = async <T>(path: string): Promise<T> => {
+    const response = await fetch(`https://api.github.com/repos/${link.repo}/${path}`, { headers: { Accept: 'application/vnd.github+json' } });
+    if (response.status === 404) throw new Error(`GitHub has no public ${link.kind === 'pull' ? 'pull request' : 'commit'} there: is the repository private?`);
+    if (response.status === 403 || response.status === 429) throw new Error('GitHub is limiting requests from here for now. Try again in a while.');
+    if (!response.ok) throw new Error(`GitHub answered ${response.status}.`);
+    return response.json() as Promise<T>;
+  };
+  type File = { filename: string; status: string; previous_filename?: string };
+  let base: string, head: string, files: File[];
+  if (link.kind === 'pull') {
+    const pull = await api<{ base: { sha: string }; head: { sha: string } }>(`pulls/${link.number}`);
+    [base, head] = [pull.base.sha, pull.head.sha];
+    files = await api<File[]>(`pulls/${link.number}/files?per_page=100`);
+  } else {
+    const commit = await api<{ sha: string; parents: { sha: string }[]; files?: File[] }>(`commits/${link.sha}`);
+    if (!commit.parents[0]) throw new Error('That commit has no parent to compare it with.');
+    [base, head, files] = [commit.parents[0].sha, commit.sha, commit.files ?? []];
+  }
+  const steps = files
+    .filter(f => isStep(f.filename) && (f.status === 'modified' || f.status === 'renamed' || f.status === 'changed'))
+    .map(f => {
+      const was = f.previous_filename ?? f.filename;
+      const query = new URLSearchParams({ repo: link.repo, base, head, path: f.filename, ...was !== f.filename ? { was } : {} });
+      return { path: f.filename, was, query: `?${query}` };
+    });
+  return { base, head, files: steps };
 }
 
 /** A picked file's STEP text: a gzipped one (.step.gz) is unpacked here, in the browser. */
