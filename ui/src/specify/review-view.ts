@@ -50,9 +50,24 @@ export function createReviewView(
   const index = indexAnalysis(analysis);
   const all = mesh.faces.map((_, f) => f);
   const leaf = (state: State, faces: number[]): CadLeaf => ({
-    name: state, mesh, faces, colour: STATES.find(([s]) => s === state)![1], edges: state === 'Faces',
+    name: state, mesh, faces, colour: STATES.find(([s]) => s === state)![1],
   });
-  const cad = createCadView(container, STATES.map(([state]) => leaf(state, state === 'Faces' ? all : [])), { control: 'trackball' });
+  // The tree is the review's features (its rows, as the panel names them), each feature's faces
+  // in the leaf of their state's colour; faces no row is about are the part's others. The edges
+  // are a leaf of their own, so they stay as faces move.
+  const OTHER = 'Other faces';
+  let featureOf = new Map<number, string>();
+  const groupOf = (face: number) => featureOf.get(face) ?? OTHER;
+  const EDGES: CadLeaf = { name: 'Edges', mesh, faces: [], colour: '#4a5058', edges: true };
+  const cad = createCadView(container, [{ name: OTHER, leaves: [leaf('Faces', all)] }, EDGES], {
+    control: 'trackball',
+    // A feature picked in the tree: its question, as picking one of its faces would.
+    onPick: (path) => {
+      const name = path.split('/')[2];
+      const face = all.find((f) => groupOf(f) === name && name !== OTHER);
+      if (face !== undefined) for (const f of listeners.face) f(face);
+    },
+  });
   cad.home(HOME);
 
   let mode: PickMode = 'face';
@@ -63,8 +78,10 @@ export function createReviewView(
   let pickable = true;
   const listeners: { [K in keyof PickerEvents]: PickerEvents[K][] } = { change: [], hover: [], face: [], label: [] };
 
-  // Each face's leaf, as drawn; a paint moves only the faces whose state changed.
-  const drawnState = new Map<number, State>(all.map((f) => [f, 'Faces']));
+  // Each face's leaf as drawn, its feature and state; a paint replaces only the leaves whose
+  // faces changed.
+  const key = (group: string, state: State) => `${group}\u0000${state}`;
+  const drawnKey = new Map<number, string>(all.map((f) => [f, key(OTHER, 'Faces')]));
   function stateOf(face: number): State {
     if (selection.has(face)) return 'Picked';
     if (hovered.has(face)) return 'Under the pointer';
@@ -73,16 +90,22 @@ export function createReviewView(
     return tint ? TINT[tint] : 'Faces';
   }
   function paint() {
-    const touched = new Set<State>();
+    const touched = new Set<string>();
     for (const face of all) {
-      const next = stateOf(face);
-      const was = drawnState.get(face)!;
+      const next = key(groupOf(face), stateOf(face));
+      const was = drawnKey.get(face)!;
       if (next === was) continue;
       touched.add(next).add(was);
-      drawnState.set(face, next);
+      drawnKey.set(face, next);
     }
-    if (touched.size) cad.replace(null, ...[...touched].map((state) => leaf(state, all.filter((f) => drawnState.get(f) === state))));
-
+    const byGroup = new Map<string, State[]>();
+    for (const k of touched) {
+      const [group, state] = k.split('\u0000') as [string, State];
+      byGroup.set(group, [...(byGroup.get(group) ?? []), state]);
+    }
+    for (const [group, states] of byGroup) {
+      cad.replace(group, ...states.map((state) => leaf(state, all.filter((f) => drawnKey.get(f) === key(group, state)))));
+    }
   }
 
   // What hides a label or a feature: the part, as the editor's own copy of it.
@@ -191,6 +214,35 @@ export function createReviewView(
         framedLabels = true;
         if (!cad.moved()) cad.home(HOME);
       }
+    },
+    features(rows) {
+      // A face in several rows (a hole and its pattern) is in the first; names are made unique
+      // and plain, as the viewer's tree finds nodes by name and shows them as HTML.
+      const used = new Map<string, number>();
+      const next = new Map<number, string>();
+      for (const row of rows) {
+        const base = row.title.replace(/[/<>&"]/g, ' ').replace(/\s+/g, ' ').trim() || 'Feature';
+        const n = (used.get(base) ?? 0) + 1;
+        used.set(base, n);
+        const name = n > 1 ? `${base} (${n})` : base;
+        for (const f of row.faces) if (!next.has(f)) next.set(f, name);
+      }
+      if ([...next].join() === [...featureOf].join()) return;
+      // The tree again, in the panel's order: its features, then the part's other faces and
+      // its edges.
+      const groups = new Set([...drawnKey.values()].map((k) => k.split('\u0000')[0]!));
+      for (const group of groups) cad.replace(group, ...STATES.map(([state]) => leaf(state, [])));
+      cad.replace(null, { ...EDGES, edges: false });
+      for (const f of all) drawnKey.set(f, '');
+      featureOf = next;
+      const order = [...new Set([...next.values()]), OTHER];
+      for (const group of order) {
+        const states = STATES.map(([state]) => state);
+        cad.replace(group, ...states.map((state) => leaf(state, all.filter((f) => groupOf(f) === group && stateOf(f) === state))));
+      }
+      for (const f of all) drawnKey.set(f, key(groupOf(f), stateOf(f)));
+      cad.replace(null, EDGES);
+      cad.collapse();
     },
     setLabelsVisible: (on) => annotations.setVisible(on),
     setFarSideHidden: (on) => annotations.setFarSideHidden(on),

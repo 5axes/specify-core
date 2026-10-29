@@ -18,7 +18,7 @@ export interface CadLeaf {
   colour: string;
   /** Opacity, 1 for a solid. */
   alpha?: number;
-  /** The mesh's edges go with this leaf. */
+  /** The mesh's edges go with this leaf; with no faces, the leaf is the edges alone. */
   edges?: boolean;
   /** Where each point goes, for faces drawn somewhere other than where the mesh has them. */
   place?: (p: [number, number, number]) => [number, number, number];
@@ -48,7 +48,8 @@ export interface CadView {
   show(path: string, visible: boolean): void;
   /** The viewer's transparency, on or off. */
   transparent(on: boolean): void;
-  /** Replace leaves (or add them) under a group, by name: how a face changes colour. */
+  /** Replace leaves (or add them) under a group, by name: how a face changes colour. A group
+   * is made when it is first given leaves, and taken away when it has none left. */
   replace(group: string | null, ...leaves: CadLeaf[]): void;
   /** The canvas's size in CSS pixels, and the element over it to lay overlays in. */
   size(): [number, number];
@@ -64,6 +65,8 @@ export interface CadView {
   dolly(factor: number): void;
   /** Whether the person has moved the view since it opened. */
   moved(): boolean;
+  /** The tree opened one level again, its nodes closed. */
+  collapse(): void;
   dispose(): void;
 }
 
@@ -139,7 +142,21 @@ export function createCadView(
   const box = new THREE.Box3();
   // Each leaf drawn, by path, with what a ray needs to find its faces.
   const drawn = new Map<string, { mesh: THREE.Mesh; faceOf: number[] }>();
+  // The groups in the tree, by path.
+  const made = new Set<string>();
   const part = (leaf: CadLeaf, ...names: string[]) => {
+    if (!leaf.faces.length) {
+      // The mesh's edges alone: a leaf that stays while faces move between the others.
+      const lines = shapeOf(leaf, soupOf(leaf));
+      // Drawn, so it can be replaced, with nothing for a ray to find.
+      drawn.set(pathOf(...names, leaf.name), { mesh: new THREE.Mesh(new THREE.BufferGeometry()), faceOf: [] });
+      for (let i = 0; i < lines.edges.length; i += 3) box.expandByPoint(new THREE.Vector3(lines.edges[i], lines.edges[i + 1], lines.edges[i + 2]));
+      return {
+        version: 3, name: leaf.name, id: pathOf(...names, leaf.name), type: 'edges',
+        shape: { ...lines, vertices: [], normals: [], triangles: [], triangles_per_face: [], face_types: [] },
+        state: [3, 1], color: leaf.colour, alpha: 1, width: 1, loc: null, accuracy: null, bb: null,
+      };
+    }
     const soup = soupOf(leaf);
     const path = pathOf(...names, leaf.name);
     drawn.set(path, { mesh: new THREE.Mesh(soup.geometry, new THREE.MeshBasicMaterial({ side: THREE.DoubleSide })), faceOf: soup.faceOf });
@@ -150,8 +167,10 @@ export function createCadView(
     };
   };
   const parts = nodes.flatMap((node): unknown[] => {
-    if (!isGroup(node)) return node.faces.length ? [part(node)] : [];
-    const leaves = node.leaves.filter(leaf => leaf.faces.length).map(leaf => part(leaf, node.name));
+    const shown = (leaf: CadLeaf) => leaf.faces.length > 0 || leaf.edges === true;
+    if (!isGroup(node)) return shown(node) ? [part(node)] : [];
+    const leaves = node.leaves.filter(shown).map(leaf => part(leaf, node.name));
+    if (leaves.length) made.add(pathOf(node.name));
     return leaves.length ? [{ version: 3, name: node.name, id: pathOf(node.name), loc: null, parts: leaves }] : [];
   });
   const bb = { xmin: box.min.x, xmax: box.max.x, ymin: box.min.y, ymax: box.max.y, zmin: box.min.z, zmax: box.max.z };
@@ -282,13 +301,27 @@ export function createCadView(
     },
     dolly(factor) { viewer.setCameraZoom(Math.min(40, Math.max(0.05, viewer.getCameraZoom() / factor)), false); },
     moved: () => moved,
+    collapse() { viewer.collapseNodes(CollapseState.ROOT, false); },
     replace(group, ...leaves) {
       const names = group === null ? [] : [group];
+      const groupPath = pathOf(...names);
+      const has = (path: string) => [...drawn.keys()].some(p => p.startsWith(`${path}/`));
       for (const leaf of leaves) {
         const path = pathOf(...names, leaf.name);
         if (drawn.has(path)) { viewer.removePart(path, { skipBounds: true }); drawn.get(path)!.mesh.geometry.dispose(); drawn.delete(path); }
-        if (leaf.faces.length) viewer.addPart(pathOf(...names), part(leaf, ...names) as unknown as Shapes, { skipBounds: true });
+        if (!leaf.faces.length && !leaf.edges) continue;
+        if (group !== null && !made.has(groupPath)) {
+          // A group the tree does not have yet: added with its first leaf, its ids relative to
+          // the root, as the viewer prefixes them.
+          const shape = part(leaf, ...names) as { id: string };
+          shape.id = `/${group}/${leaf.name}`;
+          viewer.addPart(pathOf(), { version: 3, name: group, id: `/${group}`, loc: null, parts: [shape] } as unknown as Shapes, { skipBounds: true });
+          made.add(groupPath);
+        } else {
+          viewer.addPart(groupPath, part(leaf, ...names) as unknown as Shapes, { skipBounds: true });
+        }
       }
+      if (group !== null && !has(groupPath) && made.delete(groupPath)) viewer.removePart(groupPath, { skipBounds: true });
       // Once for the lot: the viewer's bounds, clipping and tree.
       viewer.updateBounds();
     },

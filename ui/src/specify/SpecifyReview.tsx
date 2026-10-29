@@ -182,6 +182,12 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   }, [session, faces]);
 
   useEffect(() => { picker.current?.tint(tints ?? new Map()); }, [tints, session, faces]);
+  // The view's tree lists the rows by feature, as the panel does.
+  useEffect(() => {
+    picker.current?.features?.(groups.filter((g) => g.key !== 'part' && g.key !== 'datums').map((g) => ({
+      title: g.title, faces: [...new Set(g.questions.flatMap((q) => q.faces))],
+    })));
+  }, [groups, session]);
 
   useEffect(() => {
     if (!showFaces) return;
