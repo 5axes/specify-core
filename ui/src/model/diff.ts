@@ -7,6 +7,10 @@
  * the same link. Public repositories only: raw.githubusercontent.com and GitHub's API serve them
  * to any page. Without a link, the page compares two STEP files the person picks, in the
  * browser: they are never uploaded.
+ *
+ * Another page can hand it the two files (docs/DIFF-HANDOFF.md): it opens /diff, which posts
+ * it `{ type: 'draftwright:diff-ready' }`, and answers with `handedFiles`'s message. The files
+ * go from that page to this one in the browser, and are compared here like two picked ones.
  */
 
 export interface DiffQuery { repo: string; base: string; head: string; path: string; was: string }
@@ -145,4 +149,31 @@ export function reportHtml(markdown: string): string {
     } else html.push(`<p>${inline(line)}</p>`);
   }
   return html.join('\n');
+}
+
+/** What /diff posts the page that opened it, once it listens. */
+export const HANDOFF_READY = 'draftwright:diff-ready';
+/** A file another page hands /diff, read as a Blob. */
+export interface Handed { name: string; data: Blob }
+
+const handed = (file: unknown): Handed | null => {
+  if (!file || typeof file !== 'object') return null;
+  const { name, data } = file as { name?: unknown; data?: unknown };
+  if (typeof name !== 'string' || !name.trim()) return null;
+  const blob = data instanceof Blob ? data
+    : data instanceof ArrayBuffer || ArrayBuffer.isView(data) ? new Blob([data as BlobPart]) : null;
+  // A file's name only, for the page to show: no folders, and not too long.
+  return blob ? { name: name.split(/[\\/]/).pop()!.slice(0, 200), data: blob } : null;
+};
+
+/**
+ * The two files in a message another page posts /diff, or null if it is not one:
+ * `{ type: 'draftwright:diff', before: { name, data }, after: { name, data } }`, each `data`
+ * a Blob (or File), an ArrayBuffer or a typed array, of a STEP file or a gzipped one.
+ */
+export function handedFiles(message: unknown): { before: Handed; after: Handed } | null {
+  if (!message || typeof message !== 'object' || (message as { type?: unknown }).type !== 'draftwright:diff') return null;
+  const before = handed((message as { before?: unknown }).before);
+  const after = handed((message as { after?: unknown }).after);
+  return before && after ? { before, after } : null;
 }
