@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { gzipSync } from 'node:zlib';
-import { diffQuery, fileAt, reportHtml, stepBytes } from '../src/model/diff.ts';
+import { changedSteps, diffQuery, fileAt, githubLink, reportHtml, stepBytes } from '../src/model/diff.ts';
 
 const sha = 'a8622c3f0e1d2c3b4a5968778695a4b3c2d1e0f9';
 
@@ -58,4 +58,42 @@ test('a picked file is read as it is, or unpacked when gzipped', async () => {
   assert.equal(await read(new TextEncoder().encode(step)), step);
   assert.equal(await read(gzipSync(step)), step);
   await assert.rejects(read(new Uint8Array([0x1f, 0x8b, 0, 1, 2])));
+});
+
+test('a pasted pull request or commit address is read, and nothing else', () => {
+  assert.deepEqual(githubLink('https://github.com/pzfreo/step-diff-demo/pull/2'), { kind: 'pull', repo: 'pzfreo/step-diff-demo', number: 2 });
+  assert.deepEqual(githubLink(' github.com/o/r.x/pull/12/files?diff=split '), { kind: 'pull', repo: 'o/r.x', number: 12 });
+  assert.deepEqual(githubLink(`https://github.com/o/r/commit/${sha.toUpperCase()}`), { kind: 'commit', repo: 'o/r', sha });
+  for (const bad of ['https://gitlab.com/o/r/pull/2', 'https://github.com/o/r/issues/2', 'https://github.com/o/r/pull/x',
+    'https://github.com/o/r/commit/zz', 'https://evil.example/github.com/o/r/pull/2', 'github.com/o/pull/2']) {
+    assert.equal(githubLink(bad), null, bad);
+  }
+});
+
+test('a pull request\'s or commit\'s changed STEP files, each as a diff link', async () => {
+  const head = 'b'.repeat(40), parent = 'c'.repeat(40);
+  const asked = [];
+  const files = [
+    { filename: 'parts/a.step', status: 'modified' },
+    { filename: 'parts/new.step', status: 'renamed', previous_filename: 'parts/old.stp' },
+    { filename: 'parts/added.step', status: 'added' },
+    { filename: 'parts/gone.step', status: 'removed' },
+    { filename: 'README.md', status: 'modified' },
+  ];
+  globalThis.fetch = async url => {
+    asked.push(String(url));
+    if (url.endsWith('/pulls/2')) return Response.json({ base: { sha }, head: { sha: head } });
+    if (url.includes('/pulls/2/files')) return Response.json(files);
+    if (url.endsWith(`/commits/${head}`)) return Response.json({ sha: head, parents: [{ sha: parent }], files });
+    return new Response('', { status: 404 });
+  };
+  const pull = await changedSteps({ kind: 'pull', repo: 'o/r', number: 2 });
+  assert.deepEqual(pull.files.map(f => [f.path, f.was]), [['parts/a.step', 'parts/a.step'], ['parts/new.step', 'parts/old.stp']]);
+  assert.deepEqual(diffQuery(pull.files[1].query), { repo: 'o/r', base: sha, head, path: 'parts/new.step', was: 'parts/old.stp' });
+  assert.ok(asked.every(u => u.startsWith('https://api.github.com/repos/o/r/')), 'only GitHub\'s API, for that repository');
+  const commit = await changedSteps({ kind: 'commit', repo: 'o/r', sha: head });
+  assert.equal(diffQuery(commit.files[0].query).base, parent, 'a commit against its parent');
+  await assert.rejects(changedSteps({ kind: 'pull', repo: 'o/r', number: 9 }), /private/);
+  globalThis.fetch = async () => new Response('', { status: 403 });
+  await assert.rejects(changedSteps({ kind: 'pull', repo: 'o/r', number: 2 }), /limiting/);
 });
