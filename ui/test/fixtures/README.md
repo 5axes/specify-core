@@ -28,3 +28,9 @@ matched is reported with its value.
 `tests/fixtures/pmi/step/bolt_thread_knurl.step.gz` (AGPL-3.0-only).
 It checks native manufacturing thread/knurl callouts alongside the separate
 semantic AP242 thread fallback exercised by the plate fixture.
+
+`cast_bearing_unit_before.step.gz` and `cast_bearing_unit_after.step.gz` are
+`cast_bearing_unit.step` from `pzfreo/step-diff-demo` (Apache-2.0) at
+`8103d57768f9fa7ddda57c0b126cfd4d1ceefb88` and `9f1018816812bb0d305f7b7d06d4d5262afd60a2`,
+gzipped: the demo pull request's two revisions. `scripts/diff-browser.mjs` compares them
+on the /diff page.
