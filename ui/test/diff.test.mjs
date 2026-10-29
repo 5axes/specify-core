@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { gzipSync } from 'node:zlib';
-import { changedSteps, diffQuery, fileAt, githubLink, reportHtml, stepBytes } from '../src/model/diff.ts';
+import { changedSteps, diffQuery, fileAt, githubLink, handedFiles, reportHtml, stepBytes } from '../src/model/diff.ts';
 
 const sha = 'a8622c3f0e1d2c3b4a5968778695a4b3c2d1e0f9';
 
@@ -96,4 +96,21 @@ test('a pull request\'s or commit\'s changed STEP files, each as a diff link', a
   await assert.rejects(changedSteps({ kind: 'pull', repo: 'o/r', number: 9 }), /private/);
   globalThis.fetch = async () => new Response('', { status: 403 });
   await assert.rejects(changedSteps({ kind: 'pull', repo: 'o/r', number: 2 }), /limiting/);
+});
+
+test('another page hands over two files: Blobs, ArrayBuffers or typed arrays, named', async () => {
+  const files = handedFiles({ type: 'draftwright:diff',
+    before: { name: '/home/me/parts/a.step.gz', data: new Uint8Array([1, 2]).buffer },
+    after: { name: 'C:\\parts\\b.step', data: new Blob(['ISO']) } });
+  assert.equal(files.before.name, 'a.step.gz');
+  assert.equal(files.after.name, 'b.step');
+  assert.deepEqual([...new Uint8Array(await files.before.data.arrayBuffer())], [1, 2]);
+  assert.equal(await files.after.data.text(), 'ISO');
+  assert.equal(handedFiles({ type: 'draftwright:diff', before: { name: 'a', data: new Uint16Array([7]) }, after: { name: 'b', data: new Blob([]) } }).before.data.size, 2);
+  for (const bad of [
+    null, 'draftwright:diff', { type: 'other', before: { name: 'a', data: new Blob([]) }, after: { name: 'b', data: new Blob([]) } },
+    { type: 'draftwright:diff', before: { name: 'a', data: new Blob([]) } },
+    { type: 'draftwright:diff', before: { name: '', data: new Blob([]) }, after: { name: 'b', data: new Blob([]) } },
+    { type: 'draftwright:diff', before: { name: 'a', data: 'ISO-10303-21;' }, after: { name: 'b', data: new Blob([]) } },
+  ]) assert.equal(handedFiles(bad), null);
 });
