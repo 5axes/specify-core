@@ -15,6 +15,8 @@ fn no_opt_in_is_byte_identical_to_06a97df_through_api_and_cli() {
     std::fs::create_dir_all(&dir).unwrap();
     let complete: Vec<Map<String, Value>> =
         serde_json::from_str(include_str!("fixtures/bom/legacy-assembly-answers.json")).unwrap();
+    let plate_complete: Map<String, Value> =
+        serde_json::from_str(include_str!("fixtures/bom/legacy-plate-answers.json")).unwrap();
     // SHA-256 of actual 06a97df CLI writes, including owners of answers/characteristic history.
     for (fixture, all_answered, defaults, expected) in [
         (
@@ -41,6 +43,18 @@ fn no_opt_in_is_byte_identical_to_06a97df_through_api_and_cli() {
             true,
             "48260c09bfffc0dccb00739aa0b8723af95d439a7a235ce0594cdd29df129814",
         ),
+        (
+            "plate",
+            true,
+            false,
+            "551db0393e872689a0986d08e940ba2a479c72d36bbe831c8bbfe8cb4f5c3262",
+        ),
+        (
+            "plate",
+            true,
+            true,
+            "551db0393e872689a0986d08e940ba2a479c72d36bbe831c8bbfe8cb4f5c3262",
+        ),
     ] {
         let path = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join(format!("tests/fixtures/parts/{fixture}.step"));
@@ -51,7 +65,11 @@ fn no_opt_in_is_byte_identical_to_06a97df_through_api_and_cli() {
         for part in file.load_all().unwrap() {
             let analysis = api::analyse_reporting_in(&file, &part).unwrap().0;
             let answers = if all_answered {
-                complete[part.binding.part].clone()
+                if fixture == "plate" {
+                    plate_complete.clone()
+                } else {
+                    complete[part.binding.part].clone()
+                }
             } else {
                 json!({"part.material":"6061-T6"})
                     .as_object()
