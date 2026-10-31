@@ -32,6 +32,26 @@ export interface DrawnGraphic {
   readonly triangles: readonly (readonly [DrawnPoint, DrawnPoint, DrawnPoint])[];
   readonly text: readonly string[];
   readonly textPlacements?: readonly TextPlacement[];
+  /** The annotation plane it is drawn on: an id in the presentation's ``planes``. */
+  readonly planeId?: string;
+}
+
+/** An annotation plane as the file or haecceity states it: the in-plane y axis is normal × x axis. */
+export interface DrawnPlane {
+  readonly id: string;
+  readonly name: string;
+  readonly origin: DrawnPoint;
+  readonly xAxis: DrawnPoint;
+  readonly normal: DrawnPoint;
+}
+
+/** A saved view: its camera's direction (into the scene) and up when the file has a camera, and its graphics by id. */
+export interface SavedView {
+  readonly id: string;
+  readonly name: string;
+  readonly direction?: DrawnPoint;
+  readonly up?: DrawnPoint;
+  readonly graphics: readonly string[];
 }
 
 export interface Presentation {
@@ -40,6 +60,8 @@ export interface Presentation {
   /** Graphics linked to no semantic item: drawn, not selectable. */
   readonly unlinked: readonly DrawnGraphic[];
   readonly semanticIds: readonly string[];
+  readonly planes: readonly DrawnPlane[];
+  readonly views: readonly SavedView[];
 }
 
 export type DrawnStatus = 'answered' | 'default' | 'general' | 'existing';
@@ -96,7 +118,34 @@ function graphic(v: unknown, at: string): DrawnGraphic {
   if (id !== undefined && typeof id !== 'string') refuse(`${at}.id is not a string`);
   const placements = v['text_placements'] === undefined ? undefined
     : list(v['text_placements'], `${at}.text_placements`).map((t, i) => placement(t, `${at}.text_placements[${i}]`));
-  return { ...(typeof id === 'string' ? { id } : {}), source, name, polylines, triangles, text, ...(placements ? { textPlacements: placements } : {}) };
+  const planeId = v['plane_id'];
+  if (planeId !== undefined && typeof planeId !== 'string') refuse(`${at}.plane_id is not a string`);
+  return {
+    ...(typeof id === 'string' ? { id } : {}), source, name, polylines, triangles, text,
+    ...(placements ? { textPlacements: placements } : {}), ...(typeof planeId === 'string' ? { planeId } : {}),
+  };
+}
+
+function plane(v: unknown, at: string): DrawnPlane {
+  if (!isObject(v)) return refuse(`${at} is not a plane`);
+  const { id, name } = v;
+  if (typeof id !== 'string') return refuse(`${at}.id is not a string`);
+  return {
+    id, name: typeof name === 'string' ? name : id,
+    origin: point(v['origin'], `${at}.origin`), xAxis: point(v['x_axis'], `${at}.x_axis`), normal: point(v['normal'], `${at}.normal`),
+  };
+}
+
+function savedView(v: unknown, at: string): SavedView {
+  if (!isObject(v)) return refuse(`${at} is not a view`);
+  const { id, name } = v;
+  if (typeof id !== 'string') return refuse(`${at}.id is not a string`);
+  const graphics = list(v['graphics'] ?? [], `${at}.graphics`).map((g, i) => (typeof g === 'string' ? g : refuse(`${at}.graphics[${i}] is not a string`)));
+  return {
+    id, name: typeof name === 'string' && name ? name : id, graphics,
+    ...(v['direction'] == null ? {} : { direction: point(v['direction'], `${at}.direction`) }),
+    ...(v['up'] == null ? {} : { up: point(v['up'], `${at}.up`) }),
+  };
 }
 
 function placement(v: unknown, at: string): TextPlacement {
@@ -128,7 +177,9 @@ export function readPresentation(json: unknown): Read<Presentation> {
     const unlinked = list(json['unlinked'], 'unlinked').map((g, i) => graphic(g, `unlinked[${i}]`));
     const semanticIds = list(json['semantic_ids'], 'semantic_ids')
       .map((s, i) => (typeof s === 'string' ? s : refuse(`semantic_ids[${i}] is not a string`)));
-    return { ok: true, value: { items, unlinked, semanticIds } };
+    const planes = list(json['planes'] ?? [], 'planes').map((p, i) => plane(p, `planes[${i}]`));
+    const views = list(json['views'] ?? [], 'views').map((p, i) => savedView(p, `views[${i}]`));
+    return { ok: true, value: { items, unlinked, semanticIds, planes, views } };
   } catch (error) {
     if (error instanceof Refused) return { ok: false, reason: error.message };
     throw error;
@@ -199,3 +250,203 @@ export function drawnFromScene(scene: unknown): Read<DrawnPmi> {
 /** Whether there is anything to draw. */
 export const hasGraphics = (pmi: DrawnPmi): boolean =>
   pmi.presentation.unlinked.length > 0 || Object.values(pmi.presentation.items).some((graphics) => graphics.length > 0);
+
+/** What the Show menu says of the drawn PMI, as it says it of the labels: which kinds are shown. */
+export interface DrawnShow {
+  /** "Defaults to check": items Specify defaulted. */
+  readonly default: boolean;
+  /** "PMI from the file": the file's own graphics and items Specify read from it. */
+  readonly existing: boolean;
+  /** "General dimensions": what the general tolerance covers. */
+  readonly general: boolean;
+}
+
+/**
+ * Whether a graphic is drawn under the Show menu: as a label is, by its item's status, and a
+ * graphic the file draws counts as the file's PMI whatever its status. Answered items are
+ * always drawn, as their labels are.
+ */
+export function drawnShown(source: DrawnGraphic['source'], status: DrawnStatus | undefined, show: DrawnShow): boolean {
+  if (status === 'default' && !show.default) return false;
+  if (status === 'general' && !show.general) return false;
+  if ((status === 'existing' || source === 'file') && !show.existing) return false;
+  return true;
+}
+
+type Vec = [number, number, number];
+const sub = (a: DrawnPoint, b: DrawnPoint): Vec => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+const dot = (a: DrawnPoint, b: DrawnPoint) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const cross = (a: DrawnPoint, b: DrawnPoint): Vec => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+const unit = (a: DrawnPoint): Vec | null => {
+  const n = Math.hypot(a[0], a[1], a[2]);
+  return n > 1e-12 ? [a[0] / n, a[1] / n, a[2] / n] : null;
+};
+
+/** A graphic's points: its strokes, its fills and where its text is set. */
+export const graphicPoints = (g: DrawnGraphic): DrawnPoint[] => [
+  ...g.polylines.flat(), ...g.triangles.flat(), ...(g.textPlacements ?? []).map((t) => t.origin),
+];
+
+/**
+ * The normal of the plane that best fits ``points`` (least squares), with no particular sign;
+ * null when they do not make a plane (too few, on a line, or spread in depth nearly as much as
+ * across).
+ */
+export function bestFitNormal(points: readonly DrawnPoint[]): Vec | null {
+  if (points.length < 3) return null;
+  const c: Vec = [0, 0, 0];
+  for (const p of points) for (let k = 0; k < 3; k++) c[k] += p[k]! / points.length;
+  // The covariance, and its eigenvectors by Jacobi rotations: the normal is the least spread.
+  const a: Vec[] = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+  for (const p of points) {
+    const d = sub(p, c);
+    for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) a[i]![j] += d[i]! * d[j]!;
+  }
+  const v: Vec[] = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+  for (let sweep = 0; sweep < 50; sweep++) {
+    let off = 0;
+    for (const [p, q] of [[0, 1], [0, 2], [1, 2]] as const) {
+      const apq = a[p]![q]!;
+      off += Math.abs(apq);
+      if (Math.abs(apq) < 1e-300) continue;
+      const theta = (a[q]![q]! - a[p]![p]!) / (2 * apq);
+      const t = Math.sign(theta || 1) / (Math.abs(theta) + Math.sqrt(theta * theta + 1));
+      const cos = 1 / Math.sqrt(t * t + 1);
+      const sin = t * cos;
+      for (const m of [a, v]) {
+        for (let k = 0; k < 3; k++) {
+          const [kp, kq] = [m[k]![p]!, m[k]![q]!];
+          m[k]![p] = cos * kp - sin * kq;
+          m[k]![q] = sin * kp + cos * kq;
+        }
+      }
+      for (let k = 0; k < 3; k++) {
+        const [pk, qk] = [a[p]![k]!, a[q]![k]!];
+        a[p]![k] = cos * pk - sin * qk;
+        a[q]![k] = sin * pk + cos * qk;
+      }
+    }
+    if (off < 1e-12) break;
+  }
+  const values = [0, 1, 2].map((i) => a[i]![i]!);
+  const order = [0, 1, 2].sort((i, j) => values[i]! - values[j]!);
+  const [least, middle] = [values[order[0]!]!, values[order[1]!]!];
+  // On a line (two spreads nil), or not flat (the least spread over a hundredth of the next).
+  if (middle <= 1e-12 || least > 1e-2 * middle) return null;
+  const k = order[0]!;
+  return unit([v[0]![k]!, v[1]![k]!, v[2]![k]!]);
+}
+
+/**
+ * The side a graphic is read from: its annotation plane's normal, else its placed text's, else
+ * the plane its strokes lie in, turned away from ``centre`` (the part's), since a callout is read
+ * from outside the part; null when that cannot be told.
+ */
+export function graphicNormal(g: DrawnGraphic, planes: readonly DrawnPlane[], centre?: DrawnPoint): Vec | null {
+  const stated = planes.find((p) => p.id === g.planeId)?.normal ?? g.textPlacements?.[0]?.normal;
+  if (stated) return unit(stated);
+  const points = graphicPoints(g);
+  const n = bestFitNormal(points);
+  if (!n || !centre) return null;
+  const mid = points.reduce<Vec>((m, p) => [m[0] + p[0] / points.length, m[1] + p[1] / points.length, m[2] + p[2] / points.length], [0, 0, 0]);
+  const out = sub(mid, centre);
+  const side = dot(out, n);
+  // A plane through the centre has no outside.
+  if (Math.abs(side) <= 1e-6 * Math.max(1, Math.hypot(...out))) return null;
+  return side > 0 ? n : [-n[0], -n[1], -n[2]];
+}
+
+/** The middle of the box around a mesh's flat ``positions`` (x, y, z, x, …): the part's centre. */
+export function partCentre(positions: readonly number[]): DrawnPoint | undefined {
+  if (positions.length < 3) return undefined;
+  const min: Vec = [Infinity, Infinity, Infinity];
+  const max: Vec = [-Infinity, -Infinity, -Infinity];
+  for (let i = 0; i + 2 < positions.length; i += 3) {
+    for (let k = 0; k < 3; k++) { min[k] = Math.min(min[k]!, positions[i + k]!); max[k] = Math.max(max[k]!, positions[i + k]!); }
+  }
+  return [(min[0] + max[0]) / 2, (min[1] + max[1]) / 2, (min[2] + max[2]) / 2];
+}
+
+/** Whether a plane with ``normal`` is seen from behind by a camera looking along ``direction``. */
+export const facesAway = (normal: DrawnPoint, direction: DrawnPoint): boolean => dot(normal, direction) > 1e-9;
+
+/**
+ * A way to look at the drawn PMI square on: a saved view's camera, or an annotation plane's
+ * front. The camera stands at ``eye`` (a unit vector) from what it looks at, ``up`` its way up
+ * when known, framing the box of the graphics it shows.
+ */
+export interface DrawnView {
+  readonly key: string;
+  readonly name: string;
+  /** The graphics it shows, by name, one a line. */
+  readonly title: string;
+  readonly eye: DrawnPoint;
+  readonly up?: DrawnPoint;
+  readonly min: DrawnPoint;
+  readonly max: DrawnPoint;
+}
+
+const rounded = (v: DrawnPoint) => v.map((x) => (Math.abs(x) < 5e-4 ? 0 : x).toFixed(3)).join(',');
+
+/**
+ * The views of the drawn PMI: the file's saved views that have a camera, then one for each way
+ * the shown graphics' annotation planes face (planes facing alike, with the same up, are one
+ * view), named by the graphics on them.
+ */
+export function drawnViews(
+  pmi: DrawnPmi, shown: (g: DrawnGraphic, item: string | null) => boolean, centre?: DrawnPoint,
+): DrawnView[] {
+  const { presentation } = pmi;
+  const all = [
+    ...Object.entries(presentation.items).flatMap(([item, gs]) => gs.map((g) => ({ g, item: item as string | null }))),
+    ...presentation.unlinked.map((g) => ({ g, item: null })),
+  ];
+  // One graphic under several items is one graphic, shown if shown under any of them.
+  const byId = new Map<string, DrawnGraphic>();
+  const graphics: DrawnGraphic[] = [];
+  for (const { g, item } of all) {
+    if (!shown(g, item)) continue;
+    if (g.id === undefined) graphics.push(g);
+    else if (!byId.has(g.id)) { byId.set(g.id, g); graphics.push(g); }
+  }
+  const box = (gs: readonly DrawnGraphic[]) => {
+    const points = gs.flatMap(graphicPoints);
+    if (!points.length) return null;
+    const min: Vec = [Infinity, Infinity, Infinity];
+    const max: Vec = [-Infinity, -Infinity, -Infinity];
+    for (const p of points) {
+      for (let k = 0; k < 3; k++) { min[k] = Math.min(min[k]!, p[k]!); max[k] = Math.max(max[k]!, p[k]!); }
+    }
+    return { min, max };
+  };
+  const out: DrawnView[] = [];
+  for (const view of presentation.views) {
+    const eye = view.direction ? unit([-view.direction[0], -view.direction[1], -view.direction[2]]) : null;
+    if (!eye) continue;
+    const members = view.graphics.flatMap((id) => { const g = byId.get(id); return g ? [g] : []; });
+    const b = box(members.length ? members : graphics);
+    if (!b) continue;
+    const up = view.up ? unit(view.up) : null;
+    out.push({ key: `view:${view.id}`, name: view.name, title: members.map((g) => g.name).join('\n'), eye, ...(up ? { up } : {}), ...b });
+  }
+  const groups = new Map<string, { eye: Vec; up: Vec | null; graphics: DrawnGraphic[] }>();
+  for (const g of graphics) {
+    const eye = graphicNormal(g, presentation.planes, centre);
+    if (!eye) continue;
+    const x = presentation.planes.find((p) => p.id === g.planeId)?.xAxis ?? g.textPlacements?.[0]?.xAxis;
+    const up = x ? unit(cross(eye, x)) : null;
+    const key = `${rounded(eye)}|${up ? rounded(up) : ''}`;
+    const group = groups.get(key) ?? { eye, up, graphics: [] };
+    group.graphics.push(g);
+    groups.set(key, group);
+  }
+  let n = 0;
+  for (const [key, { eye, up, graphics: gs }] of groups) {
+    const b = box(gs);
+    if (!b) continue;
+    const names = [...new Set(gs.map((g) => g.name))];
+    const listed = names.slice(0, 3).join(' · ') + (names.length > 3 ? ` +${names.length - 3}` : '');
+    out.push({ key: `plane:${key}`, name: `Plane ${++n}: ${listed}`, title: names.join('\n'), eye, ...(up ? { up } : {}), ...b });
+  }
+  return out;
+}

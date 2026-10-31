@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
-import { drawnFromScene, hasGraphics, linksFromPmi, readPresentation } from '../src/specify/drawn.ts';
+import { bestFitNormal, drawnFromScene, drawnShown, drawnViews, facesAway, graphicNormal, hasGraphics, linksFromPmi, partCentre, readPresentation } from '../src/specify/drawn.ts';
 
 // The spindle's haecceity.presentation/1 and haecceity.pmi/1, from quiddity's json feature
 // (scripts/fixtures/README.md).
@@ -108,4 +108,101 @@ test('a PMI scene: each item\'s faces, and Specify\'s status and question where 
   assert.match(drawnFromScene(null).reason, /not a JSON object/);
   assert.match(drawnFromScene({ ...scene(), presentation: { schema: 'x' } }).reason, /schema is "x"/);
   assert.match(drawnFromScene({ ...scene(), pmi: null }).reason, /not a haecceity.pmi\/1/);
+});
+
+test('planes, plane ids and saved views read as stated; absent, none', () => {
+  const read = readPresentation(doc({
+    items: { 1: [{ ...graphic, id: 'step:9', plane_id: 'p1' }] },
+    planes: [{ id: 'p1', name: 'Front', origin: [0, 0, 0], x_axis: [1, 0, 0], normal: [0, -1, 0] }],
+    views: [{ id: 'v1', name: 'Saved', direction: [0, 1, 0], up: [0, 0, 1], graphics: ['step:9'] }, { id: 'v2', name: 'No camera', graphics: [] }],
+  }));
+  assert.ok(read.ok, read.reason);
+  assert.equal(read.value.items['1'][0].planeId, 'p1');
+  assert.deepEqual(read.value.planes, [{ id: 'p1', name: 'Front', origin: [0, 0, 0], xAxis: [1, 0, 0], normal: [0, -1, 0] }]);
+  assert.deepEqual(read.value.views, [
+    { id: 'v1', name: 'Saved', graphics: ['step:9'], direction: [0, 1, 0], up: [0, 0, 1] },
+    { id: 'v2', name: 'No camera', graphics: [] },
+  ]);
+  assert.deepEqual([readPresentation(doc()).value.planes, readPresentation(doc()).value.views], [[], []]);
+  assert.match(readPresentation(doc({ planes: [{ id: 'p', origin: [0, 0], x_axis: [1, 0, 0], normal: [0, 0, 1] }] })).reason, /planes\[0\]\.origin/);
+  assert.match(readPresentation(doc({ items: { 1: [{ ...graphic, plane_id: 3 }] } })).reason, /plane_id is not a string/);
+});
+
+test('the Show menu hides drawn graphics by their item\'s status, as it hides labels', () => {
+  const all = { default: true, existing: true, general: true };
+  const cases = [
+    // source, status, the kind unchecked that hides it
+    ['generated', 'general', 'general'],
+    ['generated', 'default', 'default'],
+    ['generated', 'existing', 'existing'],
+    ['file', 'answered', 'existing'],
+    ['file', undefined, 'existing'],
+  ];
+  for (const [source, status, kind] of cases) {
+    assert.equal(drawnShown(source, status, all), true, `${source} ${status} shown with everything`);
+    assert.equal(drawnShown(source, status, { ...all, [kind]: false }), false, `${source} ${status} hidden without ${kind}`);
+    for (const other of Object.keys(all).filter((k) => k !== kind && !(source === 'file' && k === 'existing'))) {
+      if (status === other) continue;
+      assert.equal(drawnShown(source, status, { ...all, [other]: false }), true, `${source} ${status} kept without ${other}`);
+    }
+  }
+  // Answered, and generated with no status: always drawn, as answered labels are.
+  for (const status of ['answered', undefined]) assert.equal(drawnShown('generated', status, { default: false, existing: false, general: false }), true);
+});
+
+test('facing: a callout faces away when its plane\'s normal is along the view; its normal from its plane, its text or its strokes', () => {
+  // Looking along +y at a plane read from -y: facing; turned 180°, away. Edge on: not away.
+  assert.equal(facesAway([0, -1, 0], [0, 1, 0]), false);
+  assert.equal(facesAway([0, -1, 0], [0, -1, 0]), true);
+  assert.equal(facesAway([0, -1, 0], [1, 0, 0]), false);
+  assert.equal(facesAway([0, -1, 0], [-0.6, 0.7, -0.4]), false);
+  const planes = [{ id: 'p', name: 'p', origin: [0, 0, 0], xAxis: [1, 0, 0], normal: [0, 0, 2] }];
+  const square = [[[0, 5, 0], [10, 5, 0]], [[10, 5, 0], [10, 5, 4]], [[10, 5, 4], [0, 5, 4]]];
+  const g = { ...graphic, polylines: square };
+  // The plane's, normalised; else the text's.
+  assert.deepEqual(graphicNormal({ ...g, planeId: 'p' }, planes), [0, 0, 1]);
+  assert.deepEqual(graphicNormal({ ...g, textPlacements: [{ origin: [0, 0, 0], xAxis: [1, 0, 0], normal: [1, 0, 0] }] }, planes), [1, 0, 0]);
+  // Else the plane of its strokes (y = 5), turned away from the part's centre.
+  const fromBelow = graphicNormal(g, planes, [5, 0, 2]);
+  assert.ok(Math.abs(fromBelow[1] - 1) < 1e-9 && Math.abs(fromBelow[0]) < 1e-9 && Math.abs(fromBelow[2]) < 1e-9, `${fromBelow}`);
+  const fromAbove = graphicNormal(g, planes, [5, 9, 2]);
+  assert.ok(Math.abs(fromAbove[1] + 1) < 1e-9, `${fromAbove}`);
+  // Through the centre, or with no centre, it has no outside: never hidden.
+  assert.equal(graphicNormal(g, planes, [5, 5, 2]), null);
+  assert.equal(graphicNormal(g, planes), null);
+  // A slanted plane fits; a line or a spread of points does not.
+  const slant = bestFitNormal([[0, 0, 0], [1, 0, 1], [0, 1, 0], [1, 1, 1], [0.5, 0.3, 0.5]]);
+  assert.ok(Math.abs(Math.abs(slant[0]) - Math.SQRT1_2) < 1e-9 && Math.abs(slant[1]) < 1e-9 && Math.abs(Math.abs(slant[2]) - Math.SQRT1_2) < 1e-9, `${slant}`);
+  assert.equal(bestFitNormal([[0, 0, 0], [1, 1, 1], [2, 2, 2]]), null);
+  assert.equal(bestFitNormal([[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1], [1, 1, 1]]), null);
+  assert.deepEqual(partCentre([0, 0, 0, 10, 4, -2]), [5, 2, -1]);
+});
+
+test('views: a saved view with a camera, and one a way the shown graphics\' planes face, square to it with its text upright', () => {
+  const planes = [
+    { id: 'front1', name: 'f1', origin: [0, 0, 0], xAxis: [1, 0, 0], normal: [0, -1, 0] },
+    { id: 'front2', name: 'f2', origin: [5, 0, 0], xAxis: [1, 0, 0], normal: [0, -1, 1e-16] },
+    { id: 'top', name: 't', origin: [0, 0, 9], xAxis: [0, 1, 0], normal: [0, 0, 1] },
+  ];
+  const at = (id, name, plane, x) => ({ ...graphic, id, name, planeId: plane, polylines: [[[x, 0, 0], [x + 1, 0, 1]]] });
+  const pmi = {
+    presentation: {
+      items: { a: [at('g1', '10', 'front1', 0)], b: [at('g2', '20', 'front2', 5)], c: [at('g3', '30', 'top', 9)] },
+      unlinked: [], semanticIds: ['a', 'b', 'c'], planes,
+      views: [{ id: 'v', name: 'Saved', direction: [0, 1, 0], up: [0, 0, 1], graphics: ['g1'] }, { id: 'w', name: 'No camera', graphics: ['g2'] }],
+    },
+    links: { a: { faces: [], status: 'answered' }, b: { faces: [], status: 'answered' }, c: { faces: [], status: 'general' } },
+  };
+  const shown = (show) => (g, item) => drawnShown(g.source === 'file' ? 'generated' : g.source, pmi.links[item]?.status, show);
+  const views = drawnViews(pmi, shown({ default: true, existing: true, general: true }));
+  assert.deepEqual(views.map((v) => v.name), ['Saved', 'Plane 1: 10 · 20', 'Plane 2: 30']);
+  const [saved, front, top] = views;
+  const near = (actual, expected) => assert.ok(actual.flat().every((x, i) => Math.abs(x - expected.flat()[i]) < 1e-9), `${JSON.stringify(actual)} is ${JSON.stringify(expected)}`);
+  // The camera stands against its direction; a plane's front is along its normal, up normal × x.
+  near([saved.eye, saved.up, saved.min, saved.max], [[0, -1, 0], [0, 0, 1], [0, 0, 0], [1, 0, 1]]);
+  near([front.eye, front.up], [[0, -1, 0], [0, 0, 1]]);
+  near([front.min, front.max], [[0, 0, 0], [6, 0, 1]]);
+  near([top.eye, top.up], [[0, 0, 1], [-1, 0, 0]]);
+  // A kind not shown has no view.
+  assert.deepEqual(drawnViews(pmi, shown({ default: true, existing: true, general: false })).map((v) => v.name), ['Saved', 'Plane 1: 10 · 20']);
 });

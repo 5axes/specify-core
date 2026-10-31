@@ -10,7 +10,7 @@ import type { PmiAnalysis, PmiMesh, PmiVec } from '../types/pmi';
 
 import { createAnnotations } from './annotations';
 import { createCadView, type CadLeaf } from './cad-view';
-import type { DrawnPmi } from './drawn';
+import { partCentre, type DrawnPmi, type DrawnPoint } from './drawn';
 import { createDrawnLayer } from './drawn-layer';
 import { toLabels, type PmiLabel } from './labels';
 import { createLook } from './look';
@@ -115,6 +115,8 @@ export function createReviewView(
   geometry.setAttribute('position', new THREE.Float32BufferAttribute([...mesh.positions], 3));
   geometry.setIndex([...mesh.indices]);
   const part = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ side: THREE.DoubleSide }));
+  geometry.computeBoundingBox();
+  const partBox = geometry.boundingBox!.clone();
   let seeThrough = false;
 
   const faceAt = (x: number, y: number) => cad.facesAt(x, y)[0]?.face ?? null;
@@ -216,6 +218,7 @@ export function createReviewView(
   };
   const drawnLayer = createDrawnLayer(host, labels, {
     onClick: (item) => { for (const f of listeners.label) f(drawnLabel(item)); },
+    centre: partCentre(mesh.positions),
   });
 
   const lookAt = createLook(cad, {
@@ -279,6 +282,13 @@ export function createReviewView(
     drawn(pmi, visible) {
       if (pmi !== drawnPmi) { drawnPmi = pmi; drawnLayer.set(pmi); }
       drawnLayer.setVisible(visible && pmi !== null);
+    },
+    drawnFilter: (show, farSide) => drawnLayer.filter(show, farSide),
+    lookSquare(view) {
+      // Square on, framing its graphics with the part: a callout is read where it is on the part.
+      const v = (p: DrawnPoint) => new THREE.Vector3(...p);
+      const around = partBox.clone().union(new THREE.Box3(v(view.min), v(view.max)));
+      cad.lookFrom([...view.eye] as PmiVec, around, view.up ? [...view.up] as PmiVec : undefined);
     },
     setFarSideHidden: (on) => annotations.setFarSideHidden(on),
     setTransparency(amount) {
