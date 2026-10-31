@@ -14,7 +14,7 @@ interface IntentModule {
 }
 interface IntentInstance { free(): void; snapshot(): string; review(answers: string): string; settle(state: string): string; writePmi(answers: string, project?: string): string; acceptDefaults(answers: string): string;
     evidence(): string; rematchAnswers(answers: string, evidence?: string | null, automatic?: string | null): string;
-    payload(name: string): string | undefined; original(): Uint8Array | undefined }
+    payload(name: string): string | undefined; original(): Uint8Array | undefined; pmiScene(state: string): string }
 
 let engine: IntentInstance | undefined;
 let sourceId = '';
@@ -60,7 +60,7 @@ self.onmessage = ({ data: { id, operation, args } }) => {
     try {
       const module = await load();
       let result: unknown = true;
-      if (operation === 'open' || operation === 'review' || operation === 'settle' || operation === 'write' || operation === 'rematch') {
+      if (operation === 'open' || operation === 'review' || operation === 'settle' || operation === 'write' || operation === 'rematch' || operation === 'scene') {
         if (!engine || sourceId !== args.sourceId || part !== args.part || operation === 'open') {
           engine?.free(); engine = undefined;
           engine = args.part === undefined ? new module.IntentEngine(args.name, args.bytes)
@@ -73,6 +73,12 @@ self.onmessage = ({ data: { id, operation, args } }) => {
         } else if (operation === 'settle') {
           const { state } = JSON.parse(engine.settle(JSON.stringify(args.state)));
           result = { review: reviewed(state.answers), state };
+        } else if (operation === 'scene') {
+          // The PMI as drawn for the review state (specify-core 0.1.5 pmiScene). The defaults the
+          // editor accepts are written, so they are in the scene, as unreviewed (`auto`) unless answered.
+          const answers = JSON.parse(accepted(args.state.answers)) as Record<string, unknown>;
+          const auto = [...new Set([...args.state.auto ?? [], ...Object.keys(answers).filter(id => !(id in args.state.answers))])];
+          result = JSON.parse(engine.pmiScene(JSON.stringify({ ...args.state, answers, auto })));
         } else if (operation === 'rematch') {
           result = JSON.parse(engine.rematchAnswers(JSON.stringify(args.answers), args.evidence ? JSON.stringify(args.evidence) : null, args.automatic ? JSON.stringify(args.automatic) : null));
         } else result = operation === 'open' ? { ...JSON.parse(engine.snapshot()), evidence: JSON.parse(engine.evidence()) } : reviewed(args.answers);
