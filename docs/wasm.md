@@ -402,7 +402,12 @@ available: `auto` identifies the questions whose values are unreviewed automatic
 An explicitly supplied value is `answered`, even when it equals a question's default.
 Unanswered suggestions produce no PMI, just as in `review` and `writePmi`.
 
-The result is:
+Both calls return a JSON string. The generated declarations export `PmiScene`,
+`PmiSceneItem`, `PmiSceneItems`, `PmiSceneGraphic`, `PmiSceneTextPlacement`,
+`PmiScenePlane`, `PmiSceneView`, `PmiSceneMetadata`, `PmiSceneStatus` and `PmiSceneId`.
+For example, `const scene: PmiScene = JSON.parse(engine.pmiScene(JSON.stringify(answers)))`.
+Semantic values retain the packaged haecceity schema (`unknown` in the row interface);
+scene structure and presentation metadata are typed. The result is:
 
 ```ts
 {
@@ -425,8 +430,15 @@ are strings. `pmi.pmi` holds collections of `{id, value}`; references use those 
 `presentation.items[id]` holds graphics with `name` (full notation), `text` (cells),
 `polylines`, `triangles`, and `source: 'generated' | 'file'`. With haecceity v0.4.1,
 optional `id`, `plane_id` and `text_placements` retain model-space text origins, axes,
-heights/alignment when stated; document `planes` and `views` preserve annotation planes
-and saved-view membership. Datum-feature graphics also appear under their datum ids.
+heights/alignment when stated. Each placement can carry `stroked?: boolean`: when
+true, its glyphs are already present in that graphic's polylines, so skip rendering
+that text run again. Absent or false permits rendering the text literal.
+The scene prunes view membership after filtering or replacing graphics, and removes
+views with no remaining graphics; document `planes` and `views` preserve annotation planes
+and saved-view membership. Generated presentations now include plane views; v0.4.1
+regenerates ladders/callouts and combines part settings into one numbered GENERAL NOTES block.
+Feature-on scene and written STEP presentation output therefore changes. Datum-feature
+graphics also appear under their datum ids.
 These fields survive a live review that adds PMI beside a file's existing callouts.
 Pattern sizes, locations and tolerances include `6×` in the name and first cell;
 datum labels carry only their letter. `presentation.unlinked` retains graphics with no semantic
