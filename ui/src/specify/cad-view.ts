@@ -42,8 +42,8 @@ export interface CadView {
   light(path: string | null): void;
   /** The faces under a point of the canvas, nearest first, of the leaves shown. */
   facesAt(x: number, y: number): CadHit[];
-  /** Look along ``direction`` at ``around``, or at the whole part. */
-  lookFrom(direction: PmiVec, around?: THREE.Box3): void;
+  /** Look along ``direction`` at ``around``, or at the whole part; ``up``, or the way up it had. */
+  lookFrom(direction: PmiVec, around?: THREE.Box3, up?: PmiVec): void;
   /** Show or hide the node at a path. */
   show(path: string, visible: boolean): void;
   /** The viewer's transparency, on or off. */
@@ -270,7 +270,7 @@ export function createCadView(
       }
       return hits.sort((a, b) => a.distance - b.distance).map(({ path, face }) => ({ path, face }));
     },
-    lookFrom(direction, around) {
+    lookFrom(direction, around, upward) {
       const target = (around ?? box).getCenter(new THREE.Vector3());
       const span = (around ?? box).getSize(new THREE.Vector3()).length();
       // Placed outright, at the distance the camera keeps: a relative placement is from the
@@ -279,10 +279,10 @@ export function createCadView(
       const eye = target.clone().addScaledVector(new THREE.Vector3(...direction).normalize(), distance);
       viewer.setCameraTarget(target.toArray() as [number, number, number], false);
       viewer.setCameraPosition(eye.toArray() as [number, number, number], false, false);
-      // Aimed at the target, keeping the way up it had (or Z, if looking along it): the
-      // trackball does not turn the camera to its target by itself.
+      // Aimed at the target, with the way up asked for or the way up it had (or Z, if looking
+      // along it): the trackball does not turn the camera to its target by itself.
       const turned = new THREE.Quaternion(...viewer.getCameraQuaternion());
-      let up = new THREE.Vector3(0, 1, 0).applyQuaternion(turned);
+      let up = upward ? new THREE.Vector3(...upward).normalize() : new THREE.Vector3(0, 1, 0).applyQuaternion(turned);
       const along = target.clone().sub(eye).normalize();
       if (Math.abs(up.dot(along)) > 0.999) up = new THREE.Vector3(0, 0, 1);
       const aim = new THREE.Matrix4().lookAt(eye, target, up);

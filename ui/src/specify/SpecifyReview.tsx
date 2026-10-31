@@ -9,7 +9,7 @@ import { addedOf, CALL_OUTS, describe, kindsFor, MAY_HAVE_DATUM, nextKey } from 
 import { codeOf } from './choose';
 import { appliedByRule, chosenForYou, type Chosen } from './chosen';
 import { datumChips, freeLetter, removal } from './datums';
-import type { DrawnPmi } from './drawn';
+import { drawnShown, drawnViews, partCentre, type DrawnPmi } from './drawn';
 import { optionHint } from './hints';
 import { balloonsBySource, type Characteristic, characteristics, ranges, toCsv } from './characteristics';
 import { CharacteristicsTable, ExtraEditor, PurposeChoice, SpecBox, SuggestBox, SuggestionCard, TOLERANCE_PICKS, type ExtraDraft } from './inputs';
@@ -257,6 +257,15 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   useEffect(() => {
     picker.current?.drawn?.(drawnPmi, showing !== 'semantic');
   }, [drawnPmi, showing, session]);
+  // The Show menu's kinds and far side, for the drawn PMI as for the labels.
+  const drawnShow = useMemo(() => ({ default: show.defaults, existing: show.existing, general: show.general }), [show]);
+  useEffect(() => {
+    picker.current?.drawnFilter?.(drawnShow, show.farSide);
+  }, [drawnShow, show.farSide, drawnPmi, session]);
+  // Ways to look square at the drawn PMI shown: the file's saved views, and each plane's front.
+  const squares = useMemo(() => (drawnPmi
+    ? drawnViews(drawnPmi, (g, item) => drawnShown(g.source, item === null ? undefined : drawnPmi.links[item]?.status, drawnShow), partCentre(session.mesh.positions))
+    : []), [drawnPmi, drawnShow, session]);
 
   useEffect(() => {
     picker.current?.setTransparency(transparency / 100);
@@ -720,6 +729,14 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
                       <input type="radio" name="pmi-showing" checked={showing === key} onChange={() => setShowing(key)} />{' '}
                       {{ semantic: 'Semantic', drawn: 'As drawn', both: 'Both' }[key]}
                     </label>
+                  ))}
+                </div>
+              )}
+              {drawnPmi && showing !== 'semantic' && squares.length > 0 && (
+                <div className="pmi-lab-squares" role="group" aria-label="Look square at">
+                  <span>Look square at</span>
+                  {squares.map((v) => (
+                    <button key={v.key} type="button" title={v.title} onClick={() => picker.current?.lookSquare?.(v)}>{v.name}</button>
                   ))}
                 </div>
               )}

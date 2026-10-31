@@ -8,6 +8,10 @@
 // linked to no semantic item are drawn but cannot be clicked. A graphic listed under several
 // items (a datum's symbol, under the datum and its feature) is drawn once, as the item Specify
 // knows (the datum), so clicking it reaches that item's question.
+//
+// The Show menu's kinds hide graphics as they hide labels, by their item's status (drawnShown);
+// with the far side hidden, a callout whose annotation plane faces away from the camera is
+// hidden too, looked at again as the camera moves.
 import * as THREE from 'three';
 import { CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
@@ -15,7 +19,10 @@ import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js';
 
 import { GROUP_COLOUR, type AnnotationHost } from './annotations';
-import type { DrawnGraphic, DrawnPmi, TextPlacement } from './drawn';
+import {
+  drawnShown, facesAway, graphicNormal, type DrawnGraphic, type DrawnPmi, type DrawnPoint, type DrawnShow,
+  type DrawnStatus, type TextPlacement,
+} from './drawn';
 
 const LINE_PX = 1.5;
 const HIT_PX = 6;
@@ -26,6 +33,14 @@ interface Drawn {
   /** The semantic item, or null for an unlinked graphic. */
   item: string | null;
   name: string;
+  source: DrawnGraphic['source'];
+  status: DrawnStatus | undefined;
+  /** The side it is read from, when that can be told. */
+  normal: DrawnPoint | null;
+  /** Whether the Show menu shows its kind. */
+  shown: boolean;
+  /** Whether its plane faces away from the camera. */
+  away: boolean;
   polylines: number;
   segments: THREE.Vector3[];
   triangles: THREE.Vector3[];
@@ -36,6 +51,8 @@ export interface DrawnLayer {
   /** The file's own graphics (``source: "file"``) of ``pmi``, or none. */
   set(pmi: DrawnPmi | null): void;
   setVisible(on: boolean): void;
+  /** The kinds the Show menu shows, and whether callouts facing away are hidden. */
+  filter(show: DrawnShow, farSide: boolean): void;
   /** The linked item drawn within a few pixels of (x, y) in the view, if any. */
   hit(x: number, y: number): string | null;
   dispose(): void;
@@ -44,7 +61,7 @@ export interface DrawnLayer {
 export function createDrawnLayer(
   nav: AnnotationHost,
   container: HTMLElement,
-  { onClick }: { onClick: (item: string) => void },
+  { onClick, centre }: { onClick: (item: string) => void; centre?: DrawnPoint },
 ): DrawnLayer {
   const { scene } = nav;
   // One line and one fill material per colour: a status's, as its semantic labels have it.
@@ -67,14 +84,42 @@ export function createDrawnLayer(
   // Text set by a stated placement, re-oriented and re-sized as the camera moves.
   let placed: { inner: HTMLElement; at: TextPlacement }[] = [];
   let visible = false;
+  let show: DrawnShow = { default: true, existing: true, general: true };
+  let farSide = false;
+  let pmiNow: DrawnPmi | null = null;
+  const on = (d: Drawn) => visible && d.shown && !(farSide && d.away);
 
   function counts() {
     // What is drawn, for a test to compare with the JSON: nothing while hidden.
-    const n = (f: (d: Drawn) => number) => (visible ? drawn.reduce((sum, d) => sum + f(d), 0) : 0);
+    const shownNow = drawn.filter(on);
+    const n = (f: (d: Drawn) => number) => shownNow.reduce((sum, d) => sum + f(d), 0);
     container.dataset['drawnPolylines'] = String(n((d) => d.polylines));
     container.dataset['drawnTriangles'] = String(n((d) => d.triangles.length / 3));
     container.dataset['drawnTexts'] = String(n((d) => d.objects.filter((o) => o instanceof CSS2DObject).length));
-    container.dataset['drawnNames'] = visible ? drawn.map((d) => d.name).join('\n') : '';
+    container.dataset['drawnNames'] = shownNow.map((d) => d.name).join('\n');
+    // By the Show menu's kinds, for a test of it: general, default, and the file's (its own or existing).
+    const by = (f: (d: Drawn) => boolean) => String(shownNow.filter(f).length);
+    container.dataset['drawnGraphics'] = String(shownNow.length);
+    container.dataset['drawnGeneral'] = by((d) => d.status === 'general');
+    container.dataset['drawnDefault'] = by((d) => d.status === 'default');
+    container.dataset['drawnFile'] = by((d) => d.source === 'file' || d.status === 'existing');
+  }
+
+  // Each graphic shown or not, as the menu and the camera say.
+  function apply() {
+    for (const d of drawn) for (const o of d.objects) o.visible = on(d);
+    counts();
+  }
+  const look = new THREE.Vector3();
+  function turn(): boolean {
+    nav.camera.getWorldDirection(look);
+    const direction: DrawnPoint = [look.x, look.y, look.z];
+    let changed = false;
+    for (const d of drawn) {
+      const away = d.normal !== null && facesAway(d.normal, direction);
+      if (away !== d.away) { d.away = away; changed = true; }
+    }
+    return changed;
   }
 
   function clear() {
@@ -89,7 +134,7 @@ export function createDrawnLayer(
     placed = [];
   }
 
-  function place(graphic: DrawnGraphic, item: string | null, colour: string): Drawn {
+  function place(graphic: DrawnGraphic, item: string | null, status: DrawnStatus | undefined, colour: string): Drawn {
     const { line: material, fill } = ink(colour);
     const segments: THREE.Vector3[] = [];
     for (const line of graphic.polylines) {
@@ -140,9 +185,13 @@ export function createDrawnLayer(
       } else tag.position.copy(box.getCenter(new THREE.Vector3()));
       objects.push(tag);
     }
-    for (const o of objects) o.visible = visible;
     scene.add(...objects);
-    return { item, name: graphic.name, polylines: graphic.polylines.filter((l) => l.length > 1).length, segments, triangles, objects };
+    return {
+      item, name: graphic.name, source: graphic.source, status,
+      normal: graphicNormal(graphic, pmiNow?.presentation.planes ?? [], centre),
+      shown: drawnShown(graphic.source, status, show), away: false,
+      polylines: graphic.polylines.filter((l) => l.length > 1).length, segments, triangles, objects,
+    };
   }
 
   const a = new THREE.Vector2();
@@ -200,15 +249,25 @@ export function createDrawnLayer(
     }
   }
 
+  // Which way the camera looks and which way is up, for a test of turning square to a plane.
+  const upward = new THREE.Vector3();
+  const fixed = (u: THREE.Vector3) => u.toArray().map((x) => (Math.abs(x) < 5e-4 ? 0 : x).toFixed(3)).join(',');
   nav.onFrame(() => {
     const [w, h] = nav.size();
     for (const { line } of inks.values()) line.resolution.set(w, h);
-    if (visible && placed.length) orient();
+    nav.camera.getWorldDirection(look);
+    upward.set(0, 1, 0).applyQuaternion(nav.camera.quaternion);
+    const camera = `${fixed(look)} ${fixed(upward)}`;
+    if (container.dataset['camera'] !== camera) container.dataset['camera'] = camera;
+    if (!visible) return;
+    if (farSide && turn()) apply();
+    if (placed.length) orient();
   });
 
   return {
     set(pmi) {
       clear();
+      pmiNow = pmi;
       if (pmi) {
         // Items Specify knows first, so a graphic under several is drawn as the one it knows.
         const known = (item: string) => (pmi.links[item]?.status ? 0 : 1);
@@ -221,18 +280,26 @@ export function createDrawnLayer(
           return true;
         };
         for (const [item, graphics] of items) {
-          const colour = GROUP_COLOUR[pmi.links[item]?.status ?? 'existing'];
-          for (const g of graphics) if (once(g)) drawn.push(place(g, item, colour));
+          const status = pmi.links[item]?.status;
+          const colour = GROUP_COLOUR[status ?? 'existing'];
+          for (const g of graphics) if (once(g)) drawn.push(place(g, item, status, colour));
         }
-        for (const g of pmi.presentation.unlinked) if (once(g)) drawn.push(place(g, null, GROUP_COLOUR.existing));
+        for (const g of pmi.presentation.unlinked) if (once(g)) drawn.push(place(g, null, undefined, GROUP_COLOUR.existing));
       }
-      counts();
+      turn();
+      apply();
     },
-    setVisible(on) {
-      visible = on;
-      for (const d of drawn) for (const o of d.objects) o.visible = on;
-      if (on) orient();
-      counts();
+    setVisible(next) {
+      visible = next;
+      if (next) { turn(); orient(); }
+      apply();
+    },
+    filter(next, hideFar) {
+      show = next;
+      farSide = hideFar;
+      for (const d of drawn) d.shown = drawnShown(d.source, d.status, show);
+      turn();
+      apply();
     },
     hit(x, y) {
       if (!visible) return null;
@@ -240,7 +307,7 @@ export function createDrawnLayer(
       let best: string | null = null;
       let reach = HIT_PX;
       for (const d of drawn) {
-        if (d.item === null) continue;
+        if (d.item === null || !on(d)) continue;
         for (let k = 0; k + 1 < d.segments.length; k += 2) {
           if (!screen(d.segments[k]!, a) || !screen(d.segments[k + 1]!, b)) continue;
           const dist = nearSegment();

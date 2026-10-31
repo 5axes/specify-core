@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import type { PmiAnalysis, PmiIntent, PmiMesh } from '../types/pmi';
 
 import { createAnnotations } from './annotations';
-import type { DrawnPmi } from './drawn';
+import type { DrawnPmi, DrawnShow, DrawnView } from './drawn';
 import { toLabels, type LabelGroup, type PmiLabel } from './labels';
 import { createLook } from './look';
 import { createNavigator, type Navigator } from './navigator';
@@ -51,6 +51,10 @@ export interface Picker {
   setLabelsVisible(on: boolean): void;
   /** A STEP's own graphical PMI (As drawn), drawn when ``visible``; none without ``pmi``. */
   drawn?(pmi: DrawnPmi | null, visible: boolean): void;
+  /** The kinds of drawn PMI the Show menu shows, and whether callouts facing away are hidden. */
+  drawnFilter?(show: DrawnShow, farSide: boolean): void;
+  /** Turn square to a view of the drawn PMI: along its plane's normal, its text upright. */
+  lookSquare?(view: DrawnView): void;
   /** Whether labels on the far side of the part are hidden. */
   setFarSideHidden(on: boolean): void;
   /** How see-through the part is, 0 (solid) to under 1. */
