@@ -8,6 +8,15 @@ All notable changes to specify-core-rust. The format follows
 
 ### Changed
 
+- Pin quiddity and haecceity to v0.4.1. Recognition `/6` and fingerprints `/3`
+  stay unchanged. Adopt regenerated ladders/callouts, one numbered GENERAL NOTES
+  block, generated plane views, AP214 PRODUCT_TYPE upgrades, panic isolation and
+  graphical callout reading; feature-on scenes and written STEP layouts change.
+- Build the Linux CLI against glibc 2.28 using pinned Zig/cargo-zigbuild tools;
+  check its symbols and revision smoke on Amazon Linux 2023 and AlmaLinux 8.
+  Release asset names and archive layout stay the same.
+- Preserve optional text-placement `stroked` flags in PMI scenes; prune saved-view
+  references when graphics are filtered or replaced, removing empty views.
 - For #87 fix round 1: only unique names in the authored `f:` namespace become
   face identities. Shared names and generic/class labels (including singletons)
   retain geometric evidence and schema 2 when no usable identities remain. Omit
@@ -22,6 +31,9 @@ All notable changes to specify-core-rust. The format follows
 
 ### WASM API
 
+- Add `PmiScene` JSON result interfaces for both `pmiScene` entry points, including
+  semantic rows/ids, graphics, optional `stroked` text placements, planes, views and
+  Specify statuses. Document parsing and rendering; the wire return remains a string.
 - For #87: snapshot faces add optional `name`; evidence adds schema 3 `face_names`
   and optional mixed-part `geometry`. Add descriptive `AnalysisFace` and
   `AnswerEvidence` JSON types; existing methods and answer shapes are retained.
