@@ -24,7 +24,7 @@ answer takes precedence in Specify's BOM read.
 | Material | Existing haecceity material reader/writer, `part.material` | Reuse `material property` / `material name` and density units. No second BOM material writer. |
 | Quantity | Placed occurrences, including parent multiplicity | Do not add `QUANTIFIED_ASSEMBLY_COMPONENT_USAGE` alongside individually placed instances (PDM §4.1.2/§4.1.3). |
 | Find number | Numeric NAUO name where unambiguous, or named UDA | Append integer `item_number` UDA. PDM §4.1.2 describes find numbers; §4.7.1 records the competing NAUO.name convention. `reference_designator` identifies occurrence locations and is not silently repurposed. |
-| Optional, stock | No unambiguous native slot | Boolean `optional`, text `stock` (`from stock`, `to be made`) UDAs. Optional denotes an optional item; for one occurrence it is quantity 0–1. |
+| Optional, stock | No unambiguous native slot | Boolean `optional`, text `stock` (`from stock`, `to be made`) UDAs. Optional denotes quantity 0–1; writing it requires one placed occurrence. |
 
 Material uses haecceity's existing Material Identification and Density R2.1
 §4.1/§4.2 mapping. In UDA 1.8, Annex C.1 defines SI base units; density's derived
@@ -35,7 +35,14 @@ unit example is C.4.2. There is no new density inference.
 `GENERAL_PROPERTY`, `PROPERTY_DEFINITION_REPRESENTATION`, `REPRESENTATION` and
 text/integer/boolean representation items (§6.5). Repeated occurrences receive the
 same parts-list row. Wrappers are resolved through the loader's part definitions.
-The representation has its own nongeometric context. These UDAs are readable without
+The representation has its own nongeometric context. On BOM-enabled writes, newly
+emitted Specify saved-answer and characteristic-history properties are associated with
+the part's definition shape, which the PMI reader treats as the same whole-part owner.
+Input instances are never moved. This avoids OCCT `ReadMaterials` interpreting every
+descriptive property on a product definition as a material (regardless of its name).
+Assembly allocation history also uses the definition shape, avoiding a spurious material
+on the assembly. The schema permits property definitions as property owners. The chunked
+history avoids OpenCascade's scanner buffer limit on long STEP string tokens. These UDAs are readable without
 Specify's saved interview payload. Other CAD programs must understand the documented
 UDA names to interpret them; XCAF is only expected to expose the native material/name.
 
@@ -83,22 +90,35 @@ payloads resume them like other nongeometric answers.
 ## Item allocation and revisions
 
 An assembly-level `specify bom item numbers` property set is attached to its
-non-leaf product definition (UDA §6.1). Its text item `history` contains compact JSON:
+non-leaf product definition shape (a whole-assembly bookkeeping property). Ordered text
+items `history.000001`, `history.000002`, … each hold up to 2,048 characters. Concatenate
+them to obtain compact JSON:
 `{"schema":1,"high_water":12,"entries":[{"number":1,"name":"…","geometry":{…}}]}`.
 `geometry` is quiddity's versioned recognition fingerprint, including faces/features.
-Snapshots append; the last valid snapshot is current, and counters cannot decrease.
+An entry also carries `fields`, a snapshot of the answered BOM UDA items, so a renamed
+part can retain its BOM data through geometric matching. An optional `material` snapshot
+holds an answered material for assembly revision carry; the revision API restores it as
+`part.material` only when the new export lacks a material, using the existing writer.
+Occurrence UDAs remain the
+public read contract. Snapshots append; the last valid snapshot is current, and counters cannot decrease.
 Corrupt histories refuse the write. Numbers start at 1; every new number is above the
 high-water mark. Removed entries disappear from the current snapshot, retiring their
 numbers permanently. Reintroducing a removed part receives a new number.
 
-Exact geometric fingerprints match first, with names only disambiguating equal shapes.
+A current file's explicitly stored item number is reused only when its history fingerprint
+still agrees. This also makes a repeat write stable for indistinguishable duplicate parts.
+Otherwise exact geometric fingerprints match first, with names only disambiguating equal shapes.
 Then quiddity's revision correspondence matches uniquely paired revised geometries
 when a majority of faces carry or adapt without ambiguity. Ambiguous matching retires
 numbers conservatively. STEP entity IDs and list indexes never establish identity.
 `revision::diff` carries the history in opaque answer member `_specify_bom`; retain it
 alongside `_specify_characteristic_numbers`. Destination history wins over transport.
-For assembly changes, keep this member from a surviving part's revision report in the
-answers passed to `write`, including when only a subset of parts is written.
+For assembly changes, `revision::assembly::diff` exposes `bom_history` when present,
+its optional per-part `bom_answers` supplies geometrically carried BOM answers, and
+`answers()` (CLI `answers.json`) includes the transport on every new part,
+even when all parts have been renamed and none pairs by name for PMI comparison.
+Keep the returned transport in answers passed to `write`, including subset writes.
+BOM matching uses geometry independently of the existing assembly PMI name-pairing rule.
 
 BOM updates append their complete current overrides and leave earlier UDA records
 intact. Omitting a BOM answer preserves its earlier value; use `no`/`not known`/empty
@@ -118,6 +138,10 @@ properties. A whitespace-only definition description is treated as absent.
 No supplied file in the initial survey had a populated reference designator or
 `MATERIAL_DESIGNATION`; NIST material-named validation properties were not assumed to
 be actual material values. Exporter labels are taken from headers, not folder names.
-No Fusion sample was supplied; this is not evidence that Fusion omits metadata.
+No Onshape or Fusion header was found in these supplied snapshots; no inference is made about those exporters.
 The gramil export's default spacer thickness is zero: the optional spacer is absent
 from that input and must be added as an assembly variant to demonstrate 0–1 quantity.
+
+For an independent XCAF check, run `tools/check_bom_xcaf.py written.step bom.json`
+using an OCP environment. It asserts that the standard material assignments equal the
+BOM's material values; Specify-only UDAs are checked by the Rust/WASM/Python BOM APIs.

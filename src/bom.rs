@@ -47,7 +47,14 @@ fn attrs<'a>(doc: &'a Document, id: u64, entity: &str) -> Option<&'a [A]> {
     match doc.get(id)? {
         RawEntity::Simple {
             name, attributes, ..
-        } if name == entity => Some(attributes),
+        } if name == entity
+            || haecceity::express::is_a(
+                &name.to_ascii_lowercase(),
+                &entity.to_ascii_lowercase(),
+            ) =>
+        {
+            Some(attributes)
+        }
         RawEntity::Complex { parts, .. } => parts
             .iter()
             .find(|p| p.name == entity)
@@ -72,7 +79,17 @@ fn present(s: Option<String>) -> Option<String> {
     s.filter(|s| !s.trim().is_empty())
 }
 fn text(doc: &Document, id: u64, entity: &str, index: usize) -> Option<String> {
-    present(string(attrs(doc, id, entity)?.get(index)))
+    let a = attrs(doc, id, entity)?;
+    if entity == "PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SOURCE" && a.len() == 1 {
+        return if index == 3 {
+            present(string(a.first()))
+        } else {
+            present(string(
+                attrs(doc, id, "PRODUCT_DEFINITION_FORMATION")?.get(index),
+            ))
+        };
+    }
+    present(string(a.get(index)))
 }
 fn formations(doc: &Document, pd: u64) -> (u64, u64, &'static str) {
     let formation = attrs(doc, pd, "PRODUCT_DEFINITION")
@@ -89,7 +106,7 @@ fn formations(doc: &Document, pd: u64) -> (u64, u64, &'static str) {
     } else {
         "PRODUCT_DEFINITION_FORMATION"
     };
-    let product = attrs(doc, formation, ty)
+    let product = attrs(doc, formation, "PRODUCT_DEFINITION_FORMATION")
         .and_then(|a| reference(a.get(2)))
         .unwrap_or(0);
     (formation, product, ty)
@@ -212,7 +229,23 @@ pub fn read(file: &File) -> Result<Vec<Item>, String> {
             optional: field(false, "default"),
             stock: field("to be made", "default"),
         };
-        let owners = [pd, def.shape].into_iter().chain(occurrences(&doc, pd));
+        let occurrences_here = occurrences(&doc, pd);
+        let native_numbers: Option<Vec<u64>> = occurrences_here
+            .iter()
+            .map(|id| {
+                text(&doc, *id, "NEXT_ASSEMBLY_USAGE_OCCURRENCE", 1)?
+                    .parse::<u64>()
+                    .ok()
+                    .filter(|n| *n > 0)
+            })
+            .collect();
+        if let Some(numbers) = native_numbers
+            && let Some(n) = numbers.first()
+            && numbers.iter().all(|v| v == n)
+        {
+            row.item_number = field(*n, "file");
+        }
+        let owners = [pd, def.shape].into_iter().chain(occurrences_here);
         for owner in owners {
             for (set, values) in properties(&doc, owner) {
                 for (key, v) in &values {
@@ -234,6 +267,10 @@ pub fn read(file: &File) -> Result<Vec<Item>, String> {
                             v.clone(),
                             if set == PROPERTY && key != "item_number" {
                                 "answered"
+                            } else if set == PROPERTY
+                                && values.get("item_number_source") == Some(&json!("file"))
+                            {
+                                "file"
                             } else if set == PROPERTY {
                                 "default"
                             } else {
@@ -242,6 +279,23 @@ pub fn read(file: &File) -> Result<Vec<Item>, String> {
                         );
                     }
                 }
+            }
+        }
+        if row.material.value.is_null() {
+            let mut names = BTreeSet::new();
+            for id in doc.ids() {
+                if let Some(a) = attrs(&doc, id, "MATERIAL_DESIGNATION")
+                    && let Some(A::List(owners)) = a.get(1)
+                    && owners
+                        .iter()
+                        .any(|a| reference(Some(a)).is_some_and(|o| o == pd || o == def.shape))
+                    && let Some(name) = present(string(a.first()))
+                {
+                    names.insert(name);
+                }
+            }
+            if names.len() == 1 {
+                row.material = field(names.into_iter().next().unwrap_or_default(), "file");
             }
         }
         if row.make_buy.value.is_null() {
@@ -333,6 +387,20 @@ pub(crate) fn questions(analysis: &Map<String, Value>) -> Vec<Question> {
         } else {
             "BOM setting; review against the manufacturing specification.".into()
         };
+        if key == "make_buy"
+            && bom[key]["source"] == "default"
+            && q.default.as_ref() == Some(&json!("made"))
+            && let Some(family) = analysis
+                .get("features")
+                .and_then(Value::as_array)
+                .and_then(|fs| fs.first())
+                .and_then(|f| f.get("family"))
+                .and_then(Value::as_str)
+        {
+            q.basis = format!(
+                "Recognition found {family} geometry and no standard-hardware name; propose made and review it."
+            );
+        }
         q.attention = "check";
         q.reason = q.basis.clone();
         out.push(q);
@@ -364,6 +432,10 @@ struct Entry {
     number: u64,
     name: String,
     geometry: Fingerprints,
+    #[serde(default)]
+    fields: Map<String, Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    material: Option<String>,
 }
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 struct History {
@@ -397,13 +469,28 @@ fn history(doc: &Document) -> Result<Option<History>, String> {
             if set != HISTORY {
                 continue;
             }
-            let h: History = serde_json::from_str(
-                values
-                    .get("history")
-                    .and_then(Value::as_str)
-                    .ok_or("BOM history has no history text")?,
-            )
-            .map_err(|e| format!("BOM history: {e}"))?;
+            let encoded = if let Some(text) = values.get("history").and_then(Value::as_str) {
+                text.to_owned()
+            } else {
+                let mut chunks: Vec<_> = values
+                    .iter()
+                    .filter(|(k, _)| k.starts_with("history."))
+                    .collect();
+                chunks.sort_by_key(|(k, _)| *k);
+                if chunks.is_empty() {
+                    return Err("BOM history has no history text".into());
+                }
+                let mut encoded = String::new();
+                for (i, (key, value)) in chunks.into_iter().enumerate() {
+                    if key != &format!("history.{:06}", i + 1) {
+                        return Err("BOM history chunks are incomplete".into());
+                    }
+                    encoded.push_str(value.as_str().ok_or("BOM history chunk is not text")?);
+                }
+                encoded
+            };
+            let h: History =
+                serde_json::from_str(&encoded).map_err(|e| format!("BOM history: {e}"))?;
             check_history(&h)?;
             if last
                 .as_ref()
@@ -419,6 +506,7 @@ fn history(doc: &Document) -> Result<Option<History>, String> {
 fn check_history(h: &History) -> Result<(), String> {
     let mut used = BTreeSet::new();
     if h.schema != 1
+        || h.high_water > i64::MAX as u64
         || h.entries
             .iter()
             .any(|e| e.number == 0 || e.number > h.high_water || !used.insert(e.number))
@@ -430,6 +518,26 @@ fn check_history(h: &History) -> Result<(), String> {
 
 fn uda(edit: &mut Edit, owner: u64, name: &str, values: &Map<String, Value>) {
     let s = |v: &str| A::String(v.into());
+    // Keep string tokens below OpenCascade's STEP scanner limit. Geometry history
+    // can exceed 64 KiB; splitting the UDA items preserves standard STEP syntax.
+    let chunked;
+    let values = if name == HISTORY {
+        let text = values.get("history").and_then(Value::as_str).unwrap_or("");
+        let chars: Vec<_> = text.chars().collect();
+        chunked = chars
+            .chunks(2048)
+            .enumerate()
+            .map(|(i, chars)| {
+                (
+                    format!("history.{:06}", i + 1),
+                    json!(chars.iter().collect::<String>()),
+                )
+            })
+            .collect::<Map<_, _>>();
+        &chunked
+    } else {
+        values
+    };
     let items: Vec<_> = values
         .iter()
         .map(|(key, value)| {
@@ -483,38 +591,68 @@ pub(crate) fn append(bytes: Vec<u8>, jobs: &[crate::writer::Job<'_>]) -> Result<
         return Ok(bytes);
     }
     let original = Document::parse(jobs[0].0.bytes.as_ref().clone()).map_err(|e| e.to_string())?;
+    let bytes = shape_metadata(bytes, original.max_id(), jobs)?;
     let doc = Document::parse(bytes.clone()).map_err(|e| e.to_string())?;
     let file = File::of_bytes(Path::new("bom.step"), bytes.clone()).map_err(|e| e.to_string())?;
     let parts = file.load_all().map_err(|e| e.to_string())?;
     let rows = read(&file)?;
-    let transported = jobs
-        .iter()
-        .filter_map(|(_, _, a)| a.and_then(|a| a.get(CARRY)))
-        .map(|v| {
-            serde_json::from_value::<History>(v.clone()).map_err(|e| format!("BOM transport: {e}"))
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    for h in &transported {
-        check_history(h)?;
-    }
-    if transported.windows(2).any(|w| w[0] != w[1]) {
-        return Err("conflicting BOM histories in answers".into());
-    }
-    let mut old = history(&original)?
-        .or_else(|| transported.first().cloned())
-        .unwrap_or(History {
+    let existing = history(&original)?;
+    let mut old = if let Some(h) = existing {
+        h
+    } else {
+        let transported = jobs
+            .iter()
+            .filter_map(|(_, _, a)| a.and_then(|a| a.get(CARRY)))
+            .map(|v| {
+                serde_json::from_value::<History>(v.clone())
+                    .map_err(|e| format!("BOM transport: {e}"))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        for h in &transported {
+            check_history(h)?;
+        }
+        if transported.windows(2).any(|w| w[0] != w[1]) {
+            return Err("conflicting BOM histories in answers".into());
+        }
+        transported.first().cloned().unwrap_or(History {
             schema: 1,
             ..History::default()
-        });
+        })
+    };
     check_history(&old)?;
     let geometry: Vec<_> = parts
         .iter()
         .map(|p| qc::recognise(&p.part).fingerprints)
         .collect();
+    if old.high_water == 0 {
+        for (i, row) in rows.iter().enumerate() {
+            if row.item_number.source == "file"
+                && let Some(number) = row
+                    .item_number
+                    .value
+                    .as_u64()
+                    .or_else(|| row.item_number.value.as_str().and_then(|s| s.parse().ok()))
+            {
+                old.high_water = old.high_water.max(number);
+                old.entries.push(Entry {
+                    number,
+                    name: parts[i].name.clone(),
+                    geometry: geometry[i].clone(),
+                    fields: Map::new(),
+                    material: None,
+                });
+            }
+        }
+        check_history(&old)?;
+    }
     let numbers = allocate(
         &mut old,
         &parts.iter().map(|p| p.name.clone()).collect::<Vec<_>>(),
         &geometry,
+        &rows
+            .iter()
+            .map(|r| r.item_number.value.as_u64())
+            .collect::<Vec<_>>(),
     )?;
     let leaf: BTreeSet<_> = file
         .definitions()
@@ -525,6 +663,13 @@ pub(crate) fn append(bytes: Vec<u8>, jobs: &[crate::writer::Job<'_>]) -> Result<
         .ids()
         .find(|&id| attrs(&doc, id, "PRODUCT_DEFINITION").is_some() && !leaf.contains(&id))
         .ok_or("BOM writing requires an assembly product definition")?;
+    let owner = doc
+        .ids()
+        .find(|&id| {
+            attrs(&doc, id, "PRODUCT_DEFINITION_SHAPE")
+                .is_some_and(|a| reference(a.get(2)) == Some(owner))
+        })
+        .ok_or("BOM assembly has no definition shape for history")?;
     let mut edit = Edit::new();
     let mut expected = BTreeMap::new();
     for (i, p) in parts.iter().enumerate() {
@@ -532,7 +677,7 @@ pub(crate) fn append(bytes: Vec<u8>, jobs: &[crate::writer::Job<'_>]) -> Result<
         if occurrences.is_empty() {
             return Err(format!("BOM part {i} has no assembly occurrence"));
         }
-        let mut values = Map::new();
+        let mut values = old.entries[i].fields.clone();
         values.insert("item_number".into(), json!(numbers[i]));
         // Preserve earlier overrides when writing only one part or a subset of fields.
         for occurrence in &occurrences {
@@ -543,6 +688,9 @@ pub(crate) fn append(bytes: Vec<u8>, jobs: &[crate::writer::Job<'_>]) -> Result<
             }
         }
         values.insert("item_number".into(), json!(numbers[i]));
+        if rows[i].item_number.source == "file" {
+            values.insert("item_number_source".into(), json!("file"));
+        }
         if let Some((_, intent, _)) = jobs.iter().find(|(p, _, _)| p.binding.part == i)
             && let Some(bom) = intent.part.get("bom").and_then(Value::as_object)
         {
@@ -558,6 +706,11 @@ pub(crate) fn append(bytes: Vec<u8>, jobs: &[crate::writer::Job<'_>]) -> Result<
                 );
             }
         }
+        if values.get("optional") == Some(&json!(true)) && p.placements.len() != 1 {
+            return Err(format!(
+                "BOM part {i}: optional 0–1 requires exactly one occurrence"
+            ));
+        }
         let changed = rows[i].item_number.value != json!(numbers[i])
             || occurrences.iter().any(|o| {
                 properties(&doc, *o)
@@ -571,6 +724,10 @@ pub(crate) fn append(bytes: Vec<u8>, jobs: &[crate::writer::Job<'_>]) -> Result<
                 uda(&mut edit, occurrence, PROPERTY, &values);
             }
         }
+        old.entries[i].fields = values.clone();
+        old.entries[i].material = (rows[i].material.source == "answered")
+            .then(|| rows[i].material.value.as_str().map(String::from))
+            .flatten();
         expected.insert(i, values);
     }
     if history(&doc)?.as_ref() != Some(&old) {
@@ -606,6 +763,9 @@ pub(crate) fn append(bytes: Vec<u8>, jobs: &[crate::writer::Job<'_>]) -> Result<
     for (i, values) in expected {
         let value = serde_json::to_value(&back[i]).map_err(|e| e.to_string())?;
         for (key, expected) in values {
+            if key == "item_number_source" {
+                continue;
+            }
             if value[&key]["value"] != expected {
                 return Err(format!("BOM part {i} {key} did not read back"));
             }
@@ -618,14 +778,36 @@ fn allocate(
     h: &mut History,
     names: &[String],
     geometry: &[Fingerprints],
+    preferred: &[Option<u64>],
 ) -> Result<Vec<u64>, String> {
     let mut matches: Vec<Option<usize>> = vec![None; geometry.len()];
     let mut used = BTreeSet::new();
+    // Read the explicitly stored number before matching. This disambiguates equal
+    // parts on a re-run, but only while its recorded geometric fingerprint agrees.
+    for (i, number) in preferred.iter().enumerate() {
+        if let Some(j) = h
+            .entries
+            .iter()
+            .position(|e| Some(e.number) == *number && e.geometry == geometry[i])
+            && used.insert(j)
+        {
+            matches[i] = Some(j);
+        }
+    }
     // Match exact fingerprints as a batch, never according to new part order.
     // Names only distinguish multiple geometrically equal parts.
     let mut exact = Vec::new();
-    for (i, g) in geometry.iter().enumerate() {
-        for (j, e) in h.entries.iter().enumerate() {
+    for (i, g) in geometry
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| matches[*i].is_none())
+    {
+        for (j, e) in h
+            .entries
+            .iter()
+            .enumerate()
+            .filter(|(j, _)| !used.contains(j))
+        {
             if e.geometry != *g {
                 continue;
             }
@@ -696,12 +878,19 @@ fn allocate(
                 .high_water
                 .checked_add(1)
                 .ok_or("BOM item counter exhausted")?;
+            if h.high_water > i64::MAX as u64 {
+                return Err("BOM item counter exhausted".into());
+            }
             h.high_water
         };
         entries.push(Entry {
             number,
             name: names[i].clone(),
             geometry: g.clone(),
+            fields: matches[i]
+                .map(|j| h.entries[j].fields.clone())
+                .unwrap_or_default(),
+            material: matches[i].and_then(|j| h.entries[j].material.clone()),
         });
         numbers.push(number);
     }
@@ -743,4 +932,94 @@ pub(crate) fn handles_finding(doc: &Document, f: &haecceity::pmi::Finding) -> bo
                     .is_some_and(|n| n == PROPERTY || n == HISTORY)
             })
     })
+}
+
+/// OCCT ReadMaterials treats every descriptive property on a PD as material,
+/// regardless of its property name. Geometry-bound Specify bookkeeping uses the
+/// part definition shape (the reader's equivalent whole-part owner) on BOM writes.
+/// Only this write's newly emitted records are changed; input records stay intact.
+fn shape_metadata(
+    bytes: Vec<u8>,
+    input_max: u64,
+    jobs: &[crate::writer::Job<'_>],
+) -> Result<Vec<u8>, String> {
+    let doc = Document::parse(bytes.clone()).map_err(|e| e.to_string())?;
+    let mut edit = Edit::new();
+    for id in doc.ids().filter(|id| *id > input_max) {
+        let Some(a) = attrs(&doc, id, "PROPERTY_DEFINITION") else {
+            continue;
+        };
+        let Some(name) = string(a.first()) else {
+            continue;
+        };
+        if ![crate::resume::NAME, crate::characteristics::PROPERTY].contains(&name.as_str()) {
+            continue;
+        }
+        if let Some((part, _, _)) = jobs
+            .iter()
+            .find(|(p, _, _)| reference(a.get(2)) == Some(p.definition.product_definition))
+        {
+            let mut a = a.to_vec();
+            a[2] = A::EntityRef(part.definition.shape);
+            edit.replace(id, p21::simple("PROPERTY_DEFINITION", a));
+        }
+    }
+    doc.apply(&edit).map(|w| w.bytes).map_err(|e| e.to_string())
+}
+
+/// Restore BOM answers through geometric assembly correspondence, including added/name-
+/// unpaired parts. Material remains an ordinary `part.material` answer for the existing writer.
+pub(crate) fn assembly_answers(
+    old: &[LoadedPart],
+    new: &[LoadedPart],
+) -> Result<Vec<Map<String, Value>>, String> {
+    let mut out = vec![Map::new(); new.len()];
+    let Some(first) = old.first() else {
+        return Ok(out);
+    };
+    let doc = Document::parse(first.bytes.as_ref().clone()).map_err(|e| e.to_string())?;
+    let Some(mut h) = history(&doc)? else {
+        return Ok(out);
+    };
+    let source = serde_json::to_value(&h).map_err(|e| e.to_string())?;
+    let geometry: Vec<_> = new
+        .iter()
+        .map(|p| qc::recognise(&p.part).fingerprints)
+        .collect();
+    allocate(
+        &mut h,
+        &new.iter().map(|p| p.name.clone()).collect::<Vec<_>>(),
+        &geometry,
+        &vec![None; new.len()],
+    )?;
+    let new_material = if let Some(first) = new.first() {
+        let file = File::of_shared(&first.path, std::sync::Arc::clone(&first.bytes))
+            .map_err(|e| e.to_string())?;
+        read(&file)?
+            .into_iter()
+            .map(|r| r.material.value)
+            .collect::<Vec<_>>()
+    } else {
+        vec![]
+    };
+    for (i, e) in h.entries.iter().enumerate() {
+        out[i].insert(CARRY.into(), source.clone());
+        for (key, value) in &e.fields {
+            if key == "item_number" || key == "item_number_source" {
+                continue;
+            }
+            let value = if key == "optional" {
+                json!(if value == true { "yes" } else { "no" })
+            } else {
+                value.clone()
+            };
+            out[i].insert(format!("bom.{key}"), value);
+        }
+        if new_material[i].is_null()
+            && let Some(material) = &e.material
+        {
+            out[i].insert("part.material".into(), json!(material));
+        }
+    }
+    Ok(out)
 }

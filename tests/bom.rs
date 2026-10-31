@@ -331,7 +331,16 @@ fn gramil_acceptance() {
                         "made"
                     }),
                 ),
-                ("bom.description".into(), json!(p.name.replace('_', " "))),
+                (
+                    "bom.description".into(),
+                    json!(if name.starts_with("grm-06") {
+                        "Bone-shaped copper blade retainer".to_owned()
+                    } else if name == "push rod" {
+                        "Steel push rod, cut to length".to_owned()
+                    } else {
+                        p.name.replace('_', " ")
+                    }),
+                ),
                 (
                     "bom.stock".into(),
                     json!(if name.contains("push rod") {
@@ -345,18 +354,26 @@ fn gramil_acceptance() {
                     json!(if name.contains("spacer") { "yes" } else { "no" }),
                 ),
             ]);
+            if name.starts_with("grm-") {
+                a.insert(
+                    "bom.part_number".into(),
+                    json!(p.name.split_whitespace().next().unwrap()),
+                );
+            }
             a.insert(
                 "part.material".into(),
                 json!(if name.contains("blade retainer") {
-                    "Copper"
+                    "Copper sheet (annealed)"
                 } else if name.contains("blade") && !name.contains("spacer") {
-                    "O1 tool steel"
-                } else if name.contains("push rod")
-                    || name.contains("screw") && !name.contains("drive")
-                {
+                    "O1 tool steel, hardened ~60 HRC"
+                } else if name.contains("push rod") {
+                    "Mild steel, bright-drawn"
+                } else if name.contains("pan-head") || name.contains("washer") {
+                    "Stainless steel"
+                } else if name.contains("screw") && !name.contains("drive") {
                     "Steel"
                 } else {
-                    "Brass"
+                    "Brass H62 (CuZn40)"
                 }),
             );
             a
@@ -430,4 +447,302 @@ fn gramil_acceptance() {
     )
     .unwrap();
     println!("gramil artifacts: {}", dir.display());
+}
+
+#[test]
+fn existing_source_material_category_and_numeric_find_numbers_survive() {
+    let source = fixture();
+    let doc = Document::parse(source.bytes().as_ref().clone()).unwrap();
+    let mut edit = Edit::new();
+    for (i, def) in source.definitions().iter().enumerate() {
+        for id in doc.ids() {
+            if let Some(mut a) = attrs(&doc, id, "NEXT_ASSEMBLY_USAGE_OCCURRENCE")
+                && a[4] == A::EntityRef(def.product_definition)
+            {
+                a[1] = A::String(if i == 0 { "7" } else { "9" }.into());
+                edit.replace(id, p21::simple("NEXT_ASSEMBLY_USAGE_OCCURRENCE", a));
+            }
+        }
+    }
+    let pd = attrs(
+        &doc,
+        source.definitions()[0].product_definition,
+        "PRODUCT_DEFINITION",
+    )
+    .unwrap();
+    let A::EntityRef(formation) = pd[2] else {
+        panic!()
+    };
+    let mut f = attrs(&doc, formation, "PRODUCT_DEFINITION_FORMATION").unwrap();
+    f[0] = A::String("R3".into());
+    f.push(A::Enum("BOUGHT".into()));
+    edit.replace(
+        formation,
+        p21::simple("PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SOURCE", f),
+    );
+    let bytes = doc.apply(&edit).unwrap().bytes;
+    let doc = Document::parse(bytes.clone()).unwrap();
+    let pmi = haecceity::pmi::PartPmi {
+        material: Some(haecceity::pmi::Material {
+            id: "Aluminium 6061".into(),
+            name: None,
+            density: None,
+        }),
+        ..Default::default()
+    };
+    let (edit, _) = haecceity::pmi::write(
+        &doc,
+        source.definitions(),
+        &[(haecceity::pmi::PartId(0), pmi)],
+        haecceity::pmi::write::Mode::Add,
+        haecceity::pmi::write::PresentationPolicy::default(),
+    )
+    .unwrap();
+    let source = file(doc.apply(&edit).unwrap().bytes);
+    let rows = bom::read(&source).unwrap();
+    assert_eq!(rows[0].item_number.value, 7);
+    assert_eq!(rows[1].item_number.value, 9);
+    assert_eq!(
+        rows[0].revision,
+        bom::Field {
+            value: json!("R3"),
+            source: "file".into()
+        }
+    );
+    assert_eq!(
+        rows[0].make_buy,
+        bom::Field {
+            value: json!("bought"),
+            source: "file".into()
+        }
+    );
+    assert_eq!(
+        rows[0].material,
+        bom::Field {
+            value: json!("Aluminium 6061"),
+            source: "file".into()
+        }
+    );
+    let a = vec![
+        json!({"bom.description":"Only this changed"})
+            .as_object()
+            .unwrap()
+            .clone(),
+        Map::new(),
+    ];
+    let bytes = write(&source, &a);
+    let after = bom::read_bytes(bytes.clone()).unwrap();
+    for key in ["item_number", "revision", "make_buy", "material"] {
+        assert_eq!(
+            serde_json::to_value(&rows[0]).unwrap()[key],
+            serde_json::to_value(&after[0]).unwrap()[key],
+            "{key}"
+        );
+    }
+    let original = Document::parse(source.bytes().as_ref().clone()).unwrap();
+    let back = Document::parse(bytes.clone()).unwrap();
+    for id in original.ids() {
+        assert_eq!(
+            original.span(id).map(|r| &source.bytes()[r]),
+            back.span(id).map(|r| &bytes[r])
+        );
+    }
+}
+
+#[test]
+fn invalid_optional_and_transport_are_refused_and_destination_history_wins() {
+    let f = fixture();
+    let p = f.load(Some(1)).unwrap();
+    let mut intent = rules::Intent::new(serde_json::to_value(&p.binding).unwrap());
+    intent.part.insert("bom".into(), json!({"optional":"yes"}));
+    assert!(
+        writer::write_bytes(&p, &intent, Some(&Map::new()))
+            .unwrap_err()
+            .to_string()
+            .contains("exactly one occurrence")
+    );
+    intent
+        .part
+        .insert("bom".into(), json!({"make_buy":"sometimes"}));
+    assert!(writer::write_bytes(&p, &intent, Some(&Map::new())).is_err());
+    intent.part.insert("bom".into(), json!({"make_buy":"made"}));
+    let invalid = json!({bom::CARRY:{"schema":99}})
+        .as_object()
+        .unwrap()
+        .clone();
+    assert!(writer::write_bytes(&p, &intent, Some(&invalid)).is_err());
+    let written = file(write(&f, &answers()));
+    let mut a = answers();
+    a[0].extend(invalid);
+    assert_eq!(
+        bom::read_bytes(write(&written, &a)).unwrap()[0]
+            .item_number
+            .value,
+        1
+    );
+}
+
+#[test]
+fn entity_renumbering_and_part_reordering_do_not_establish_identity() {
+    let original = fixture();
+    let numbered = file(write(&original, &answers()));
+    let doc = Document::parse(original.bytes().as_ref().clone()).unwrap();
+    let source = String::from_utf8(original.bytes().as_ref().clone()).unwrap();
+    let renumbered = regex::Regex::new(r"#(\d+)")
+        .unwrap()
+        .replace_all(&source, |c: &regex::Captures| {
+            format!("#{}", doc.max_id() + 1 - c[1].parse::<u64>().unwrap())
+        });
+    let reordered = file(renumbered.as_bytes().to_vec());
+    let new_parts = reordered.load_all().unwrap();
+    let mut a: Vec<_> = new_parts
+        .iter()
+        .map(|p| {
+            let k = if p.name == "plate" { 0 } else { 1 };
+            answers()[k].clone()
+        })
+        .collect();
+    let old = numbered.load(Some(0)).unwrap();
+    let new = new_parts.iter().find(|p| p.name == "plate").unwrap();
+    a[0].extend(
+        revision::diff(&old, new, &Map::new())
+            .unwrap()
+            .answers
+            .into_iter()
+            .filter(|(k, _)| k == bom::CARRY),
+    );
+    for row in bom::read_bytes(write(&reordered, &a)).unwrap() {
+        assert_eq!(
+            row.item_number.value,
+            if row.name.value == "plate" { 1 } else { 2 }
+        );
+    }
+}
+
+#[test]
+fn pmi_and_bom_share_one_verified_write_and_partial_edits_keep_other_rows() {
+    let source = fixture();
+    let loaded = source.load(Some(0)).unwrap();
+    let a = json!({"bom.description":"Plate with datum A","part.material":"Brass"})
+        .as_object()
+        .unwrap()
+        .clone();
+    let mut intent = rules::Intent::new(serde_json::to_value(&loaded.binding).unwrap());
+    intent
+        .part
+        .insert("bom".into(), json!({"description":"Plate with datum A"}));
+    intent.part.insert("material".into(), json!("Brass"));
+    intent.datums.push(
+        json!({"letter":"A","faces":[4]})
+            .as_object()
+            .unwrap()
+            .clone(),
+    );
+    let bytes = writer::write_bytes(&loaded, &intent, Some(&a)).unwrap().0;
+    let back = file(bytes.clone());
+    let part = back.load(Some(0)).unwrap();
+    assert_eq!(specify_core::characteristics::read(&part).unwrap().len(), 1);
+    assert_eq!(
+        bom::read(&back).unwrap()[0].description.value,
+        "Plate with datum A"
+    );
+    intent.binding = serde_json::to_value(&part.binding).unwrap();
+    assert_eq!(
+        writer::write_bytes(&part, &intent, Some(&a)).unwrap().0,
+        bytes
+    );
+    let other = back.load(Some(1)).unwrap();
+    let mut intent = rules::Intent::new(serde_json::to_value(&other.binding).unwrap());
+    intent
+        .part
+        .insert("bom".into(), json!({"stock":"from stock"}));
+    let a = json!({"bom.stock":"from stock"})
+        .as_object()
+        .unwrap()
+        .clone();
+    let bytes = writer::write_bytes(&other, &intent, Some(&a)).unwrap().0;
+    let rows = bom::read_bytes(bytes).unwrap();
+    assert_eq!(rows[0].description.value, "Plate with datum A");
+    assert_eq!(rows[1].stock.value, "from stock");
+}
+
+#[test]
+fn an_assembly_with_every_part_renamed_keeps_bom_answers_and_numbers() {
+    let source = fixture();
+    let old = file(write(&source, &answers()));
+    let doc = Document::parse(source.bytes().as_ref().clone()).unwrap();
+    let mut edit = Edit::new();
+    for id in doc.ids() {
+        if let Some(mut a) = attrs(&doc, id, "PRODUCT")
+            && matches!(a.get(1),Some(A::String(s)) if s=="plate" || s=="pin")
+        {
+            let A::String(name) = &a[1] else { panic!() };
+            a[1] = A::String(format!("renamed {name}"));
+            edit.replace(id, p21::simple("PRODUCT", a));
+        }
+        if let Some(mut a) = attrs(&doc, id, "NEXT_ASSEMBLY_USAGE_OCCURRENCE")
+            && matches!(a.get(1),Some(A::String(s)) if s=="plate" || s=="pin")
+        {
+            let A::String(name) = &a[1] else { panic!() };
+            a[1] = A::String(format!("renamed {name}"));
+            edit.replace(id, p21::simple("NEXT_ASSEMBLY_USAGE_OCCURRENCE", a));
+        }
+    }
+    let new = file(doc.apply(&edit).unwrap().bytes);
+    let compared = revision::assembly::diff(
+        &old.load_all().unwrap(),
+        &new.load_all().unwrap(),
+        &Map::new(),
+    )
+    .unwrap();
+    let transport = compared.answers();
+    assert_eq!(transport.len(), 2);
+    let a: Vec<_> = new
+        .parts()
+        .iter()
+        .map(|p| {
+            let mut a = transport[&p.name].as_object().unwrap().clone();
+            a.insert("bom.stock".into(), json!("from stock"));
+            a
+        })
+        .collect();
+    let rows = bom::read_bytes(write(&new, &a)).unwrap();
+    assert_eq!(rows[0].item_number.value, 1);
+    assert_eq!(rows[1].item_number.value, 2);
+    assert_eq!(rows[0].description.value, "Mounting plate");
+    assert_eq!(rows[1].description.value, "Locating pin");
+    assert_eq!(rows[0].material.value, "brass");
+}
+
+#[test]
+fn indistinguishable_parts_keep_their_explicit_numbers_on_a_rerun() {
+    let source = added(&fixture());
+    let doc = Document::parse(source.bytes().as_ref().clone()).unwrap();
+    let mut edit = Edit::new();
+    let id = doc
+        .ids()
+        .find(|&id| attrs(&doc, id, "PRODUCT").is_some_and(|a| a[1] == A::String("extra".into())))
+        .unwrap();
+    let mut a = attrs(&doc, id, "PRODUCT").unwrap();
+    a[1] = A::String("plate".into());
+    edit.replace(id, p21::simple("PRODUCT", a));
+    let source = file(doc.apply(&edit).unwrap().bytes);
+    let mut a = answers();
+    a.push(
+        json!({"bom.description":"Second identical plate"})
+            .as_object()
+            .unwrap()
+            .clone(),
+    );
+    let first = write(&source, &a);
+    let second = write(&file(first.clone()), &a);
+    assert_eq!(first, second);
+    assert_eq!(
+        bom::read_bytes(second)
+            .unwrap()
+            .iter()
+            .map(|r| r.item_number.value.clone())
+            .collect::<Vec<_>>(),
+        vec![json!(1), json!(2), json!(3)]
+    );
 }

@@ -78,6 +78,9 @@ pub struct PartChange {
     /// The part's own comparison, for a part in both files.
     #[serde(rename = "report", skip_serializing_if = "Option::is_none")]
     pub revised: Option<Revised>,
+    /// BOM answers carried geometrically even when a renamed part is unpaired for PMI.
+    #[serde(skip_serializing_if = "Map::is_empty")]
+    pub bom_answers: Map<String, Value>,
     /// The old placements no new one is at, of a part placed a different number of times or
     /// moved, for [`Assembly::picture`].
     #[serde(skip)]
@@ -91,6 +94,9 @@ pub struct Assembly {
     pub summary: String,
     /// Every part of either file, as [`matched`] orders them.
     pub parts: Vec<PartChange>,
+    /// Opaque BOM allocation/answer transport, also included by `answers()` for added parts.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bom_history: Option<Value>,
 }
 
 /// Whether a part's comparison finds nothing: no feature, face, answer, question, problem or
@@ -206,6 +212,7 @@ pub fn diff(
             instances: parts[k].placements.len(),
         })
     };
+    let bom_answers = crate::bom::assembly_answers(old, new).map_err(api::Error::Analysis)?;
     let mut rows = Vec::new();
     for (name, o, n) in matched(&old_names, &new_names) {
         let (status, gone, revised) = match (o, n) {
@@ -232,6 +239,7 @@ pub fn diff(
             old: count(old, o),
             new: count(new, n),
             revised,
+            bom_answers: n.map(|i| bom_answers[i].clone()).unwrap_or_default(),
             gone,
         });
     }
@@ -244,7 +252,12 @@ pub fn diff(
         .into_iter()
         .find(|v| verdicts.contains(v))
         .unwrap_or("ok");
+    let mut transport = Map::new();
+    if let Some(first) = old.first() {
+        crate::bom::carry(first, &mut transport).map_err(api::Error::Analysis)?;
+    }
     Ok(Assembly {
+        bom_history: transport.remove(crate::bom::CARRY),
         verdict: verdict.into(),
         summary: summary(&rows),
         parts: rows,
@@ -316,9 +329,17 @@ impl Assembly {
     pub fn answers(&self) -> Map<String, Value> {
         self.parts
             .iter()
-            .filter_map(|p| Some((&p.name, &p.revised.as_ref()?.answers)))
-            .filter(|(_, a)| !a.is_empty())
-            .map(|(name, a)| (name.clone(), Value::Object(a.clone())))
+            .filter(|p| p.new.is_some())
+            .filter_map(|p| {
+                let mut a = p.bom_answers.clone();
+                if let Some(r) = &p.revised {
+                    a.extend(r.answers.clone());
+                }
+                if let Some(history) = &self.bom_history {
+                    a.insert(crate::bom::CARRY.into(), history.clone());
+                }
+                (!a.is_empty()).then(|| (p.name.clone(), Value::Object(a)))
+            })
             .collect()
     }
 

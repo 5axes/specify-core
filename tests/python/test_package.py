@@ -232,3 +232,15 @@ def test_diff_exposes_numbered_pmi_with_scene_identities(plate, tmp_path):
     for item in changed:
         assert scene["specify"][item["id"]]["number"] == item["number"]
     assert "→" in result["markdown"]
+
+
+def test_bom_read_api_and_cli_agree_on_file_sources(assembly):
+    from specify_core import bom
+    from specify_core import _native
+    import json
+
+    rows = bom(assembly)
+    assert len(rows) == 2
+    assert rows[1]["quantity"] == {"value": 2, "source": "file"}
+    assert rows[0]["item_number"] == {"value": None, "source": "default"}
+    assert json.loads(_native.bom(assembly)) == rows

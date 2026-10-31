@@ -11,6 +11,7 @@ export class IntentEngine {
   review(answers: string): string;
   settle(state: string): string;
   snapshot(): string;
+  static bom(bytes: Uint8Array): string;
   static openPart(name: string, bytes: Uint8Array, part: number): IntentEngine;
   static parts(name: string, bytes: Uint8Array): string;
   writePmi(answers: string, project?: string | null, payload?: string | null): string;
@@ -79,6 +80,7 @@ export interface InitOutput {
   readonly answerEdit: (a: number, b: number, c: number, d: number) => [number, number, number, number];
   readonly diff: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number) => [number, number, number, number];
   readonly intentengine_acceptDefaults: (a: number, b: number, c: number) => [number, number, number, number];
+  readonly intentengine_bom: (a: number, b: number) => [number, number, number, number];
   readonly intentengine_evidence: (a: number) => [number, number, number, number];
   readonly intentengine_open: (a: number, b: number, c: number, d: number) => [number, number, number];
   readonly intentengine_openPart: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
