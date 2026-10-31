@@ -266,7 +266,7 @@ fn future_geometry_format_leaves_only_unnamed_supports_open() {
 }
 
 #[test]
-fn unnamed_revision_keeps_pre87_payload_and_written_bytes() {
+fn unnamed_revision_keeps_pre87_payload_and_current_presentation_bytes() {
     use sha2::{Digest, Sha256};
     let p = load("hole_moved.old.step.gz");
     let a = object(json!({"part.material":"steel"}));
@@ -288,9 +288,11 @@ fn unnamed_revision_keeps_pre87_payload_and_written_bytes() {
         .iter()
         .map(|b| format!("{b:02x}"))
         .collect();
+    // v0.4.1 regenerates the GENERAL NOTES graphic and generated plane views.
+    // The schema-2 payload assertion above remains byte-identical to pre-#87.
     assert_eq!(
         sha,
-        "08a3a5734223e7d7e3d311ec2d236219b015465b46b90e409227423359dcc224"
+        "780b5c9b1867f02478ba8c46b8936b2cf15b4996aabffe7e156148b2e020e03d"
     );
 }
 

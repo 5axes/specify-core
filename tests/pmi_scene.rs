@@ -439,9 +439,19 @@ fn new_foreign_control_preserves_saved_views_planes_and_datum_callouts() {
     validate(&review);
     assert_eq!(review["specify"]["flatness:extra.1"]["status"], "answered");
     assert_eq!(file["pmi"]["pmi"]["datums"], review["pmi"]["pmi"]["datums"]);
+    // v0.4.1 adds a plane view for the new control alongside unchanged file views.
+    let views = review["presentation"]["views"].as_array().unwrap();
+    for view in file["presentation"]["views"].as_array().unwrap() {
+        assert!(views.contains(view));
+    }
+    let generated: Vec<_> = views
+        .iter()
+        .filter(|view| view["id"].as_str().unwrap().starts_with("generated:"))
+        .collect();
+    assert_eq!(generated.len(), 1);
     assert_eq!(
-        file["presentation"]["views"],
-        review["presentation"]["views"]
+        generated[0]["graphics"],
+        json!(["generated:tolerances:flatness:extra.1"])
     );
     for plane in file["presentation"]["planes"].as_array().unwrap() {
         assert!(

@@ -87,7 +87,7 @@ fn rust_written_files_match_the_current_presentation_writer() {
         let (step, refused) = (dir.join("rust.step.gz"), dir.join("rust.refused.txt"));
         match (write_fixtures::write(case, &output), step.is_file()) {
             (Ok(bytes), true) if gunzip(&step) == bytes => {}
-            // v0.2.7 redraws deviations with a slash and moves notes/frames.
+            // v0.4.1 regenerates callouts, GENERAL NOTES and generated plane views.
             // The recaptured fixtures include #65 numbering and #77 origin/source UDAs:
             // require exact bytes again.
             (Ok(_), true) => stale.push(format!("{}: writer bytes changed", case.name)),

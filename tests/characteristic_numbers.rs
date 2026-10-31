@@ -258,6 +258,8 @@ fn legacy_numberless_files_have_byte_identical_analysis_and_pmi_serialization() 
     // unchanged for quiddity-rust#137; settings-only writes gain its General notes callout.
     // #77 leaves these settings-only hashes unchanged: no size/location UDA is written.
     // v0.2.7 moves the General notes block; only settings-only writer hashes change.
+    // v0.4.1 regenerates the numbered GENERAL NOTES block and its plane view;
+    // only settings-only writer hashes change, never analysis or semantic-read hashes.
     // Float serialization varies by platform; portable absence checks run separately above.
     if !cfg!(target_os = "macos") {
         return;
@@ -292,7 +294,7 @@ fn legacy_numberless_files_have_byte_identical_analysis_and_pmi_serialization() 
         assert_eq!(
             hash(output),
             baseline["settings_only_writer_sha256"],
-            "{name}: settings-only writer with quiddity-rust#137 notes"
+            "{name}: settings-only writer with v0.4.1 GENERAL NOTES layout"
         );
     }
 }

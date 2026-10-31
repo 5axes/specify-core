@@ -14,6 +14,20 @@ import check_wasm_api as api
 import wasm_size
 
 
+class WorkspacePinTests(unittest.TestCase):
+    def test_release_and_wasm_use_the_reviewed_kernel(self):
+        local = kernel.pins(kernel.tomllib.loads((kernel.ROOT / "Cargo.toml").read_text()))
+        self.assertEqual(set(local.values()), {("tag", "v0.4.1")})
+        kernel.check_wasm_pin(local)
+
+    def test_mismatched_wasm_pin_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            manifest = Path(directory) / "Cargo.toml"
+            manifest.write_text('[dependencies.haecceity]\ngit = "https://github.com/pzfreo/quiddity-rust"\ntag = "v0.2.8"\n')
+            with self.assertRaisesRegex(ValueError, "same source and pin"):
+                kernel.check_wasm_pin({"haecceity": ("tag", "v0.4.1")}, manifest)
+
+
 class ApiTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -133,6 +147,7 @@ class KernelTests(unittest.TestCase):
         sibling = dict.fromkeys(("haecceity", "quiddity"), ("tag", "v2"))
         with patch("sys.argv", ["check_quiddity_pin.py", "--release", "v1"]), \
              patch.object(kernel, "pins", side_effect=[local, sibling]), \
+             patch.object(kernel, "check_wasm_pin"), \
              patch.object(kernel, "latest_release", return_value="v2"), \
              patch.object(kernel, "api", return_value={"content": ""}), \
              patch.object(kernel, "compare", return_value=(False, {})), \

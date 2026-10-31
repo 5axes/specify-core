@@ -423,7 +423,7 @@ The result is:
 The two haecceity documents retain their schemas: units are explicit and semantic decimals
 are strings. `pmi.pmi` holds collections of `{id, value}`; references use those ids.
 `presentation.items[id]` holds graphics with `name` (full notation), `text` (cells),
-`polylines`, `triangles`, and `source: 'generated' | 'file'`. With haecceity v0.2.8,
+`polylines`, `triangles`, and `source: 'generated' | 'file'`. With haecceity v0.4.1,
 optional `id`, `plane_id` and `text_placements` retain model-space text origins, axes,
 heights/alignment when stated; document `planes` and `views` preserve annotation planes
 and saved-view membership. Datum-feature graphics also appear under their datum ids.
@@ -466,6 +466,6 @@ packaged schemas are `specify_core/schema/haecceity.pmi-1.json` and
 `specify_core/schema/haecceity.presentation-1.json`.
 
 Scene export uses haecceity's serialise-only `json` feature in native, WASM and Python.
-`json-import` is not enabled. The Python package ships the v0.2.8 schemas as data; its
+`json-import` is not enabled. The Python package ships the v0.4.1 schemas as data; its
 smoke tests validate exports with Python's `jsonschema`, keeping schemas and import
 validation code out of the WASM binary.
