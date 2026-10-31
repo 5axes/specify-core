@@ -10,7 +10,9 @@ import type { PmiAnalysis, PmiMesh, PmiVec } from '../types/pmi';
 
 import { createAnnotations } from './annotations';
 import { createCadView, type CadLeaf } from './cad-view';
-import { toLabels } from './labels';
+import type { DrawnPmi } from './drawn';
+import { createDrawnLayer } from './drawn-layer';
+import { toLabels, type PmiLabel } from './labels';
 import { createLook } from './look';
 import type { Picker, PickerEvents } from './picker';
 import { expand, faceOfTriangle, indexAnalysis, sameBinding, toggle, type PickMode } from './selection';
@@ -126,7 +128,14 @@ export function createReviewView(
   const onUp = (event: PointerEvent) => {
     const press = down;
     down = null;
-    if (!press || press.face === null || Math.hypot(event.screenX - press.x, event.screenY - press.y) > 4) return;
+    if (!press || Math.hypot(event.screenX - press.x, event.screenY - press.y) > 4) return;
+    // A drawn callout clicked is its semantic item, as its label would be.
+    const item = drawnLayer.hit(...at(event));
+    if (item !== null) {
+      for (const f of listeners.label) f(drawnLabel(item));
+      return;
+    }
+    if (press.face === null) return;
     for (const f of listeners.face) f(press.face);
     if (!pickable) return;
     // Shift adds to the selection; a plain click starts a new one.
@@ -138,7 +147,9 @@ export function createReviewView(
   let hoverFace: number | null = null;
   const onMove = (event: PointerEvent) => {
     if (event.buttons) return;
-    report(faceAt(...at(event)));
+    const point = at(event);
+    cad.canvas.style.cursor = drawnLayer.hit(...point) === null ? '' : 'pointer';
+    report(faceAt(...point));
   };
   const report = (face: number | null) => {
     // What a click would pick is lit only while picking; the face under the pointer is
@@ -188,6 +199,21 @@ export function createReviewView(
     occluders: () => (seeThrough ? [] : [part]),
   });
   let framedLabels = false;
+
+  // The file's own graphics, in the labels' scene; a linked one clicked is its item's label.
+  let drawnPmi: DrawnPmi | null = null;
+  const drawnLabel = (item: string): PmiLabel => {
+    const link = drawnPmi?.links[item];
+    return {
+      id: `drawn:${item}`, kind: 'note', group: 'existing',
+      cells: [drawnPmi?.presentation.items[item]?.[0]?.name ?? item],
+      faces: (link?.faces ?? []).filter((f) => f >= 0 && f < mesh.faces.length),
+      ...(link?.question ? { question: link.question } : {}),
+    };
+  };
+  const drawnLayer = createDrawnLayer(host, labels, {
+    onClick: (item) => { for (const f of listeners.label) f(drawnLabel(item)); },
+  });
 
   const lookAt = createLook(cad, {
     mesh, occluder: part, faceOf: (triangle) => faceOfTriangle(mesh.faces, triangle),
@@ -247,6 +273,10 @@ export function createReviewView(
       cad.collapse();
     },
     setLabelsVisible: (on) => annotations.setVisible(on),
+    drawn(pmi, visible) {
+      if (pmi !== drawnPmi) { drawnPmi = pmi; drawnLayer.set(pmi); }
+      drawnLayer.setVisible(visible && pmi !== null);
+    },
     setFarSideHidden: (on) => annotations.setFarSideHidden(on),
     setTransparency(amount) {
       const a = Math.min(Math.max(amount, 0), 0.95);
@@ -264,6 +294,7 @@ export function createReviewView(
     lookAt,
     on(name, listener) { (listeners[name] as typeof listener[]).push(listener); },
     dispose() {
+      drawnLayer.dispose();
       annotations.dispose();
       cad.canvas.removeEventListener('pointerdown', onDown);
       cad.canvas.removeEventListener('pointerup', onUp);

@@ -6,6 +6,7 @@ import * as THREE from 'three';
 import type { PmiAnalysis, PmiIntent, PmiMesh } from '../types/pmi';
 
 import { createAnnotations } from './annotations';
+import type { DrawnPmi } from './drawn';
 import { toLabels, type LabelGroup, type PmiLabel } from './labels';
 import { createLook } from './look';
 import { createNavigator, type Navigator } from './navigator';
@@ -48,6 +49,8 @@ export interface Picker {
    * them there. */
   features?(rows: readonly { title: string; faces: readonly number[] }[]): void;
   setLabelsVisible(on: boolean): void;
+  /** A STEP's own graphical PMI (As drawn), drawn when ``visible``; none without ``pmi``. */
+  drawn?(pmi: DrawnPmi | null, visible: boolean): void;
   /** Whether labels on the far side of the part are hidden. */
   setFarSideHidden(on: boolean): void;
   /** How see-through the part is, 0 (solid) to under 1. */

@@ -9,6 +9,7 @@ import { addedOf, CALL_OUTS, describe, kindsFor, MAY_HAVE_DATUM, nextKey } from 
 import { codeOf } from './choose';
 import { appliedByRule, chosenForYou, type Chosen } from './chosen';
 import { datumChips, freeLetter, removal } from './datums';
+import { devDrawnPmi, type DrawnPmi } from './drawn';
 import { optionHint } from './hints';
 import { balloonsBySource, type Characteristic, characteristics, ranges, toCsv } from './characteristics';
 import { CharacteristicsTable, ExtraEditor, PurposeChoice, SpecBox, SuggestBox, SuggestionCard, TOLERANCE_PICKS, type ExtraDraft } from './inputs';
@@ -84,6 +85,19 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     // What the general tolerance covers can be a hundred labels: drawn only when chosen.
     labels: true, defaults: true, existing: true, general: false, farSide: true,
   });
+  // A STEP's own graphical PMI, when there is any: shown as our labels (Semantic), as the file
+  // draws it (As drawn), or both. Until pmiScene its only source is the dev path.
+  const [drawnPmi, setDrawnPmi] = useState<DrawnPmi | null>(null);
+  const [showing, setShowing] = useState<'semantic' | 'drawn' | 'both'>('semantic');
+  useEffect(() => {
+    let live = true;
+    void devDrawnPmi(location.search).then((read) => {
+      if (!live || !read) return;
+      if (read.ok) setDrawnPmi(read.value);
+      else console.warn(`Graphical PMI not shown: ${read.reason}`);
+    });
+    return () => { live = false; };
+  }, []);
   // A face clicked that no question is about shows what the general tolerance says of it.
   const [peek, setPeek] = useState<number | null>(null);
   // Set by a label clicked: the question it opens is turned to without moving the view.
@@ -245,9 +259,12 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
       current, show: { default: show.defaults, existing: show.existing, general: show.general }, balloons,
       pending: new Set(questions.filter((q) => needs(q, answers)).map((q) => q.id)), reveal,
     });
-    picker.current?.setLabelsVisible(show.labels);
+    picker.current?.setLabelsVisible(show.labels && !(drawnPmi && showing === 'drawn'));
     picker.current?.setFarSideHidden(show.farSide);
-  }, [preview, current, show, balloons, questions, answers, reveal]);
+  }, [preview, current, show, balloons, questions, answers, reveal, drawnPmi, showing]);
+  useEffect(() => {
+    picker.current?.drawn?.(drawnPmi, showing !== 'semantic');
+  }, [drawnPmi, showing, session]);
 
   useEffect(() => {
     picker.current?.setTransparency(transparency / 100);
@@ -704,6 +721,16 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
           <details className="pmi-lab-show">
             <summary title="What the 3D view shows">⚙ Show ▾</summary>
             <div>
+              {drawnPmi && (
+                <div className="pmi-lab-showing" role="radiogroup" aria-label="PMI shown">
+                  {(['semantic', 'drawn', 'both'] as const).map((key) => (
+                    <label key={key}>
+                      <input type="radio" name="pmi-showing" checked={showing === key} onChange={() => setShowing(key)} />{' '}
+                      {{ semantic: 'Semantic', drawn: 'As drawn', both: 'Both' }[key]}
+                    </label>
+                  ))}
+                </div>
+              )}
               {(['labels', 'defaults', 'existing', 'general', 'farSide'] as const).map((key) => (
                 <label key={key}>
                   <input
