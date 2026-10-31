@@ -634,6 +634,7 @@ fn write_verified(
                 let mut saved = answers.clone();
                 saved.remove(crate::characteristics::CARRY);
                 saved.remove(crate::bom::CARRY);
+                saved.retain(|key, _| !key.starts_with("bom."));
                 let payload = resume::payload(loaded, &saved).map_err(failed)?;
                 pmi.attributes.push(resume::attribute_set(&payload));
                 Some(payload)

@@ -261,6 +261,9 @@ impl Question {
             ("default", self.default.clone().unwrap_or(Value::Null)),
             ("why", Value::from(self.why.as_str())),
         ]);
+        if self.id.starts_with("bom.") {
+            out.insert("optional".into(), Value::Bool(true));
+        }
         if !self.options.is_empty() {
             out.insert("options".into(), Value::from(self.options.clone()));
         }
@@ -850,7 +853,11 @@ fn reviewed(mut q: Question, faces: &Faces) -> Result<Question> {
 /// the manufacturing depth already implied by an answered tap, so it never blocks saving.
 pub fn open_questions<'q>(qs: &'q [Question], answers: &Map<String, Value>) -> Vec<&'q Question> {
     qs.iter()
-        .filter(|q| !q.id.starts_with("hole.full_thread:") && !answers.contains_key(&q.id))
+        .filter(|q| {
+            !q.id.starts_with("hole.full_thread:")
+                && !q.id.starts_with("bom.")
+                && !answers.contains_key(&q.id)
+        })
         .collect()
 }
 
@@ -859,6 +866,7 @@ pub fn with_defaults(qs: &[Question], answers: &Map<String, Value>) -> Map<Strin
     let mut merged = answers.clone();
     for q in qs {
         if let Some(default) = &q.default
+            && !q.id.starts_with("bom.")
             && !merged.contains_key(&q.id)
         {
             merged.insert(q.id.clone(), default.clone());

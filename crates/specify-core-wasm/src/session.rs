@@ -243,8 +243,22 @@ impl Session {
         project: Option<&str>,
         payload: Option<&Value>,
     ) -> Result<Value, String> {
+        self.write_pmi_with_bom(answers, project, payload, false)
+    }
+
+    pub fn write_pmi_with_bom(
+        &self,
+        answers: &Map<String, Value>,
+        project: Option<&str>,
+        payload: Option<&Value>,
+        bom: bool,
+    ) -> Result<Value, String> {
         input::answers(&self.analysis, answers).map_err(|e| e.to_string())?;
-        let intent = api::preview(&self.analysis, answers).map_err(|error| error.to_string())?;
+        let mut intent =
+            api::preview(&self.analysis, answers).map_err(|error| error.to_string())?;
+        if bom {
+            specify_core::bom::accept_suggestions(&self.analysis, answers, &mut intent)?;
+        }
         let extra = carried_attributes(&self.loaded.bytes, project, payload)?;
         let (bytes, report) =
             specify_core::writer::write_bytes_with(&self.loaded, &intent, Some(answers), &extra)

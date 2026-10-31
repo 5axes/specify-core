@@ -61,6 +61,7 @@ class Question:
     basis: str = ""
     #: When the default comes from how the part fits another in its assembly: why.
     mate: str = ""
+    optional: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         out = {
@@ -71,6 +72,8 @@ class Question:
             "default": list(self.default) if isinstance(self.default, tuple) else self.default,
             "why": self.why,
         }
+        if self.optional:
+            out["optional"] = True
         if self.options:
             out["options"] = list(self.options)
         if self.feature:
@@ -114,6 +117,7 @@ class Question:
             depth=record["depth"],
             basis=record["basis"],
             mate=record["mate"],
+            optional=record.get("optional", False),
         )
 
 

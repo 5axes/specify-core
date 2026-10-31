@@ -163,9 +163,10 @@ const WRITE: Command = Command {
     options: &[
         (Some("-o"), "--output", true, true),
         (None, "--accept-defaults", false, false),
+        (None, "--bom", false, false),
         (None, "--intent", true, false),
     ],
-    help: "usage: specify-core write [-h] -o OUTPUT [--accept-defaults] [--intent INTENT]
+    help: "usage: specify-core write [-h] -o OUTPUT [--accept-defaults] [--bom] [--intent INTENT]
                           step ANALYSIS ANSWERS [ANALYSIS ANSWERS ...]
 
 positional arguments:
@@ -176,7 +177,8 @@ positional arguments:
 options:
   -h, --help           show this help message and exit
   -o, --output OUTPUT
-  --accept-defaults    take defaults for the rest
+  --accept-defaults    take PMI defaults for the rest
+  --bom                explicitly accept optional BOM suggestions
   --intent INTENT      also write the intent JSON here
 ",
 };
@@ -630,7 +632,7 @@ fn write(step: &Path, pairs: &[String], args: &Args, out: &mut impl Write) -> Re
     for pair in pairs.chunks(2) {
         let analysis = read_json(Path::new(&pair[0]))?;
         let answers = answers_of(read_json(Path::new(&pair[1]))?)?;
-        let intent = match api::apply(&analysis, &answers, args.flag("--accept-defaults")) {
+        let mut intent = match api::apply(&analysis, &answers, args.flag("--accept-defaults")) {
             Ok(intent) => intent,
             Err(e) if !several => return Err(refused(e)),
             Err(e) => {
@@ -656,6 +658,10 @@ fn write(step: &Path, pairs: &[String], args: &Args, out: &mut impl Write) -> Re
                 }));
             }
         };
+        if args.flag("--bom") {
+            crate::bom::accept_suggestions(&analysis, &answers, &mut intent)
+                .map_err(Exit::error)?;
+        }
         written.push((intent, Some(answers)));
     }
     if let Some(path) = args.value("--intent") {

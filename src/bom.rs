@@ -177,49 +177,129 @@ fn properties(doc: &Document, owner: u64) -> Vec<(String, Map<String, Value>)> {
 }
 
 fn guessed(name: &str) -> (&'static str, &'static str) {
-    let name = name.to_lowercase();
-    if ["screw", "washer", "dowel", "bearing", "nut", "fastener"]
-        .iter()
-        .any(|s| name.contains(s))
-    {
+    let tokens: Vec<_> = name
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|s| !s.is_empty())
+        .collect();
+    // A drawing prefix followed by a number identifies project hardware, including screws.
+    if tokens.windows(2).any(|p| {
+        p[0].len() >= 2
+            && !["ISO", "DIN", "ANSI", "BS", "EN"].contains(&p[0])
+            && p[0].chars().all(|c| c.is_ascii_uppercase())
+            && p[1].chars().all(|c| c.is_ascii_digit())
+    }) {
+        return (
+            "made",
+            "The name carries a project drawing/part number; propose made, including bespoke hardware.",
+        );
+    }
+    let words: Vec<_> = tokens.iter().map(|s| s.to_lowercase()).collect();
+    // Ignore size/designation suffixes; the last noun determines the kind of part.
+    let noun = words.iter().rev().find(|s| {
+        !s.chars().any(|c| c.is_ascii_digit()) && !["mm", "iso", "din", "x"].contains(&s.as_str())
+    });
+    if noun.is_some_and(|s| {
+        [
+            "screw", "washer", "dowel", "bearing", "nut", "fastener", "bolt", "rivet", "circlip",
+            "pin", "stud",
+        ]
+        .contains(&s.as_str())
+    }) {
         (
             "bought",
-            "The part name identifies a fastener, washer, dowel or bearing; check bespoke hardware.",
+            "The final noun identifies standard hardware; review against recognition and bespoke features.",
         )
     } else {
         (
             "made",
-            "No standard hardware name was found; propose a manufactured part and review it.",
+            "The final noun does not identify standard hardware; propose a manufactured part and review it.",
         )
+    }
+}
+
+// Foreign attributes are untrusted input: normalise recognised values, ignore invalid values.
+fn normalised(key: &str, value: &Value) -> Option<Value> {
+    let text = || {
+        value
+            .as_str()
+            .map(|s| s.trim().to_lowercase().replace(['_', '-'], " "))
+    };
+    match key {
+        "make_buy" | "make_or_buy" => Some(json!(match text()?.as_str() {
+            "made" | "make" => "made",
+            "bought" | "buy" | "purchased" => "bought",
+            "not known" | "unknown" => "not known",
+            _ => return None,
+        })),
+        "stock" => Some(json!(match text()?.as_str() {
+            "from stock" | "stock" | "in stock" => "from stock",
+            "to be made" | "make" => "to be made",
+            _ => return None,
+        })),
+        "optional" => Some(json!(match value {
+            Value::Bool(v) => *v,
+            _ => match text()?.as_str() {
+                "yes" | "true" => true,
+                "no" | "false" => false,
+                _ => return None,
+            },
+        })),
+        "item_number" | "find_number" => value
+            .as_u64()
+            .or_else(|| value.as_str()?.parse().ok())
+            .filter(|n| *n > 0)
+            .map(|n| json!(n)),
+        _ => value
+            .as_str()
+            .filter(|s| !s.trim().is_empty())
+            .map(|s| json!(s)),
     }
 }
 
 /// Read the BOM without recognising geometry. A missing item number stays null until written.
 pub fn read(file: &File) -> Result<Vec<Item>, String> {
     let doc = Document::parse(file.bytes().as_ref().clone()).map_err(|e| e.to_string())?;
-    let pmi = haecceity::pmi::read(&doc, file.definitions()).map_err(|e| e.to_string())?;
-    let saved = crate::resume::stored_in(&doc);
+    read_parsed(&doc, file.definitions(), 0)
+}
+
+/// Reuse analysis' existing parse and read only this part's PMI, never the whole assembly.
+pub(crate) fn read_parsed(
+    doc: &Document,
+    definitions: &[haecceity::step::PartDefinition],
+    offset: usize,
+) -> Result<Vec<Item>, String> {
+    let pmi = haecceity::pmi::read(doc, definitions).map_err(|e| e.to_string())?;
+    read_rows(doc, definitions, offset, &pmi.parts)
+}
+
+pub(crate) fn read_rows(
+    doc: &Document,
+    definitions: &[haecceity::step::PartDefinition],
+    offset: usize,
+    pmi: &[haecceity::pmi::PartPmi],
+) -> Result<Vec<Item>, String> {
+    let saved = crate::resume::stored_in(doc);
     let mut rows = Vec::new();
-    for (part, def) in file.definitions().iter().enumerate() {
+    for (index, def) in definitions.iter().enumerate() {
+        let part = index + offset;
         let pd = def.product_definition;
-        let (formation, product, ty) = formations(&doc, pd);
+        let (formation, product, ty) = formations(doc, pd);
         let native = |v: Option<String>| {
             v.map_or_else(|| field(Value::Null, "default"), |v| field(v, "file"))
         };
         let mut row = Item {
             part,
             item_number: field(Value::Null, "default"),
-            part_number: native(text(&doc, product, "PRODUCT", 0)),
+            part_number: native(text(doc, product, "PRODUCT", 0)),
             name: native(
-                present(Some(def.name.clone())).or_else(|| text(&doc, product, "PRODUCT", 1)),
+                present(Some(def.name.clone())).or_else(|| text(doc, product, "PRODUCT", 1)),
             ),
             description: native(
-                text(&doc, product, "PRODUCT", 2)
-                    .or_else(|| text(&doc, pd, "PRODUCT_DEFINITION", 1)),
+                text(doc, product, "PRODUCT", 2).or_else(|| text(doc, pd, "PRODUCT_DEFINITION", 1)),
             ),
-            revision: native(text(&doc, formation, ty, 0)),
-            make_buy: native(text(&doc, formation, ty, 3)),
-            material: native(pmi.parts[part].material.as_ref().map(|m| {
+            revision: native(text(doc, formation, ty, 0)),
+            make_buy: native(text(doc, formation, ty, 3)),
+            material: native(pmi[index].material.as_ref().map(|m| {
                 m.name
                     .clone()
                     .filter(|s| !s.is_empty())
@@ -229,11 +309,11 @@ pub fn read(file: &File) -> Result<Vec<Item>, String> {
             optional: field(false, "default"),
             stock: field("to be made", "default"),
         };
-        let occurrences_here = occurrences(&doc, pd);
+        let occurrences_here = occurrences(doc, pd);
         let native_numbers: Option<Vec<u64>> = occurrences_here
             .iter()
             .map(|id| {
-                text(&doc, *id, "NEXT_ASSEMBLY_USAGE_OCCURRENCE", 1)?
+                text(doc, *id, "NEXT_ASSEMBLY_USAGE_OCCURRENCE", 1)?
                     .parse::<u64>()
                     .ok()
                     .filter(|n| *n > 0)
@@ -247,9 +327,12 @@ pub fn read(file: &File) -> Result<Vec<Item>, String> {
         }
         let owners = [pd, def.shape].into_iter().chain(occurrences_here);
         for owner in owners {
-            for (set, values) in properties(&doc, owner) {
+            for (set, values) in properties(doc, owner) {
                 for (key, v) in &values {
-                    let key = key.replace([' ', '-'], "_");
+                    let key = key.to_lowercase().replace([' ', '-'], "_");
+                    let Some(v) = normalised(&key, v) else {
+                        continue;
+                    };
                     let target = match key.as_str() {
                         "make_buy" | "make_or_buy" => &mut row.make_buy,
                         "part_number" => &mut row.part_number,
@@ -262,10 +345,11 @@ pub fn read(file: &File) -> Result<Vec<Item>, String> {
                         _ => continue,
                     };
                     // A Specify override is explicitly answered; exported properties fill gaps.
-                    if set == PROPERTY || target.source != "file" {
+                    let suggested = values.get(&format!("default.{key}")) == Some(&json!(true));
+                    if set == PROPERTY && !suggested || target.source != "file" {
                         *target = field(
                             v.clone(),
-                            if set == PROPERTY && key != "item_number" {
+                            if set == PROPERTY && key != "item_number" && !suggested {
                                 "answered"
                             } else if set == PROPERTY
                                 && values.get("item_number_source") == Some(&json!("file"))
@@ -284,7 +368,7 @@ pub fn read(file: &File) -> Result<Vec<Item>, String> {
         if row.material.value.is_null() {
             let mut names = BTreeSet::new();
             for id in doc.ids() {
-                if let Some(a) = attrs(&doc, id, "MATERIAL_DESIGNATION")
+                if let Some(a) = attrs(doc, id, "MATERIAL_DESIGNATION")
                     && let Some(A::List(owners)) = a.get(1)
                     && owners
                         .iter()
@@ -389,23 +473,99 @@ pub(crate) fn questions(analysis: &Map<String, Value>) -> Vec<Question> {
         };
         if key == "make_buy"
             && bom[key]["source"] == "default"
-            && q.default.as_ref() == Some(&json!("made"))
-            && let Some(family) = analysis
+            && analysis
                 .get("features")
                 .and_then(Value::as_array)
-                .and_then(|fs| fs.first())
-                .and_then(|f| f.get("family"))
-                .and_then(Value::as_str)
+                .is_some_and(|features| {
+                    features
+                        .iter()
+                        .filter_map(|f| f.get("family").and_then(Value::as_str))
+                        .any(|family| family.contains("pocket") || family.contains("keyway"))
+                })
         {
-            q.basis = format!(
-                "Recognition found {family} geometry and no standard-hardware name; propose made and review it."
-            );
+            q.default = Some(json!("made"));
+            q.basis = "Recognition found machined pockets/keyways beyond a standard fastener; propose made and review it.".into();
+        }
+        if let Some(value) = q.default.take() {
+            q.suggestions.push(value);
         }
         q.attention = "check";
         q.reason = q.basis.clone();
         out.push(q);
     }
     out
+}
+
+/// Explicitly accept the optional BOM proposals. Ordinary default acceptance never does.
+/// `bom_suggestions` records provenance separately from explicit answers.
+pub fn accept_suggestions(
+    analysis: &Value,
+    answers: &Map<String, Value>,
+    intent: &mut crate::rules::Intent,
+) -> Result<(), String> {
+    let object = analysis.as_object().ok_or("analysis is not an object")?;
+    let mut fields = intent
+        .part
+        .get("bom")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+    let mut suggested = Vec::new();
+    for q in questions(object) {
+        let key = q.id.strip_prefix("bom.").unwrap_or("");
+        if !answers.contains_key(&q.id)
+            && let Some(value) = q.suggestions.first()
+            && !value.as_str().is_some_and(|s| s.trim().is_empty())
+        {
+            fields.insert(key.into(), value.clone());
+            suggested.push(key.to_owned());
+        }
+    }
+    if !fields.is_empty() {
+        intent.part.insert("bom".into(), json!(fields));
+        intent
+            .part
+            .insert("bom_suggestions".into(), json!(suggested));
+    }
+    Ok(())
+}
+
+pub(crate) fn answered_in(
+    doc: &Document,
+    definition: &haecceity::step::PartDefinition,
+) -> Map<String, Value> {
+    let mut values = Map::new();
+    for owner in occurrences(doc, definition.product_definition) {
+        for (set, fields) in properties(doc, owner) {
+            if set != PROPERTY {
+                continue;
+            }
+            for (key, value) in &fields {
+                if validate(
+                    key,
+                    &if key == "optional" {
+                        json!(if value == true { "yes" } else { "no" })
+                    } else {
+                        value.clone()
+                    },
+                )
+                .is_ok()
+                    && fields.get(&format!("default.{key}")) != Some(&json!(true))
+                    && !value.as_str().is_some_and(|s| s.trim().is_empty())
+                {
+                    values.insert(
+                        format!("bom.{key}"),
+                        if key == "optional" {
+                            json!(if value == true { "yes" } else { "no" })
+                        } else {
+                            value.clone()
+                        },
+                    );
+                }
+            }
+        }
+    }
+    values
 }
 
 pub(crate) fn validate(key: &str, value: &Value) -> Result<(), String> {
@@ -696,6 +856,18 @@ pub(crate) fn append(bytes: Vec<u8>, jobs: &[crate::writer::Job<'_>]) -> Result<
         {
             for (key, value) in bom {
                 validate(key, value)?;
+                if value.as_str().is_some_and(|s| s.trim().is_empty()) {
+                    continue;
+                }
+                let suggested = intent
+                    .part
+                    .get("bom_suggestions")
+                    .and_then(Value::as_array)
+                    .is_some_and(|keys| keys.contains(&json!(key)));
+                values.remove(&format!("default.{key}"));
+                if suggested {
+                    values.insert(format!("default.{key}"), json!(true));
+                }
                 values.insert(
                     key.clone(),
                     if key == "optional" {
@@ -724,7 +896,14 @@ pub(crate) fn append(bytes: Vec<u8>, jobs: &[crate::writer::Job<'_>]) -> Result<
                 uda(&mut edit, occurrence, PROPERTY, &values);
             }
         }
-        old.entries[i].fields = values.clone();
+        old.entries[i].fields = values
+            .iter()
+            .filter(|(key, _)| {
+                !key.starts_with("default.")
+                    && values.get(&format!("default.{key}")) != Some(&json!(true))
+            })
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
         old.entries[i].material = (rows[i].material.source == "answered")
             .then(|| rows[i].material.value.as_str().map(String::from))
             .flatten();
@@ -762,11 +941,15 @@ pub(crate) fn append(bytes: Vec<u8>, jobs: &[crate::writer::Job<'_>]) -> Result<
     let back = read_bytes(written.clone())?;
     for (i, values) in expected {
         let value = serde_json::to_value(&back[i]).map_err(|e| e.to_string())?;
-        for (key, expected) in values {
-            if key == "item_number_source" {
+        for (key, expected) in &values {
+            if key == "item_number_source"
+                || key.starts_with("default.")
+                || values.get(&format!("default.{key}")) == Some(&json!(true))
+                    && value[key]["source"] == "file"
+            {
                 continue;
             }
-            if value[&key]["value"] != expected {
+            if value[key]["value"] != *expected {
                 return Err(format!("BOM part {i} {key} did not read back"));
             }
         }
@@ -782,58 +965,48 @@ fn allocate(
 ) -> Result<Vec<u64>, String> {
     let mut matches: Vec<Option<usize>> = vec![None; geometry.len()];
     let mut used = BTreeSet::new();
-    // Read the explicitly stored number before matching. This disambiguates equal
-    // parts on a re-run, but only while its recorded geometric fingerprint agrees.
+    let compatible = |a: &Fingerprints, b: &Fingerprints| {
+        if a == b {
+            return true;
+        }
+        qc::correspond(a, b).is_ok_and(|c| {
+            let n = c
+                .faces
+                .iter()
+                .filter(|e| {
+                    matches!(e.class, qc::Class::Carried | qc::Class::Adapted) && e.new.is_some()
+                })
+                .count();
+            // Even a one-face part can correspond. No arbitrary three-face minimum.
+            n > 0 && n * 2 > a.faces.len().max(b.faces.len())
+        })
+    };
+    // Explicit stored identity has priority, with revision correspondence tolerance.
     for (i, number) in preferred.iter().enumerate() {
         if let Some(j) = h
             .entries
             .iter()
-            .position(|e| Some(e.number) == *number && e.geometry == geometry[i])
+            .position(|e| Some(e.number) == *number && compatible(&e.geometry, &geometry[i]))
             && used.insert(j)
         {
             matches[i] = Some(j);
         }
     }
-    // Match exact fingerprints as a batch, never according to new part order.
-    // Names only distinguish multiple geometrically equal parts.
-    let mut exact = Vec::new();
-    for (i, g) in geometry
-        .iter()
-        .enumerate()
-        .filter(|(i, _)| matches[*i].is_none())
-    {
-        for (j, e) in h
-            .entries
-            .iter()
-            .enumerate()
-            .filter(|(j, _)| !used.contains(j))
-        {
-            if e.geometry != *g {
+    // Equal parts are indistinguishable geometrically. Preserve named identities first,
+    // then pair in stored history order and current occurrence/part order.
+    for named in [true, false] {
+        for (i, g) in geometry.iter().enumerate() {
+            if matches[i].is_some() {
                 continue;
             }
-            let old_has_named = names
-                .iter()
-                .zip(geometry)
-                .any(|(n, g)| *n == e.name && *g == e.geometry);
-            let new_has_named = h
-                .entries
-                .iter()
-                .any(|e| e.geometry == *g && e.name == names[i]);
-            if !old_has_named && !new_has_named || e.name == names[i] {
-                exact.push((i, j));
+            if let Some((j, _)) = h.entries.iter().enumerate().find(|(j, e)| {
+                !used.contains(j) && (!named || e.name == names[i]) && e.geometry == *g
+            }) {
+                matches[i] = Some(j);
+                used.insert(j);
             }
         }
     }
-    for &(i, j) in &exact {
-        if exact.iter().filter(|(k, _)| *k == i).count() == 1
-            && exact.iter().filter(|(_, k)| *k == j).count() == 1
-        {
-            matches[i] = Some(j);
-            used.insert(j);
-        }
-    }
-    // Revised geometry uses the same quiddity face correspondence as revision matching.
-    // Require mutual uniqueness and a majority of unambiguous carried/adapted faces.
     let mut pairs = Vec::new();
     for (i, g) in geometry
         .iter()
@@ -846,26 +1019,45 @@ fn allocate(
             .enumerate()
             .filter(|(j, _)| !used.contains(j))
         {
-            if let Ok(c) = qc::correspond(&e.geometry, g) {
-                let n = c
-                    .faces
-                    .iter()
-                    .filter(|e| {
-                        matches!(e.class, qc::Class::Carried | qc::Class::Adapted)
-                            && e.new.is_some()
-                    })
-                    .count();
-                if n >= 3 && n * 2 > e.geometry.faces.len().max(g.faces.len()) {
-                    pairs.push((i, j));
-                }
+            if compatible(&e.geometry, g) {
+                pairs.push((i, j));
             }
         }
     }
+    // A mutually unique revised part is safe even after renaming.
     for &(i, j) in &pairs {
         if pairs.iter().filter(|(k, _)| *k == i).count() == 1
             && pairs.iter().filter(|(_, k)| *k == j).count() == 1
         {
             matches[i] = Some(j);
+            used.insert(j);
+        }
+    }
+    // Tolerant identical groups (including changed fingerprint values) retain order.
+    for named in [true, false] {
+        for (i, g) in geometry.iter().enumerate() {
+            if matches[i].is_some() {
+                continue;
+            }
+            let candidates: Vec<_> = pairs
+                .iter()
+                .filter(|(k, j)| {
+                    *k == i && !used.contains(j) && (!named || h.entries[*j].name == names[i])
+                })
+                .map(|(_, j)| *j)
+                .collect();
+            if let Some(&j) = candidates.first()
+                && candidates
+                    .iter()
+                    .all(|k| compatible(&h.entries[j].geometry, &h.entries[*k].geometry))
+                && pairs
+                    .iter()
+                    .filter(|(_, k)| *k == j)
+                    .all(|(k, _)| compatible(g, &geometry[*k]))
+            {
+                matches[i] = Some(j);
+                used.insert(j);
+            }
         }
     }
     let mut entries = Vec::new();
@@ -1022,4 +1214,157 @@ pub(crate) fn assembly_answers(
         }
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn pin() -> Fingerprints {
+        let f = File::read(
+            &Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/parts/pin.step"),
+        )
+        .unwrap();
+        qc::recognise(&f.load(None).unwrap().part).fingerprints
+    }
+    fn initial(g: Fingerprints, names: &[&str]) -> History {
+        History {
+            schema: 1,
+            high_water: names.len() as u64,
+            entries: names
+                .iter()
+                .enumerate()
+                .map(|(i, n)| Entry {
+                    number: i as u64 + 1,
+                    name: (*n).into(),
+                    geometry: g.clone(),
+                    fields: Map::new(),
+                    material: None,
+                })
+                .collect(),
+        }
+    }
+    #[test]
+    fn perturbation_duplicates_and_small_parts_keep_numbers() {
+        let g = pin();
+        let mut changed = g.clone();
+        changed.scale *= 1.0 + 1e-8;
+        for f in &mut changed.faces {
+            f.area = f.area.map(|a| a * (1.0 + 1e-8));
+        }
+        let mut h = initial(g.clone(), &["a", "b"]);
+        assert_eq!(
+            allocate(
+                &mut h,
+                &["b".into(), "a".into()],
+                &[changed.clone(), changed.clone()],
+                &[Some(2), Some(1)]
+            )
+            .unwrap(),
+            [2, 1]
+        );
+        let mut h = initial(g.clone(), &["same", "same"]);
+        assert_eq!(
+            allocate(
+                &mut h,
+                &["same".into(), "same".into()],
+                &[changed.clone(), changed],
+                &[None, None]
+            )
+            .unwrap(),
+            [1, 2]
+        );
+        let mut small = g;
+        small.faces.truncate(1);
+        small.faces[0].index = 0;
+        small.faces[0].neighbours.clear();
+        small.faces[0].adjacency.clear();
+        small.features.clear();
+        let mut changed = small.clone();
+        changed.scale *= 1.0 + 1e-8;
+        let mut h = initial(small, &["small"]);
+        assert_eq!(
+            allocate(&mut h, &["renamed".into()], &[changed], &[None]).unwrap(),
+            [1]
+        );
+    }
+    #[test]
+    fn foreign_keys_ignore_case_and_invalid_values() {
+        let f = File::read(
+            &Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/parts/assembly.step"),
+        )
+        .unwrap();
+        let doc = Document::parse(f.bytes().as_ref().clone()).unwrap();
+        let mut edit = Edit::new();
+        uda(
+            &mut edit,
+            f.definitions()[0].shape,
+            "Exporter",
+            &Map::from_iter([
+                ("Description".into(), json!("Exported description")),
+                ("Stock".into(), json!("FROM_STOCK")),
+                ("Make-Buy".into(), json!("Purchased")),
+                ("Optional".into(), json!("YES")),
+            ]),
+        );
+        uda(
+            &mut edit,
+            f.definitions()[1].shape,
+            "Exporter",
+            &Map::from_iter([
+                ("Stock".into(), json!("ask Fred in stores")),
+                ("Make-Buy".into(), json!("unclassified")),
+            ]),
+        );
+        let rows = read_bytes(doc.apply(&edit).unwrap().bytes).unwrap();
+        assert_eq!(rows[0].description, field("Exported description", "file"));
+        assert_eq!(rows[0].stock, field("from stock", "file"));
+        assert_eq!(rows[0].make_buy, field("bought", "file"));
+        assert_eq!(rows[0].optional, field(true, "file"));
+        assert_eq!(rows[1].stock, field("to be made", "default"));
+        assert_eq!(rows[1].make_buy, field("bought", "default"));
+    }
+    #[test]
+    fn hardware_tokens_and_project_numbers() {
+        for name in [
+            "GRM-01 shank",
+            "GRM-02 shaft",
+            "GRM-03 thumbwheel drive screw",
+            "GRM-04 drive plate",
+            "GRM-05 depth-lock bolt",
+            "GRM-06 blade retainer",
+            "GRM-07 blade",
+            "push rod",
+            "spacer",
+            "bearing housing",
+            "leadscrew",
+            "minute",
+        ] {
+            assert_eq!(guessed(name).0, "made", "{name}");
+        }
+        for name in [
+            "grub screw M4x5",
+            "flat washer M2",
+            "pan-head screw M2x6",
+            "pan-head screw M2x10",
+            "bolt",
+            "rivet",
+            "circlip",
+            "pin",
+            "stud",
+            "nut",
+            "bearing",
+            "dowel",
+        ] {
+            assert_eq!(guessed(name).0, "bought", "{name}");
+        }
+        assert_eq!(normalised("stock", &json!("unusable text")), None);
+        assert_eq!(
+            normalised("stock", &json!("FROM_STOCK")),
+            Some(json!("from stock"))
+        );
+        assert_eq!(
+            normalised("make_buy", &json!("Purchased")),
+            Some(json!("bought"))
+        );
+    }
 }

@@ -264,7 +264,11 @@ impl Server {
             }
             Some("write") => {
                 let defaults = request.get("accept_defaults").is_some_and(truthy);
-                let intent = api::apply(analysis, &answers, defaults)?;
+                let mut intent = api::apply(analysis, &answers, defaults)?;
+                if request.get("bom").is_some_and(truthy) {
+                    crate::bom::accept_suggestions(analysis, &answers, &mut intent)
+                        .map_err(Failure::Invalid)?;
+                }
                 // The answers as given, defaults not filled in: resumed, a default not chosen
                 // stays a default and follows the rules as they then are.
                 let step = path(request, "step")?;
@@ -383,7 +387,7 @@ fn write_parts(request: &Map<String, Value>) -> Handled {
             .unwrap_or(&json!(0))
             .clone();
         let answers = answers(p.get("answers"))?;
-        let intent = api::apply(analysis, &answers, defaults).map_err(|e| match e {
+        let mut intent = api::apply(analysis, &answers, defaults).map_err(|e| match e {
             Error::Rules(rules::Error::Incomplete(e)) => Failure::Incomplete(IncompleteError::new(
                 e.missing,
                 Some(part.as_u64().unwrap_or(0) as usize),
@@ -393,6 +397,10 @@ fn write_parts(request: &Map<String, Value>) -> Handled {
             }
             other => Failure::from(other),
         })?;
+        if request.get("bom").is_some_and(truthy) {
+            crate::bom::accept_suggestions(analysis, &answers, &mut intent)
+                .map_err(Failure::Invalid)?;
+        }
         written.push((intent, Some(answers)));
     }
     let step = path(request, "step")?;

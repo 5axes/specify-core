@@ -95,8 +95,31 @@ fn round_trip_lossless_resumed_and_noop_with_sources_and_standard_material() {
 #[test]
 fn no_bom_answers_add_no_bom_records() {
     let f = fixture();
-    let a = vec![Map::new(); 2];
-    let bytes = write(&f, &a);
+    let mut jobs = Vec::new();
+    for p in f.load_all().unwrap() {
+        let analysis = api::analyse_reporting_in(&f, &p).unwrap().0;
+        let given = json!({"part.material":"6061-T6"})
+            .as_object()
+            .unwrap()
+            .clone();
+        let complete = rules::with_all_defaults(&analysis, &given).unwrap();
+        assert!(complete.keys().all(|key| !key.starts_with("bom.")));
+        assert!(
+            rules::open_questions(&api::questions(&analysis, &complete).unwrap(), &complete)
+                .is_empty()
+        );
+        for defaults in [false, true] {
+            let intent = api::apply(&analysis, &complete, defaults).unwrap();
+            assert!(!intent.part.contains_key("bom"));
+        }
+        jobs.push((
+            api::apply(&analysis, &complete, false).unwrap(),
+            Some(complete),
+        ));
+    }
+    let bytes = api::write_bytes(f.bytes().as_ref().clone(), &jobs)
+        .unwrap()
+        .0;
     assert!(!String::from_utf8_lossy(&bytes).contains(bom::PROPERTY));
     assert!(
         bom::read_bytes(bytes)
@@ -745,4 +768,70 @@ fn indistinguishable_parts_keep_their_explicit_numbers_on_a_rerun() {
             .collect::<Vec<_>>(),
         vec![json!(1), json!(2), json!(3)]
     );
+}
+
+#[test]
+fn explicit_bom_suggestions_are_not_answers_and_current_file_data_wins() {
+    let f = fixture();
+    let p = f.load(Some(0)).unwrap();
+    let analysis = api::analyse_reporting_in(&f, &p).unwrap().0;
+    let empty = Map::new();
+    let mut intent = api::preview(&analysis, &empty).unwrap();
+    bom::accept_suggestions(&analysis, &empty, &mut intent).unwrap();
+    assert!(
+        !intent.part["bom"]
+            .as_object()
+            .unwrap()
+            .values()
+            .any(|v| v == "")
+    );
+    let bytes = writer::write_bytes(&p, &intent, Some(&empty)).unwrap().0;
+    let rows = bom::read_bytes(bytes.clone()).unwrap();
+    assert_eq!(rows[0].description.source, "default");
+    assert_eq!(rows[0].make_buy.source, "default");
+    let back = file(bytes.clone());
+    assert!(
+        resume::answers_for(&back.load(Some(0)).unwrap())
+            .unwrap()
+            .unwrap()
+            .is_empty()
+    );
+    assert!(resume::stored(&bytes).values().all(|p| {
+        p["answers"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .all(|key| !key.starts_with("bom."))
+    }));
+    // Simulate a later exporter populating native description/revision while keeping history.
+    let doc = Document::parse(bytes).unwrap();
+    let pd = attrs(
+        &doc,
+        back.definitions()[0].product_definition,
+        "PRODUCT_DEFINITION",
+    )
+    .unwrap();
+    let formation = match pd[2] {
+        A::EntityRef(id) => id,
+        _ => panic!(),
+    };
+    let mut fattrs = attrs(&doc, formation, "PRODUCT_DEFINITION_FORMATION").unwrap();
+    fattrs[0] = A::String("B".into());
+    let product = match fattrs[2] {
+        A::EntityRef(id) => id,
+        _ => panic!(),
+    };
+    let mut pattrs = attrs(&doc, product, "PRODUCT").unwrap();
+    pattrs[2] = A::String("New CAD description".into());
+    let mut edit = Edit::new();
+    edit.replace(
+        formation,
+        p21::simple("PRODUCT_DEFINITION_FORMATION", fattrs),
+    );
+    edit.replace(product, p21::simple("PRODUCT", pattrs));
+    let rows = bom::read_bytes(doc.apply(&edit).unwrap().bytes).unwrap();
+    assert_eq!(rows[0].description.value, "New CAD description");
+    assert_eq!(rows[0].description.source, "file");
+    assert_eq!(rows[0].revision.value, "B");
+    assert_eq!(rows[0].revision.source, "file");
 }

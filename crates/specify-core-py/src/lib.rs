@@ -544,12 +544,22 @@ fn questions(py: Python<'_>, analysis: &str, answers: &str) -> PyResult<String> 
 /// The intent `answers` amount to, as JSON (`Intent.to_dict()`); with `accept_defaults`,
 /// unanswered defaults are taken first, to a fixed point (`api.apply`).
 #[pyfunction]
-#[pyo3(signature = (analysis, answers, accept_defaults=false))]
-fn apply(py: Python<'_>, analysis: &str, answers: &str, accept_defaults: bool) -> PyResult<String> {
+#[pyo3(signature = (analysis, answers, accept_defaults=false, bom=false))]
+fn apply(
+    py: Python<'_>,
+    analysis: &str,
+    answers: &str,
+    accept_defaults: bool,
+    bom: bool,
+) -> PyResult<String> {
     let (analysis, answers) = parse_both(analysis, answers)?;
-    let intent = py
+    let mut intent = py
         .detach(|| api::apply(&analysis, &answers, accept_defaults))
         .map_err(raised)?;
+    if bom {
+        specify_core::bom::accept_suggestions(&analysis, &answers, &mut intent)
+            .map_err(pyo3::exceptions::PyValueError::new_err)?;
+    }
     Ok(intent.to_dict().to_string())
 }
 
@@ -585,6 +595,7 @@ fn parse_both(analysis: &str, answers: &str) -> PyResult<(Value, Map<String, Val
 fn record(question: &Question) -> Value {
     let mut out = Map::new();
     out.insert("id".into(), json!(question.id));
+    out.insert("optional".into(), json!(question.id.starts_with("bom.")));
     out.insert("kind".into(), json!(question.kind));
     out.insert("prompt".into(), json!(question.prompt));
     out.insert("faces".into(), json!(question.faces));

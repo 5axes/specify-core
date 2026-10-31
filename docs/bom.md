@@ -77,15 +77,43 @@ are JSON null. Unnumbered files are not numbered merely by reading.
 - Assembly analysis adds `bom`, that part's row. Existing `parts`, `analyse --part`
   and multi-part `write` workflows continue to select the parts being answered.
 
+## Opt-in questions and writes
+
 Questions are `bom.make_buy`, `bom.description`, `bom.part_number`, `bom.revision`,
-`bom.optional`, `bom.stock`. Existing part number/revision are not asked again.
-Existing data supplies defaults first. Hardware names (screws, nuts, fasteners,
-washers, dowels, bearings) suggest bought; others suggest made, with a review reason.
-A bespoke drive screw can be answered made. Description defaults to the part display
-name, optional to no, stock to to-be-made. Material remains `part.material`.
-Defaults are only written after acceptance; reading does not create answers.
-Text, enum and optional answers are validated before writing. Ordinary saved-answer
-payloads resume them like other nongeometric answers.
+`bom.optional`, `bom.stock`. They have `optional: true`, a null `default`, and a
+`suggestions` array with the proposed value and a `reason`. Existing part numbers and
+revisions are not asked again. BOM questions never block a write and are excluded from
+`--accept-defaults` / `with_all_defaults`. Material remains `part.material`.
+
+A write opts in when its intent contains at least one explicit `bom.*` answer, or when
+BOM suggestions are explicitly accepted:
+
+- CLI: `specify-core write asm.step analysis.json answers.json -o out.step --bom`
+  (one analysis/answers pair per part to include; `--accept-defaults` independently accepts PMI).
+- Rust: apply/preview normally, then `bom::accept_suggestions(&analysis, &answers, &mut intent)`.
+- Python: `api.apply(analysis, answers, accept_defaults=True, bom=True)`.
+- WASM: `session.writePmi(answersJson, project, payload, true)`; omitted/false fourth argument
+  keeps the existing behavior. Native session API: `write_pmi_with_bom(..., true)`.
+
+Without opt-in, neither single parts nor assemblies receive new BOM records, history,
+numbers or owner changes; the ordinary PMI write bytes remain unchanged. Reading never
+allocates numbers. Once an assembly opts in, all its parts receive numbers; only the
+selected parts' answered or explicitly accepted fields are stored.
+
+Hardware is proposed bought by whole tokens and the last noun, ignoring size suffixes:
+screws, washers, dowels, bearings, nuts, bolts, rivets, circlips, pins, studs, fasteners.
+A project drawing number such as `GRM-03` or recognised pockets/keyways strongly suggests
+made, including bespoke screws. `bearing housing`, `leadscrew`, `minute` suggest made.
+Descriptions suggest the display name, optional suggests no, stock suggests to-be-made.
+
+Only explicit BOM answers have source `answered`. Accepted suggestions have source
+`default`, marked by boolean `default.<field>` UDA items. Empty text is never stored.
+Current file data always wins over suggestions, including after re-export; explicit
+overrides alone win over native data. Foreign attribute keys are case-insensitive;
+known enum values are normalised, invalid/blank values ignored. No invalid value becomes
+a proposal. BOM answers live exclusively in the `specify bom` occurrence property sets,
+**outside the ordinary saved-answers payload**, so older engines ignore them and resume
+non-BOM answers. New engines merge explicit BOM answers into resume results.
 
 ## Item allocation and revisions
 
@@ -105,12 +133,13 @@ Corrupt histories refuse the write. Numbers start at 1; every new number is abov
 high-water mark. Removed entries disappear from the current snapshot, retiring their
 numbers permanently. Reintroducing a removed part receives a new number.
 
-A current file's explicitly stored item number is reused only when its history fingerprint
-still agrees. This also makes a repeat write stable for indistinguishable duplicate parts.
-Otherwise exact geometric fingerprints match first, with names only disambiguating equal shapes.
-Then quiddity's revision correspondence matches uniquely paired revised geometries
-when a majority of faces carry or adapt without ambiguity. Ambiguous matching retires
-numbers conservatively. STEP entity IDs and list indexes never establish identity.
+A current file's stored item number is matched first through quiddity correspondence,
+with the same geometric tolerances used by revision matching. Exact geometry follows,
+then tolerant correspondence (a majority of carried/adapted faces, including one- and
+two-face parts). Identical duplicate parts retain stored identities first, then matching
+names and stored/occurrence order; they do not acquire new numbers due to ambiguity.
+STEP entity IDs never establish identity. A fresh CAD export with no transported history
+has no prior allocation to preserve and starts at 1 (unless native find numbers exist).
 `revision::diff` carries the history in opaque answer member `_specify_bom`; retain it
 alongside `_specify_characteristic_numbers`. Destination history wins over transport.
 For assembly changes, `revision::assembly::diff` exposes `bom_history` when present,
@@ -121,8 +150,9 @@ Keep the returned transport in answers passed to `write`, including subset write
 BOM matching uses geometry independently of the existing assembly PMI name-pairing rule.
 
 BOM updates append their complete current overrides and leave earlier UDA records
-intact. Omitting a BOM answer preserves its earlier value; use `no`/`not known`/empty
-text to change it. A write without BOM intent adds no BOM/history records and takes
+intact. Omitting a BOM answer preserves its earlier explicit value; use `no` or `not known`
+to change enum values. Empty text is ignored. Only explicit fields, never suggestions,
+are carried in history to later revisions. A write without BOM intent adds no BOM/history records and takes
 the previous PMI path. An identical resumed write is byte-identical. The BOM append
 verifies every original candidate record and reads back every field and history before
 the normal writer's final PMI verification and atomic publication.

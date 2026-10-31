@@ -264,6 +264,7 @@ export interface PmiScene {
             answers: &str,
             project: Option<String>,
             payload: Option<String>,
+            bom: Option<bool>,
         ) -> Result<String, JsValue> {
             let answers = self::answers(answers)?;
             let payload = payload
@@ -271,7 +272,12 @@ export interface PmiScene {
                 .map(|text| json("Payload", text))
                 .transpose()?;
             self.0
-                .write_pmi(&answers, project.as_deref(), payload.as_ref())
+                .write_pmi_with_bom(
+                    &answers,
+                    project.as_deref(),
+                    payload.as_ref(),
+                    bom.unwrap_or(false),
+                )
                 .map(|value| value.to_string())
                 .map_err(|error| JsValue::from_str(&error))
         }

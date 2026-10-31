@@ -24,8 +24,13 @@ All notable changes to specify-core-rust. The format follows
 
 ### Added
 
-- For #79: append assembly BOM answers and persistent geometric item-number history;
-  read the shared BOM through Rust, CLI, Python and WASM, with per-field sources.
+- For #79: opt-in assembly BOM writes via explicit `bom.*` answers or `--bom` / API
+  acceptance. Optional questions expose suggestions, never ordinary defaults. Assembly
+  analysis adds a sourced `bom` row using its existing parse. Separate occurrence UDAs
+  preserve older-engine resume; explicit answers override current export data, accepted
+  suggestions do not. Geometric item history tolerates fingerprint drift, small parts
+  and stable duplicate ordering; removed numbers are retired. Read through Rust, CLI,
+  Python and WASM. See [BOM storage and numbering](docs/bom.md).
 
 - For #87: carry authored STEP face names in analysis and stored-answer schema 3.
   Resume and diff match names exactly before unnamed geometric supports; missing or
@@ -34,7 +39,9 @@ All notable changes to specify-core-rust. The format follows
 
 ### WASM API
 
-- For #79: add static `IntentEngine.bom(bytes)` returning sourced assembly BOM JSON.
+- For #79: add static `IntentEngine.bom(bytes)` returning sourced assembly BOM JSON;
+  optional fourth `writePmi` argument explicitly accepts BOM suggestions. Omitted/false
+  preserves the ordinary PMI write. BOM analysis questions are optional suggestions.
 
 - Add `PmiScene` JSON result interfaces for both `pmiScene` entry points, including
   semantic rows/ids, graphics, optional `stroked` text placements, planes, views and

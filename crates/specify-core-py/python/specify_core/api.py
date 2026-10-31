@@ -67,14 +67,14 @@ def questions(analysis: dict[str, Any], answers: dict[str, Any]) -> list[Questio
 
 
 def apply(
-    analysis: dict[str, Any], answers: dict[str, Any], *, accept_defaults: bool = False
+    analysis: dict[str, Any], answers: dict[str, Any], *, accept_defaults: bool = False, bom: bool = False
 ) -> Intent:
     """Intent from ``answers``; with ``accept_defaults``, unanswered defaults are taken.
 
     Defaults are resolved to a fixed point, because some questions only exist
     once an earlier default is taken.
     """
-    text = _native.apply(json.dumps(analysis), json.dumps(answers), accept_defaults)
+    text = _native.apply(json.dumps(analysis), json.dumps(answers), accept_defaults, bom)
     return Intent.from_dict(json.loads(text))
 
 
