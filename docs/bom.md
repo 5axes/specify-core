@@ -1,0 +1,123 @@
+# Assembly BOM (For #79)
+
+The STEP file is the authority for the drawing pack, assembly parts list and CSV.
+`specify-core bom assembly.step` returns a JSON array, one row per distinct geometric
+part definition in the loader's flat assembly parts list. Instances of the same part
+share a row. Nested assemblies are flattened, using the loader's placed leaf count.
+Part indexes select the current file's parts for `analyse --part`; they are not identities.
+
+## Fields and lossless storage decisions
+
+The mapping was checked against the [PDM Schema Usage Guide 4.3](https://www.mbx-if.org/home/wp-content/uploads/2024/05/pdmug_release4_3.pdf)
+and [CAx-IF UDA practice 1.8](https://www.mbx-if.org/home/wp-content/uploads/2024/05/rec_prac_user_def_attributes_v18.pdf).
+The writer cannot change existing entity records to populate an explicit slot or
+change an entity's type. Exported data remains available byte for byte; an explicit
+answer takes precedence in Specify's BOM read.
+
+| Field | Native home / read | Append decision |
+| --- | --- | --- |
+| Part number, name | `PRODUCT.id`, `.name` (PDM §1.1.1.1) | Explicit overrides use `specify bom` UDA items `part_number`, `name`. No duplicate product chain. |
+| Description | `PRODUCT.description`, then `PRODUCT_DEFINITION.description` (PDM §1.1.1) | `description` UDA override; no record replacement. |
+| Revision | `PRODUCT_DEFINITION_FORMATION.id` (PDM §1.1.1.2) | `revision` UDA override. |
+| Make/buy | `PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SOURCE.make_or_buy` | `make_buy` UDA with `made`, `bought`, `not known`. PDM §1.1.1.3 itself cautions about supply-chain ambiguity; do not change the formation subtype. |
+| Standard-part category | `PRODUCT_RELATED_PRODUCT_CATEGORY` (PDM §2.1.1) | Preserve categories. A bought answer does not assert that bespoke hardware belongs to an ISO class. |
+| Material | Existing haecceity material reader/writer, `part.material` | Reuse `material property` / `material name` and density units. No second BOM material writer. |
+| Quantity | Placed occurrences, including parent multiplicity | Do not add `QUANTIFIED_ASSEMBLY_COMPONENT_USAGE` alongside individually placed instances (PDM §4.1.2/§4.1.3). |
+| Find number | Numeric NAUO name where unambiguous, or named UDA | Append integer `item_number` UDA. PDM §4.1.2 describes find numbers; §4.7.1 records the competing NAUO.name convention. `reference_designator` identifies occurrence locations and is not silently repurposed. |
+| Optional, stock | No unambiguous native slot | Boolean `optional`, text `stock` (`from stock`, `to be made`) UDAs. Optional denotes an optional item; for one occurrence it is quantity 0–1. |
+
+Material uses haecceity's existing Material Identification and Density R2.1
+§4.1/§4.2 mapping. In UDA 1.8, Annex C.1 defines SI base units; density's derived
+unit example is C.4.2. There is no new density inference.
+
+`specify bom` is a property set attached to each immediate leaf NAUO using UDA
+§5/§6.2: `PROPERTY_DEFINITION`, `GENERAL_PROPERTY_ASSOCIATION`,
+`GENERAL_PROPERTY`, `PROPERTY_DEFINITION_REPRESENTATION`, `REPRESENTATION` and
+text/integer/boolean representation items (§6.5). Repeated occurrences receive the
+same parts-list row. Wrappers are resolved through the loader's part definitions.
+The representation has its own nongeometric context. These UDAs are readable without
+Specify's saved interview payload. Other CAD programs must understand the documented
+UDA names to interpret them; XCAF is only expected to expose the native material/name.
+
+## JSON and APIs
+
+Every BOM value is an object with `value` and `source`. `source` is `file` for
+pre-existing export data, `answered` for explicit BOM answers or saved material
+answers, and `default` for suggestions and automatic item allocation. Unknown values
+are JSON null. Unnumbered files are not numbered merely by reading.
+
+```json
+[{
+  "part": 0,
+  "item_number": {"value": 1, "source": "default"},
+  "part_number": {"value": "GRM-01", "source": "answered"},
+  "name": {"value": "GRM-01 shank", "source": "file"},
+  "description": {"value": "Brass shank", "source": "answered"},
+  "revision": {"value": null, "source": "default"},
+  "make_buy": {"value": "made", "source": "answered"},
+  "material": {"value": "Brass", "source": "answered"},
+  "quantity": {"value": 1, "source": "file"},
+  "optional": {"value": false, "source": "answered"},
+  "stock": {"value": "to be made", "source": "answered"}
+}]
+```
+
+- Rust: `specify_core::bom::{read(&File), read_path(&Path), read_bytes(Vec<u8>)}`,
+  returning `Vec<Item>`. `Item` and `Field` support serde.
+- CLI: `specify-core bom assembly.step` (also accepts gzip through the normal loader).
+- Python: `specify_core.bom(path)` or `specify_core.api.bom(path)`.
+- WASM: `JSON.parse(IntentEngine.bom(stepBytes))`. The STEP size limit also applies.
+- Assembly analysis adds `bom`, that part's row. Existing `parts`, `analyse --part`
+  and multi-part `write` workflows continue to select the parts being answered.
+
+Questions are `bom.make_buy`, `bom.description`, `bom.part_number`, `bom.revision`,
+`bom.optional`, `bom.stock`. Existing part number/revision are not asked again.
+Existing data supplies defaults first. Hardware names (screws, nuts, fasteners,
+washers, dowels, bearings) suggest bought; others suggest made, with a review reason.
+A bespoke drive screw can be answered made. Description defaults to the part display
+name, optional to no, stock to to-be-made. Material remains `part.material`.
+Defaults are only written after acceptance; reading does not create answers.
+Text, enum and optional answers are validated before writing. Ordinary saved-answer
+payloads resume them like other nongeometric answers.
+
+## Item allocation and revisions
+
+An assembly-level `specify bom item numbers` property set is attached to its
+non-leaf product definition (UDA §6.1). Its text item `history` contains compact JSON:
+`{"schema":1,"high_water":12,"entries":[{"number":1,"name":"…","geometry":{…}}]}`.
+`geometry` is quiddity's versioned recognition fingerprint, including faces/features.
+Snapshots append; the last valid snapshot is current, and counters cannot decrease.
+Corrupt histories refuse the write. Numbers start at 1; every new number is above the
+high-water mark. Removed entries disappear from the current snapshot, retiring their
+numbers permanently. Reintroducing a removed part receives a new number.
+
+Exact geometric fingerprints match first, with names only disambiguating equal shapes.
+Then quiddity's revision correspondence matches uniquely paired revised geometries
+when a majority of faces carry or adapt without ambiguity. Ambiguous matching retires
+numbers conservatively. STEP entity IDs and list indexes never establish identity.
+`revision::diff` carries the history in opaque answer member `_specify_bom`; retain it
+alongside `_specify_characteristic_numbers`. Destination history wins over transport.
+For assembly changes, keep this member from a surviving part's revision report in the
+answers passed to `write`, including when only a subset of parts is written.
+
+BOM updates append their complete current overrides and leave earlier UDA records
+intact. Omitting a BOM answer preserves its earlier value; use `no`/`not known`/empty
+text to change it. A write without BOM intent adds no BOM/history records and takes
+the previous PMI path. An identical resumed write is byte-identical. The BOM append
+verifies every original candidate record and reads back every field and history before
+the normal writer's final PMI verification and atomic publication.
+
+## Export survey
+
+The supplied snapshot contains 46 drawing-example files and 100 pinned-corpus files.
+The build123d/gramil, FreeCAD and text-to-cad exports generally provide product names
+and category `part`, with empty descriptions, formation revisions and reference
+designators. OCCT linkrods has description `void`. NIST files carry meaningful product
+descriptions and specified-source formations (`made`/`not known`), plus validation/PMI
+properties. A whitespace-only definition description is treated as absent.
+No supplied file in the initial survey had a populated reference designator or
+`MATERIAL_DESIGNATION`; NIST material-named validation properties were not assumed to
+be actual material values. Exporter labels are taken from headers, not folder names.
+No Fusion sample was supplied; this is not evidence that Fusion omits metadata.
+The gramil export's default spacer thickness is zero: the optional spacer is absent
+from that input and must be added as an assembly variant to demonstrate 0–1 quantity.

@@ -23,6 +23,7 @@ __all__ = [
     "LoadedPart",
     "load",
     "parts",
+    "bom",
     "analyse",
     "questions",
     "apply",
@@ -41,6 +42,11 @@ def parts(step: str | Path) -> list[dict[str, Any]]:
     """The distinct parts of ``step``: name, face count, instances and their
     placements, and whether specify-core has written the part (answers stored)."""
     return json.loads(_native.parts(_path(step)))
+
+
+def bom(step: str | Path) -> list[dict[str, Any]]:
+    """Assembly BOM fields and their file/answered/default sources; see docs/bom.md."""
+    return json.loads(_native.bom(_path(step)))
 
 
 def analyse(step: str | Path | LoadedPart, part: int | None = None) -> dict[str, Any]:

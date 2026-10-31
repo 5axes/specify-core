@@ -231,6 +231,15 @@ fn analyse_with(
         "binding".into(),
         serde_json::to_value(&loaded.binding).map_err(|e| refused(&e))?,
     );
+    if loaded.part_count > 1 {
+        let file = part::File::of_shared(&loaded.path, std::sync::Arc::clone(&loaded.bytes))
+            .map_err(Error::Load)?;
+        let rows = crate::bom::read(&file).map_err(Error::Analysis)?;
+        analysis.insert(
+            "bom".into(),
+            serde_json::to_value(&rows[loaded.binding.part]).map_err(|e| refused(&e))?,
+        );
+    }
     let mut warnings = Vec::new();
     let mut mated = None;
     if let Some(assembly) = assembly.filter(|_| loaded.part_count > 1) {

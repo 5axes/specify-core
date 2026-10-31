@@ -91,6 +91,15 @@ fn parts(py: Python<'_>, step: PathBuf) -> PyResult<String> {
     Ok(Value::Array(parts).to_string())
 }
 
+/// Assembly bill of materials, including each field's source.
+#[pyfunction]
+fn bom(py: Python<'_>, step: PathBuf) -> PyResult<String> {
+    let rows = py
+        .detach(|| specify_core::bom::read_path(&step))
+        .map_err(PyValueError::new_err)?;
+    serde_json::to_string(&rows).map_err(|e| PyRuntimeError::new_err(e.to_string()))
+}
+
 /// One part of a STEP file, loaded once (Python's `LoadedPart`): the part and the file it is
 /// of, so a part of an assembly is analysed with the other parts its mates need, from the same
 /// bytes. Its geometry stays in the engine; Python sees what identifies it.
@@ -612,6 +621,7 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(choices_callout, m)?)?;
     m.add_function(wrap_pyfunction!(load, m)?)?;
     m.add_function(wrap_pyfunction!(parts, m)?)?;
+    m.add_function(wrap_pyfunction!(bom, m)?)?;
     m.add_function(wrap_pyfunction!(analyse, m)?)?;
     m.add_function(wrap_pyfunction!(questions, m)?)?;
     m.add_function(wrap_pyfunction!(apply, m)?)?;

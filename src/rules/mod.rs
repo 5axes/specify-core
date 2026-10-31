@@ -444,6 +444,7 @@ fn all_questions(
         note_strings(notes)?;
     }
     let mut out = part_questions();
+    out.extend(crate::bom::questions(ctx.analysis));
     // A file with its own datums locates by them; the choice is for a bare part.
     if ctx.in_file.is_empty()
         && ctx
@@ -980,6 +981,17 @@ fn intent(
         return invalid("the analysis has no 'binding'");
     };
     let mut intent = Intent::new(binding.clone());
+    let mut bom = Map::new();
+    for (id, value) in answers {
+        if let Some(key) = id.strip_prefix("bom.") {
+            crate::bom::validate(key, value).map_err(Error::Invalid)?;
+            bom.insert(key.into(), value.clone());
+        }
+    }
+    if !bom.is_empty() {
+        intent.part.insert("bom".into(), Value::Object(bom));
+    }
+
     for key in ["material", "general_tolerance"].into_iter().chain(NOTES) {
         let id = format!("part.{key}");
         if key == "notes" {

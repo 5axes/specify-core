@@ -93,6 +93,13 @@ options:
 ",
 };
 
+const BOM: Command = Command {
+    name: "bom",
+    positionals: &[("step", false)],
+    options: &[],
+    help: "usage: specify-core bom [-h] step\n\nPrint the assembly BOM as JSON.\n",
+};
+
 const ANALYSE: Command = Command {
     name: "analyse",
     positionals: &[("step", false)],
@@ -327,6 +334,7 @@ fn parse(argv: &[String]) -> Result<Parsed, Exit> {
     }
     let command: &'static Command = match first.as_str() {
         "parts" => &PARTS,
+        "bom" => &BOM,
         "analyse" => &ANALYSE,
         "mesh" => &MESH,
         "questions" => &QUESTIONS,
@@ -535,6 +543,13 @@ fn run(command: &Command, args: &Args, out: &mut impl Write) -> Result<(), Exit>
         "serve" => {
             let stdin = io::stdin().lock();
             serve::serve(stdin, out).map_err(Exit::error)
+        }
+        "bom" => {
+            let rows = crate::bom::read_path(&positional(0)).map_err(Exit::error)?;
+            print(
+                out,
+                &serde_json::to_string_pretty(&rows).map_err(Exit::error)?,
+            )
         }
         "parts" => {
             let parts = api::parts(&positional(0)).map_err(Exit::error)?;

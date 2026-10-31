@@ -353,6 +353,12 @@ pub fn write_parts_bytes_with(
 fn check_extra(jobs: &[Job<'_>], extra: &[AttributeSet]) -> Result<(), WriteError> {
     if extra
         .iter()
+        .any(|set| [crate::bom::PROPERTY, crate::bom::HISTORY].contains(&set.name.as_str()))
+    {
+        return invalid("BOM attribute names are reserved; use BOM answers");
+    }
+    if extra
+        .iter()
         .any(|set| set.name == crate::pmi_origin::PROPERTY)
     {
         return invalid("extra attribute set name 'specify pmi origin' is reserved");
@@ -617,11 +623,17 @@ fn write_verified(
     for (&(loaded, intent, answers), &mode) in jobs.iter().zip(&modes) {
         // The binding was checked against these same bytes' parts; Source::of verifies reader counts.
         let before = &source.read.parts[loaded.binding.part];
-        let (mut pmi, lines) = part_pmi(loaded, intent, before, mode)?;
+        let (mut pmi, mut lines) = part_pmi(loaded, intent, before, mode)?;
+        if let Some(bom) = intent.part.get("bom").and_then(Json::as_object) {
+            for (key, value) in bom {
+                lines.written.push(format!("BOM {key} {value}"));
+            }
+        }
         let payload = match answers {
             Some(answers) if mode == Mode::Replace => {
                 let mut saved = answers.clone();
                 saved.remove(crate::characteristics::CARRY);
+                saved.remove(crate::bom::CARRY);
                 let payload = resume::payload(loaded, &saved).map_err(failed)?;
                 pmi.attributes.push(resume::attribute_set(&payload));
                 Some(payload)
@@ -683,6 +695,20 @@ fn write_verified(
                 )
         });
     let back = if unchanged { bytes.to_vec() } else { back };
+    let back = if jobs
+        .iter()
+        .any(|(_, intent, _)| intent.part.contains_key("bom"))
+    {
+        let back = crate::bom::append(back, jobs).map_err(WriteError::Invalid)?;
+        // The append checks original candidate records, schema, fields and history.
+        // A no-op has already verified its replacement candidate above.
+        if !unchanged {
+            verify(&source, &items, &modes, &back)?;
+        }
+        back
+    } else {
+        back
+    };
 
     // In an assembly written together, each line says which part it is of.
     let mut report = WriteReport {
@@ -989,7 +1015,7 @@ fn verify(
         }
     }
     for f in &after.findings {
-        if !before.findings.contains(f) {
+        if !before.findings.contains(f) && !crate::bom::handles_finding(&after_doc, f) {
             problems.push(format!(
                 "a finding the input did not have: {} {:?} {}: {}",
                 f.kind.as_str(),

@@ -24,12 +24,17 @@ All notable changes to specify-core-rust. The format follows
 
 ### Added
 
+- For #79: append assembly BOM answers and persistent geometric item-number history;
+  read the shared BOM through Rust, CLI, Python and WASM, with per-field sources.
+
 - For #87: carry authored STEP face names in analysis and stored-answer schema 3.
   Resume and diff match names exactly before unnamed geometric supports; missing or
   duplicate names leave answers unresolved. Unnamed parts retain schema 2 and their
   existing bytes. See [face-name compatibility](docs/face-names.md).
 
 ### WASM API
+
+- For #79: add static `IntentEngine.bom(bytes)` returning sourced assembly BOM JSON.
 
 - Add `PmiScene` JSON result interfaces for both `pmiScene` entry points, including
   semantic rows/ids, graphics, optional `stroked` text placements, planes, views and

@@ -231,6 +231,13 @@ export interface PmiScene {
                 .map(|value| value.to_string())
                 .map_err(|error| JsValue::from_str(&error))
         }
+        /// Assembly BOM JSON; each field has value and file/answered/default source.
+        pub fn bom(bytes: &[u8]) -> Result<String, JsValue> {
+            input::size("STEP", bytes.len(), input::STEP_LIMIT).map_err(js_error)?;
+            specify_core::bom::read_bytes(bytes.to_vec())
+                .and_then(|rows| serde_json::to_string(&rows).map_err(|e| e.to_string()))
+                .map_err(js_error)
+        }
         /// `PmiScene` JSON for current answers or `{answers, auto?, gdt?}` review state.
         /// Parse with `JSON.parse`; ids join semantic rows, graphics and Specify statuses.
         #[wasm_bindgen(js_name = pmiScene)]

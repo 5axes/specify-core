@@ -1,0 +1,746 @@
+//! Assembly BOM, using append-only CAx-IF UDAs. See `docs/bom.md`.
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::Path;
+
+use haecceity::p21::{self, Attribute as A, Document, Edit, RawEntity};
+use quiddity::correspondence::{self as qc, Fingerprints};
+use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value, json};
+
+use crate::part::{File, LoadedPart};
+use crate::rules::Question;
+
+pub const PROPERTY: &str = "specify bom";
+pub const HISTORY: &str = "specify bom item numbers";
+pub const CARRY: &str = "_specify_bom";
+
+/// Every field carries its provenance, including missing/default values.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Field {
+    pub value: Value,
+    pub source: String,
+}
+fn field(value: impl Into<Value>, source: &str) -> Field {
+    Field {
+        value: value.into(),
+        source: source.into(),
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Item {
+    /// Current file's part index, for selecting analyse/write; never a persistent identity.
+    pub part: usize,
+    pub item_number: Field,
+    pub part_number: Field,
+    pub name: Field,
+    pub description: Field,
+    pub revision: Field,
+    pub make_buy: Field,
+    pub material: Field,
+    pub quantity: Field,
+    pub optional: Field,
+    pub stock: Field,
+}
+
+fn attrs<'a>(doc: &'a Document, id: u64, entity: &str) -> Option<&'a [A]> {
+    match doc.get(id)? {
+        RawEntity::Simple {
+            name, attributes, ..
+        } if name == entity => Some(attributes),
+        RawEntity::Complex { parts, .. } => parts
+            .iter()
+            .find(|p| p.name == entity)
+            .map(|p| p.attributes.as_slice()),
+        _ => None,
+    }
+}
+fn reference(a: Option<&A>) -> Option<u64> {
+    match a? {
+        A::EntityRef(id) => Some(*id),
+        _ => None,
+    }
+}
+fn string(a: Option<&A>) -> Option<String> {
+    match a? {
+        A::String(s) => Some(s.clone()),
+        A::Enum(s) => Some(s.to_lowercase().replace('_', " ")),
+        _ => None,
+    }
+}
+fn present(s: Option<String>) -> Option<String> {
+    s.filter(|s| !s.trim().is_empty())
+}
+fn text(doc: &Document, id: u64, entity: &str, index: usize) -> Option<String> {
+    present(string(attrs(doc, id, entity)?.get(index)))
+}
+fn formations(doc: &Document, pd: u64) -> (u64, u64, &'static str) {
+    let formation = attrs(doc, pd, "PRODUCT_DEFINITION")
+        .and_then(|a| reference(a.get(2)))
+        .unwrap_or(0);
+    let ty = if attrs(
+        doc,
+        formation,
+        "PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SOURCE",
+    )
+    .is_some()
+    {
+        "PRODUCT_DEFINITION_FORMATION_WITH_SPECIFIED_SOURCE"
+    } else {
+        "PRODUCT_DEFINITION_FORMATION"
+    };
+    let product = attrs(doc, formation, ty)
+        .and_then(|a| reference(a.get(2)))
+        .unwrap_or(0);
+    (formation, product, ty)
+}
+fn occurrences(doc: &Document, pd: u64) -> Vec<u64> {
+    doc.ids()
+        .filter(|&id| {
+            attrs(doc, id, "NEXT_ASSEMBLY_USAGE_OCCURRENCE")
+                .is_some_and(|a| reference(a.get(4)) == Some(pd))
+        })
+        .collect()
+}
+
+/// UDA property -> representation -> text/integer/boolean values. No geometric loading.
+fn properties(doc: &Document, owner: u64) -> Vec<(String, Map<String, Value>)> {
+    let mut out = Vec::new();
+    for &id in doc.referrers(owner) {
+        let Some(a) = attrs(doc, id, "PROPERTY_DEFINITION") else {
+            continue;
+        };
+        if reference(a.get(2)) != Some(owner) {
+            continue;
+        }
+        let Some(name) = string(a.first()) else {
+            continue;
+        };
+        let mut values = Map::new();
+        for &link in doc.referrers(id) {
+            let Some(link) = attrs(doc, link, "PROPERTY_DEFINITION_REPRESENTATION") else {
+                continue;
+            };
+            if reference(link.first()) != Some(id) {
+                continue;
+            }
+            let Some(rep) = reference(link.get(1)) else {
+                continue;
+            };
+            let Some(A::List(items)) = attrs(doc, rep, "REPRESENTATION").and_then(|a| a.get(1))
+            else {
+                continue;
+            };
+            for item in items {
+                let Some(item) = reference(Some(item)) else {
+                    continue;
+                };
+                for ty in [
+                    "DESCRIPTIVE_REPRESENTATION_ITEM",
+                    "INTEGER_REPRESENTATION_ITEM",
+                    "BOOLEAN_REPRESENTATION_ITEM",
+                ] {
+                    if let Some(a) = attrs(doc, item, ty) {
+                        let Some(key) = string(a.first()) else {
+                            continue;
+                        };
+                        let value = match a.get(1) {
+                            Some(A::Integer(n)) => json!(n),
+                            Some(A::Enum(s)) if s == "T" || s == "F" => json!(s == "T"),
+                            other => string(other).map(Value::String).unwrap_or(Value::Null),
+                        };
+                        values.insert(key, value);
+                    }
+                }
+            }
+        }
+        out.push((name, values));
+    }
+    out
+}
+
+fn guessed(name: &str) -> (&'static str, &'static str) {
+    let name = name.to_lowercase();
+    if ["screw", "washer", "dowel", "bearing", "nut", "fastener"]
+        .iter()
+        .any(|s| name.contains(s))
+    {
+        (
+            "bought",
+            "The part name identifies a fastener, washer, dowel or bearing; check bespoke hardware.",
+        )
+    } else {
+        (
+            "made",
+            "No standard hardware name was found; propose a manufactured part and review it.",
+        )
+    }
+}
+
+/// Read the BOM without recognising geometry. A missing item number stays null until written.
+pub fn read(file: &File) -> Result<Vec<Item>, String> {
+    let doc = Document::parse(file.bytes().as_ref().clone()).map_err(|e| e.to_string())?;
+    let pmi = haecceity::pmi::read(&doc, file.definitions()).map_err(|e| e.to_string())?;
+    let saved = crate::resume::stored_in(&doc);
+    let mut rows = Vec::new();
+    for (part, def) in file.definitions().iter().enumerate() {
+        let pd = def.product_definition;
+        let (formation, product, ty) = formations(&doc, pd);
+        let native = |v: Option<String>| {
+            v.map_or_else(|| field(Value::Null, "default"), |v| field(v, "file"))
+        };
+        let mut row = Item {
+            part,
+            item_number: field(Value::Null, "default"),
+            part_number: native(text(&doc, product, "PRODUCT", 0)),
+            name: native(
+                present(Some(def.name.clone())).or_else(|| text(&doc, product, "PRODUCT", 1)),
+            ),
+            description: native(
+                text(&doc, product, "PRODUCT", 2)
+                    .or_else(|| text(&doc, pd, "PRODUCT_DEFINITION", 1)),
+            ),
+            revision: native(text(&doc, formation, ty, 0)),
+            make_buy: native(text(&doc, formation, ty, 3)),
+            material: native(pmi.parts[part].material.as_ref().map(|m| {
+                m.name
+                    .clone()
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or_else(|| m.id.clone())
+            })),
+            quantity: field(def.placements.len(), "file"),
+            optional: field(false, "default"),
+            stock: field("to be made", "default"),
+        };
+        let owners = [pd, def.shape].into_iter().chain(occurrences(&doc, pd));
+        for owner in owners {
+            for (set, values) in properties(&doc, owner) {
+                for (key, v) in &values {
+                    let key = key.replace([' ', '-'], "_");
+                    let target = match key.as_str() {
+                        "make_buy" | "make_or_buy" => &mut row.make_buy,
+                        "part_number" => &mut row.part_number,
+                        "description" => &mut row.description,
+                        "revision" => &mut row.revision,
+                        "name" if set == PROPERTY => &mut row.name,
+                        "optional" => &mut row.optional,
+                        "stock" => &mut row.stock,
+                        "item_number" | "find_number" => &mut row.item_number,
+                        _ => continue,
+                    };
+                    // A Specify override is explicitly answered; exported properties fill gaps.
+                    if set == PROPERTY || target.source != "file" {
+                        *target = field(
+                            v.clone(),
+                            if set == PROPERTY && key != "item_number" {
+                                "answered"
+                            } else if set == PROPERTY {
+                                "default"
+                            } else {
+                                "file"
+                            },
+                        );
+                    }
+                }
+            }
+        }
+        if row.make_buy.value.is_null() {
+            row.make_buy = field(guessed(&def.name).0, "default");
+        }
+        if row.description.value.is_null() {
+            row.description = field(def.name.clone(), "default");
+        }
+        if let Some(a) = saved
+            .get(&part)
+            .and_then(|p| p.get("answers"))
+            .and_then(Value::as_object)
+            && a.get("part.material")
+                .is_some_and(|m| Some(m) == Some(&row.material.value))
+        {
+            row.material.source = "answered".into();
+        }
+        rows.push(row);
+    }
+    Ok(rows)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn read_path(path: &Path) -> Result<Vec<Item>, String> {
+    read(&File::read(path).map_err(|e| e.to_string())?)
+}
+pub fn read_bytes(bytes: Vec<u8>) -> Result<Vec<Item>, String> {
+    read(&File::of_bytes(Path::new("bom.step"), bytes).map_err(|e| e.to_string())?)
+}
+
+pub(crate) fn questions(analysis: &Map<String, Value>) -> Vec<Question> {
+    let Some(bom) = analysis.get("bom") else {
+        return vec![];
+    };
+    let mut out = Vec::new();
+    for (key, prompt, default, options) in [
+        (
+            "make_buy",
+            "Is this part made or bought?",
+            json!("not known"),
+            vec!["made", "bought", "not known"],
+        ),
+        (
+            "description",
+            "What does this BOM item describe?",
+            json!(""),
+            vec![],
+        ),
+        ("part_number", "What is the part number?", json!(""), vec![]),
+        ("revision", "What is the part revision?", json!(""), vec![]),
+        (
+            "optional",
+            "Is this item optional (quantity 0–1)?",
+            json!("no"),
+            vec!["no", "yes"],
+        ),
+        (
+            "stock",
+            "Is this item from stock or to be made?",
+            json!("to be made"),
+            vec!["from stock", "to be made"],
+        ),
+    ] {
+        if matches!(key, "part_number" | "revision") && bom[key]["source"] == "file" {
+            continue;
+        }
+        let value = &bom[key]["value"];
+        let mut q = Question::new(
+            format!("bom.{key}"),
+            if options.is_empty() { "text" } else { "choice" },
+            prompt.into(),
+            vec![],
+        );
+        q.default = Some(if key == "optional" {
+            json!(if value == true { "yes" } else { "no" })
+        } else if value.is_null() {
+            default
+        } else {
+            value.clone()
+        });
+        q.options = options.into_iter().map(String::from).collect();
+        q.why = "The STEP assembly is the BOM authority for drawings and CSV.".into();
+        q.basis = if bom[key]["source"] == "file" {
+            "Existing export data; preserved unless changed.".into()
+        } else if key == "make_buy" {
+            guessed(bom["name"]["value"].as_str().unwrap_or(""))
+                .1
+                .into()
+        } else {
+            "BOM setting; review against the manufacturing specification.".into()
+        };
+        q.attention = "check";
+        q.reason = q.basis.clone();
+        out.push(q);
+    }
+    out
+}
+
+pub(crate) fn validate(key: &str, value: &Value) -> Result<(), String> {
+    let ok = match key {
+        "make_buy" => value
+            .as_str()
+            .is_some_and(|s| ["made", "bought", "not known"].contains(&s)),
+        "optional" => value.as_str().is_some_and(|s| ["yes", "no"].contains(&s)),
+        "stock" => value
+            .as_str()
+            .is_some_and(|s| ["from stock", "to be made"].contains(&s)),
+        "description" | "part_number" | "revision" | "name" => value.is_string(),
+        _ => false,
+    };
+    if ok {
+        Ok(())
+    } else {
+        Err(format!("invalid bom.{key}: {value}"))
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+struct Entry {
+    number: u64,
+    name: String,
+    geometry: Fingerprints,
+}
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+struct History {
+    schema: u8,
+    high_water: u64,
+    entries: Vec<Entry>,
+}
+fn history(doc: &Document) -> Result<Option<History>, String> {
+    let mut last: Option<History> = None;
+    for id in doc.ids() {
+        let Some(a) = attrs(doc, id, "PROPERTY_DEFINITION") else {
+            continue;
+        };
+        if string(a.first()).as_deref() != Some(HISTORY) {
+            continue;
+        }
+        let Some(owner) = reference(a.get(2)) else {
+            continue;
+        };
+        // properties are returned in record order; process one owner's snapshots once.
+        if doc.ids().any(|k| {
+            k < id
+                && attrs(doc, k, "PROPERTY_DEFINITION").is_some_and(|v| {
+                    string(v.first()).as_deref() == Some(HISTORY)
+                        && reference(v.get(2)) == Some(owner)
+                })
+        }) {
+            continue;
+        }
+        for (set, values) in properties(doc, owner) {
+            if set != HISTORY {
+                continue;
+            }
+            let h: History = serde_json::from_str(
+                values
+                    .get("history")
+                    .and_then(Value::as_str)
+                    .ok_or("BOM history has no history text")?,
+            )
+            .map_err(|e| format!("BOM history: {e}"))?;
+            check_history(&h)?;
+            if last
+                .as_ref()
+                .is_some_and(|old| old.high_water > h.high_water)
+            {
+                return Err("BOM history counter went backwards".into());
+            }
+            last = Some(h);
+        }
+    }
+    Ok(last)
+}
+fn check_history(h: &History) -> Result<(), String> {
+    let mut used = BTreeSet::new();
+    if h.schema != 1
+        || h.entries
+            .iter()
+            .any(|e| e.number == 0 || e.number > h.high_water || !used.insert(e.number))
+    {
+        return Err("invalid BOM allocation history".into());
+    }
+    Ok(())
+}
+
+fn uda(edit: &mut Edit, owner: u64, name: &str, values: &Map<String, Value>) {
+    let s = |v: &str| A::String(v.into());
+    let items: Vec<_> = values
+        .iter()
+        .map(|(key, value)| {
+            let (ty, value) = match value {
+                Value::Bool(v) => (
+                    "BOOLEAN_REPRESENTATION_ITEM",
+                    A::Enum(if *v { "T" } else { "F" }.into()),
+                ),
+                Value::Number(n) if n.as_i64().is_some() => (
+                    "INTEGER_REPRESENTATION_ITEM",
+                    A::Integer(n.as_i64().unwrap_or(0)),
+                ),
+                Value::String(v) => ("DESCRIPTIVE_REPRESENTATION_ITEM", s(v)),
+                _ => ("DESCRIPTIVE_REPRESENTATION_ITEM", s(&value.to_string())),
+            };
+            edit.add(p21::simple(ty, vec![s(key), value])).to_ref()
+        })
+        .collect();
+    let context = edit.add(p21::simple(
+        "REPRESENTATION_CONTEXT",
+        vec![s(""), s("user defined attributes")],
+    ));
+    let rep = edit.add(p21::simple(
+        "REPRESENTATION",
+        vec![s(""), A::List(items), context.to_ref()],
+    ));
+    let property = edit.add(p21::simple(
+        "PROPERTY_DEFINITION",
+        vec![s(name), s("user defined attribute"), A::EntityRef(owner)],
+    ));
+    edit.add(p21::simple(
+        "PROPERTY_DEFINITION_REPRESENTATION",
+        vec![property.to_ref(), rep.to_ref()],
+    ));
+    let general = edit.add(p21::simple(
+        "GENERAL_PROPERTY",
+        vec![s(""), s(name), A::Unset],
+    ));
+    edit.add(p21::simple(
+        "GENERAL_PROPERTY_ASSOCIATION",
+        vec![s(""), A::Unset, general.to_ref(), property.to_ref()],
+    ));
+}
+
+/// Pure append after the PMI candidate, before its final readback/atomic publication.
+pub(crate) fn append(bytes: Vec<u8>, jobs: &[crate::writer::Job<'_>]) -> Result<Vec<u8>, String> {
+    if !jobs
+        .iter()
+        .any(|(_, intent, _)| intent.part.contains_key("bom"))
+    {
+        return Ok(bytes);
+    }
+    let original = Document::parse(jobs[0].0.bytes.as_ref().clone()).map_err(|e| e.to_string())?;
+    let doc = Document::parse(bytes.clone()).map_err(|e| e.to_string())?;
+    let file = File::of_bytes(Path::new("bom.step"), bytes.clone()).map_err(|e| e.to_string())?;
+    let parts = file.load_all().map_err(|e| e.to_string())?;
+    let rows = read(&file)?;
+    let transported = jobs
+        .iter()
+        .filter_map(|(_, _, a)| a.and_then(|a| a.get(CARRY)))
+        .map(|v| {
+            serde_json::from_value::<History>(v.clone()).map_err(|e| format!("BOM transport: {e}"))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    for h in &transported {
+        check_history(h)?;
+    }
+    if transported.windows(2).any(|w| w[0] != w[1]) {
+        return Err("conflicting BOM histories in answers".into());
+    }
+    let mut old = history(&original)?
+        .or_else(|| transported.first().cloned())
+        .unwrap_or(History {
+            schema: 1,
+            ..History::default()
+        });
+    check_history(&old)?;
+    let geometry: Vec<_> = parts
+        .iter()
+        .map(|p| qc::recognise(&p.part).fingerprints)
+        .collect();
+    let numbers = allocate(
+        &mut old,
+        &parts.iter().map(|p| p.name.clone()).collect::<Vec<_>>(),
+        &geometry,
+    )?;
+    let leaf: BTreeSet<_> = file
+        .definitions()
+        .iter()
+        .map(|d| d.product_definition)
+        .collect();
+    let owner = doc
+        .ids()
+        .find(|&id| attrs(&doc, id, "PRODUCT_DEFINITION").is_some() && !leaf.contains(&id))
+        .ok_or("BOM writing requires an assembly product definition")?;
+    let mut edit = Edit::new();
+    let mut expected = BTreeMap::new();
+    for (i, p) in parts.iter().enumerate() {
+        let occurrences = occurrences(&doc, p.definition.product_definition);
+        if occurrences.is_empty() {
+            return Err(format!("BOM part {i} has no assembly occurrence"));
+        }
+        let mut values = Map::new();
+        values.insert("item_number".into(), json!(numbers[i]));
+        // Preserve earlier overrides when writing only one part or a subset of fields.
+        for occurrence in &occurrences {
+            for (set, previous) in properties(&doc, *occurrence) {
+                if set == PROPERTY {
+                    values.extend(previous);
+                }
+            }
+        }
+        values.insert("item_number".into(), json!(numbers[i]));
+        if let Some((_, intent, _)) = jobs.iter().find(|(p, _, _)| p.binding.part == i)
+            && let Some(bom) = intent.part.get("bom").and_then(Value::as_object)
+        {
+            for (key, value) in bom {
+                validate(key, value)?;
+                values.insert(
+                    key.clone(),
+                    if key == "optional" {
+                        json!(value == "yes")
+                    } else {
+                        value.clone()
+                    },
+                );
+            }
+        }
+        let changed = rows[i].item_number.value != json!(numbers[i])
+            || occurrences.iter().any(|o| {
+                properties(&doc, *o)
+                    .into_iter()
+                    .rfind(|(n, _)| n == PROPERTY)
+                    .map(|(_, v)| v)
+                    != Some(values.clone())
+            });
+        if changed {
+            for occurrence in occurrences {
+                uda(&mut edit, occurrence, PROPERTY, &values);
+            }
+        }
+        expected.insert(i, values);
+    }
+    if history(&doc)?.as_ref() != Some(&old) {
+        uda(
+            &mut edit,
+            owner,
+            HISTORY,
+            &Map::from_iter([(
+                "history".into(),
+                json!(serde_json::to_string(&old).map_err(|e| e.to_string())?),
+            )]),
+        );
+    }
+    let written = doc.apply(&edit).map_err(|e| e.to_string())?.bytes;
+    let after = Document::parse(written.clone()).map_err(|e| e.to_string())?;
+    let new_violations: Vec<_> = haecceity::express::validate_document(after.graph())
+        .into_iter()
+        .filter(|v| v.id > doc.max_id())
+        .collect();
+    if !new_violations.is_empty() {
+        return Err(format!("BOM schema validation: {new_violations:?}"));
+    }
+    // Prove the BOM append has not changed even one existing record.
+    for id in doc.ids() {
+        if doc.span(id).map(|r| &bytes[r]) != after.span(id).map(|r| &written[r]) {
+            return Err(format!("BOM append changed #{id}"));
+        }
+    }
+    if history(&after)? != Some(old) {
+        return Err("BOM history did not read back".into());
+    }
+    let back = read_bytes(written.clone())?;
+    for (i, values) in expected {
+        let value = serde_json::to_value(&back[i]).map_err(|e| e.to_string())?;
+        for (key, expected) in values {
+            if value[&key]["value"] != expected {
+                return Err(format!("BOM part {i} {key} did not read back"));
+            }
+        }
+    }
+    Ok(written)
+}
+
+fn allocate(
+    h: &mut History,
+    names: &[String],
+    geometry: &[Fingerprints],
+) -> Result<Vec<u64>, String> {
+    let mut matches: Vec<Option<usize>> = vec![None; geometry.len()];
+    let mut used = BTreeSet::new();
+    // Match exact fingerprints as a batch, never according to new part order.
+    // Names only distinguish multiple geometrically equal parts.
+    let mut exact = Vec::new();
+    for (i, g) in geometry.iter().enumerate() {
+        for (j, e) in h.entries.iter().enumerate() {
+            if e.geometry != *g {
+                continue;
+            }
+            let old_has_named = names
+                .iter()
+                .zip(geometry)
+                .any(|(n, g)| *n == e.name && *g == e.geometry);
+            let new_has_named = h
+                .entries
+                .iter()
+                .any(|e| e.geometry == *g && e.name == names[i]);
+            if !old_has_named && !new_has_named || e.name == names[i] {
+                exact.push((i, j));
+            }
+        }
+    }
+    for &(i, j) in &exact {
+        if exact.iter().filter(|(k, _)| *k == i).count() == 1
+            && exact.iter().filter(|(_, k)| *k == j).count() == 1
+        {
+            matches[i] = Some(j);
+            used.insert(j);
+        }
+    }
+    // Revised geometry uses the same quiddity face correspondence as revision matching.
+    // Require mutual uniqueness and a majority of unambiguous carried/adapted faces.
+    let mut pairs = Vec::new();
+    for (i, g) in geometry
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| matches[*i].is_none())
+    {
+        for (j, e) in h
+            .entries
+            .iter()
+            .enumerate()
+            .filter(|(j, _)| !used.contains(j))
+        {
+            if let Ok(c) = qc::correspond(&e.geometry, g) {
+                let n = c
+                    .faces
+                    .iter()
+                    .filter(|e| {
+                        matches!(e.class, qc::Class::Carried | qc::Class::Adapted)
+                            && e.new.is_some()
+                    })
+                    .count();
+                if n >= 3 && n * 2 > e.geometry.faces.len().max(g.faces.len()) {
+                    pairs.push((i, j));
+                }
+            }
+        }
+    }
+    for &(i, j) in &pairs {
+        if pairs.iter().filter(|(k, _)| *k == i).count() == 1
+            && pairs.iter().filter(|(_, k)| *k == j).count() == 1
+        {
+            matches[i] = Some(j);
+        }
+    }
+    let mut entries = Vec::new();
+    let mut numbers = Vec::new();
+    for (i, g) in geometry.iter().enumerate() {
+        let number = if let Some(j) = matches[i] {
+            h.entries[j].number
+        } else {
+            h.high_water = h
+                .high_water
+                .checked_add(1)
+                .ok_or("BOM item counter exhausted")?;
+            h.high_water
+        };
+        entries.push(Entry {
+            number,
+            name: names[i].clone(),
+            geometry: g.clone(),
+        });
+        numbers.push(number);
+    }
+    h.entries = entries;
+    Ok(numbers)
+}
+
+pub(crate) fn carry(old: &LoadedPart, answers: &mut Map<String, Value>) -> Result<(), String> {
+    let doc = Document::parse(old.bytes.as_ref().clone()).map_err(|e| e.to_string())?;
+    if let Some(h) = history(&doc)? {
+        answers.insert(
+            CARRY.into(),
+            serde_json::to_value(h).map_err(|e| e.to_string())?,
+        );
+    }
+    Ok(())
+}
+
+/// The PMI reader deliberately reports assembly UDAs as out of scope. Only our own
+/// independently verified general-property links are handled by the BOM reader.
+pub(crate) fn handles_finding(doc: &Document, f: &haecceity::pmi::Finding) -> bool {
+    if f.kind.as_str() != "assembly-pmi" || f.ids.is_empty() {
+        return false;
+    }
+    f.ids.iter().all(|&id| {
+        let associations: Vec<_> = if attrs(doc, id, "GENERAL_PROPERTY_ASSOCIATION").is_some() {
+            vec![id]
+        } else if attrs(doc, id, "GENERAL_PROPERTY").is_some() {
+            doc.referrers(id).to_vec()
+        } else {
+            return false;
+        };
+        !associations.is_empty()
+            && associations.into_iter().all(|id| {
+                attrs(doc, id, "GENERAL_PROPERTY_ASSOCIATION")
+                    .and_then(|a| reference(a.get(3)))
+                    .and_then(|p| attrs(doc, p, "PROPERTY_DEFINITION"))
+                    .and_then(|a| string(a.first()))
+                    .is_some_and(|n| n == PROPERTY || n == HISTORY)
+            })
+    })
+}
