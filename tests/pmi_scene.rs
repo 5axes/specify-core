@@ -355,7 +355,13 @@ fn generated_graphics_expose_model_space_placement_and_plane_ids() {
         for graphic in rows.as_array().unwrap() {
             assert!(graphic["id"].is_string());
             assert!(graphic["plane_id"].is_string());
-            assert!(!graphic["text_placements"].as_array().unwrap().is_empty());
+            let placements = graphic["text_placements"].as_array().unwrap();
+            assert!(!placements.is_empty());
+            assert!(
+                placements
+                    .iter()
+                    .all(|placement| placement["stroked"] == true)
+            );
         }
     }
     for datum in scene["pmi"]["pmi"]["datums"].as_array().unwrap() {
