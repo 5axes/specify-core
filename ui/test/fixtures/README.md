@@ -6,7 +6,7 @@
 restoring a computed callout that the automatic planner replaced with a hole table.
 
 `assembly.step` and `placed.step` are synthetic loading fixtures from
-`pzfreo/specify-core-rust` at `42ff22c093f544aab934f30dbe625844fa5d55a3`, under
+`pzfreo/specify-core` at `42ff22c093f544aab934f30dbe625844fa5d55a3`, under
 AGPL-3.0-only. They exercise assembly refusal and single-part placement restoration.
 
 `legacy_specify.step` is the mounting-plate sample saved by the pre-alpha browser
@@ -38,7 +38,7 @@ on the /diff page.
 `gramil_assembly_before.step.gz` and `gramil_assembly_after.step.gz` are gramil's assembly
 (`pzfreo/gramil` at `9171ef6`, Open Community License v1), 12 distinct parts, the same bytes
 as `tests/fixtures/revisions/gramil_assembly.old.step.gz` and `.new.step.gz` in
-`pzfreo/specify-core-rust` (branch `assembly-diff`), made there by `gramil_assembly.py`. Both
+`pzfreo/specify-core` (branch `assembly-diff`), made there by `gramil_assembly.py`. Both
 are the production build (`process.prototype=False`, as gramil's `scripts/build_production.py`).
 After is gramil's defaults; before has `shaft.drive_plate_mount_depth` 4 (not 5) and
 `drive_plate.mount_hole_diameter` 2.2 (not 2.4): GRM-02 shaft and GRM-04 drive plate change,
