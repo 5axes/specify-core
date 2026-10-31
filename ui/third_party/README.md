@@ -13,7 +13,7 @@ local STEP downloads and drawing handoff, and a local unavailable-QIF notice. Th
 application's authentication, HTTP transport, durable server sessions, analytics,
 and drawing handoff are not included in this standalone browser prototype.
 
-`public/samples/plate.step` comes from `specify-core-rust` at
+`public/samples/plate.step` comes from `pzfreo/specify-core` at
 `42ff22c093f544aab934f30dbe625844fa5d55a3`, under AGPL-3.0-or-later.
 `plate.json` is captured by this repository's `dw-bench` capture example using both Rust
 engines. Its provenance records the Specify revision and the input fixture.
@@ -28,4 +28,4 @@ The browser engines are published upstream WASM packages pinned in
 package, including upstream licensing and font notices, is served beside its JS
 and WASM. Local Rust engine wrappers and the adapted PMI writer have been removed.
 The native integration harness uses the same upstream crates through Cargo.
-The upstream Specify licence is preserved in `specify-core-rust/LICENSE`.
+The upstream Specify licence is preserved in `specify-core`'s `LICENSE`.
