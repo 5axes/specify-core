@@ -84,6 +84,10 @@ fn round_trip_lossless_resumed_and_noop_with_sources_and_standard_material() {
     let p = back.load(Some(0)).unwrap();
     let analysis = api::analyse(&p).unwrap();
     assert_eq!(analysis["bom"]["item_number"]["value"], 1);
+    let mut requested = api::preview(&analysis, &Map::new()).unwrap();
+    bom::accept_suggestions(&analysis, &Map::new(), &mut requested).unwrap();
+    assert_eq!(requested.part["bom"], json!({}));
+
     assert!(
         api::questions(&analysis, &Map::new())
             .unwrap()
@@ -340,6 +344,15 @@ fn revision_transport_retains_history_without_entity_ids() {
 fn gramil_acceptance() {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/bom/gramil.step.gz");
     let source = part::File::read(&path).unwrap();
+    for row in bom::read(&source).unwrap() {
+        let name = row.name.value.as_str().unwrap();
+        let expected = if name.starts_with("GRM-") || name == "push rod" {
+            "made"
+        } else {
+            "bought"
+        };
+        assert_eq!(row.make_buy.value, expected, "{name}");
+    }
     let a: Vec<_> = source
         .parts()
         .iter()

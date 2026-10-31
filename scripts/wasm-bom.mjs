@@ -21,3 +21,16 @@ for (const path of process.argv.slice(2).length ? process.argv.slice(2) : ['test
 }
 assert.throws(() => IntentEngine.bom(new Uint8Array(64 * 1024 * 1024 + 1)), /exceeds/);
 console.log('WASM BOM parity and input limit passed');
+
+const assembly = readFileSync('tests/fixtures/parts/assembly.step');
+const engine = IntentEngine.openPart('assembly', assembly, 0);
+const defaults = JSON.parse(engine.acceptDefaults('{}'));
+assert.ok(Object.keys(defaults).every(key => !key.startsWith('bom.')));
+const ordinary = JSON.parse(engine.writePmi('{}'));
+assert.ok(JSON.parse(IntentEngine.bom(Uint8Array.from(ordinary.bytes))).every(row => row.item_number.value === null));
+const enabled = JSON.parse(engine.writePmi('{}', undefined, undefined, true));
+const enabledRows = JSON.parse(IntentEngine.bom(Uint8Array.from(enabled.bytes)));
+assert.equal(enabledRows[0].item_number.value, 1);
+assert.equal(enabledRows[0].description.source, 'default');
+assert.deepEqual(JSON.parse(IntentEngine.openPart('enabled', Uint8Array.from(enabled.bytes), 0).snapshot()).analysis.resume.answers, {});
+console.log('WASM explicit BOM write and suggestion provenance passed');

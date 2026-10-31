@@ -76,6 +76,9 @@ are JSON null. Unnumbered files are not numbered merely by reading.
 - WASM: `JSON.parse(IntentEngine.bom(stepBytes))`. The STEP size limit also applies.
 - Assembly analysis adds `bom`, that part's row. Existing `parts`, `analyse --part`
   and multi-part `write` workflows continue to select the parts being answered.
+  Analysis derives only the selected row from the existing parsed document and PMI
+  reading, rather than loading and reading the whole BOM again. A resumed part reads
+  only its own PMI against that same parse; no geometry is loaded for BOM metadata.
 
 ## Opt-in questions and writes
 
@@ -86,7 +89,7 @@ revisions are not asked again. BOM questions never block a write and are exclude
 `--accept-defaults` / `with_all_defaults`. Material remains `part.material`.
 
 A write opts in when its intent contains at least one explicit `bom.*` answer, or when
-BOM suggestions are explicitly accepted:
+BOM suggestions are explicitly accepted (using a current assembly analysis):
 
 - CLI: `specify-core write asm.step analysis.json answers.json -o out.step --bom`
   (one analysis/answers pair per part to include; `--accept-defaults` independently accepts PMI).

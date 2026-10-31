@@ -346,7 +346,7 @@ pub(crate) fn read_rows(
                     };
                     // A Specify override is explicitly answered; exported properties fill gaps.
                     let suggested = values.get(&format!("default.{key}")) == Some(&json!(true));
-                    if set == PROPERTY && !suggested || target.source != "file" {
+                    if set == PROPERTY && !suggested || target.source == "default" {
                         *target = field(
                             v.clone(),
                             if set == PROPERTY && key != "item_number" && !suggested {
@@ -504,6 +504,9 @@ pub fn accept_suggestions(
     intent: &mut crate::rules::Intent,
 ) -> Result<(), String> {
     let object = analysis.as_object().ok_or("analysis is not an object")?;
+    if !analysis.get("bom").is_some_and(Value::is_object) {
+        return Err("BOM acceptance requires a current assembly analysis (analyse --part)".into());
+    }
     let mut fields = intent
         .part
         .get("bom")
@@ -514,6 +517,7 @@ pub fn accept_suggestions(
     for q in questions(object) {
         let key = q.id.strip_prefix("bom.").unwrap_or("");
         if !answers.contains_key(&q.id)
+            && analysis["bom"][key]["source"] != "answered"
             && let Some(value) = q.suggestions.first()
             && !value.as_str().is_some_and(|s| s.trim().is_empty())
         {
@@ -521,12 +525,10 @@ pub fn accept_suggestions(
             suggested.push(key.to_owned());
         }
     }
-    if !fields.is_empty() {
-        intent.part.insert("bom".into(), json!(fields));
-        intent
-            .part
-            .insert("bom_suggestions".into(), json!(suggested));
-    }
+    intent.part.insert("bom".into(), json!(fields));
+    intent
+        .part
+        .insert("bom_suggestions".into(), json!(suggested));
     Ok(())
 }
 
@@ -847,6 +849,8 @@ pub(crate) fn append(bytes: Vec<u8>, jobs: &[crate::writer::Job<'_>]) -> Result<
                 }
             }
         }
+        // Old snapshots may contain accepted empty text; never propagate it to a new set.
+        values.retain(|_, v| !v.as_str().is_some_and(|s| s.trim().is_empty()));
         values.insert("item_number".into(), json!(numbers[i]));
         if rows[i].item_number.source == "file" {
             values.insert("item_number_source".into(), json!("file"));
@@ -1315,7 +1319,21 @@ mod tests {
                 ("Make-Buy".into(), json!("unclassified")),
             ]),
         );
+        let owner = occurrences(&doc, f.definitions()[0].product_definition)[0];
+        uda(
+            &mut edit,
+            owner,
+            PROPERTY,
+            &Map::from_iter([("revision".into(), json!("User revision"))]),
+        );
+        uda(
+            &mut edit,
+            owner,
+            "Later export",
+            &Map::from_iter([("Revision".into(), json!("Export revision"))]),
+        );
         let rows = read_bytes(doc.apply(&edit).unwrap().bytes).unwrap();
+        assert_eq!(rows[0].revision, field("User revision", "answered"));
         assert_eq!(rows[0].description, field("Exported description", "file"));
         assert_eq!(rows[0].stock, field("from stock", "file"));
         assert_eq!(rows[0].make_buy, field("bought", "file"));
@@ -1342,6 +1360,7 @@ mod tests {
             assert_eq!(guessed(name).0, "made", "{name}");
         }
         for name in [
+            "ISO 4762 screw M2x6",
             "grub screw M4x5",
             "flat washer M2",
             "pan-head screw M2x6",

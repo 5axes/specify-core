@@ -49,7 +49,7 @@ class Question:
     #: Each still gets its own requirements.
     parts: tuple[tuple[str, tuple[int, ...]], ...] = ()
     #: For a text question: common answers to offer as it is typed; any text is accepted.
-    suggestions: tuple[dict[str, Any], ...] = ()
+    suggestions: tuple[Any, ...] = ()
     #: For a hole or turned diameter: each option's purpose, label, code and callout.
     choices: tuple[dict[str, Any], ...] = ()
     #: The feature's diameter, against which a typed spec is checked.
