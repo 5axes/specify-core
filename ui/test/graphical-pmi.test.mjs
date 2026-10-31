@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
-import { linksFromPmi, readPresentation } from '../src/specify/drawn.ts';
+import { drawnFromScene, hasGraphics, linksFromPmi, readPresentation } from '../src/specify/drawn.ts';
 
 // The spindle's haecceity.presentation/1 and haecceity.pmi/1, from quiddity's json feature
 // (scripts/fixtures/README.md).
@@ -52,7 +52,7 @@ test('missing or malformed fields are refused with where', () => {
   assert.match(bad({ name: undefined }), /name is not a string/);
 });
 
-test('fixture links: each item\'s faces from the PMI document, refused for another document', () => {
+test('links: each item\'s faces from the PMI document, refused for another document', () => {
   const presentation = readPresentation(spindle).value;
   const links = linksFromPmi(fixture('pmi'), presentation);
   assert.ok(links.ok, links.reason);
@@ -62,4 +62,50 @@ test('fixture links: each item\'s faces from the PMI document, refused for anoth
   const other = { ...presentation, semanticIds: [...presentation.semanticIds, 'extra'] };
   assert.match(linksFromPmi(fixture('pmi'), other).reason, /semantic_ids differ/);
   assert.match(linksFromPmi({ schema: 'haecceity.pmi/2', pmi: {} }, presentation).reason, /not a haecceity.pmi\/1/);
+});
+
+test('text placements read as stated, and a malformed one is refused with where', () => {
+  const at = { text_index: 0, origin: [10, 20, 30], x_axis: [1, 0, 0], normal: [0, -1, 0], height: 3, alignment: 'baseline left' };
+  const read = readPresentation(doc({ items: { 1: [{ ...graphic, id: 'step:9', plane_id: 'step:8', text_placements: [at] }] }, planes: [], views: [] }));
+  assert.ok(read.ok, read.reason);
+  assert.deepEqual(read.value.items['1'][0].id, 'step:9');
+  assert.deepEqual(read.value.items['1'][0].textPlacements, [{ textIndex: 0, origin: [10, 20, 30], xAxis: [1, 0, 0], normal: [0, -1, 0], height: 3, alignment: 'baseline left' }]);
+  // A placeholder: placed, with no text of its own.
+  const placeholder = readPresentation(doc({ items: { 1: [{ ...graphic, text_placements: [{ origin: [0, 0, 0], x_axis: [1, 0, 0], normal: [0, 0, 1] }] }] } }));
+  assert.deepEqual(placeholder.value.items['1'][0].textPlacements, [{ origin: [0, 0, 0], xAxis: [1, 0, 0], normal: [0, 0, 1] }]);
+  const bad = (t) => readPresentation(doc({ items: { 1: [{ ...graphic, text_placements: [{ ...at, ...t }] }] } })).reason;
+  assert.match(bad({ origin: [0, 0] }), /text_placements\[0\]\.origin is not a point/);
+  assert.match(bad({ height: -1 }), /text_placements\[0\]\.height is not a length/);
+  assert.match(bad({ text_index: 1.5 }), /text_index is not an index/);
+  assert.match(readPresentation(doc({ items: { 1: [{ ...graphic, id: 3 }] } })).reason, /items\["1"\]\[0\]\.id is not a string/);
+});
+
+// A pmiScene in small: a datum whose symbol is listed under the datum and its feature, as
+// specify-core 0.1.5 lists it, with Specify's overlay for the datum only.
+const scene = () => ({
+  pmi: {
+    schema: 'haecceity.pmi/1',
+    pmi: {
+      features: [{ id: 'features:f', value: { items: [{ face: 4 }, { face: 2 }] } }],
+      datums: [{ id: 'datum:A', value: { features: ['features:f'] } }],
+    },
+  },
+  presentation: doc({
+    items: { 'datum:A': [{ ...graphic, id: 'step:7', name: 'Datum A' }], 'features:f': [{ ...graphic, id: 'step:7', name: 'Datum A' }] },
+    semantic_ids: ['datum:A', 'features:f'],
+  }),
+  specify: { 'datum:A': { status: 'answered', question: 'datum.A', number: 1 } },
+});
+
+test('a PMI scene: each item\'s faces, and Specify\'s status and question where it has them', () => {
+  const read = drawnFromScene(scene());
+  assert.ok(read.ok, read.reason);
+  assert.deepEqual(read.value.links['datum:A'], { faces: [2, 4], question: 'datum.A', status: 'answered' });
+  assert.deepEqual(read.value.links['features:f'], { faces: [2, 4] });
+  assert.equal(hasGraphics(read.value), true);
+  const empty = drawnFromScene({ ...scene(), presentation: doc({ items: {}, semantic_ids: ['datum:A', 'features:f'] }) });
+  assert.equal(hasGraphics(empty.value), false);
+  assert.match(drawnFromScene(null).reason, /not a JSON object/);
+  assert.match(drawnFromScene({ ...scene(), presentation: { schema: 'x' } }).reason, /schema is "x"/);
+  assert.match(drawnFromScene({ ...scene(), pmi: null }).reason, /not a haecceity.pmi\/1/);
 });

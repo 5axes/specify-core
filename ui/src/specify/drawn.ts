@@ -2,19 +2,36 @@
 // the parts the Specify view uses, and refused with a reason otherwise. Pure, no three.js or DOM.
 //
 // What is drawn comes from haecceity as it is: polylines, filled triangles and text, never
-// notation formatted here. Which faces (and Specify question) each semantic item is about comes
-// with it, from Specify's pmiScene; until that exists the only source is a fixture opened through
-// the dev path below.
+// notation formatted here. It comes with Specify's pmiScene (specify-core 0.1.5): the presentation,
+// the haecceity.pmi/1 document whose features give each item's faces, and Specify's overlay, which
+// gives each item's status and question.
 
 export type DrawnPoint = readonly [number, number, number];
 
+/**
+ * Where a text is set, as the file or haecceity states it: its alignment point, its plane's x
+ * axis and normal (the text's up is normal × x axis), and its box height in mm when stated.
+ */
+export interface TextPlacement {
+  readonly textIndex?: number;
+  readonly origin: DrawnPoint;
+  readonly xAxis: DrawnPoint;
+  readonly normal: DrawnPoint;
+  readonly height?: number;
+  /** As stated, such as "baseline left" or "centre". */
+  readonly alignment?: string;
+}
+
 /** One drawn graphic: model-space millimetres. */
 export interface DrawnGraphic {
+  /** One graphic listed under several items (a datum's symbol under the datum and its feature) has one id. */
+  readonly id?: string;
   readonly source: 'generated' | 'file';
   readonly name: string;
   readonly polylines: readonly (readonly DrawnPoint[])[];
   readonly triangles: readonly (readonly [DrawnPoint, DrawnPoint, DrawnPoint])[];
   readonly text: readonly string[];
+  readonly textPlacements?: readonly TextPlacement[];
 }
 
 export interface Presentation {
@@ -25,10 +42,16 @@ export interface Presentation {
   readonly semanticIds: readonly string[];
 }
 
-/** What a semantic item is on, in the session's face numbering, and its question if Specify asks one. */
+export type DrawnStatus = 'answered' | 'default' | 'general' | 'existing';
+
+/**
+ * What a semantic item is on, in the session's face numbering (`snapshot().mesh.faces`), and,
+ * from Specify's overlay, its status and its question if Specify asks one.
+ */
 export interface DrawnLink {
   readonly faces: readonly number[];
   readonly question?: string;
+  readonly status?: DrawnStatus;
 }
 
 /** What the Specify view draws as the file's own graphics: pmiScene's presentation and links. */
@@ -69,7 +92,25 @@ function graphic(v: unknown, at: string): DrawnGraphic {
     return [point(corners[0], `${at}.triangles[${i}][0]`), point(corners[1], `${at}.triangles[${i}][1]`), point(corners[2], `${at}.triangles[${i}][2]`)] as const;
   });
   const text = list(v['text'], `${at}.text`).map((s, i) => (typeof s === 'string' ? s : refuse(`${at}.text[${i}] is not a string`)));
-  return { source, name, polylines, triangles, text };
+  const id = v['id'];
+  if (id !== undefined && typeof id !== 'string') refuse(`${at}.id is not a string`);
+  const placements = v['text_placements'] === undefined ? undefined
+    : list(v['text_placements'], `${at}.text_placements`).map((t, i) => placement(t, `${at}.text_placements[${i}]`));
+  return { ...(typeof id === 'string' ? { id } : {}), source, name, polylines, triangles, text, ...(placements ? { textPlacements: placements } : {}) };
+}
+
+function placement(v: unknown, at: string): TextPlacement {
+  if (!isObject(v)) return refuse(`${at} is not a text placement`);
+  const { text_index: textIndex, height, alignment } = v;
+  if (textIndex !== undefined && !(Number.isInteger(textIndex) && (textIndex as number) >= 0)) refuse(`${at}.text_index is not an index`);
+  if (height !== undefined && !(typeof height === 'number' && Number.isFinite(height) && height >= 0)) refuse(`${at}.height is not a length`);
+  if (alignment !== undefined && typeof alignment !== 'string') refuse(`${at}.alignment is not a string`);
+  return {
+    ...(textIndex === undefined ? {} : { textIndex: textIndex as number }),
+    origin: point(v['origin'], `${at}.origin`), xAxis: point(v['x_axis'], `${at}.x_axis`), normal: point(v['normal'], `${at}.normal`),
+    ...(height === undefined ? {} : { height: height as number }),
+    ...(alignment === undefined ? {} : { alignment: alignment as string }),
+  };
 }
 
 /** `haecceity.presentation/1`, checked where the view relies on it; anything else is refused with why. */
@@ -95,10 +136,9 @@ export function readPresentation(json: unknown): Read<Presentation> {
 }
 
 /**
- * Links for a fixture, from its `haecceity.pmi/1` document: each item's faces are its features'
- * (`features[].value.items[].face`, the session's numbering for a file Specify reads). pmiScene
- * will give these itself, with each item's question. Refused unless the document's ids are the
- * presentation's `semantic_ids`.
+ * Each presented item's faces, from the `haecceity.pmi/1` document the presentation was made with:
+ * its features' (`features[].value.items[].face`, the session's numbering). Refused unless the
+ * document's ids are the presentation's `semantic_ids`.
  */
 export function linksFromPmi(json: unknown, presentation: Presentation): Read<Record<string, DrawnLink>> {
   if (!isObject(json) || json['schema'] !== 'haecceity.pmi/1' || !isObject(json['pmi'])) {
@@ -133,38 +173,29 @@ export function linksFromPmi(json: unknown, presentation: Presentation): Read<Re
   return { ok: true, value: links };
 }
 
-/** A same-origin path's JSON, gunzipped if it is gzip. */
-async function fetchJson(path: string): Promise<unknown> {
-  const response = await fetch(path);
-  if (!response.ok) throw new Error(`${path}: ${response.status}`);
-  const bytes = new Uint8Array(await response.arrayBuffer());
-  const gzip = bytes[0] === 0x1f && bytes[1] === 0x8b;
-  const text = gzip
-    ? await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'))).text()
-    : new TextDecoder().decode(bytes);
-  return JSON.parse(text);
-}
+const STATUSES: readonly DrawnStatus[] = ['answered', 'default', 'general', 'existing'];
 
 /**
- * The dev path, until pmiScene: `?presentation=<path>&pmi=<path>` on the page, both same-origin
- * paths to JSON (gzipped or not). Without `presentation` there is nothing, and nothing changes.
- * Without `pmi`, graphics are drawn but none is linked to faces.
+ * Specify's pmiScene (`{pmi, presentation, specify}`, specify-core 0.1.5) as the view draws it:
+ * the presentation, and each presented item's faces with its status and question from `specify`.
  */
-export async function devDrawnPmi(search: string): Promise<Read<DrawnPmi> | null> {
-  const query = new URLSearchParams(search);
-  const path = query.get('presentation');
-  if (!path) return null;
-  const local = (p: string) => p.startsWith('/') && !p.startsWith('//');
-  if (!local(path)) return { ok: false, reason: 'presentation must be a same-origin path' };
-  try {
-    const read = readPresentation(await fetchJson(path));
-    if (!read.ok) return read;
-    const pmiPath = query.get('pmi');
-    if (!pmiPath) return { ok: true, value: { presentation: read.value, links: {} } };
-    if (!local(pmiPath)) return { ok: false, reason: 'pmi must be a same-origin path' };
-    const links = linksFromPmi(await fetchJson(pmiPath), read.value);
-    return links.ok ? { ok: true, value: { presentation: read.value, links: links.value } } : links;
-  } catch (error) {
-    return { ok: false, reason: error instanceof Error ? error.message : String(error) };
+export function drawnFromScene(scene: unknown): Read<DrawnPmi> {
+  if (!isObject(scene)) return { ok: false, reason: 'the PMI scene is not a JSON object' };
+  const read = readPresentation(scene['presentation']);
+  if (!read.ok) return read;
+  const links = linksFromPmi(scene['pmi'], read.value);
+  if (!links.ok) return links;
+  const overlay = isObject(scene['specify']) ? scene['specify'] : {};
+  const linked: Record<string, DrawnLink> = {};
+  for (const [id, link] of Object.entries(links.value)) {
+    const entry = overlay[id];
+    const status = isObject(entry) && STATUSES.includes(entry['status'] as DrawnStatus) ? entry['status'] as DrawnStatus : undefined;
+    const question = isObject(entry) && typeof entry['question'] === 'string' ? entry['question'] : undefined;
+    linked[id] = { ...link, ...(question ? { question } : {}), ...(status ? { status } : {}) };
   }
+  return { ok: true, value: { presentation: read.value, links: linked } };
 }
+
+/** Whether there is anything to draw. */
+export const hasGraphics = (pmi: DrawnPmi): boolean =>
+  pmi.presentation.unlinked.length > 0 || Object.values(pmi.presentation.items).some((graphics) => graphics.length > 0);

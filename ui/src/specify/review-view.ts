@@ -148,7 +148,10 @@ export function createReviewView(
   const onMove = (event: PointerEvent) => {
     if (event.buttons) return;
     const point = at(event);
-    cad.canvas.style.cursor = drawnLayer.hit(...point) === null ? '' : 'pointer';
+    // Over a drawn callout: a hand, and its notation as haecceity names it.
+    const item = drawnLayer.hit(...point);
+    cad.canvas.style.cursor = item === null ? '' : 'pointer';
+    cad.canvas.title = item === null ? '' : drawnPmi?.presentation.items[item]?.[0]?.name ?? '';
     report(faceAt(...point));
   };
   const report = (face: number | null) => {
@@ -205,7 +208,7 @@ export function createReviewView(
   const drawnLabel = (item: string): PmiLabel => {
     const link = drawnPmi?.links[item];
     return {
-      id: `drawn:${item}`, kind: 'note', group: 'existing',
+      id: `drawn:${item}`, kind: 'note', group: link?.status ?? 'existing',
       cells: [drawnPmi?.presentation.items[item]?.[0]?.name ?? item],
       faces: (link?.faces ?? []).filter((f) => f >= 0 && f < mesh.faces.length),
       ...(link?.question ? { question: link.question } : {}),

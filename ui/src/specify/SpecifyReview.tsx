@@ -9,7 +9,7 @@ import { addedOf, CALL_OUTS, describe, kindsFor, MAY_HAVE_DATUM, nextKey } from 
 import { codeOf } from './choose';
 import { appliedByRule, chosenForYou, type Chosen } from './chosen';
 import { datumChips, freeLetter, removal } from './datums';
-import { devDrawnPmi, type DrawnPmi } from './drawn';
+import type { DrawnPmi } from './drawn';
 import { optionHint } from './hints';
 import { balloonsBySource, type Characteristic, characteristics, ranges, toCsv } from './characteristics';
 import { CharacteristicsTable, ExtraEditor, PurposeChoice, SpecBox, SuggestBox, SuggestionCard, TOLERANCE_PICKS, type ExtraDraft } from './inputs';
@@ -42,7 +42,7 @@ function asError(error: unknown): PmiLabError {
   return { code: 'failed', message: String(error) };
 }
 
-export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, onExport, gated, after, onPick, showFaces, tints, externalAnswers, externalReview, disabled, focusRequest, toReview, onKeep }: {
+export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, onExport, gated, after, onPick, showFaces, tints, externalAnswers, externalReview, disabled, focusRequest, toReview, onKeep, drawn: drawnPmi = null }: {
   engine: SpecifyEngine; session: PmiLabSession; slots: SpecifySlots;
   /** The question the queue's selected row is about: what the question slot shows. */
   slotQuestion?: string | null;
@@ -64,6 +64,8 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   toReview?: readonly string[];
   /** Keeps suggestions as they stand, the editor's way: accepted, as in its list, not answered. */
   onKeep?: (ids: readonly string[]) => void;
+  /** The PMI as drawn (Specify's pmiScene), when it has any graphics. */
+  drawn?: DrawnPmi | null;
 }) {
   const stage = useRef<HTMLDivElement>(null);
   const picker = useRef<Picker | null>(null);
@@ -85,19 +87,9 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     // What the general tolerance covers can be a hundred labels: drawn only when chosen.
     labels: true, defaults: true, existing: true, general: false, farSide: true,
   });
-  // A STEP's own graphical PMI, when there is any: shown as our labels (Semantic), as the file
-  // draws it (As drawn), or both. Until pmiScene its only source is the dev path.
-  const [drawnPmi, setDrawnPmi] = useState<DrawnPmi | null>(null);
+  // The PMI as drawn, when it has graphics: shown as our labels (Semantic, the default), as
+  // drawn (As drawn), or both.
   const [showing, setShowing] = useState<'semantic' | 'drawn' | 'both'>('semantic');
-  useEffect(() => {
-    let live = true;
-    void devDrawnPmi(location.search).then((read) => {
-      if (!live || !read) return;
-      if (read.ok) setDrawnPmi(read.value);
-      else console.warn(`Graphical PMI not shown: ${read.reason}`);
-    });
-    return () => { live = false; };
-  }, []);
   // A face clicked that no question is about shows what the general tolerance says of it.
   const [peek, setPeek] = useState<number | null>(null);
   // Set by a label clicked: the question it opens is turned to without moving the view.

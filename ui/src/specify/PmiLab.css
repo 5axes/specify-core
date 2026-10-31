@@ -322,10 +322,13 @@
   font-variant-numeric: tabular-nums; text-shadow: 0 0 3px #fff, 0 0 3px #fff, 0 0 2px #fff, 0 0 2px #fff; }
 .pmi-lab .pmi.default { opacity: .85; }
 .pmi-lab .pmi.hidden { display: none; }
-/* A STEP's own drawn text (As drawn): as the file writes it, centred where it is drawn. */
+/* A file's own text (As drawn): as the file writes it, where it places it. */
 .pmi-lab .pmi-drawn { white-space: pre; font-size: 11.5px; pointer-events: none;
   text-shadow: 0 0 3px #fff, 0 0 3px #fff, 0 0 2px #fff, 0 0 2px #fff; }
 .pmi-lab .pmi-drawn span { display: inline-block; }
+/* Placed text: its alignment point at the tag, turned and sized in drawn-layer.ts. */
+.pmi-lab .pmi-drawn-placed { width: 0; height: 0; }
+.pmi-lab .pmi-drawn-placed span { position: absolute; left: 0; top: 0; transform-origin: 0 0; line-height: 1; }
 .pmi-lab .pmi-in { display: inline-block; transform: translate(9px, -50%); will-change: transform; }
 .pmi-lab .pmi .sub { font-weight: 400; opacity: .8; }
 .pmi-lab .pmi .times { font-weight: 700; }
