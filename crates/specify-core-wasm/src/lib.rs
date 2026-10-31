@@ -179,6 +179,8 @@ export interface PmiSceneView {
   graphics: PmiSceneId[];
 }
 export interface PmiSceneMetadata {
+  /** This requirement's semantic note wording, independent of shared graphics. */
+  notation?: string;
   status: PmiSceneStatus;
   question?: string;
   number?: number;

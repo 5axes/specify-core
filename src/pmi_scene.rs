@@ -653,11 +653,42 @@ fn recorded_numbers(semantic: &Semantic) -> Result<BTreeMap<(&'static str, usize
     Ok(result)
 }
 
+// A graphic can render several semantic requirements once (GENERAL NOTES).
+// Labels and comparisons belong to each requirement, never to that shared block.
+fn note_notation(semantic: &Semantic, metadata: &mut Map<String, Value>) {
+    use haecceity::presentation::notes::{Source, general_notes};
+
+    for (id, note) in semantic.ids["notes"].iter().zip(&semantic.pmi.notes) {
+        if let Some(meta) = metadata.get_mut(id) {
+            meta["notation"] = json!(note.text);
+        }
+    }
+    let mut texts: BTreeMap<&str, Vec<String>> = BTreeMap::new();
+    for row in general_notes(&semantic.pmi) {
+        let (collection, index) = match row.source {
+            Source::General(i) => ("general", i),
+            Source::Texture(i) => ("surface_textures", i),
+            Source::Attribute(i) => ("attributes", i),
+            Source::Note(i) => ("notes", i),
+            Source::Material => continue,
+        };
+        if let Some(id) = semantic.ids.get(collection).and_then(|ids| ids.get(index)) {
+            texts.entry(id).or_default().push(row.text);
+        }
+    }
+    for (id, text) in texts {
+        if let Some(meta) = metadata.get_mut(id) {
+            meta["notation"] = json!(text.join("; "));
+        }
+    }
+}
+
 fn encode(
     semantic: &Semantic,
     graphics: presentation::Presentation,
-    metadata: Map<String, Value>,
+    mut metadata: Map<String, Value>,
 ) -> Result<Value, String> {
+    note_notation(semantic, &mut metadata);
     // Serialize the upstream document directly, including optional stroked flags.
     let mut result = json!({"pmi": wire::to_value(semantic).map_err(|e|e.to_string())?, "presentation": graphics, "specify":metadata});
     prune_views(&mut result["presentation"]);

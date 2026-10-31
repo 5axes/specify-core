@@ -418,6 +418,7 @@ scene structure and presentation metadata are typed. The result is:
       status: 'answered' | 'default' | 'general' | 'existing';
       question?: string; // extra.N for a face-picked extra
       number?: number;   // characteristic number, as the STEP writer allocates it
+      notation?: string; // this requirement's own semantic note wording
       origin?: 'requirement' | 'general_tolerance' | 'imported';
       source?: {schema: number; faces: string; support: number[]; parameter: string};
     }
@@ -451,6 +452,11 @@ distinguishing a member's measurement from its pattern's. General locations with
 feature id use their face supports. Changing a value leaves
 the id intact. Foreign items retain haecceity's `ID_ATTRIBUTE` or content-derived id.
 The same ids key semantic references, presentation and the requirement overlay `specify`.
+For note and characteristic labels, use `specify[id].notation` when present: it is
+that requirement's semantic wording (for example `Keep dry` or
+`GENERAL TOLERANCES ISO 2768-m`). Several requirements can alias one GENERAL NOTES
+graphic, whose `name`, text cells, strokes and id describe the whole block. Those
+shared fields must not be used as an individual requirement's label or identity.
 Supporting features, geometry and units remain in the haecceity documents but are omitted
 from `specify`, as are saved-answer and number-history attributes. Their graphics may
 therefore have no overlay entry. Thread/knurl manufacturing attributes inherit the owning

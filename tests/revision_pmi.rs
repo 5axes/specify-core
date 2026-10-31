@@ -134,9 +134,63 @@ fn a_note_change_and_material_modifier_change_are_visible() {
         "{:?}",
         report.pmi.items
     );
-    assert!(report.pmi.items.iter().any(|c| c.class == "changed"
-        && c.old.as_ref().is_some_and(|t| t.contains("Keep dry"))
-        && c.new.as_ref().is_some_and(|t| t.contains("Keep clean"))));
+    let note = report
+        .pmi
+        .items
+        .iter()
+        .find(|c| c.id == "part.notes:1")
+        .unwrap();
+    assert_eq!(note.class, "changed");
+    assert_eq!(note.old.as_deref(), Some("Keep dry"));
+    assert_eq!(note.new.as_deref(), Some("Keep clean"));
+    assert!(
+        report
+            .markdown("Notes and modifiers", None)
+            .contains("Keep dry → Keep clean")
+    );
+    for id in [
+        "part.surface_finish",
+        "part.edges",
+        "part.general_tolerance",
+    ] {
+        assert!(
+            !report.pmi.items.iter().any(|c| c.id == id),
+            "{id}: {:?}",
+            report.pmi.items
+        );
+    }
+}
+
+#[test]
+fn changing_one_shared_note_leaves_every_other_requirement_unchanged() {
+    let bare = load("parts/plate.step");
+    let supplied = answers(json!({"part.notes":["Keep dry", "Do not stack"]}));
+    let supplied =
+        specify_core::rules::with_all_defaults(&api::analyse(&bare).unwrap(), &supplied).unwrap();
+    let old = write(&bare, &supplied);
+    let changed = String::from_utf8(old.bytes.to_vec())
+        .unwrap()
+        .replace("Keep dry", "Keep clean");
+    let new = part::load_bytes("note-changed.step", changed.into_bytes()).unwrap();
+    let report = revision::diff(&old, &new, &Map::new()).unwrap();
+    assert_scene_ids(&report, &new);
+    assert_eq!(report.pmi.items.len(), 1, "{:?}", report.pmi.items);
+    let note = &report.pmi.items[0];
+    assert_eq!(note.id, "part.notes:1");
+    assert_eq!(note.class, "changed");
+    assert_eq!(note.old.as_deref(), Some("Keep dry"));
+    assert_eq!(note.new.as_deref(), Some("Keep clean"));
+    let markdown = report.markdown("One note", None);
+    assert!(
+        markdown
+            .lines()
+            .any(|line| line.starts_with("- ") && line.contains("Keep dry → Keep clean"))
+    );
+    assert!(!markdown.contains("General notes → General notes"));
+    assert_eq!(
+        specify_core::characteristics::read(&old).unwrap(),
+        specify_core::characteristics::read(&new).unwrap()
+    );
 }
 
 #[test]

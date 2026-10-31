@@ -8,6 +8,8 @@ All notable changes to specify-core-rust. The format follows
 
 ### Changed
 
+- Fix #92: compare and label each part note by its semantic wording, so a change
+  within the shared GENERAL NOTES graphic leaves other note requirements unchanged.
 - Pin quiddity and haecceity to v0.4.1. Recognition `/6` and fingerprints `/3`
   stay unchanged. Adopt regenerated ladders/callouts, one numbered GENERAL NOTES
   block, generated plane views, AP214 PRODUCT_TYPE upgrades, panic isolation and
@@ -31,6 +33,8 @@ All notable changes to specify-core-rust. The format follows
 
 ### WASM API
 
+- Add optional `PmiSceneMetadata.notation` for individual semantic note labels;
+  shared presentation graphics retain their render-once identity and geometry.
 - Add `PmiScene` JSON result interfaces for both `pmiScene` entry points, including
   semantic rows/ids, graphics, optional `stroked` text placements, planes, views and
   Specify statuses. Document parsing and rendering; the wire return remains a string.
