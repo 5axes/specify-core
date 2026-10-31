@@ -33,7 +33,7 @@ unit example is C.4.2. There is no new density inference.
 `specify bom` is a property set attached to each immediate leaf NAUO using UDA
 §5/§6.2: `PROPERTY_DEFINITION`, `GENERAL_PROPERTY_ASSOCIATION`,
 `GENERAL_PROPERTY`, `PROPERTY_DEFINITION_REPRESENTATION`, `REPRESENTATION` and
-text/integer/boolean representation items (§6.5). Repeated occurrences receive the
+text/integer/boolean representation items (§7.1/§7.2). Repeated occurrences receive the
 same parts-list row. Wrappers are resolved through the loader's part definitions.
 The representation has its own nongeometric context. On BOM-enabled writes, newly
 emitted Specify saved-answer and characteristic-history properties are associated with
