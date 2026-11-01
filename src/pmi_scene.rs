@@ -913,7 +913,7 @@ pub fn pmi_scene(bytes: &[u8], part: Option<usize>) -> Result<Value, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use presentation::{Graphic, Source, View};
+    use presentation::{Graphic, Source, TextPlacement, View};
 
     fn graphic(id: &str, stroked: Option<bool>) -> Graphic {
         Graphic {

@@ -31,6 +31,14 @@ All notable changes to specify-core-rust. The format follows
 
 ### Changed
 
+- Keep exact tap-drill defaults and their exact-value guards after the main merge:
+  five frozen rule cases (CGB202, CGB217, CGB243, NIST CTC-04 part 0 and FTC-10)
+  gain thread/depth answers and dependent ordering; thirteen CLI envelope entries
+  carry the same reason without wildcard cases or paths. Explicit-clearance fit
+  tests still choose clearance. Fresh-number order checks replace only the
+  former tap-drill size with its thread; CGB243's obsolete General-size conflict
+  disappears while its written count is unchanged.
+
 - Move quiddity/haecceity (native, WASM and the Python binding) to v0.4.4
   (`53cf3604`), including thread callouts, polyline roles and text cell boxes. The pin checker requires the same release. Reader binding advances
   to `haecceity-pmi-read/14` for datum-constituent identity (#173); the packaged
