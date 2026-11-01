@@ -31,6 +31,12 @@ All notable changes to specify-core-rust. The format follows
 
 ### Changed
 
+- Diff reports describe requirements in Markdown and JSON summary text, naming the
+  changed feature and its requirement notation when review is needed. STEP diff
+  comments omit the JSON payload and flag differing committed sidecars in one
+  line, with a 3D review link for public repositories. `answers.json`, JSON keys
+  and verdict meanings remain unchanged.
+
 - Refresh the numbered M2 presentation fixture and four distinct no-BOM write
   hashes for v0.4.4's added thread ink and neighbouring callout placement.
   Legacy semantic/part-setting comparisons and all six exact API/CLI byte

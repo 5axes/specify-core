@@ -1,9 +1,9 @@
 # The STEP diff action: on a pull request that changes a STEP file, compare it with the base
 # branch's using `specify-core diff` and keep one comment on the pull request up to date with
-# what changed in the part, its picture and the Specify answers carried to the new revision.
+# what changed in the part, its picture and the requirements that still apply to the new revision.
 # See README.md beside this file.
 name: Specify STEP diff
-description: Comment on a pull request with what changed in each STEP file, and carry its Specify answers
+description: Comment on a pull request with what changed in each STEP file, and review its requirements
 branding:
   icon: git-pull-request
   color: orange

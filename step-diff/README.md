@@ -39,10 +39,10 @@ checks its checksum.
 ## Reading the comment
 
 - **The summary line** counts what changed by family ("2 holes changed, 8 rounds and surfaces
-  with them") and says whether the answers carry. ✅ means every answer carried and the new part
-  asks nothing new. ⚠️ means a decision is needed: an answer couldn't be carried, or the part
-  asks something new. ❌ means Specify's review finds problems in the new part that it didn't
-  find in the old one.
+  with them") and says whether the requirements still apply. ✅ means every requirement
+  applies and there are no new requirements to specify. ⚠️ means a decision is needed: a
+  requirement could not be applied, or there are new requirements to specify. ❌ means
+  Specify's review finds problems in the new part that it didn't find in the old one.
 - **The picture** is the new part. Faces that changed are orange, new faces are green, faces
   that can't be told apart from a matching one are purple, and the old part's faces that are
   gone or moved are drawn over it in translucent red.
@@ -60,39 +60,41 @@ checks its checksum.
 - **What changed** names each feature as a drawing would ("2× Ø10 × 11 through holes") and
   places it so it can be found ("on the −Z side, at X 10.9, Y 28.4 from the −X, −Y corner"),
   then says what changed: "depth 11 → 13; diameter 10 → 9", "moved Z +2", "removed".
-- **Answers carried to a changed feature** are applied but listed to check. A clearance hole
+- **Requirements to check** are applied but listed to check. A clearance hole
   that got smaller may no longer clear its bolt.
-- **Answers not carried** keep their value and say why: the feature was removed, or the new
+- **Requirements not applied** keep their value and say why: the feature was removed, or the new
   part has several features it could be.
-- **New questions** are what the new part asks that the old one didn't, for a new hole, say.
+- **Requirements to specify** are decisions needed for new features, such as a new hole.
 - **PMI** lists the dimensions, tolerances and datums in the STEP files themselves that were
   added, removed or changed.
-- **The answers carried to the new revision** are the answers file for the new part, ready to
-  commit.
+- **A stale sidecar** is reported in one line when `<part>.answers.json` differs from the
+  comparison's requirements, with a 3D review link for public repositories. The comment
+  never includes the JSON payload.
 
 How `diff` matches the two parts and decides what carries is in [docs/diff.md](../docs/diff.md).
 
-## Answers
+## Requirements
 
-The answers are the decisions made about the part: its material, what each hole is for, which
+The requirements are the decisions made about the part: its material, what each hole is for, which
 faces are datums, the tolerances. The action looks for them in two places:
 
 - **A file beside the part.** For `bracket.step`, the file is `bracket.answers.json`, a JSON object
   mapping question ids to values, as `specify-core write` takes. The base branch's file is the
-  one carried. The comment shows the carried answers, renamed where the part's faces
-  renumbered, for you to commit as the new revision's file.
+  one used for the comparison. If the new revision's sidecar differs from the resulting
+  requirements, the comment says it is stale. Run the comparison locally to produce the
+  updated `answers.json` for review and commit.
 - **The STEP file itself.** A STEP file written by Specify, including one exported from the
-  Specify editor at [draftwright.io](https://draftwright.io), stores its answers as PMI. When
-  there's no answers file, those are carried.
+  Specify editor at [draftwright.io](https://draftwright.io), stores its requirements as PMI. When
+  there's no sidecar, those are used.
 
-A part with no answers still gets the comment: what changed, the picture and the measures.
+A part with no saved requirements still gets the comment: what changed, the picture and the measures.
 
 ## What it compares
 
 - **Changed files:** each STEP file the pull request changes, as it would be once merged, is
   compared with the base branch's version.
-- **Answers changed without the STEP file:** the part is compared too, so the comment shows
-  the answers again.
+- **Sidecar changed without the STEP file:** the part is compared too, so the comment
+  reviews its requirements.
 - **New and removed files** are listed as new or removed parts.
 - **Renames:** a renamed file is compared with its old path when the rename leaves it
   unchanged. Otherwise it's reported as one part removed and another added, because STEP
@@ -106,8 +108,8 @@ A part with no answers still gets the comment: what changed, the picture and the
   picture of the whole assembly: changed, re-counted and moved parts orange, added green,
   removed red. In a public
   repository each changed part links to /diff with `&part=` to open it there. An assembly's
-  answers file maps part names to their answers: `{"GRM-04 drive plate": {"part.material":
-  "6061-T6"}}`. A file that was a single part keeps its old answers file: it is taken as that
+  sidecar maps part names to their requirements: `{"GRM-04 drive plate": {"part.material":
+  "6061-T6"}}`. A file that was a single part keeps its old sidecar: it is taken as that
   part's.
 
 ## Options
@@ -156,5 +158,5 @@ specify-core diff old.step new.step --answers old.answers.json -o changes
 ```
 
 `changes/` gets `report.md` (the comment), `model.png` (the picture), `report.json` and the
-carried `answers.json`. An assembly gives the same four files, its answers by part name.
+carried `answers.json`. An assembly gives the same four files, its requirements by part name.
 Installing the command line is described in [the README](../README.md#install).

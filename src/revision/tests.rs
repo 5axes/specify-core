@@ -23,6 +23,7 @@ fn report() -> Revised {
         },
         pmi: Pmi::default(),
         pmi_graphics: vec![],
+        check_lines: vec![],
         questions: vec![],
         problems: Problems::default(),
         faces: BTreeMap::new(),
