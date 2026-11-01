@@ -40,6 +40,17 @@ pub fn diff(
     answers: &Map<String, Value>,
     title: &str,
 ) -> Result<Value, String> {
+    diff_with_options(old, new, answers, title, revision::DiffOptions::default())
+}
+
+/// Include exact comparison scenes when requested, without re-deriving them.
+pub fn diff_with_options(
+    old: (&str, &[u8]),
+    new: (&str, &[u8]),
+    answers: &Map<String, Value>,
+    title: &str,
+    options: revision::DiffOptions,
+) -> Result<Value, String> {
     let read = |(name, bytes): (&str, &[u8])| -> Result<part::File, String> {
         check_input(name, bytes)?;
         part::File::of_bytes(Path::new(name), bytes.to_vec())
@@ -47,13 +58,14 @@ pub fn diff(
     };
     let (old_file, new_file) = (read(old)?, read(new)?);
     if assembly::is_assembly(&old_file) || assembly::is_assembly(&new_file) {
-        return diff_assembly(&old_file, &new_file, answers, title);
+        return diff_assembly(&old_file, &new_file, answers, title, options);
     }
     let load = |file: &part::File, name: &str| -> Result<LoadedPart, String> {
         file.load(None).map_err(|error| format!("{name}: {error}"))
     };
     let (before, after) = (load(&old_file, old.0)?, load(&new_file, new.0)?);
-    let revised = revision::diff(&before, &after, answers).map_err(|error| error.to_string())?;
+    let revised = revision::diff_with_options(&before, &after, answers, options)
+        .map_err(|error| error.to_string())?;
     Ok(json!({
         "report": serde_json::to_value(&revised).map_err(|error| error.to_string())?,
         "markdown": revised.markdown(title, None),
@@ -66,10 +78,12 @@ fn diff_assembly(
     new: &part::File,
     answers: &Map<String, Value>,
     title: &str,
+    options: revision::DiffOptions,
 ) -> Result<Value, String> {
     let load = |file: &part::File| file.load_all().map_err(|error| error.to_string());
     let (before, after) = (load(old)?, load(new)?);
-    let compared = assembly::diff(&before, &after, answers).map_err(|error| error.to_string())?;
+    let compared = assembly::diff_with_options(&before, &after, answers, options)
+        .map_err(|error| error.to_string())?;
     let parts = compared
         .parts
         .iter()

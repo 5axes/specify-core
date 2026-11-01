@@ -192,9 +192,10 @@ const DIFF: Command = Command {
         (None, "--part", true, false),
         (None, "--title", true, false),
         (None, "--viewer", true, false),
+        (None, "--pmi-scenes", false, false),
     ],
     help: "usage: specify-core diff [-h] -o OUTPUT [--answers ANSWERS] [--part PART]
-                         [--title TITLE] [--viewer VIEWER] old new
+                         [--title TITLE] [--viewer VIEWER] [--pmi-scenes] old new
 
 positional arguments:
   old                  the STEP file as it was (a part or an assembly)
@@ -207,6 +208,7 @@ options:
   --answers ANSWERS    answers JSON for the old part: {question id: value};
                        for an assembly, {part name: {question id: value}}
   --part PART          compare one part of an assembly (see parts)
+  --pmi-scenes         include the compared PMI scenes in report.json
   --title TITLE        the report's title (the new file's name)
   --viewer VIEWER      the /diff page's link for these revisions: an
                        assembly's changed parts link to it with &part=NAME
@@ -756,7 +758,15 @@ fn diff(old: &Path, new: &Path, args: &Args, out: &mut impl Write) -> Result<(),
             (load(&old)?, load(&new)?)
         }
     };
-    let revised = crate::revision::diff(&before, &after, &answers).map_err(Exit::error)?;
+    let revised = crate::revision::diff_with_options(
+        &before,
+        &after,
+        &answers,
+        crate::revision::DiffOptions {
+            scenes: args.flag("--pmi-scenes"),
+        },
+    )
+    .map_err(Exit::error)?;
     let dir = PathBuf::from(args.value("--output").expect("required"));
     std::fs::create_dir_all(&dir).map_err(|e| Exit::error(format!("{}: {e}", dir.display())))?;
     let title = args.value("--title").map(String::from).unwrap_or_else(|| {
@@ -798,7 +808,15 @@ fn diff_assembly(
 ) -> Result<(), Exit> {
     let load = |file: &part::File| file.load_all().map_err(Exit::error);
     let (before, after) = (load(old)?, load(new)?);
-    let compared = assembly::diff(&before, &after, answers).map_err(refused)?;
+    let compared = assembly::diff_with_options(
+        &before,
+        &after,
+        answers,
+        crate::revision::DiffOptions {
+            scenes: args.flag("--pmi-scenes"),
+        },
+    )
+    .map_err(refused)?;
     let dir = PathBuf::from(args.value("--output").expect("required"));
     std::fs::create_dir_all(&dir).map_err(|e| Exit::error(format!("{}: {e}", dir.display())))?;
     let title = args.value("--title").map(String::from).unwrap_or_else(|| {

@@ -23,7 +23,7 @@ export function acceptDefaults(analysis: string, answers: string): string;
 
 export function answerEdit(state: string, answers: string): string;
 
-export function diff(old_name: string, old: Uint8Array, new_name: string, _new: Uint8Array, answers: string, title: string): string;
+export function diff(old_name: string, old: Uint8Array, new_name: string, _new: Uint8Array, answers: string, title: string, scenes?: boolean | null): string;
 
 export function initSync(module: { module: SyncInitInput } | SyncInitInput): InitOutput;
 
@@ -65,6 +65,7 @@ export interface DiffPmi {
   existing_count: [number, number];
   items: PmiItemChange[];
   new_stored: boolean;
+  scenes?: { old: PmiScene; new: PmiScene };
   stored: unknown[];
 }
 
@@ -78,7 +79,7 @@ export interface InitOutput {
   readonly __wbindgen_start: () => void;
   readonly acceptDefaults: (a: number, b: number, c: number, d: number) => [number, number, number, number];
   readonly answerEdit: (a: number, b: number, c: number, d: number) => [number, number, number, number];
-  readonly diff: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number) => [number, number, number, number];
+  readonly diff: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number, m: number) => [number, number, number, number];
   readonly intentengine_acceptDefaults: (a: number, b: number, c: number) => [number, number, number, number];
   readonly intentengine_bom: (a: number, b: number) => [number, number, number, number];
   readonly intentengine_evidence: (a: number) => [number, number, number, number];
@@ -104,11 +105,13 @@ export interface InitOutput {
 
 export interface PmiItemChange {
   class: "added" | "removed" | "changed" | "renumbered";
+  faces: { old: { face: number }[]; new: { face: number }[] };
   id: string;
   kind: string;
   new?: string;
   number?: number;
   old?: string;
+  old_id?: string;
   on: string;
   reason?: string;
   status: "answered" | "default" | "general" | "existing";

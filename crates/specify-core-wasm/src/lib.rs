@@ -86,6 +86,8 @@ export interface PmiItemChange {
   class: "added" | "removed" | "changed" | "renumbered";
   number?: number;
   id: string;
+  old_id?: string;
+  faces: { old: { face: number }[]; new: { face: number }[] };
   kind: string;
   status: "answered" | "default" | "general" | "existing";
   on: string;
@@ -95,6 +97,7 @@ export interface PmiItemChange {
 }
 export interface DiffPmi {
   items: PmiItemChange[];
+  scenes?: { old: PmiScene; new: PmiScene };
   /** @deprecated Legacy answer comparison, retained for one release. */
   stored: unknown[];
   /** @deprecated Legacy CAD comparison, retained for one release. */
@@ -385,12 +388,21 @@ export interface PmiScene {
         new: &[u8],
         answers: &str,
         title: &str,
+        scenes: Option<bool>,
     ) -> Result<String, JsValue> {
         limit("Title", title, input::TEXT_LIMIT)?;
         let answers = self::answers(answers)?;
-        session::diff((old_name, old), (new_name, new), &answers, title)
-            .map(|value| value.to_string())
-            .map_err(|error| JsValue::from_str(&error))
+        session::diff_with_options(
+            (old_name, old),
+            (new_name, new),
+            &answers,
+            title,
+            specify_core::revision::DiffOptions {
+                scenes: scenes.unwrap_or(false),
+            },
+        )
+        .map(|value| value.to_string())
+        .map_err(|error| JsValue::from_str(&error))
     }
 
     /// View-only `PmiScene` JSON without an interview; `part` selects an assembly part.

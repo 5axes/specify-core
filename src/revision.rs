@@ -35,6 +35,7 @@ use haecceity::Part;
 
 pub mod assembly;
 mod pmi;
+mod pmi_picture;
 mod treatments;
 
 /// What one old face is in the new part.
@@ -81,6 +82,8 @@ pub struct Revised {
     /// part lies on itself after it (a screw turned about its axis).
     #[serde(skip)]
     pub still: bool,
+    #[serde(skip)]
+    pmi_graphics: Vec<pmi_picture::Graphic>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -189,6 +192,34 @@ pub struct Pmi {
     pub existing_count: [usize; 2],
     /// Requirement changes, using pmiScene identities, numbers and review statuses.
     pub items: Vec<PmiItemChange>,
+    /// Exact comparison documents, included only with `DiffOptions::scenes`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scenes: Option<PmiScenes>,
+}
+
+/// The compared documents, shaped as `pmiScene`, in each part's local frame.
+#[derive(Clone, Debug, Serialize)]
+pub struct PmiScenes {
+    pub old: Value,
+    pub new: Value,
+}
+
+/// Optional report payloads. Default JSON omits the scene documents.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct DiffOptions {
+    pub scenes: bool,
+}
+
+/// Mesh face anchors, in the same form as scene links.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct FaceAnchor {
+    pub face: usize,
+}
+
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct PmiFaces {
+    pub old: Vec<FaceAnchor>,
+    pub new: Vec<FaceAnchor>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -197,6 +228,10 @@ pub struct PmiItemChange {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub number: Option<u64>,
     pub id: String,
+    /// Present only for paired items whose old identity differs.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub old_id: Option<String>,
+    pub faces: PmiFaces,
     pub kind: String,
     pub status: String,
     pub on: String,
@@ -1432,6 +1467,16 @@ impl Matching<'_> {
 
 /// Carry *answers* (and *automatic*, the IDs the default path answered) from *old* to *new*.
 pub fn diff(old: &LoadedPart, new: &LoadedPart, given: &Map<String, Value>) -> Result<Revised> {
+    diff_with_options(old, new, given, DiffOptions::default())
+}
+
+/// Compare once, optionally retaining the exact scenes in the report JSON.
+pub fn diff_with_options(
+    old: &LoadedPart,
+    new: &LoadedPart,
+    given: &Map<String, Value>,
+    options: DiffOptions,
+) -> Result<Revised> {
     // One recognition of each part, for both its analysis and its fingerprints.
     let old_q = qc::recognise(&old.part);
     let new_q = qc::recognise(&new.part);
@@ -1910,6 +1955,17 @@ pub fn diff(old: &LoadedPart, new: &LoadedPart, given: &Map<String, Value>) -> R
     }
     let list = |a: &Value| a["existing"].as_array().cloned().unwrap_or_default();
     let (old_existing, new_existing) = (list(&old_analysis), list(&new_analysis));
+    let (items, scenes) = pmi::diff(
+        old,
+        new,
+        (&old_analysis, &new_analysis),
+        (!given.is_empty()).then_some(given),
+        &carried,
+        &geometric_faces,
+        (&old_features, &new_features),
+    )?;
+
+    let pmi_graphics = pmi_picture::graphics(&items, &scenes);
     let pmi = Pmi {
         answers_from: answers_from.into(),
         new_stored: new_stored.is_some(),
@@ -1922,15 +1978,8 @@ pub fn diff(old: &LoadedPart, new: &LoadedPart, given: &Map<String, Value>) -> R
             &new_features,
         ),
         existing_count: [old_existing.len(), new_existing.len()],
-        items: pmi::diff(
-            old,
-            new,
-            (&old_analysis, &new_analysis),
-            (!given.is_empty()).then_some(given),
-            &carried,
-            &geometric_faces,
-            (&old_features, &new_features),
-        )?,
+        items,
+        scenes: options.scenes.then_some(scenes),
     };
     let open_count = unresolved.len() + questions.len();
     let verdict = if !problems.added.is_empty() {
@@ -2051,6 +2100,7 @@ pub fn diff(old: &LoadedPart, new: &LoadedPart, given: &Map<String, Value>) -> R
     crate::bom::carry(old, &mut carried).map_err(api::Error::Analysis)?;
     let alignment = corr.alignment.clone();
     let mut revised = Revised {
+        pmi_graphics,
         pmi,
         verdict: verdict.into(),
         summary,
@@ -2575,7 +2625,26 @@ pub fn picture(old: &LoadedPart, new: &LoadedPart, revised: &Revised, width: u32
         },
     );
     let edges = edges(&mesh_new, &|p| p);
-    render(&solid, &ghost, &edges, false, width)
+    let graphics: Vec<_> = revised
+        .pmi_graphics
+        .iter()
+        .map(|g| {
+            if g.old {
+                g.placed(&|p| match motion {
+                    Some(a) => [0, 1, 2].map(|i| {
+                        a.rotation[i][0] * p[0]
+                            + a.rotation[i][1] * p[1]
+                            + a.rotation[i][2] * p[2]
+                            + a.translation[i]
+                    }),
+                    None => p,
+                })
+            } else {
+                g.clone()
+            }
+        })
+        .collect();
+    render_with_pmi(&solid, &ghost, &edges, &graphics, false, width)
 }
 
 /// A triangle and its colour, for [`render`].
@@ -2646,10 +2715,11 @@ fn edges(mesh: &Value, place: &dyn Fn([f64; 3]) -> [f64; 3]) -> Vec<Vec<[f64; 3]
 /// A z-buffered isometric rendering (looking along −(1, −1, 1), z up), 2× supersampled. The
 /// ghost is drawn over everything, or, *in_front*, only where it is in front of the solid (not
 /// where a solid face lies on it).
-fn render(
+fn render_with_pmi(
     solid: &[Triangle],
     ghost: &[Triangle],
     edges: &[Vec<[f64; 3]>],
+    graphics: &[pmi_picture::Graphic],
     in_front: bool,
     width: u32,
 ) -> Vec<u8> {
@@ -2672,7 +2742,8 @@ fn render(
     let all = solid
         .iter()
         .chain(ghost)
-        .flat_map(|(t, _)| t.iter().copied());
+        .flat_map(|(t, _)| t.iter().copied())
+        .chain(graphics.iter().flat_map(|g| g.points().copied()));
     let (mut lo, mut hi) = ([f64::INFINITY; 2], [f64::NEG_INFINITY; 2]);
     for p in all {
         let q = [dot(p, right), dot(p, up)];
@@ -2705,6 +2776,7 @@ fn render(
                 alpha: f64,
                 test: bool,
                 behind: Option<f64>,
+                shaded: bool,
                 rgb: &mut Vec<[f64; 3]>,
                 depth: &mut Vec<f64>| {
         let n = norm(cross(
@@ -2725,7 +2797,11 @@ fn render(
             n
         };
         let shade = 0.45 + 0.55 * dot(n, light).max(0.0);
-        let c = c.map(|x| (x * shade).min(1.0));
+        let c = if shaded {
+            c.map(|x| (x * shade).min(1.0))
+        } else {
+            c
+        };
         let s = tri.map(screen);
         let (x0, x1) = (
             s.iter()
@@ -2781,7 +2857,7 @@ fn render(
         }
     };
     for (t, c) in solid {
-        fill(t, *c, 1.0, true, None, &mut rgb, &mut depth);
+        fill(t, *c, 1.0, true, None, true, &mut rgb, &mut depth);
     }
     // The edges, where they are not behind a face (a little depth allowance for the face they
     // bound).
@@ -2813,9 +2889,49 @@ fn render(
             0.45,
             false,
             in_front.then_some(allowance),
+            true,
             &mut rgb,
             &mut depth,
         );
+    }
+    // PMI is an overlay, including leaders hidden by the solid. No layout or glyph
+    // synthesis: these are exactly the compared presentation's strokes and fills.
+    for graphic in graphics {
+        for triangle in &graphic.triangles {
+            fill(
+                triangle,
+                graphic.colour,
+                graphic.alpha,
+                false,
+                None,
+                false,
+                &mut rgb,
+                &mut depth,
+            );
+        }
+        // Blend each covered pixel once, including shared polyline endpoints.
+        let mut covered = BTreeSet::new();
+        for line in &graphic.polylines {
+            for segment in line.windows(2) {
+                let (a, b) = (screen(segment[0]), screen(segment[1]));
+                let steps = ((b[0] - a[0]).hypot(b[1] - a[1]).ceil() as usize).max(1);
+                for k in 0..=steps {
+                    let t = k as f64 / steps as f64;
+                    let x = (a[0] + (b[0] - a[0]) * t).floor() as isize;
+                    let y = (a[1] + (b[1] - a[1]) * t).floor() as isize;
+                    for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
+                        let (x, y) = (x + dx, y + dy);
+                        if x >= 0 && y >= 0 && x < w as isize && y < h as isize {
+                            covered.insert(y as usize * w + x as usize);
+                        }
+                    }
+                }
+            }
+        }
+        for i in covered {
+            rgb[i] = [0, 1, 2]
+                .map(|k| rgb[i][k] * (1.0 - graphic.alpha) + graphic.colour[k] * graphic.alpha);
+        }
     }
     // Down-sample 2× and encode.
     let (ow, oh) = (w / 2, h / 2);

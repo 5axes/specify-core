@@ -699,3 +699,153 @@ fn lm10uu_independent_lands_keep_numbers_through_compositions_resaves_and_a_valu
         change.number.unwrap()
     );
 }
+
+#[test]
+fn compared_scenes_are_opt_in_and_equal_the_answer_based_scene_api() {
+    let old = load("revisions/hole_moved.old.step.gz");
+    let new = load("revisions/hole_moved.new.step.gz");
+    let given = answers(json!({"part.notes":["Keep dry"]}));
+    let default = revision::diff(&old, &new, &given).unwrap();
+    let included =
+        revision::diff_with_options(&old, &new, &given, revision::DiffOptions { scenes: true })
+            .unwrap();
+    let scenes = included.pmi.scenes.as_ref().unwrap();
+    for (part, answers, actual) in [
+        (&old, &given, &scenes.old),
+        (&new, &included.answers, &scenes.new),
+    ] {
+        let expected = pmi_scene::Scene::new(part)
+            .unwrap()
+            .scene(part, None, Some(answers))
+            .unwrap();
+        assert_eq!(*actual, expected);
+    }
+    let mut value = serde_json::to_value(&included).unwrap();
+    value["pmi"].as_object_mut().unwrap().remove("scenes");
+    assert_eq!(
+        serde_json::to_vec(&default).unwrap(),
+        serde_json::to_vec(&value).unwrap(),
+        "opting in changes only scenes"
+    );
+    assert_eq!(
+        revision::picture(&old, &new, &default, 300),
+        revision::picture(&old, &new, &included, 300)
+    );
+
+    // A Specify-written destination is authoritative even with different given answers.
+    let stored = write(&new, &answers(json!({"part.notes":["Keep clean"]})));
+    let included = revision::diff_with_options(
+        &old,
+        &stored,
+        &given,
+        revision::DiffOptions { scenes: true },
+    )
+    .unwrap();
+    let scenes = included.pmi.scenes.unwrap();
+    assert_eq!(
+        scenes.new["specify"]["part.notes:1"]["notation"],
+        "Keep clean"
+    );
+    assert_eq!(
+        scenes.old["specify"]["part.notes:1"]["notation"],
+        "Keep dry"
+    );
+}
+
+#[test]
+fn semantic_only_attributes_have_both_sides_mesh_face_anchors() {
+    use haecceity::pmi::*;
+    let bare = load("parts/plate.step");
+    let model = |text: &str| PartPmi {
+        features: vec![Feature::Items(vec![Anchor::Face(FaceIndex(9))])],
+        attributes: vec![AttributeSet {
+            name: "inspection method".into(),
+            on: Some(NoteOwner::Feature(FeatureId(0))),
+            items: vec![("method".into(), AttributeValue::Text(text.into()))],
+            description: None,
+            general_property: None,
+        }],
+        ..PartPmi::default()
+    };
+    let old = foreign_model(&bare, model("CMM"));
+    let new = foreign_model(&bare, model("gauge"));
+    let report = revision::diff_with_options(
+        &old,
+        &new,
+        &Map::new(),
+        revision::DiffOptions { scenes: true },
+    )
+    .unwrap();
+    let change = report
+        .pmi
+        .items
+        .iter()
+        .find(|c| c.class == "changed")
+        .unwrap();
+    let scenes = report.pmi.scenes.as_ref().unwrap();
+    assert!(
+        scenes.new["presentation"]["items"]
+            .get(&change.id)
+            .is_none()
+    );
+    assert_eq!(
+        serde_json::to_value(&change.faces).unwrap(),
+        json!({"old":[{"face":9}],"new":[{"face":9}]})
+    );
+}
+
+#[test]
+fn picture_draws_changed_added_and_removed_presentation_inside_the_frame() {
+    let bare = load("parts/plate.step");
+    let old = write(
+        &bare,
+        &answers(json!({
+            "extra.1":{"kind":"flatness","faces":[4],"value":"0.05"},
+            "extra.2":{"kind":"flatness","faces":[5],"value":"0.02"}
+        })),
+    );
+    let new = write(
+        &old,
+        &answers(json!({
+            "extra.1":{"kind":"flatness","faces":[4],"value":"0.1"},
+            "extra.3":{"kind":"flatness","faces":[0],"value":"0.03"}
+        })),
+    );
+    let report = revision::diff(&old, &new, &Map::new()).unwrap();
+    for class in ["changed", "added", "removed"] {
+        assert!(report.pmi.items.iter().any(|c| c.class == class), "{class}");
+    }
+    assert!(report.faces.is_empty() && report.gone.is_empty());
+    let png = revision::picture(&old, &new, &report, 900);
+    let mut reader = png::Decoder::new(std::io::Cursor::new(png))
+        .read_info()
+        .unwrap();
+    let mut pixels = vec![0; reader.output_buffer_size().unwrap()];
+    let info = reader.next_frame(&mut pixels).unwrap();
+    let (mut orange, mut green, mut red) = (0, 0, 0);
+    for (i, pixel) in pixels[..info.buffer_size()]
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .enumerate()
+    {
+        let (r, g, b) = (pixel[0] as i32, pixel[1] as i32, pixel[2] as i32);
+        let is_orange = r > g + 30 && g > b + 30;
+        let is_green = g > r + 30 && g > b + 30;
+        let is_red = r > g + 30 && (g - b).abs() < 15;
+        orange += usize::from(is_orange);
+        green += usize::from(is_green);
+        red += usize::from(is_red);
+        if is_orange || is_green || is_red {
+            let (x, y) = (i % info.width as usize, i / info.width as usize);
+            assert!(
+                x > 1 && y > 1 && x + 2 < info.width as usize && y + 2 < info.height as usize,
+                "clipped at {x},{y}"
+            );
+        }
+    }
+    assert!(
+        orange > 20 && green > 20 && red > 20,
+        "orange={orange}, green={green}, red={red}"
+    );
+}
