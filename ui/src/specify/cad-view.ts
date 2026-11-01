@@ -56,9 +56,10 @@ export interface CadView {
   readonly overlayHost: HTMLElement;
   /** Called every frame while the view is open. */
   onFrame(listener: () => void): void;
-  /** Look along a direction at the whole part, or along the current one. */
-  home(direction: PmiVec): void;
-  fit(): void;
+  /** Look along a direction at the whole part (and ``also`` if given), or along the current one. */
+  home(direction: PmiVec, also?: THREE.Box3 | null): void;
+  /** Look at the whole part, and ``also`` if given, along the current direction. */
+  fit(also?: THREE.Box3 | null): void;
   /** Turn the view about the line of sight, in quarter turns. */
   roll(quarters: number): void;
   /** Move in (under 1) or out (over 1). */
@@ -297,8 +298,8 @@ export function createCadView(
     size() { const r = canvas.getBoundingClientRect(); return [r.width, r.height]; },
     overlayHost,
     onFrame(listener) { frames.push(listener); if (!ticking) ticking = requestAnimationFrame(tick); },
-    home(direction) { this.lookFrom(direction); },
-    fit() { this.lookFrom(heading().toArray() as unknown as PmiVec); },
+    home(direction, also) { this.lookFrom(direction, also ? box.clone().union(also) : undefined); },
+    fit(also) { this.lookFrom(heading().toArray() as unknown as PmiVec, also ? box.clone().union(also) : undefined); },
     roll(quarters) {
       const q = new THREE.Quaternion(...viewer.getCameraQuaternion());
       q.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), (quarters * Math.PI) / 2));

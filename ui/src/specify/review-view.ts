@@ -207,6 +207,9 @@ export function createReviewView(
 
   // The file's own graphics, in the labels' scene; a linked one clicked is its item's label.
   let drawnPmi: DrawnPmi | null = null;
+  let drawnShowing = false;
+  // The part, and the file's callouts when they are drawn: a notes block off the part is in view.
+  const drawnBounds = () => (drawnShowing ? drawnLayer.bounds() : null);
   const drawnLabel = (item: string): PmiLabel => {
     const link = drawnPmi?.links[item];
     return {
@@ -227,8 +230,8 @@ export function createReviewView(
   });
 
   const navigator = {
-    fit: () => cad.fit(),
-    home: () => cad.home(HOME),
+    fit: () => cad.fit(drawnBounds()),
+    home: () => cad.home(HOME, drawnBounds()),
     roll: (quarters: number) => cad.roll(quarters),
     dolly: (factor: number) => cad.dolly(factor),
   };
@@ -244,7 +247,7 @@ export function createReviewView(
       // chosen again -- unless the view has been moved.
       if (shown.length && !framedLabels) {
         framedLabels = true;
-        if (!cad.moved()) cad.home(HOME);
+        if (!cad.moved()) cad.home(HOME, drawnBounds());
       }
     },
     features(rows) {
@@ -281,7 +284,12 @@ export function createReviewView(
     setLabelsVisible: (on) => annotations.setVisible(on),
     drawn(pmi, visible) {
       if (pmi !== drawnPmi) { drawnPmi = pmi; drawnLayer.set(pmi); }
-      drawnLayer.setVisible(visible && pmi !== null);
+      const showing = visible && pmi !== null;
+      drawnLayer.setVisible(showing);
+      // Turned on: framed once with its callouts, so none starts out of view.
+      const turnedOn = showing && !drawnShowing;
+      drawnShowing = showing;
+      if (turnedOn && !cad.moved()) cad.home(HOME, drawnBounds());
     },
     drawnFilter: (show, farSide) => drawnLayer.filter(show, farSide),
     lookSquare(view) {

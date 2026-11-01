@@ -55,6 +55,8 @@ export interface DrawnLayer {
   filter(show: DrawnShow, farSide: boolean): void;
   /** The linked item drawn within a few pixels of (x, y) in the view, if any. */
   hit(x: number, y: number): string | null;
+  /** Where the graphics now shown are, for a view that frames them with the part; null if none. */
+  bounds(): THREE.Box3 | null;
   dispose(): void;
 }
 
@@ -300,6 +302,16 @@ export function createDrawnLayer(
       for (const d of drawn) d.shown = drawnShown(d.source, d.status, show);
       turn();
       apply();
+    },
+    bounds() {
+      const box = new THREE.Box3();
+      for (const d of drawn) {
+        if (!on(d)) continue;
+        for (const p of d.segments) box.expandByPoint(p);
+        for (const p of d.triangles) box.expandByPoint(p);
+        for (const o of d.objects) if (o instanceof CSS2DObject) box.expandByPoint(o.position);
+      }
+      return box.isEmpty() ? null : box;
     },
     hit(x, y) {
       if (!visible) return null;
