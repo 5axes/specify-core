@@ -58,7 +58,8 @@ fn v024_boss_answers_and_pmi_resume_after_chamfer_and_round_height_corrections()
             .answers
             .shift_remove(specify_core::characteristics::CARRY)
             .unwrap();
-        assert_eq!(numbers["schema"], 1);
+        // For #95, revision carry migrates legacy value signatures to structural history.
+        assert_eq!(numbers["schema"], 2);
         assert_eq!(numbers["faces"], base["evidence"]["faces"]);
         assert_eq!(&unchanged.answers, answers);
         assert!(unchanged.unresolved.is_empty());
