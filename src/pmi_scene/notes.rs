@@ -143,9 +143,12 @@ pub(super) fn file(
 /// Retain the file's support graph so feature-note owners keep their identities.
 /// Specify authors part settings only; the last source owns the file's feature notes.
 /// Normalization affects display ordering, never the exported semantic text/kind.
-fn settings(sources: &[&Semantic], feature_notes: &BTreeSet<String>) -> Semantic {
+fn settings(sources: &[&Semantic], feature_notes: &BTreeSet<String>) -> Result<Semantic, String> {
     let owner = sources.last().unwrap();
-    let mut display = (*owner).clone();
+    // Re-identify the typed projection rather than cloning transport observations:
+    // newer kernels retain source identifiers whose row counts would become stale.
+    let mut display = wire::identify(owner.pmi.clone(), None).map_err(|e| e.to_string())?;
+    display.ids = owner.ids.clone();
     display.pmi.material = None;
     display.pmi.general.clear();
     display.pmi.surface_textures.clear();
@@ -222,7 +225,7 @@ fn settings(sources: &[&Semantic], feature_notes: &BTreeSet<String>) -> Semantic
             display.ids.get_mut("notes").unwrap().push(id.clone());
         }
     }
-    display
+    Ok(display)
 }
 
 pub(super) fn combined(
@@ -248,7 +251,7 @@ pub(super) fn combined(
                 .is_some_and(|rows| rows.iter().any(|g| g["source"] == "file"))
         })
         .collect();
-    let display = settings(&sources, &feature_notes);
+    let display = settings(&sources, &feature_notes)?;
     let mut generated =
         presentation::generated(&display, &loaded.part).map_err(|e| e.to_string())?;
     let part_ids: BTreeSet<_> = haecceity::presentation::notes::general_notes(&display.pmi)
