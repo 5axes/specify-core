@@ -186,13 +186,10 @@ pub fn stored_in(doc: &Document) -> BTreeMap<usize, Map<String, Value>> {
 fn stored_with_form(doc: &Document) -> BTreeMap<usize, (Map<String, Value>, bool)> {
     let mut out = BTreeMap::new();
     for id in items_in_file_order(doc, NAME) {
-        let Some(RawEntity::Simple { attributes, .. }) = doc.get(id) else {
+        let Some(text) = descriptive_text(doc, id) else {
             continue;
         };
-        let Some(Attribute::String(text)) = attributes.get(1) else {
-            continue;
-        };
-        let Some(payload) = decode(text) else {
+        let Some(payload) = decode(&text) else {
             continue;
         };
         let part = match payload.get("part") {
@@ -232,7 +229,7 @@ pub(crate) fn is_attribute_item(doc: &Document, id: u64) -> bool {
     })
 }
 
-/// The `DESCRIPTIVE_REPRESENTATION_ITEM`s named `item`, in the order they appear in the file.
+/// Legacy descriptive items and haecceity's ordered text compounds, in file order.
 pub(crate) fn items_in_file_order(doc: &Document, item: &str) -> Vec<u64> {
     let mut found: Vec<(usize, u64)> = doc
         .ids()
@@ -240,7 +237,9 @@ pub(crate) fn items_in_file_order(doc: &Document, item: &str) -> Vec<u64> {
             Some(RawEntity::Simple {
                 name, attributes, ..
             }) => {
-                name == "DESCRIPTIVE_REPRESENTATION_ITEM"
+                (name == "DESCRIPTIVE_REPRESENTATION_ITEM"
+                    || (name == "COMPOUND_REPRESENTATION_ITEM"
+                        && descriptive_text(doc, id).is_some()))
                     && matches!(attributes.first(), Some(Attribute::String(s)) if s == item)
             }
             _ => false,
@@ -249,6 +248,61 @@ pub(crate) fn items_in_file_order(doc: &Document, item: &str) -> Vec<u64> {
         .collect();
     found.sort_unstable();
     found.into_iter().map(|(_, id)| id).collect()
+}
+
+/// haecceity #172's bounded text representation. Only its marked, ordered list
+/// means concatenated text; arbitrary compounds and unordered sets do not.
+pub(crate) fn descriptive_text(doc: &Document, id: u64) -> Option<String> {
+    let RawEntity::Simple {
+        name, attributes, ..
+    } = doc.get(id)?
+    else {
+        return None;
+    };
+    if name == "DESCRIPTIVE_REPRESENTATION_ITEM" {
+        return match attributes.get(1)? {
+            Attribute::String(s) => Some(s.clone()),
+            _ => None,
+        };
+    }
+    if name != "COMPOUND_REPRESENTATION_ITEM" {
+        return None;
+    }
+    let Attribute::Typed { type_name, value } = attributes.get(1)? else {
+        return None;
+    };
+    if type_name != "LIST_REPRESENTATION_ITEM" {
+        return None;
+    }
+    let Attribute::List(items) = value.as_ref() else {
+        return None;
+    };
+    if items.is_empty() {
+        return None;
+    }
+    let mut text = String::new();
+    for item in items {
+        let Attribute::EntityRef(child) = item else {
+            return None;
+        };
+        let RawEntity::Simple {
+            name, attributes, ..
+        } = doc.get(*child)?
+        else {
+            return None;
+        };
+        if name != "DESCRIPTIVE_REPRESENTATION_ITEM" {
+            return None;
+        }
+        let [Attribute::String(marker), Attribute::String(chunk)] = attributes.as_slice() else {
+            return None;
+        };
+        if marker != "haecceity text chunk/1" {
+            return None;
+        }
+        text.push_str(chunk);
+    }
+    Some(text)
 }
 
 /// A stored string's payload, if it is one: base64 (the characters Python's pattern allows,
@@ -911,6 +965,33 @@ fn rematch_by(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn text_chunks_require_the_marked_ordered_list() {
+        let doc = Document::parse(
+            br#"ISO-10303-21;
+HEADER;
+FILE_DESCRIPTION(('text chunks'),'2;1');
+FILE_NAME('chunks.step','',(''),(''),'','','');
+FILE_SCHEMA(('AP242_MANAGED_MODEL_BASED_3D_ENGINEERING_MIM_LF'));ENDSEC;
+DATA;
+#1=DESCRIPTIVE_REPRESENTATION_ITEM('haecceity text chunk/1','second');
+#2=DESCRIPTIVE_REPRESENTATION_ITEM('haecceity text chunk/1','first');
+#3=DESCRIPTIVE_REPRESENTATION_ITEM('unrelated','not text');
+#4=COMPOUND_REPRESENTATION_ITEM('payload',LIST_REPRESENTATION_ITEM((#2,#1)));
+#5=COMPOUND_REPRESENTATION_ITEM('payload',SET_REPRESENTATION_ITEM((#2,#1)));
+#6=COMPOUND_REPRESENTATION_ITEM('payload',LIST_REPRESENTATION_ITEM((#2,#3)));
+#7=COMPOUND_REPRESENTATION_ITEM('payload',LIST_REPRESENTATION_ITEM((#7)));
+ENDSEC;END-ISO-10303-21;"#
+                .to_vec(),
+        )
+        .unwrap();
+        assert_eq!(descriptive_text(&doc, 4).as_deref(), Some("firstsecond"));
+        for id in [5, 6, 7] {
+            assert_eq!(descriptive_text(&doc, id), None);
+        }
+        assert_eq!(items_in_file_order(&doc, "payload"), [4]);
+    }
 
     #[test]
     fn a_payload_is_compact_json_in_base64() {

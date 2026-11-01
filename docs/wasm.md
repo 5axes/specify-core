@@ -449,17 +449,18 @@ scene structure and presentation metadata are typed. The result is:
 The two haecceity documents retain their schemas: units are explicit and semantic decimals
 are strings. `pmi.pmi` holds collections of `{id, value, identifier?}`; references use `id`.
 The optional `identifier` preserves the source characteristic number, including duplicates
-(haecceity v0.4.2); it is not a reference key.
+(haecceity v0.4.3); it is not a reference key.
 `presentation.items[id]` holds graphics with `name` (full notation), `text` (cells),
-`polylines`, `triangles`, and `source: 'generated' | 'file'`. With haecceity v0.4.1,
+`polylines`, `triangles`, and `source: 'generated' | 'file'`. With haecceity v0.4.3,
 optional `id`, `plane_id` and `text_placements` retain model-space text origins, axes,
 heights/alignment when stated. Each placement can carry `stroked?: boolean`: when
 true, its glyphs are already present in that graphic's polylines, so skip rendering
 that text run again. Absent or false permits rendering the text literal.
 The scene prunes view membership after filtering or replacing graphics, and removes
 views with no remaining graphics; document `planes` and `views` preserve annotation planes
-and saved-view membership. Generated presentations now include plane views; v0.4.1
-regenerates ladders/callouts and combines part settings into one numbered GENERAL NOTES block.
+and saved-view membership. Generated presentations include plane views, ladders/callouts and one numbered
+GENERAL NOTES block for part settings. v0.4.3 places size callouts above feature
+control frames and reserves label ink during saved-view packing.
 Feature-on scene and written STEP presentation output therefore changes. Datum-feature
 graphics also appear under their datum ids.
 These fields survive a live review that adds PMI beside a file's existing callouts.
@@ -515,6 +516,6 @@ packaged schemas are `specify_core/schema/haecceity.pmi-1.json` and
 `specify_core/schema/haecceity.presentation-1.json`.
 
 Scene export uses haecceity's serialise-only `json` feature in native, WASM and Python.
-`json-import` is not enabled. The Python package ships the v0.4.2 schemas as data; its
+`json-import` is not enabled. The Python package ships the v0.4.3 schemas as data; its
 smoke tests validate exports with Python's `jsonschema`, keeping schemas and import
 validation code out of the WASM binary.

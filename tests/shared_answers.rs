@@ -484,6 +484,27 @@ fn the_carried_project_is_read_by_the_editors_reader_and_gives_back_the_original
 }
 
 #[test]
+fn long_carried_payloads_recover_text_and_the_first_original() {
+    let source = std::fs::read(fixture("parts/plate.step")).unwrap();
+    let loaded = part::load_bytes("plate.step", source.clone()).unwrap();
+    let value = json!({"text": "quoted ' Ω ".repeat(1500)});
+    let extra = carried::attributes(&source, PROJECT, &value).unwrap();
+    let first = write(&loaded, &json!({"part.material":"steel"}), &extra);
+    assert!(String::from_utf8_lossy(&first).contains("haecceity text chunk/1"));
+    assert_eq!(carried::payload(&first, PROJECT), Some(value.clone()));
+    assert_eq!(
+        carried::part_payload(&first, 0, PROJECT),
+        Some(value.clone())
+    );
+    assert_eq!(carried::original(&first), Some(source.clone()));
+    let back = part::load_bytes("plate.step", first.clone()).unwrap();
+    let extra = carried::attributes(&first, PROJECT, &value).unwrap();
+    let second = write(&back, &json!({"part.material":"brass"}), &extra);
+    assert_eq!(carried::payload(&second, PROJECT), Some(value));
+    assert_eq!(carried::original(&second), Some(source));
+}
+
+#[test]
 fn rewriting_a_written_file_keeps_its_first_original() {
     let source = std::fs::read(fixture("parts/plate.step")).unwrap();
     let loaded = part::load_bytes("plate.step", source.clone()).unwrap();
