@@ -212,7 +212,8 @@ The WASM M2 tap byte pin is `tests/fixtures/thread-depth-numbered.step.gz`. The 
 every byte of the numbered pin against the writer. For quiddity-rust#137 this pin was
 regenerated with presentation and new aspect shapes. Every legacy semantic readback field
 and part setting still matches alpha.7 after projecting out characteristic numbers; the
-original alpha.7 input is never regenerated.
+original alpha.7 input is never regenerated. For #95, only the numbered pin's history
+payload was migrated to schema 2; every other STEP byte was checked unchanged.
 
 No haecceity API change is required: Specify uses its existing PMI/AttributeSet writer and
 lossless `Document::apply`/`Edit` APIs. The v0.2.6 reader exposes identifiers alongside semantic roots (#135), including thread/knurl
