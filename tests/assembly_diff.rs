@@ -156,7 +156,7 @@ fn an_assembly_s_answers_are_given_and_carried_by_part_name() {
     assert_eq!(run.status.code(), Some(2));
     assert!(
         String::from_utf8_lossy(&run.stderr).contains(
-            "invalid answer: an assembly's answers are {part name: {question id: value}}"
+            "invalid answer: assembly requirements use {part name: {question id: value}}"
         )
     );
 }

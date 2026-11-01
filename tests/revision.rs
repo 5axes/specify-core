@@ -93,6 +93,28 @@ fn a_moved_hole_keeps_its_answer_for_checking() {
     assert_eq!(checked, ["hole.function:holes:8"]);
     assert!(r.check[0].changes.contains_key("position"));
     assert!(
+        r.summary
+            .contains("All 2 requirements still apply to the changed part."),
+        "{}",
+        r.summary
+    );
+    assert!(
+        r.summary.contains("1 requirement needs checking:"),
+        "{}",
+        r.summary
+    );
+    let md = r.markdown("Plate", None);
+    assert!(md.contains("**Requirements to check**"), "{md}");
+    assert!(
+        md.contains("Ø6 × 10 through hole moved X −15, so its"),
+        "{md}"
+    );
+    assert!(md.contains("requirement may no longer fit"), "{md}");
+    assert!(
+        !r.summary.contains("answer") && !md.contains("answer"),
+        "{md}"
+    );
+    assert!(
         !r.gone.is_empty(),
         "the moved hole's old faces are drawn as a ghost"
     );
@@ -150,6 +172,10 @@ fn a_turned_part_carries_every_answer() {
     assert_eq!(r.verdict, "ok", "{}", r.summary);
     assert!(r.features.is_empty());
     assert_eq!(r.answers.len(), 2);
+    assert_eq!(
+        r.summary,
+        "No feature changed. All 2 requirements still apply to the changed part."
+    );
 }
 
 #[test]
@@ -159,6 +185,15 @@ fn an_answer_the_old_part_never_had_is_stale() {
         json!({ "hole.function:holes:42": "clearance" }),
     );
     assert_eq!(r.unresolved[0].class, "stale");
+    assert!(
+        r.summary.contains("1 requirement could not be applied"),
+        "{}",
+        r.summary
+    );
+    assert!(
+        r.markdown("Plate", None)
+            .contains("**Requirements not applied**")
+    );
 }
 
 #[test]
@@ -211,6 +246,12 @@ fn the_command_line_writes_the_answers_report_and_picture() {
     );
     let printed: Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(printed["verdict"], "decide");
+    let report: Value =
+        serde_json::from_str(&std::fs::read_to_string(dir.join("report.json")).unwrap()).unwrap();
+    assert_eq!(printed["summary"], report["summary"]);
+    assert!(printed["summary"].as_str().unwrap().contains("requirement"));
+    assert!(!printed["summary"].as_str().unwrap().contains("answer"));
+    assert!(report.get("answers").is_some() && report.get("check_lines").is_none());
     let carried: Value =
         serde_json::from_str(&std::fs::read_to_string(dir.join("answers.json")).unwrap()).unwrap();
     assert_eq!(carried, json!({ "hole.function:holes:8": "general" }));
@@ -218,7 +259,7 @@ fn the_command_line_writes_the_answers_report_and_picture() {
     assert!(md.starts_with("### Plate: Specify\n\n⚠️"), "{md}");
     assert!(
         md.contains(
-            "- What is the Ø7 hole for? **fit:H7** (`hole.function:holes:7`): the Ø7 × 10 \
+            "- **fit:H7** (`hole.function:holes:7`): the Ø7 × 10 \
              through hole was removed"
         ),
         "{md}"
@@ -258,7 +299,7 @@ fn the_report_says_what_changed_in_words() {
     }
     let moved = md("hole_moved");
     assert!(
-        moved.contains("✅ 1 hole moved. There are no answers to carry"),
+        moved.contains("✅ 1 hole moved. There are no saved requirements to apply"),
         "{moved}"
     );
     assert!(
@@ -428,7 +469,7 @@ fn specify_pmi_in_the_files_is_read_and_compared() {
     assert_eq!(r.answers["hole.function:holes:7"], "general");
     let md = r.markdown("Plate", None);
     assert!(
-        md.contains("read from the PMI Specify wrote in the old file"),
+        md.contains("The comparison uses the requirements stored in the old file's Specify PMI."),
         "{md}"
     );
     assert!(md.contains("The new file has no Specify PMI yet"), "{md}");
@@ -500,7 +541,7 @@ fn a_real_part_s_report_names_what_a_person_changed() {
     let check: Vec<&str> = r.check.iter().map(|c| c.id.as_str()).collect();
     assert_eq!(check, ["hole.function:hole_patterns.set:31.32"]);
     assert!(
-        md.contains("**clearance:M8** (`hole.function:hole_patterns.set:31.32`): depth 11 → 13; diameter 10 → 9\n"),
+        md.contains("- pattern of 2 × Ø9 × 13 through holes depth 11 → 13; diameter 10 → 9, so its ⌀9 H11 requirement may no longer fit.\n"),
         "{md}"
     );
 }

@@ -84,6 +84,8 @@ pub struct Revised {
     pub still: bool,
     #[serde(skip)]
     pmi_graphics: Vec<pmi_picture::Graphic>,
+    #[serde(skip)]
+    check_lines: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -1700,7 +1702,7 @@ pub fn diff_with_options(
                 id: (*id).clone(),
                 answer: (*answer).clone(),
                 class: "ambiguous".into(),
-                reason: format!("several answers carry to {now}; review required"),
+                reason: format!("several requirements map to {now}; review required"),
                 candidates: vec![now.clone()],
                 question: String::new(),
             }),
@@ -1965,6 +1967,7 @@ pub fn diff_with_options(
         (&old_features, &new_features),
     )?;
 
+    let check_lines = pmi::check_lines(&check, &new_features, &scenes.new);
     let pmi_graphics = pmi_picture::graphics(&items, &scenes);
     let pmi = Pmi {
         answers_from: answers_from.into(),
@@ -2062,30 +2065,32 @@ pub fn diff_with_options(
         part.join(", ")
     };
     part[..1].make_ascii_uppercase();
-    let summary = match verdict {
+    let mut summary = match verdict {
         "ok" if carried.is_empty() => {
-            format!("{part}. There are no answers to carry, and the new part asks nothing new.")
+            format!(
+                "{part}. There are no saved requirements to apply, and no new requirements to specify."
+            )
         }
         "ok" => format!(
-            "{part}. {} to the new part, and it asks nothing new.",
+            "{part}. {} to the changed part.",
             if carried.len() == 1 {
-                "The answer carries".to_string()
+                "The requirement still applies".to_string()
             } else {
-                format!("All {} answers carry", carried.len())
+                format!("All {} requirements still apply", carried.len())
             }
         ),
         "decide" => {
             let mut parts = Vec::new();
             if !unresolved.is_empty() {
                 parts.push(format!(
-                    "{} not carried",
-                    plural(unresolved.len(), "answer", "answers")
+                    "{} could not be applied",
+                    plural(unresolved.len(), "requirement", "requirements")
                 ));
             }
             if !questions.is_empty() {
                 parts.push(format!(
-                    "{} new to the part",
-                    plural(questions.len(), "question", "questions")
+                    "{} to specify",
+                    plural(questions.len(), "new requirement", "new requirements")
                 ));
             }
             format!("{part}. A decision is needed: {}.", parts.join(", "))
@@ -2095,12 +2100,22 @@ pub fn diff_with_options(
             plural(problems.added.len(), "problem", "problems")
         ),
     };
+    if !check_lines.is_empty() {
+        summary.push_str(&format!(
+            " {} need{} checking: {}",
+            plural_of(check.len(), "requirement"),
+            if check.len() == 1 { "s" } else { "" },
+            check_lines.join("; ")
+        ));
+        summary.push('.');
+    }
     crate::characteristics::carry_revision(old, new, &corr, &mut carried)
         .map_err(api::Error::Analysis)?;
     crate::bom::carry(old, &mut carried).map_err(api::Error::Analysis)?;
     let alignment = corr.alignment.clone();
     let mut revised = Revised {
         pmi_graphics,
+        check_lines,
         pmi,
         verdict: verdict.into(),
         summary,
@@ -2440,15 +2455,15 @@ impl Revised {
             let p = &self.pmi;
             let mut lines = Vec::new();
             if p.answers_from == "stored" {
-                lines.push(format!(
-                    "The answers were read from the PMI Specify wrote in the old file ({}).",
-                    plural_of(self.answers.len() + self.unresolved.len(), "answer")
-                ));
+                lines.push(
+                    "The comparison uses the requirements stored in the old file's Specify PMI."
+                        .into(),
+                );
             }
             // Only where the old file held them: answers kept beside the files stay there.
             if p.answers_from == "stored" && !p.new_stored && !self.answers.is_empty() {
                 lines.push(
-                    "The new file has no Specify PMI yet: write the carried answers \
+                    "The new file has no Specify PMI yet: write the applicable requirements \
                      (`answers.json`) to it with `specify-core write`."
                         .into(),
                 );
@@ -2481,21 +2496,14 @@ impl Revised {
                 s += "\n";
             }
         }
-        // An answer in words: its question where the old part asks it, else its ID.
-        let answered = |question: &str, id: &str, answer: &Value| {
-            if question.is_empty() {
-                format!("`{id}` = **{}**", fmt(answer))
-            } else {
-                format!("{question} **{}** (`{id}`)", fmt(answer))
-            }
-        };
         if !self.unresolved.is_empty() {
-            s += "**Answers not carried**\n\n";
+            s += "**Requirements not applied**\n\n";
             for u in &self.unresolved {
                 let _ = writeln!(
                     s,
-                    "- {}: {}{}",
-                    answered(&u.question, &u.id, &u.answer),
+                    "- **{}** (`{}`): {}{}",
+                    fmt(&u.answer),
+                    u.id,
                     u.reason,
                     if u.candidates.is_empty() {
                         String::new()
@@ -2507,24 +2515,14 @@ impl Revised {
             s += "\n";
         }
         if !self.check.is_empty() {
-            s += "**Answers carried to a changed feature: check them**\n\n";
-            for c in &self.check {
-                let what = [
-                    sizes(&c.changes),
-                    moved(&c.changes, c.axis)
-                        .map(|m| format!("moved {m}"))
-                        .unwrap_or_default(),
-                ]
-                .into_iter()
-                .filter(|t| !t.is_empty())
-                .collect::<Vec<_>>()
-                .join("; ");
-                let _ = writeln!(s, "- {}: {what}", answered(&c.question, &c.id, &c.answer));
+            s += "**Requirements to check**\n\n";
+            for line in &self.check_lines {
+                let _ = writeln!(s, "- {line}.");
             }
             s += "\n";
         }
         if !self.questions.is_empty() {
-            s += "**New questions**\n\n";
+            s += "**Requirements to specify**\n\n";
             for q in &self.questions {
                 let _ = writeln!(s, "- {} (`{}`)", q.title, q.id);
             }
@@ -2542,9 +2540,9 @@ impl Revised {
                 s,
                 "{} carried to renumbered faces.\n",
                 if self.migrated.len() == 1 {
-                    "1 answer was".to_string()
+                    "1 requirement was".to_string()
                 } else {
-                    format!("{} answers were", self.migrated.len())
+                    format!("{} requirements were", self.migrated.len())
                 }
             );
         }

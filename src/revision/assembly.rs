@@ -205,7 +205,7 @@ pub fn diff_with_options(
     for (name, answers) in given {
         if !answers.is_object() {
             return Err(invalid(
-                "an assembly's answers are {part name: {question id: value}}".into(),
+                "assembly requirements use {part name: {question id: value}}".into(),
             ));
         }
         if !old_names.contains(name) {

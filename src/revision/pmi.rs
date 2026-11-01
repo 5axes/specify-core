@@ -137,6 +137,56 @@ fn supports(
     }
 }
 
+// Reuse scene notation and feature labels; no new requirement classification.
+pub(super) fn check_lines(
+    checks: &[super::Check],
+    features: &[Feature],
+    scene: &Value,
+) -> Vec<String> {
+    if checks.is_empty() {
+        return Vec::new();
+    }
+    let requirements = items(scene);
+    checks
+        .iter()
+        .map(|c| {
+            let feature = features
+                .iter()
+                .find(|f| f.id == c.feature)
+                .map(|f| super::describe(f).0)
+                .unwrap_or_else(|| c.feature.clone());
+            let notation = requirements
+                .iter()
+                .filter(|r| scene["specify"][&r.id]["question"] == c.id)
+                .map(|r| r.text.as_str())
+                .filter(|t| !t.is_empty())
+                .collect::<Vec<_>>()
+                .join("; ");
+            let notation = if notation.is_empty() {
+                super::fmt(&c.answer)
+            } else {
+                notation
+            };
+            let changes = [
+                super::sizes(&c.changes),
+                super::moved(&c.changes, c.axis)
+                    .map(|m| format!("moved {m}"))
+                    .unwrap_or_default(),
+            ]
+            .into_iter()
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>()
+            .join("; ");
+            let changes = if changes.is_empty() {
+                "changed"
+            } else {
+                &changes
+            };
+            format!("{feature} {changes}, so its {notation} requirement may no longer fit")
+        })
+        .collect()
+}
+
 fn items(scene: &Value) -> Vec<Item> {
     let mut rows = BTreeMap::new();
     for section in ["pmi", "units"] {
