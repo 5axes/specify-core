@@ -389,7 +389,8 @@ export interface DrawnView {
 const rounded = (v: DrawnPoint) => v.map((x) => (Math.abs(x) < 5e-4 ? 0 : x).toFixed(3)).join(',');
 
 /**
- * The views of the drawn PMI: the file's saved views that have a camera, then one for each way
+ * The views of the drawn PMI: the file's saved views that have a camera (not the views Specify
+ * generates for its own graphics), then one for each way
  * the shown graphics' annotation planes face (planes facing alike, with the same up, are one
  * view), named by the graphics on them.
  */
@@ -424,6 +425,9 @@ export function drawnViews(
     const eye = view.direction ? unit([-view.direction[0], -view.direction[1], -view.direction[2]]) : null;
     if (!eye) continue;
     const members = view.graphics.flatMap((id) => { const g = byId.get(id); return g ? [g] : []; });
+    // The file's saved views only: Specify generates a view for each graphic it draws (0.1.6),
+    // which the planes below already offer, grouped.
+    if (members.length && members.every((g) => g.source === 'generated')) continue;
     const b = box(members.length ? members : graphics);
     if (!b) continue;
     const up = view.up ? unit(view.up) : null;

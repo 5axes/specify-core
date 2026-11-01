@@ -204,5 +204,10 @@ test('views: a saved view with a camera, and one a way the shown graphics\' plan
   near([front.min, front.max], [[0, 0, 0], [6, 0, 1]]);
   near([top.eye, top.up], [[0, 0, 1], [-1, 0, 0]]);
   // A kind not shown has no view.
-  assert.deepEqual(drawnViews(pmi, shown({ default: true, existing: true, general: false })).map((v) => v.name), ['Saved', 'Plane 1: 10 · 20']);
+  assert.deepEqual(drawnViews(pmi, shown({ default: true, existing: true, general: false })).map((v) => v.name), ['Saved', 'Plane 1: 10 · 20']);  // A view Specify generates for a graphic of its own (specify-core 0.1.6) is not offered: the
+  // planes offer it, grouped.
+  const generated = { ...pmi, presentation: { ...pmi.presentation,
+    items: { ...pmi.presentation.items, c: [{ ...at('g3', '30', 'top', 9), source: 'generated' }] },
+    views: [...pmi.presentation.views, { id: 'g3/plane/view', name: '30', direction: [0, 0, -1], up: [-1, 0, 0], graphics: ['g3'] }] } };
+  assert.deepEqual(drawnViews(generated, shown({ default: true, existing: true, general: true })).map((v) => v.name), ['Saved', 'Plane 1: 10 · 20', 'Plane 2: 30']);
 });
