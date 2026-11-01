@@ -49,7 +49,7 @@ export interface Picker {
    * them there. */
   features?(rows: readonly { title: string; faces: readonly number[] }[]): void;
   setLabelsVisible(on: boolean): void;
-  /** A STEP's own graphical PMI (As drawn), drawn when ``visible``; none without ``pmi``. */
+  /** A STEP's own graphical PMI (View PMI: Graphical), drawn when ``visible``; none without ``pmi``. */
   drawn?(pmi: DrawnPmi | null, visible: boolean): void;
   /** The kinds of drawn PMI the Show menu shows, and whether callouts facing away are hidden. */
   drawnFilter?(show: DrawnShow, farSide: boolean): void;

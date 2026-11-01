@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
-import { bestFitNormal, drawnFromScene, drawnShown, drawnViews, facesAway, graphicNormal, hasGraphics, linksFromPmi, partCentre, readPresentation } from '../src/specify/drawn.ts';
+import { bestFitNormal, drawnFromScene, drawnShown, drawnViews, facesAway, graphicNormal, hasFileGraphics, hasGraphics, linksFromPmi, partCentre, readPresentation } from '../src/specify/drawn.ts';
 
 // The spindle's haecceity.presentation/1 and haecceity.pmi/1, from quiddity's json feature
 // (scripts/fixtures/README.md).
@@ -105,6 +105,13 @@ test('a PMI scene: each item\'s faces, and Specify\'s status and question where 
   assert.equal(hasGraphics(read.value), true);
   const empty = drawnFromScene({ ...scene(), presentation: doc({ items: {}, semantic_ids: ['datum:A', 'features:f'] }) });
   assert.equal(hasGraphics(empty.value), false);
+  // View PMI opens in Graphical only when a graphic is the file's own, not Specify's.
+  assert.equal(hasFileGraphics(read.value), true);
+  assert.equal(hasFileGraphics(empty.value), false);
+  const generated = drawnFromScene({ ...scene(), presentation: doc({ items: { 'datum:A': [{ ...graphic, source: 'generated' }] }, semantic_ids: ['datum:A', 'features:f'] }) });
+  assert.ok(generated.ok, generated.reason);
+  assert.equal(hasGraphics(generated.value), true);
+  assert.equal(hasFileGraphics(generated.value), false);
   assert.match(drawnFromScene(null).reason, /not a JSON object/);
   assert.match(drawnFromScene({ ...scene(), presentation: { schema: 'x' } }).reason, /schema is "x"/);
   assert.match(drawnFromScene({ ...scene(), pmi: null }).reason, /not a haecceity.pmi\/1/);
