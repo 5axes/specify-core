@@ -570,7 +570,7 @@ dependencies = [
 
 [[package]]
 name = "specify-core"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "base64",
  "flate2",
@@ -587,7 +587,7 @@ dependencies = [
 
 [[package]]
 name = "specify-core-py"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "pyo3",
  "serde_json",
@@ -596,7 +596,7 @@ dependencies = [
 
 [[package]]
 name = "specify-core-wasm"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "console_error_panic_hook",
  "haecceity",
