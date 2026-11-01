@@ -91,6 +91,15 @@ fn parts(py: Python<'_>, step: PathBuf) -> PyResult<String> {
     Ok(Value::Array(parts).to_string())
 }
 
+/// Assembly bill of materials, including each field's source.
+#[pyfunction]
+fn bom(py: Python<'_>, step: PathBuf) -> PyResult<String> {
+    let rows = py
+        .detach(|| specify_core::bom::read_path(&step))
+        .map_err(PyValueError::new_err)?;
+    serde_json::to_string(&rows).map_err(|e| PyRuntimeError::new_err(e.to_string()))
+}
+
 /// One part of a STEP file, loaded once (Python's `LoadedPart`): the part and the file it is
 /// of, so a part of an assembly is analysed with the other parts its mates need, from the same
 /// bytes. Its geometry stays in the engine; Python sees what identifies it.
@@ -535,12 +544,22 @@ fn questions(py: Python<'_>, analysis: &str, answers: &str) -> PyResult<String> 
 /// The intent `answers` amount to, as JSON (`Intent.to_dict()`); with `accept_defaults`,
 /// unanswered defaults are taken first, to a fixed point (`api.apply`).
 #[pyfunction]
-#[pyo3(signature = (analysis, answers, accept_defaults=false))]
-fn apply(py: Python<'_>, analysis: &str, answers: &str, accept_defaults: bool) -> PyResult<String> {
+#[pyo3(signature = (analysis, answers, accept_defaults=false, bom=false))]
+fn apply(
+    py: Python<'_>,
+    analysis: &str,
+    answers: &str,
+    accept_defaults: bool,
+    bom: bool,
+) -> PyResult<String> {
     let (analysis, answers) = parse_both(analysis, answers)?;
-    let intent = py
+    let mut intent = py
         .detach(|| api::apply(&analysis, &answers, accept_defaults))
         .map_err(raised)?;
+    if bom {
+        specify_core::bom::accept_suggestions(&analysis, &answers, &mut intent)
+            .map_err(pyo3::exceptions::PyValueError::new_err)?;
+    }
     Ok(intent.to_dict().to_string())
 }
 
@@ -576,6 +595,7 @@ fn parse_both(analysis: &str, answers: &str) -> PyResult<(Value, Map<String, Val
 fn record(question: &Question) -> Value {
     let mut out = Map::new();
     out.insert("id".into(), json!(question.id));
+    out.insert("optional".into(), json!(question.id.starts_with("bom.")));
     out.insert("kind".into(), json!(question.kind));
     out.insert("prompt".into(), json!(question.prompt));
     out.insert("faces".into(), json!(question.faces));
@@ -612,6 +632,7 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(choices_callout, m)?)?;
     m.add_function(wrap_pyfunction!(load, m)?)?;
     m.add_function(wrap_pyfunction!(parts, m)?)?;
+    m.add_function(wrap_pyfunction!(bom, m)?)?;
     m.add_function(wrap_pyfunction!(analyse, m)?)?;
     m.add_function(wrap_pyfunction!(questions, m)?)?;
     m.add_function(wrap_pyfunction!(apply, m)?)?;

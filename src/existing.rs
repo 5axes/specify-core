@@ -255,6 +255,10 @@ pub fn part_settings_provenance(loaded: &LoadedPart) -> Result<Map<String, Value
 }
 
 impl Reading {
+    pub(crate) fn model(&self) -> &PartPmi {
+        &self.pmi
+    }
+
     /// The semantic PMI the file states on the part, as [`read_existing`]; `loaded` is the part
     /// this reading is of. A tolerance citing a datum the reader does not hold is refused, not
     /// listed without it.
@@ -739,23 +743,33 @@ fn default_finish(text: &str) -> Option<&str> {
 /// The faces of `features`, following groups and derived features to what they are made of
 /// (as Python's `datum_faces` follows shape aspect relationships), ascending.
 pub(crate) fn faces_of(pmi: &PartPmi, features: &[FeatureId]) -> Vec<usize> {
-    fn walk(pmi: &PartPmi, f: FeatureId, seen: &mut BTreeSet<usize>, out: &mut BTreeSet<usize>) {
+    faces_in_arena(&pmi.features, features)
+}
+
+/// The same support resolution while the writer still owns the feature arena.
+pub(crate) fn faces_in_arena(arena: &[Feature], features: &[FeatureId]) -> Vec<usize> {
+    fn walk(
+        arena: &[Feature],
+        f: FeatureId,
+        seen: &mut BTreeSet<usize>,
+        out: &mut BTreeSet<usize>,
+    ) {
         if !seen.insert(f.0) {
             return;
         }
-        match pmi.features.get(f.0) {
+        match arena.get(f.0) {
             Some(Feature::Items(items)) => out.extend(items.iter().filter_map(|a| match a {
                 Anchor::Face(face) => Some(face.0),
                 Anchor::Edge(_) | Anchor::Geometry(_) => None,
             })),
             Some(Feature::Group { members, .. }) => {
                 for m in members {
-                    walk(pmi, *m, seen, out);
+                    walk(arena, *m, seen, out);
                 }
             }
             Some(Feature::Derived { from, .. }) => {
                 for m in from {
-                    walk(pmi, *m, seen, out);
+                    walk(arena, *m, seen, out);
                 }
             }
             None => {}
@@ -763,7 +777,7 @@ pub(crate) fn faces_of(pmi: &PartPmi, features: &[FeatureId]) -> Vec<usize> {
     }
     let (mut seen, mut out) = (BTreeSet::new(), BTreeSet::new());
     for f in features {
-        walk(pmi, *f, &mut seen, &mut out);
+        walk(arena, *f, &mut seen, &mut out);
     }
     out.into_iter().collect()
 }
@@ -907,6 +921,21 @@ pub fn tolerance_type(kind: ToleranceKind) -> &'static str {
         K::SurfaceProfile => "ProfileOfSurface",
         K::Symmetry => "Symmetry",
         K::TotalRunout => "TotalRunout",
+    }
+}
+
+impl Reading {
+    /// BOM metadata from this already parsed/read part; no extra STEP or PMI read.
+    pub(crate) fn bom(&self, loaded: &LoadedPart) -> Result<crate::bom::Item, String> {
+        crate::bom::read_rows(
+            &self.doc,
+            std::slice::from_ref(&loaded.definition),
+            loaded.binding.part,
+            std::slice::from_ref(&self.pmi),
+        )?
+        .into_iter()
+        .next()
+        .ok_or("missing BOM row".into())
     }
 }
 

@@ -1,0 +1,52 @@
+[
+  {
+    "part.general_tolerance": "ISO 2768-m",
+    "part.surface_finish": "Ra 3.2",
+    "part.coating": "None (as machined)",
+    "part.heat_treatment": "None",
+    "part.edges": "Break sharp edges 0.2 max",
+    "part.notes": [],
+    "part.locating": "position tolerances",
+    "hole.function:holes:11": "tapped:M5",
+    "hole.position:holes:11": "0.25",
+    "hole.function:hole_patterns.grid:6.7.8.9.10.12": "clearance:M6",
+    "hole.position:hole_patterns.grid:6.7.8.9.10.12": "0.6",
+    "datum.A": [
+      2
+    ],
+    "datum.B": [
+      1
+    ],
+    "datum.C": [
+      0
+    ],
+    "datum.A.flatness": "none",
+    "datum.B.control": "none",
+    "datum.C.control": "none",
+    "part.material": "6061-T6"
+  },
+  {
+    "part.general_tolerance": "ISO 2768-m",
+    "part.surface_finish": "Ra 3.2",
+    "part.coating": "None (as machined)",
+    "part.heat_treatment": "None",
+    "part.edges": "Break sharp edges 0.2 max",
+    "part.notes": [],
+    "part.locating": "position tolerances",
+    "hole.function:holes:3": "tapped:M5",
+    "hole.position:holes:3": "0.25",
+    "diameter.fit:turned_steps:0": "general",
+    "diameter.fit:turned_steps:4": "general",
+    "diameter.runout:turned_steps:4": "none",
+    "datum.A": [
+      0
+    ],
+    "datum.B": [
+      6
+    ],
+    "datum.C": [],
+    "datum.B.control": "none",
+    "hole.full_thread:holes:3": "5.5",
+    "part.material": "6061-T6"
+  }
+]

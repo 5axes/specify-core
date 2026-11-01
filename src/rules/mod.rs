@@ -261,6 +261,9 @@ impl Question {
             ("default", self.default.clone().unwrap_or(Value::Null)),
             ("why", Value::from(self.why.as_str())),
         ]);
+        if self.id.starts_with("bom.") {
+            out.insert("optional".into(), Value::Bool(true));
+        }
         if !self.options.is_empty() {
             out.insert("options".into(), Value::from(self.options.clone()));
         }
@@ -444,6 +447,7 @@ fn all_questions(
         note_strings(notes)?;
     }
     let mut out = part_questions();
+    out.extend(crate::bom::questions(ctx.analysis));
     // A file with its own datums locates by them; the choice is for a bare part.
     if ctx.in_file.is_empty()
         && ctx
@@ -849,7 +853,11 @@ fn reviewed(mut q: Question, faces: &Faces) -> Result<Question> {
 /// the manufacturing depth already implied by an answered tap, so it never blocks saving.
 pub fn open_questions<'q>(qs: &'q [Question], answers: &Map<String, Value>) -> Vec<&'q Question> {
     qs.iter()
-        .filter(|q| !q.id.starts_with("hole.full_thread:") && !answers.contains_key(&q.id))
+        .filter(|q| {
+            !q.id.starts_with("hole.full_thread:")
+                && !q.id.starts_with("bom.")
+                && !answers.contains_key(&q.id)
+        })
         .collect()
 }
 
@@ -858,6 +866,7 @@ pub fn with_defaults(qs: &[Question], answers: &Map<String, Value>) -> Map<Strin
     let mut merged = answers.clone();
     for q in qs {
         if let Some(default) = &q.default
+            && !q.id.starts_with("bom.")
             && !merged.contains_key(&q.id)
         {
             merged.insert(q.id.clone(), default.clone());
@@ -980,6 +989,17 @@ fn intent(
         return invalid("the analysis has no 'binding'");
     };
     let mut intent = Intent::new(binding.clone());
+    let mut bom = Map::new();
+    for (id, value) in answers {
+        if let Some(key) = id.strip_prefix("bom.") {
+            crate::bom::validate(key, value).map_err(Error::Invalid)?;
+            bom.insert(key.into(), value.clone());
+        }
+    }
+    if !bom.is_empty() {
+        intent.part.insert("bom".into(), Value::Object(bom));
+    }
+
     for key in ["material", "general_tolerance"].into_iter().chain(NOTES) {
         let id = format!("part.{key}");
         if key == "notes" {
@@ -1195,6 +1215,17 @@ fn intent(
             ));
         };
         intent.general = general::dimensions(ctx, &datums, &intent.requirements, tolerance)?;
+    }
+    if let Some(input) = ctx.analysis.get("dimensioning") {
+        let input = serde_json::from_value(input.clone())
+            .map_err(|e| Error::Invalid(format!("dimensioning input: {e}")))?;
+        if let Some(stated) = ctx.analysis.get("dimensioning_stated") {
+            intent.requirements.extend(
+                serde_json::from_value::<Vec<Map<String, Value>>>(stated.clone())
+                    .map_err(|e| Error::Invalid(format!("stored dimensions: {e}")))?,
+            );
+        }
+        crate::dimensioning::apply(input, &mut intent).map_err(Error::Invalid)?;
     }
     Ok(intent)
 }

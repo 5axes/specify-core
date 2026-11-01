@@ -37,3 +37,6 @@ pub mod standards;
 pub mod tolerancing;
 pub mod triangulate;
 pub mod writer;
+
+pub mod bom;
+mod dimensioning;

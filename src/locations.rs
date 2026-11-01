@@ -1,3 +1,7 @@
+//! The per-member rows below are provisional support/contract witnesses for the shared
+//! planner on live analyses. `crate::dimensioning` replaces them with the planner's pattern
+//! origins and pitches before writing; old snapshots are upgraded at the writer (#75).
+//!
 //! Where a hole is: its distance from reference planes, as AP242 location dimensions (port of
 //! the semantic part of `locations.py`).
 //!

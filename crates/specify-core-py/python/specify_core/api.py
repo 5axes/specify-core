@@ -23,6 +23,7 @@ __all__ = [
     "LoadedPart",
     "load",
     "parts",
+    "bom",
     "analyse",
     "questions",
     "apply",
@@ -43,6 +44,11 @@ def parts(step: str | Path) -> list[dict[str, Any]]:
     return json.loads(_native.parts(_path(step)))
 
 
+def bom(step: str | Path) -> list[dict[str, Any]]:
+    """Assembly BOM fields and their file/answered/default sources; see docs/bom.md."""
+    return json.loads(_native.bom(_path(step)))
+
+
 def analyse(step: str | Path | LoadedPart, part: int | None = None) -> dict[str, Any]:
     """Features, faces and existing PMI of ``step`` -- of its ``part``-th part, in
     an assembly -- as a JSON-safe snapshot.
@@ -61,14 +67,14 @@ def questions(analysis: dict[str, Any], answers: dict[str, Any]) -> list[Questio
 
 
 def apply(
-    analysis: dict[str, Any], answers: dict[str, Any], *, accept_defaults: bool = False
+    analysis: dict[str, Any], answers: dict[str, Any], *, accept_defaults: bool = False, bom: bool = False
 ) -> Intent:
     """Intent from ``answers``; with ``accept_defaults``, unanswered defaults are taken.
 
     Defaults are resolved to a fixed point, because some questions only exist
     once an earlier default is taken.
     """
-    text = _native.apply(json.dumps(analysis), json.dumps(answers), accept_defaults)
+    text = _native.apply(json.dumps(analysis), json.dumps(answers), accept_defaults, bom)
     return Intent.from_dict(json.loads(text))
 
 

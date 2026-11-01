@@ -18,21 +18,21 @@
     "path": "python_readback.part.surface_finish",
     "pattern": "the part's default finish, written as a surface texture, is not read by specify-core (Python)",
     "verdict": "rust-correct",
-    "evidence": "The Rust writer writes the part's default finish (Ra 3.2 on every accept-defaults intent) as ISO 10303-1110's surface texture on the part's product_definition_shape (property_definition 'surface texture', material removal 'any process allowed', its parameter a surface_texture_representation of 'measuring method' 'Ra' and 'characteristic value' 3.2 µm; question Q3, decided 2026-10-09; haecceity checks surface_texture_representation WR1-WR5 and general_property_association WR1-WR2 on its writes, quiddity-rust c228f95), and reads it back as the part's surface_finish (src/existing.rs). specify-core's part_settings finds the default finish only in its own text route, a DESCRIPTIVE_REPRESENTATION_ITEM('surface texture','Ra 3.2 µm unless otherwise specified') (existing.py), and OpenCascade's XCAF has no surface texture model, so Python reads none, on every Rust-written part of a single-part file (assemblies report no settings in either engine). The form is AP242's standard one, the text route is not (haecceity decision 5); the gap is Python's reader."
+    "evidence": "The Rust writer writes the part's default finish (Ra 3.2 on every accept-defaults intent) as ISO 10303-1110's surface texture on the part's product_definition_shape (property_definition 'surface texture', material removal 'any process allowed', its parameter a surface_texture_representation of 'measuring method' 'Ra' and 'characteristic value' 3.2 \u00b5m; question Q3, decided 2026-10-09; haecceity checks surface_texture_representation WR1-WR5 and general_property_association WR1-WR2 on its writes, quiddity-rust c228f95), and reads it back as the part's surface_finish (src/existing.rs). specify-core's part_settings finds the default finish only in its own text route, a DESCRIPTIVE_REPRESENTATION_ITEM('surface texture','Ra 3.2 \u00b5m unless otherwise specified') (existing.py), and OpenCascade's XCAF has no surface texture model, so Python reads none, on every Rust-written part of a single-part file (assemblies report no settings in either engine). The form is AP242's standard one, the text route is not (haecceity decision 5); the gap is Python's reader."
   },
   {
     "case": "*",
     "path": "python_readback*existing[key=note|internal thread|*]",
     "pattern": "a thread written as AP242's thread feature is not read by specify-core (Python)",
     "verdict": "undetermined",
-    "evidence": "The Rust writer writes each thread as AP242's `thread` (side, major diameter, form, class, hand, partial area; haecceity checks thread WR1-WR16 on every write) with its pitch and depths as a user defined attribute set (UDA practice §5-7; upstream need U8), and reads it back as the intent's thread. specify-core's existing.notes reads threads only from its own 'manufacturing requirement' text route (existing.py, notes), and OpenCascade's XCAF has no thread model, so Python reads none of them (6 threads in the probes of plate, pin, stack, assembly and a_hole_along_x). The AP242 schema form is standard, the text route is not (haecceity decision 5), but no CAx-IF practice for thread features was found to cite, and the pitch has no semantic home in haecceity yet (U8). A thread therefore does not cross from the Rust engine to the Python one."
+    "evidence": "The Rust writer writes each thread as AP242's `thread` (side, major diameter, form, class, hand, partial area; haecceity checks thread WR1-WR16 on every write) with its pitch and depths as a user defined attribute set (UDA practice \u00a75-7; upstream need U8), and reads it back as the intent's thread. specify-core's existing.notes reads threads only from its own 'manufacturing requirement' text route (existing.py, notes), and OpenCascade's XCAF has no thread model, so Python reads none of them (6 threads in the probes of plate, pin, stack, assembly and a_hole_along_x). The AP242 schema form is standard, the text route is not (haecceity decision 5), but no CAx-IF practice for thread features was found to cite, and the pitch has no semantic home in haecceity yet (U8). A thread therefore does not cross from the Rust engine to the Python one."
   },
   {
     "case": "*",
     "path": "python_readback.existing[key=dimension|Size_*].*er",
     "pattern": "a fit written as its ISO 286 class reads with no limits in specify-core (Python)",
     "verdict": "rust-correct",
-    "evidence": "Every fit the Rust writer writes reads back in Python with its nominal value and no upper or lower deviation: the stack's Ø8 H7 bores ([9] of parts 0 and 1, +0.015/0) and Ø8 h6 pin ([3] of part 2, 0/-0.009), and the H11 clearance hole sets on several faces (the plate's and the assembly's Ø6.6, +0.09/0; NIST CTC-03's Ø4.7625 on the 8 faces of hole_patterns.rectangle, the four corner holes, the identical holes and the stack's part 1, +0.075/0), which OpenCascade now reads on all their faces (haecceity writes one geometric_item_specific_usage per face since quiddity-rust c228f95, question Q20 (2)). The Rust writer writes a fit as plus_minus_tolerance -> limits_and_fits('H','hole','7','') (PMI practice §5.2.5), after checking the intent's limits are the class's (src/writer.rs); haecceity's reader reads the class. specify-core's read_existing takes limits only from IsDimWithPlusMinusTolerance (existing.py) and never asks XCAF for the class of tolerance, so the fit's meaning is lost on the Python side. Python's own files carry the fit as bare limits, which is what OCCT's writer forced (docs/design.md, 'What is written')."
+    "evidence": "Every fit the Rust writer writes reads back in Python with its nominal value and no upper or lower deviation: the stack's \u00d88 H7 bores ([9] of parts 0 and 1, +0.015/0) and \u00d88 h6 pin ([3] of part 2, 0/-0.009), and the H11 clearance hole sets on several faces (the plate's and the assembly's \u00d86.6, +0.09/0; NIST CTC-03's \u00d84.7625 on the 8 faces of hole_patterns.rectangle, the four corner holes, the identical holes and the stack's part 1, +0.075/0), which OpenCascade now reads on all their faces (haecceity writes one geometric_item_specific_usage per face since quiddity-rust c228f95, question Q20 (2)). The Rust writer writes a fit as plus_minus_tolerance -> limits_and_fits('H','hole','7','') (PMI practice \u00a75.2.5), after checking the intent's limits are the class's (src/writer.rs); haecceity's reader reads the class. specify-core's read_existing takes limits only from IsDimWithPlusMinusTolerance (existing.py) and never asks XCAF for the class of tolerance, so the fit's meaning is lost on the Python side. Python's own files carry the fit as bare limits, which is what OCCT's writer forced (docs/design.md, 'What is written')."
   },
   {
     "case": "*",
@@ -55,13 +55,13 @@
     "verdict": "rust-correct",
     "evidence": "Issue #63 (https://github.com/pzfreo/specify-core-rust/issues/63): the writer writes the dimensions the general tolerance covers (general.rs: plain sizes, plane levels and hole locations) with their nominal alone, so the STEP states every dimension a drawing would. existing.rs skips a dimension that is both Specify-marked (specify-core:written:v1) and nominal only: it states nothing the geometry does not, and read back without its answers it must not settle a question (tests/writer.rs pmi_is_added_to_a_part_that_has_some). Python reads every dimension, so each such dimension is in Python's existing list and not in Rust's. Every difference here is a Size_Diameter or Location_LinearDistance with no upper or lower; the toleranced and basic dimensions agree."
   },
-{
-  "case": "*",
-  "path": "python_readback.existing[key=*].number",
-  "pattern": "The independent Python reader does not expose characteristic ID_ATTRIBUTE values",
-  "verdict": "rust-correct",
-  "evidence": "quiddity-rust#137 (v0.2.6) requires recapturing the writer fixtures for presentation and the new aspect shapes; the current writer also includes #65's numeric ID_ATTRIBUTE records and number history. The documented cc341dd + ISO/fingerprint Python reference does not read requirement identifiers. Its recaptured readback is unchanged, while Rust reads the numbers on the actual semantic roots (#135 exposes the same ids). Measured: 97 newly visible number-field differences on 10 parts after the existing semantic difference entries are applied: NIST CTC-03 (1), a_hole_along_x (2), assembly parts 0/1 (19/3), four_corner_holes (12), identical_holes (8), pin (3), plate (19), stack parts 0/1 (15/15). tests/characteristic_numbers.rs verifies the standard slots, uniqueness, history, face supports and rewrite stability, including separate datum/size and composite/location aspects, and the frozen category-order input. This entry covers only the Python API's absent number field; no semantic values or face targets are projected out. Analysis/read hashes of unchanged inputs remain unchanged."
-},
+  {
+    "case": "*",
+    "path": "python_readback.existing[key=*].number",
+    "pattern": "The independent Python reader does not expose characteristic ID_ATTRIBUTE values",
+    "verdict": "rust-correct",
+    "evidence": "quiddity-rust#137 (v0.2.6) requires recapturing the writer fixtures for presentation and the new aspect shapes; the current writer also includes #65's numeric ID_ATTRIBUTE records and number history. The documented cc341dd + ISO/fingerprint Python reference does not read requirement identifiers. Its recaptured readback is unchanged, while Rust reads the numbers on the actual semantic roots (#135 exposes the same ids). Measured: 97 newly visible number-field differences on 10 parts after the existing semantic difference entries are applied: NIST CTC-03 (1), a_hole_along_x (2), assembly parts 0/1 (19/3), four_corner_holes (12), identical_holes (8), pin (3), plate (19), stack parts 0/1 (15/15). tests/characteristic_numbers.rs verifies the standard slots, uniqueness, history, face supports and rewrite stability, including separate datum/size and composite/location aspects, and the frozen category-order input. This entry covers only the Python API's absent number field; no semantic values or face targets are projected out. Analysis/read hashes of unchanged inputs remain unchanged."
+  },
   {
     "case": "*",
     "path": "python_readback.existing[key=dimension|*].origin",
@@ -75,5 +75,460 @@
     "pattern": "The independent Python reader predates Specify's dimension origin/source UDAs",
     "verdict": "rust-correct",
     "evidence": "Specify #77 (PR #78) stores the measurement source alongside dimension origin in a UDA on the characteristic root. The independent Python reference predates that UDA; recaptured Python readbacks are byte-identical despite the 12 changed quiddity-rust#137 v0.2.6 STEP outputs. Measured after existing semantic entries: 69 absent source fields, paired with the 69 absent origin fields on NIST CTC-03 (1), assembly part 0 (15), four_corner_holes (9), identical_holes (5), plate (15), stack parts 0/1/2 (11/12/1). Rust's sources retain schema 2, the resume face fingerprint, measured face supports and measurement parameter. tests/pmi_origin.rs verifies source stability on re-run, changed-value rewrites, frozen v0.2.4 specimens and split sized datums/composite sizes/location aspects. Only the missing source field is covered; dimensional semantics and face matching remain compared."
+  },
+  {
+    "case": "nist/nist_ctc_01_asme1_ap242",
+    "path": "python_readback.existing[key=dimension|Location_LinearDistance|[0,1]|[91,92]#1]",
+    "pattern": "Python reports new shared-planner General dimensions which settle no Specify interview question (#75)",
+    "verdict": "rust-correct",
+    "evidence": "Shared planner, #75: this exact nominal-only dimension is newly written from quiddity::dimensioning v0.4.0 under the part general tolerance. The independently recaptured Python reader reports it; Specify read_existing intentionally excludes authored DimTolerance::None dimensions (#63, src/existing.rs), because they settle no interview question. The raw PMI, scene and characteristic APIs retain them. tests/planner_dimensions.rs checks the complete required STEP set; cross_engine byte-checks every current output and verifies the independent readback hashes. This entry explains only this measured root, with no projection of values or supports; original imported PMI remains compared."
+  },
+  {
+    "case": "nist/nist_ctc_01_asme1_ap242",
+    "path": "python_readback.existing[key=dimension|Location_LinearDistance|[47,49,54,55]|[104]#1]",
+    "pattern": "Python reports new shared-planner General dimensions which settle no Specify interview question (#75)",
+    "verdict": "rust-correct",
+    "evidence": "Shared planner, #75: this exact nominal-only dimension is newly written from quiddity::dimensioning v0.4.0 under the part general tolerance. The independently recaptured Python reader reports it; Specify read_existing intentionally excludes authored DimTolerance::None dimensions (#63, src/existing.rs), because they settle no interview question. The raw PMI, scene and characteristic APIs retain them. tests/planner_dimensions.rs checks the complete required STEP set; cross_engine byte-checks every current output and verifies the independent readback hashes. This entry explains only this measured root, with no projection of values or supports; original imported PMI remains compared."
+  },
+  {
+    "case": "nist/nist_ctc_01_asme1_ap242",
+    "path": "python_readback.existing[key=dimension|Location_LinearDistance|[4]|[0,1,91,92,93,94,95,96]#1]",
+    "pattern": "Resolved exact unsupported or superseded General item (shared planner, #75)",
+    "verdict": "resolved",
+    "evidence": "Shared planner, #75: fresh independent STEP readback and current writer byte comparison. The 400 mm General location from [4] now has complete semantic target [0, 1, 71, 72, 73, 74, 91, 92, 93, 94, 95, 96], replacing the old subset [0, 1, 91, 92, 93, 94, 95, 96]. This real MultipleElements/pattern target includes the covered coincident claimants and recognised constituent faces. There is one physical row; the former subset-only root is absent. This resolved entry asserts continued absence of this exact former difference; it never explains away a returning difference. The actual corpus PMI passes face-support, duplicate-pair and independent-plane-chain checks."
+  },
+  {
+    "case": "nist/nist_ctc_01_asme1_ap242",
+    "path": "python_readback.existing[key=dimension|Location_LinearDistance|[4]|[24]#1]",
+    "pattern": "Python reports new shared-planner General dimensions which settle no Specify interview question (#75)",
+    "verdict": "rust-correct",
+    "evidence": "Shared planner, #75: this exact nominal-only dimension is newly written from quiddity::dimensioning v0.4.0 under the part general tolerance. The independently recaptured Python reader reports it; Specify read_existing intentionally excludes authored DimTolerance::None dimensions (#63, src/existing.rs), because they settle no interview question. The raw PMI, scene and characteristic APIs retain them. tests/planner_dimensions.rs checks the complete required STEP set; cross_engine byte-checks every current output and verifies the independent readback hashes. This entry explains only this measured root, with no projection of values or supports; original imported PMI remains compared."
+  },
+  {
+    "case": "nist/nist_ctc_01_asme1_ap242",
+    "path": "python_readback.existing[key=dimension|Location_LinearDistance|[4]|[50,51,56,57]#1]",
+    "pattern": "Python reports new shared-planner General dimensions which settle no Specify interview question (#75)",
+    "verdict": "rust-correct",
+    "evidence": "Shared planner, #75: this exact nominal-only dimension is newly written from quiddity::dimensioning v0.4.0 under the part general tolerance. The independently recaptured Python reader reports it; Specify read_existing intentionally excludes authored DimTolerance::None dimensions (#63, src/existing.rs), because they settle no interview question. The raw PMI, scene and characteristic APIs retain them. tests/planner_dimensions.rs checks the complete required STEP set; cross_engine byte-checks every current output and verifies the independent readback hashes. This entry explains only this measured root, with no projection of values or supports; original imported PMI remains compared."
+  },
+  {
+    "case": "nist/nist_ctc_01_asme1_ap242",
+    "path": "python_readback.existing[key=dimension|Location_LinearDistance|[4]|[52,53,58,59]#1]",
+    "pattern": "Python reports new shared-planner General dimensions which settle no Specify interview question (#75)",
+    "verdict": "rust-correct",
+    "evidence": "Shared planner, #75: this exact nominal-only dimension is newly written from quiddity::dimensioning v0.4.0 under the part general tolerance. The independently recaptured Python reader reports it; Specify read_existing intentionally excludes authored DimTolerance::None dimensions (#63, src/existing.rs), because they settle no interview question. The raw PMI, scene and characteristic APIs retain them. tests/planner_dimensions.rs checks the complete required STEP set; cross_engine byte-checks every current output and verifies the independent readback hashes. This entry explains only this measured root, with no projection of values or supports; original imported PMI remains compared."
+  },
+  {
+    "case": "nist/nist_ctc_01_asme1_ap242",
+    "path": "python_readback.existing[key=dimension|Location_LinearDistance|[6,22]|[0,1,91,92,93,94,95,96]#1]",
+    "pattern": "Resolved exact unsupported or superseded General item (shared planner, #75)",
+    "verdict": "resolved",
+    "evidence": "Shared planner, #75: fresh independent STEP readback and current writer byte comparison. The 225 mm General location from [6, 22] now has complete semantic target [0, 1, 71, 72, 73, 74, 91, 92, 93, 94, 95, 96], replacing the old subset [0, 1, 91, 92, 93, 94, 95, 96]. This real MultipleElements/pattern target includes the covered coincident claimants and recognised constituent faces. There is one physical row; the former subset-only root is absent. This resolved entry asserts continued absence of this exact former difference; it never explains away a returning difference. The actual corpus PMI passes face-support, duplicate-pair and independent-plane-chain checks."
+  },
+  {
+    "case": "nist/nist_ctc_01_asme1_ap242",
+    "path": "python_readback.existing[key=dimension|Location_LinearDistance|[6,22]|[26,46]#1]",
+    "pattern": "Python reports new shared-planner General dimensions which settle no Specify interview question (#75)",
+    "verdict": "rust-correct",
+    "evidence": "Shared planner, #75: this exact nominal-only dimension is newly written from quiddity::dimensioning v0.4.0 under the part general tolerance. The independently recaptured Python reader reports it; Specify read_existing intentionally excludes authored DimTolerance::None dimensions (#63, src/existing.rs), because they settle no interview question. The raw PMI, scene and characteristic APIs retain them. tests/planner_dimensions.rs checks the complete required STEP set; cross_engine byte-checks every current output and verifies the independent readback hashes. This entry explains only this measured root, with no projection of values or supports; original imported PMI remains compared."
+  },
+  {
+    "case": "nist/nist_ctc_01_asme1_ap242",
+    "path": "python_readback.existing[key=dimension|Location_LinearDistance|[71,72]|#1]",
+    "pattern": "Python reports new shared-planner General dimensions which settle no Specify interview question (#75)",
+    "verdict": "rust-correct",
+    "evidence": "Shared planner, #75: this exact nominal-only dimension is newly written from quiddity::dimensioning v0.4.0 under the part general tolerance. The independently recaptured Python reader reports it; Specify read_existing intentionally excludes authored DimTolerance::None dimensions (#63, src/existing.rs), because they settle no interview question. The raw PMI, scene and characteristic APIs retain them. tests/planner_dimensions.rs checks the complete required STEP set; cross_engine byte-checks every current output and verifies the independent readback hashes. This entry explains only this measured root, with no projection of values or supports; original imported PMI remains compared."
+  },
+  {
+    "case": "nist/nist_ctc_01_asme1_ap242",
+    "path": "python_readback.existing[key=dimension|Location_LinearDistance|[73,74]|[71,72]#1]",
+    "pattern": "Python reports new shared-planner General dimensions which settle no Specify interview question (#75)",
+    "verdict": "rust-correct",
+    "evidence": "Shared planner, #75: this exact nominal-only dimension is newly written from quiddity::dimensioning v0.4.0 under the part general tolerance. The independently recaptured Python reader reports it; Specify read_existing intentionally excludes authored DimTolerance::None dimensions (#63, src/existing.rs), because they settle no interview question. The raw PMI, scene and characteristic APIs retain them. tests/planner_dimensions.rs checks the complete required STEP set; cross_engine byte-checks every current output and verifies the independent readback hashes. This entry explains only this measured root, with no projection of values or supports; original imported PMI remains compared."
+  },
+  {
+    "case": "nist/nist_ctc_01_asme1_ap242",
+    "path": "python_readback.existing[key=dimension|Location_LinearDistance|[93,94]|[0,1]#1]",
+    "pattern": "Python reports new shared-planner General dimensions which settle no Specify interview question (#75)",
+    "verdict": "rust-correct",
+    "evidence": "Shared planner, #75: this exact nominal-only dimension is newly written from quiddity::dimensioning v0.4.0 under the part general tolerance. The independently recaptured Python reader reports it; Specify read_existing intentionally excludes authored DimTolerance::None dimensions (#63, src/existing.rs), because they settle no interview question. The raw PMI, scene and characteristic APIs retain them. tests/planner_dimensions.rs checks the complete required STEP set; cross_engine byte-checks every current output and verifies the independent readback hashes. This entry explains only this measured root, with no projection of values or supports; original imported PMI remains compared."
+  },
+  {
+    "case": "nist/nist_ctc_01_asme1_ap242",
+    "path": "python_readback.existing[key=dimension|Location_LinearDistance|[97]|[2]#1]",
+    "pattern": "Python reports new shared-planner General dimensions which settle no Specify interview question (#75)",
+    "verdict": "rust-correct",
+    "evidence": "Shared planner, #75: this exact nominal-only dimension is newly written from quiddity::dimensioning v0.4.0 under the part general tolerance. The independently recaptured Python reader reports it; Specify read_existing intentionally excludes authored DimTolerance::None dimensions (#63, src/existing.rs), because they settle no interview question. The raw PMI, scene and characteristic APIs retain them. tests/planner_dimensions.rs checks the complete required STEP set; cross_engine byte-checks every current output and verifies the independent readback hashes. This entry explains only this measured root, with no projection of values or supports; original imported PMI remains compared."
+  },
+  {
+    "case": "nist/nist_ctc_01_asme1_ap242",
+    "path": "python_readback.existing[key=dimension|Location_LinearDistance|[97]|[50,51,56,57]#1]",
+    "pattern": "Resolved exact unsupported or superseded General item (shared planner, #75)",
+    "verdict": "resolved",
+    "evidence": "Shared planner, #75: fresh independent STEP readback and current writer byte comparison. The 25 mm General location from [97] now has complete semantic target [50, 51, 52, 53, 56, 57, 58, 59], replacing the old subset [50, 51, 56, 57]. This real MultipleElements/pattern target includes the covered coincident claimants and recognised constituent faces. There is one physical row; the former subset-only root is absent. This resolved entry asserts continued absence of this exact former difference; it never explains away a returning difference. The actual corpus PMI passes face-support, duplicate-pair and independent-plane-chain checks."
+  },
+  {
+    "case": "nist/nist_ctc_01_asme1_ap242",
+    "path": "python_readback.existing[key=dimension|Size_CurveLength|[50,51,52,53,56,57,58,59]|#1]",
+    "pattern": "Python reports new shared-planner General dimensions which settle no Specify interview question (#75)",
+    "verdict": "rust-correct",
+    "evidence": "Shared planner, #75: this exact nominal-only dimension is newly written from quiddity::dimensioning v0.4.0 under the part general tolerance. The independently recaptured Python reader reports it; Specify read_existing intentionally excludes authored DimTolerance::None dimensions (#63, src/existing.rs), because they settle no interview question. The raw PMI, scene and characteristic APIs retain them. tests/planner_dimensions.rs checks the complete required STEP set; cross_engine byte-checks every current output and verifies the independent readback hashes. This entry explains only this measured root, with no projection of values or supports; original imported PMI remains compared."
+  },
+  {
+    "case": "nist/nist_ctc_01_asme1_ap242",
+    "path": "python_readback.existing[key=dimension|Size_Diameter|[0,1,91,92,93,94,95,96]|#1]",
+    "pattern": "Resolved exact unsupported or superseded General item (shared planner, #75)",
+    "verdict": "resolved",
+    "evidence": "Shared planner, #75: fresh independent STEP readback and current writer byte comparison. The former General bore-size root on [0, 1, 91, 92, 93, 94, 95, 96] is no longer appended beside the existing/answered size contract. Specified-wins retains the authoritative size; any General group that cannot reconcile its contract is omitted and reported. No duplicate General diameter is exempted. This resolved entry asserts continued absence of this exact former difference; it never explains away a returning difference. The actual corpus PMI passes face-support, duplicate-pair and independent-plane-chain checks."
+  },
+  {
+    "case": "nist/nist_ctc_01_asme1_ap242",
+    "path": "python_readback.existing[key=dimension|Size_Diameter|[50,51,52,53,56,57,58,59]|#1]",
+    "pattern": "Resolved exact unsupported or superseded General item (shared planner, #75)",
+    "verdict": "resolved",
+    "evidence": "Shared planner, #75: fresh independent STEP readback and current writer byte comparison. The former General bore-size root on [50, 51, 52, 53, 56, 57, 58, 59] is no longer appended beside the existing/answered size contract. Specified-wins retains the authoritative size; any General group that cannot reconcile its contract is omitted and reported. No duplicate General diameter is exempted. This resolved entry asserts continued absence of this exact former difference; it never explains away a returning difference. The actual corpus PMI passes face-support, duplicate-pair and independent-plane-chain checks."
+  },
+  {
+    "case": "nist/nist_ctc_01_asme1_ap242",
+    "path": "python_readback.existing[key=dimension|Size_Diameter|[71,72,73,74]|#1]",
+    "pattern": "Resolved exact unsupported or superseded General item (shared planner, #75)",
+    "verdict": "resolved",
+    "evidence": "Shared planner, #75: fresh independent STEP readback and current writer byte comparison. The former General bore-size root on [71, 72, 73, 74] is no longer appended beside the existing/answered size contract. Specified-wins retains the authoritative size; any General group that cannot reconcile its contract is omitted and reported. No duplicate General diameter is exempted. This resolved entry asserts continued absence of this exact former difference; it never explains away a returning difference. The actual corpus PMI passes face-support, duplicate-pair and independent-plane-chain checks."
+  },
+  {
+    "case": "nist/nist_ctc_03_asme1_ap242",
+    "path": "python_readback.existing[key=dimension|Location_LinearDistance|[101]|#1]",
+    "pattern": "Resolved exact unsupported or superseded General item (shared planner, #75)",
+    "verdict": "resolved",
+    "evidence": "Shared planner, #75: fresh independent STEP readback and current writer byte comparison. The former location from [101] had an empty destination face support. The turned/envelope deferral and writer guard now prevent this row; no synthetic point location is written. This resolved entry asserts continued absence of this exact former difference; it never explains away a returning difference. The actual corpus PMI passes face-support, duplicate-pair and independent-plane-chain checks."
+  },
+  {
+    "case": "nist/nist_ctc_03_asme1_ap242",
+    "path": "python_readback.existing[key=dimension|Location_LinearDistance|[101]|[16,17,18,19]#1]",
+    "pattern": "Python reports new shared-planner General dimensions which settle no Specify interview question (#75)",
+    "verdict": "rust-correct",
+    "evidence": "Shared planner, #75: this exact nominal-only dimension is newly written from quiddity::dimensioning v0.4.0 under the part general tolerance. The independently recaptured Python reader reports it; Specify read_existing intentionally excludes authored DimTolerance::None dimensions (#63, src/existing.rs), because they settle no interview question. The raw PMI, scene and characteristic APIs retain them. tests/planner_dimensions.rs checks the complete required STEP set; cross_engine byte-checks every current output and verifies the independent readback hashes. This entry explains only this measured root, with no projection of values or supports; original imported PMI remains compared."
+  },
+  {
+    "case": "nist/nist_ctc_03_asme1_ap242",
+    "path": "python_readback.existing[key=dimension|Location_LinearDistance|[101]|[38,39]#1]",
+    "pattern": "Python reports new shared-planner General dimensions which settle no Specify interview question (#75)",
+    "verdict": "rust-correct",
+    "evidence": "Shared planner, #75: this exact nominal-only dimension is newly written from quiddity::dimensioning v0.4.0 under the part general tolerance. The independently recaptured Python reader reports it; Specify read_existing intentionally excludes authored DimTolerance::None dimensions (#63, src/existing.rs), because they settle no interview question. The raw PMI, scene and characteristic APIs retain them. tests/planner_dimensions.rs checks the complete required STEP set; cross_engine byte-checks every current output and verifies the independent readback hashes. This entry explains only this measured root, with no projection of values or supports; original imported PMI remains compared."
+  },
+  {
+    "case": "nist/nist_ctc_03_asme1_ap242",
+    "path": "python_readback.existing[key=dimension|Location_LinearDistance|[101]|[40,41]#1]",
+    "pattern": "Python reports new shared-planner General dimensions which settle no Specify interview question (#75)",
+    "verdict": "rust-correct",
+    "evidence": "Shared planner, #75: this exact nominal-only dimension is newly written from quiddity::dimensioning v0.4.0 under the part general tolerance. The independently recaptured Python reader reports it; Specify read_existing intentionally excludes authored DimTolerance::None dimensions (#63, src/existing.rs), because they settle no interview question. The raw PMI, scene and characteristic APIs retain them. tests/planner_dimensions.rs checks the complete required STEP set; cross_engine byte-checks every current output and verifies the independent readback hashes. This entry explains only this measured root, with no projection of values or supports; original imported PMI remains compared."
+  },
+  {
+    "case": "nist/nist_ctc_03_asme1_ap242",
+    "path": "python_readback.existing[key=dimension|Location_LinearDistance|[101]|[42,43]#1]",
+    "pattern": "Resolved exact unsupported or superseded General item (shared planner, #75)",
+    "verdict": "resolved",
+    "evidence": "Shared planner, #75: fresh independent STEP readback and current writer byte comparison. The 211.458 mm General location from [101] now has complete semantic target [24, 25, 26, 27, 28, 29, 42, 43], replacing the old subset [42, 43]. This real MultipleElements/pattern target includes the covered coincident claimants and recognised constituent faces. There is one physical row; the former subset-only root is absent. This resolved entry asserts continued absence of this exact former difference; it never explains away a returning difference. The actual corpus PMI passes face-support, duplicate-pair and independent-plane-chain checks."
+  },
+  {
+    "case": "nist/nist_ctc_03_asme1_ap242",
+    "path": "python_readback.existing[key=dimension|Location_LinearDistance|[16,17]|#1]",
+    "pattern": "Python reports new shared-planner General dimensions which settle no Specify interview question (#75)",
+    "verdict": "rust-correct",
+    "evidence": "Shared planner, #75: this exact nominal-only dimension is newly written from quiddity::dimensioning v0.4.0 under the part general tolerance. The independently recaptured Python reader reports it; Specify read_existing intentionally excludes authored DimTolerance::None dimensions (#63, src/existing.rs), because they settle no interview question. The raw PMI, scene and characteristic APIs retain them. tests/planner_dimensions.rs checks the complete required STEP set; cross_engine byte-checks every current output and verifies the independent readback hashes. This entry explains only this measured root, with no projection of values or supports; original imported PMI remains compared."
+  },
+  {
+    "case": "nist/nist_ctc_03_asme1_ap242",
+    "path": "python_readback.existing[key=dimension|Location_LinearDistance|[18,19]|#1]",
+    "pattern": "Resolved exact unsupported or superseded General item (shared planner, #75)",
+    "verdict": "resolved",
+    "evidence": "Shared planner, #75: fresh independent STEP readback and current writer byte comparison. The former location from [18, 19] had an empty destination face support. The turned/envelope deferral and writer guard now prevent this row; no synthetic point location is written. This resolved entry asserts continued absence of this exact former difference; it never explains away a returning difference. The actual corpus PMI passes face-support, duplicate-pair and independent-plane-chain checks."
+  },
+  {
+    "case": "nist/nist_ctc_03_asme1_ap242",
+    "path": "python_readback.existing[key=dimension|Location_LinearDistance|[42,43]|[28,29]#1]",
+    "pattern": "Python reports new shared-planner General dimensions which settle no Specify interview question (#75)",
+    "verdict": "rust-correct",
+    "evidence": "Shared planner, #75: this exact nominal-only dimension is newly written from quiddity::dimensioning v0.4.0 under the part general tolerance. The independently recaptured Python reader reports it; Specify read_existing intentionally excludes authored DimTolerance::None dimensions (#63, src/existing.rs), because they settle no interview question. The raw PMI, scene and characteristic APIs retain them. tests/planner_dimensions.rs checks the complete required STEP set; cross_engine byte-checks every current output and verifies the independent readback hashes. This entry explains only this measured root, with no projection of values or supports; original imported PMI remains compared."
+  },
+  {
+    "case": "nist/nist_ctc_03_asme1_ap242",
+    "path": "python_readback.existing[key=dimension|Location_LinearDistance|[90,93]|[16,17,18,19]#1]",
+    "pattern": "Python reports new shared-planner General dimensions which settle no Specify interview question (#75)",
+    "verdict": "rust-correct",
+    "evidence": "Shared planner, #75: this exact nominal-only dimension is newly written from quiddity::dimensioning v0.4.0 under the part general tolerance. The independently recaptured Python reader reports it; Specify read_existing intentionally excludes authored DimTolerance::None dimensions (#63, src/existing.rs), because they settle no interview question. The raw PMI, scene and characteristic APIs retain them. tests/planner_dimensions.rs checks the complete required STEP set; cross_engine byte-checks every current output and verifies the independent readback hashes. This entry explains only this measured root, with no projection of values or supports; original imported PMI remains compared."
+  },
+  {
+    "case": "nist/nist_ctc_03_asme1_ap242",
+    "path": "python_readback.existing[key=dimension|Location_LinearDistance|[90,93]|[38,39]#1]",
+    "pattern": "Python reports new shared-planner General dimensions which settle no Specify interview question (#75)",
+    "verdict": "rust-correct",
+    "evidence": "Shared planner, #75: this exact nominal-only dimension is newly written from quiddity::dimensioning v0.4.0 under the part general tolerance. The independently recaptured Python reader reports it; Specify read_existing intentionally excludes authored DimTolerance::None dimensions (#63, src/existing.rs), because they settle no interview question. The raw PMI, scene and characteristic APIs retain them. tests/planner_dimensions.rs checks the complete required STEP set; cross_engine byte-checks every current output and verifies the independent readback hashes. This entry explains only this measured root, with no projection of values or supports; original imported PMI remains compared."
+  },
+  {
+    "case": "nist/nist_ctc_03_asme1_ap242",
+    "path": "python_readback.existing[key=dimension|Location_LinearDistance|[90,93]|[40,41]#1]",
+    "pattern": "Python reports new shared-planner General dimensions which settle no Specify interview question (#75)",
+    "verdict": "rust-correct",
+    "evidence": "Shared planner, #75: this exact nominal-only dimension is newly written from quiddity::dimensioning v0.4.0 under the part general tolerance. The independently recaptured Python reader reports it; Specify read_existing intentionally excludes authored DimTolerance::None dimensions (#63, src/existing.rs), because they settle no interview question. The raw PMI, scene and characteristic APIs retain them. tests/planner_dimensions.rs checks the complete required STEP set; cross_engine byte-checks every current output and verifies the independent readback hashes. This entry explains only this measured root, with no projection of values or supports; original imported PMI remains compared."
+  },
+  {
+    "case": "nist/nist_ctc_03_asme1_ap242",
+    "path": "python_readback.existing[key=dimension|Location_LinearDistance|[90,93]|[42,43]#1]",
+    "pattern": "Python reports new shared-planner General dimensions which settle no Specify interview question (#75)",
+    "verdict": "rust-correct",
+    "evidence": "Shared planner, #75: this exact nominal-only dimension is newly written from quiddity::dimensioning v0.4.0 under the part general tolerance. The independently recaptured Python reader reports it; Specify read_existing intentionally excludes authored DimTolerance::None dimensions (#63, src/existing.rs), because they settle no interview question. The raw PMI, scene and characteristic APIs retain them. tests/planner_dimensions.rs checks the complete required STEP set; cross_engine byte-checks every current output and verifies the independent readback hashes. This entry explains only this measured root, with no projection of values or supports; original imported PMI remains compared."
+  },
+  {
+    "case": "nist/nist_ctc_03_asme1_ap242",
+    "path": "python_readback.existing[key=dimension|Location_LinearDistance|[90,93]|[83,86]#1]",
+    "pattern": "Python reports new shared-planner General dimensions which settle no Specify interview question (#75)",
+    "verdict": "rust-correct",
+    "evidence": "Shared planner, #75: this exact nominal-only dimension is newly written from quiddity::dimensioning v0.4.0 under the part general tolerance. The independently recaptured Python reader reports it; Specify read_existing intentionally excludes authored DimTolerance::None dimensions (#63, src/existing.rs), because they settle no interview question. The raw PMI, scene and characteristic APIs retain them. tests/planner_dimensions.rs checks the complete required STEP set; cross_engine byte-checks every current output and verifies the independent readback hashes. This entry explains only this measured root, with no projection of values or supports; original imported PMI remains compared."
+  },
+  {
+    "case": "nist/nist_ctc_03_asme1_ap242",
+    "path": "python_readback.existing[key=dimension|Size_Diameter|[16,17,18,19]|#2]",
+    "pattern": "Resolved exact unsupported or superseded General item (shared planner, #75)",
+    "verdict": "resolved",
+    "evidence": "Shared planner, #75: fresh independent STEP readback and current writer byte comparison. The former General bore-size root on [16, 17, 18, 19] is no longer appended beside the existing/answered size contract. Specified-wins retains the authoritative size; any General group that cannot reconcile its contract is omitted and reported. No duplicate General diameter is exempted. This resolved entry asserts continued absence of this exact former difference; it never explains away a returning difference. The actual corpus PMI passes face-support, duplicate-pair and independent-plane-chain checks."
+  },
+  {
+    "case": "nist/nist_ctc_05_asme1_ap242",
+    "path": "python_readback.existing[key=dimension|Location_LinearDistance|[8]|[73]#1]",
+    "pattern": "Python reports new shared-planner General dimensions which settle no Specify interview question (#75)",
+    "verdict": "rust-correct",
+    "evidence": "Shared planner, #75: this exact nominal-only dimension is newly written from quiddity::dimensioning v0.4.0 under the part general tolerance. The independently recaptured Python reader reports it; Specify read_existing intentionally excludes authored DimTolerance::None dimensions (#63, src/existing.rs), because they settle no interview question. The raw PMI, scene and characteristic APIs retain them. tests/planner_dimensions.rs checks the complete required STEP set; cross_engine byte-checks every current output and verifies the independent readback hashes. This entry explains only this measured root, with no projection of values or supports; original imported PMI remains compared."
+  },
+  {
+    "case": "nist/nist_ctc_05_asme1_ap242",
+    "path": "python_readback.existing[key=dimension|Location_LinearDistance|[8]|[78,79]#1]",
+    "pattern": "Resolved exact unsupported or superseded General item (shared planner, #75)",
+    "verdict": "resolved",
+    "evidence": "Shared planner, #75: fresh independent STEP readback and current writer byte comparison. The 171.45 mm General location from [8] now has complete semantic target [78, 79, 84, 85], replacing the old subset [78, 79]. This real MultipleElements/pattern target includes the covered coincident claimants and recognised constituent faces. There is one physical row; the former subset-only root is absent. This resolved entry asserts continued absence of this exact former difference; it never explains away a returning difference. The actual corpus PMI passes face-support, duplicate-pair and independent-plane-chain checks."
+  },
+  {
+    "case": "nist/nist_ctc_05_asme1_ap242",
+    "path": "python_readback.existing[key=dimension|Location_LinearDistance|[8]|[80,81]#1]",
+    "pattern": "Resolved exact unsupported or superseded General item (shared planner, #75)",
+    "verdict": "resolved",
+    "evidence": "Shared planner, #75: fresh independent STEP readback and current writer byte comparison. The 206.375 mm General location from [8] now has complete semantic target [80, 81, 86, 87], replacing the old subset [80, 81]. This real MultipleElements/pattern target includes the covered coincident claimants and recognised constituent faces. There is one physical row; the former subset-only root is absent. This resolved entry asserts continued absence of this exact former difference; it never explains away a returning difference. The actual corpus PMI passes face-support, duplicate-pair and independent-plane-chain checks."
+  },
+  {
+    "case": "nist/nist_ctc_05_asme1_ap242",
+    "path": "python_readback.existing[key=dimension|Location_LinearDistance|[8]|[82,83]#1]",
+    "pattern": "Resolved exact unsupported or superseded General item (shared planner, #75)",
+    "verdict": "resolved",
+    "evidence": "Shared planner, #75: fresh independent STEP readback and current writer byte comparison. The 241.3 mm General location from [8] now has complete semantic target [82, 83, 88, 89], replacing the old subset [82, 83]. This real MultipleElements/pattern target includes the covered coincident claimants and recognised constituent faces. There is one physical row; the former subset-only root is absent. This resolved entry asserts continued absence of this exact former difference; it never explains away a returning difference. The actual corpus PMI passes face-support, duplicate-pair and independent-plane-chain checks."
+  },
+  {
+    "case": "nist/nist_ctc_05_asme1_ap242",
+    "path": "python_readback.existing[key=dimension|Location_LinearDistance|[9]|[29,30]#1]",
+    "pattern": "Python reports new shared-planner General dimensions which settle no Specify interview question (#75)",
+    "verdict": "rust-correct",
+    "evidence": "Shared planner, #75: this exact nominal-only dimension is newly written from quiddity::dimensioning v0.4.0 under the part general tolerance. The independently recaptured Python reader reports it; Specify read_existing intentionally excludes authored DimTolerance::None dimensions (#63, src/existing.rs), because they settle no interview question. The raw PMI, scene and characteristic APIs retain them. tests/planner_dimensions.rs checks the complete required STEP set; cross_engine byte-checks every current output and verifies the independent readback hashes. This entry explains only this measured root, with no projection of values or supports; original imported PMI remains compared."
+  },
+  {
+    "case": "nist/nist_ctc_05_asme1_ap242",
+    "path": "python_readback.existing[key=dimension|Location_LinearDistance|[9]|[2]#1]",
+    "pattern": "Python reports new shared-planner General dimensions which settle no Specify interview question (#75)",
+    "verdict": "rust-correct",
+    "evidence": "Shared planner, #75: this exact nominal-only dimension is newly written from quiddity::dimensioning v0.4.0 under the part general tolerance. The independently recaptured Python reader reports it; Specify read_existing intentionally excludes authored DimTolerance::None dimensions (#63, src/existing.rs), because they settle no interview question. The raw PMI, scene and characteristic APIs retain them. tests/planner_dimensions.rs checks the complete required STEP set; cross_engine byte-checks every current output and verifies the independent readback hashes. This entry explains only this measured root, with no projection of values or supports; original imported PMI remains compared."
+  },
+  {
+    "case": "nist/nist_ctc_05_asme1_ap242",
+    "path": "python_readback.existing[key=dimension|Location_LinearDistance|[9]|[31,32]#1]",
+    "pattern": "Python reports new shared-planner General dimensions which settle no Specify interview question (#75)",
+    "verdict": "rust-correct",
+    "evidence": "Shared planner, #75: this exact nominal-only dimension is newly written from quiddity::dimensioning v0.4.0 under the part general tolerance. The independently recaptured Python reader reports it; Specify read_existing intentionally excludes authored DimTolerance::None dimensions (#63, src/existing.rs), because they settle no interview question. The raw PMI, scene and characteristic APIs retain them. tests/planner_dimensions.rs checks the complete required STEP set; cross_engine byte-checks every current output and verifies the independent readback hashes. This entry explains only this measured root, with no projection of values or supports; original imported PMI remains compared."
+  },
+  {
+    "case": "nist/nist_ctc_05_asme1_ap242",
+    "path": "python_readback.existing[key=dimension|Location_LinearDistance|[9]|[33,34]#1]",
+    "pattern": "Python reports new shared-planner General dimensions which settle no Specify interview question (#75)",
+    "verdict": "rust-correct",
+    "evidence": "Shared planner, #75: this exact nominal-only dimension is newly written from quiddity::dimensioning v0.4.0 under the part general tolerance. The independently recaptured Python reader reports it; Specify read_existing intentionally excludes authored DimTolerance::None dimensions (#63, src/existing.rs), because they settle no interview question. The raw PMI, scene and characteristic APIs retain them. tests/planner_dimensions.rs checks the complete required STEP set; cross_engine byte-checks every current output and verifies the independent readback hashes. This entry explains only this measured root, with no projection of values or supports; original imported PMI remains compared."
+  },
+  {
+    "case": "nist/nist_ctc_05_asme1_ap242",
+    "path": "python_readback.existing[key=dimension|Location_LinearDistance|[9]|[35,36]#1]",
+    "pattern": "Python reports new shared-planner General dimensions which settle no Specify interview question (#75)",
+    "verdict": "rust-correct",
+    "evidence": "Shared planner, #75: this exact nominal-only dimension is newly written from quiddity::dimensioning v0.4.0 under the part general tolerance. The independently recaptured Python reader reports it; Specify read_existing intentionally excludes authored DimTolerance::None dimensions (#63, src/existing.rs), because they settle no interview question. The raw PMI, scene and characteristic APIs retain them. tests/planner_dimensions.rs checks the complete required STEP set; cross_engine byte-checks every current output and verifies the independent readback hashes. This entry explains only this measured root, with no projection of values or supports; original imported PMI remains compared."
+  },
+  {
+    "case": "nist/nist_ctc_05_asme1_ap242",
+    "path": "python_readback.existing[key=dimension|Location_LinearDistance|[9]|[37]#1]",
+    "pattern": "Resolved exact unsupported or superseded General item (shared planner, #75)",
+    "verdict": "resolved",
+    "evidence": "Shared planner, #75: fresh independent STEP readback and current writer byte comparison. The 263.525 mm General location from [9] now has complete semantic target [37, 51, 53, 54, 56], replacing the old subset [37]. This real MultipleElements/pattern target includes the covered coincident claimants and recognised constituent faces. There is one physical row; the former subset-only root is absent. This resolved entry asserts continued absence of this exact former difference; it never explains away a returning difference. The actual corpus PMI passes face-support, duplicate-pair and independent-plane-chain checks."
+  },
+  {
+    "case": "nist/nist_ctc_05_asme1_ap242",
+    "path": "python_readback.existing[key=dimension|Location_LinearDistance|[9]|[39,41]#1]",
+    "pattern": "Resolved exact unsupported or superseded General item (shared planner, #75)",
+    "verdict": "resolved",
+    "evidence": "Shared planner, #75: fresh independent STEP readback and current writer byte comparison. The 71.0509 mm General location from [9] now has complete semantic target [39, 41, 42, 44], replacing the old subset [39, 41]. This real MultipleElements/pattern target includes the covered coincident claimants and recognised constituent faces. There is one physical row; the former subset-only root is absent. This resolved entry asserts continued absence of this exact former difference; it never explains away a returning difference. The actual corpus PMI passes face-support, duplicate-pair and independent-plane-chain checks."
+  },
+  {
+    "case": "nist/nist_ctc_05_asme1_ap242",
+    "path": "python_readback.existing[key=dimension|Location_LinearDistance|[9]|[45,47]#1]",
+    "pattern": "Resolved exact unsupported or superseded General item (shared planner, #75)",
+    "verdict": "resolved",
+    "evidence": "Shared planner, #75: fresh independent STEP readback and current writer byte comparison. The 152.412 mm General location from [9] now has complete semantic target [45, 47, 48, 50], replacing the old subset [45, 47]. This real MultipleElements/pattern target includes the covered coincident claimants and recognised constituent faces. There is one physical row; the former subset-only root is absent. This resolved entry asserts continued absence of this exact former difference; it never explains away a returning difference. The actual corpus PMI passes face-support, duplicate-pair and independent-plane-chain checks."
+  },
+  {
+    "case": "nist/nist_ctc_05_asme1_ap242",
+    "path": "python_readback.existing[key=dimension|Location_LinearDistance|[9]|[57,59]#1]",
+    "pattern": "Resolved exact unsupported or superseded General item (shared planner, #75)",
+    "verdict": "resolved",
+    "evidence": "Shared planner, #75: fresh independent STEP readback and current writer byte comparison. The 374.638 mm General location from [9] now has complete semantic target [57, 59, 60, 62], replacing the old subset [57, 59]. This real MultipleElements/pattern target includes the covered coincident claimants and recognised constituent faces. There is one physical row; the former subset-only root is absent. This resolved entry asserts continued absence of this exact former difference; it never explains away a returning difference. The actual corpus PMI passes face-support, duplicate-pair and independent-plane-chain checks."
+  },
+  {
+    "case": "nist/nist_ctc_05_asme1_ap242",
+    "path": "python_readback.existing[key=dimension|Location_LinearDistance|[9]|[63,65]#1]",
+    "pattern": "Resolved exact unsupported or superseded General item (shared planner, #75)",
+    "verdict": "resolved",
+    "evidence": "Shared planner, #75: fresh independent STEP readback and current writer byte comparison. The 455.999 mm General location from [9] now has complete semantic target [63, 65, 66, 68], replacing the old subset [63, 65]. This real MultipleElements/pattern target includes the covered coincident claimants and recognised constituent faces. There is one physical row; the former subset-only root is absent. This resolved entry asserts continued absence of this exact former difference; it never explains away a returning difference. The actual corpus PMI passes face-support, duplicate-pair and independent-plane-chain checks."
+  },
+  {
+    "case": "nist/nist_ctc_05_asme1_ap242",
+    "path": "python_readback.existing[key=dimension|Size_CurveLength|[29,30,31,32,33,34,35,36]|#1]",
+    "pattern": "Python reports new shared-planner General dimensions which settle no Specify interview question (#75)",
+    "verdict": "rust-correct",
+    "evidence": "Shared planner, #75: this exact nominal-only dimension is newly written from quiddity::dimensioning v0.4.0 under the part general tolerance. The independently recaptured Python reader reports it; Specify read_existing intentionally excludes authored DimTolerance::None dimensions (#63, src/existing.rs), because they settle no interview question. The raw PMI, scene and characteristic APIs retain them. tests/planner_dimensions.rs checks the complete required STEP set; cross_engine byte-checks every current output and verifies the independent readback hashes. This entry explains only this measured root, with no projection of values or supports; original imported PMI remains compared."
+  },
+  {
+    "case": "nist/nist_ctc_05_asme1_ap242",
+    "path": "python_readback.existing[key=dimension|Size_CurveLength|[37]|#1]",
+    "pattern": "Python reports new shared-planner General dimensions which settle no Specify interview question (#75)",
+    "verdict": "rust-correct",
+    "evidence": "Shared planner, #75: this exact nominal-only dimension is newly written from quiddity::dimensioning v0.4.0 under the part general tolerance. The independently recaptured Python reader reports it; Specify read_existing intentionally excludes authored DimTolerance::None dimensions (#63, src/existing.rs), because they settle no interview question. The raw PMI, scene and characteristic APIs retain them. tests/planner_dimensions.rs checks the complete required STEP set; cross_engine byte-checks every current output and verifies the independent readback hashes. This entry explains only this measured root, with no projection of values or supports; original imported PMI remains compared."
+  },
+  {
+    "case": "nist/nist_ctc_05_asme1_ap242",
+    "path": "python_readback.existing[key=dimension|Size_CurveLength|[39,41,42,44,45,47,48,50,51,53,54,56,57,59,60,62,63,65,66,68]|#1]",
+    "pattern": "Python reports new shared-planner General dimensions which settle no Specify interview question (#75)",
+    "verdict": "rust-correct",
+    "evidence": "Shared planner, #75: this exact nominal-only dimension is newly written from quiddity::dimensioning v0.4.0 under the part general tolerance. The independently recaptured Python reader reports it; Specify read_existing intentionally excludes authored DimTolerance::None dimensions (#63, src/existing.rs), because they settle no interview question. The raw PMI, scene and characteristic APIs retain them. tests/planner_dimensions.rs checks the complete required STEP set; cross_engine byte-checks every current output and verifies the independent readback hashes. This entry explains only this measured root, with no projection of values or supports; original imported PMI remains compared."
+  },
+  {
+    "case": "nist/nist_ctc_05_asme1_ap242",
+    "path": "python_readback.existing[key=dimension|Size_CurveLength|[78,79,80,81,82,83]|#1]",
+    "pattern": "Python reports new shared-planner General dimensions which settle no Specify interview question (#75)",
+    "verdict": "rust-correct",
+    "evidence": "Shared planner, #75: this exact nominal-only dimension is newly written from quiddity::dimensioning v0.4.0 under the part general tolerance. The independently recaptured Python reader reports it; Specify read_existing intentionally excludes authored DimTolerance::None dimensions (#63, src/existing.rs), because they settle no interview question. The raw PMI, scene and characteristic APIs retain them. tests/planner_dimensions.rs checks the complete required STEP set; cross_engine byte-checks every current output and verifies the independent readback hashes. This entry explains only this measured root, with no projection of values or supports; original imported PMI remains compared."
+  },
+  {
+    "case": "nist/nist_ctc_05_asme1_ap242",
+    "path": "python_readback.existing[key=dimension|Size_CurveLength|[84,85,86,87,88,89]|#1]",
+    "pattern": "Python reports new shared-planner General dimensions which settle no Specify interview question (#75)",
+    "verdict": "rust-correct",
+    "evidence": "Shared planner, #75: this exact nominal-only dimension is newly written from quiddity::dimensioning v0.4.0 under the part general tolerance. The independently recaptured Python reader reports it; Specify read_existing intentionally excludes authored DimTolerance::None dimensions (#63, src/existing.rs), because they settle no interview question. The raw PMI, scene and characteristic APIs retain them. tests/planner_dimensions.rs checks the complete required STEP set; cross_engine byte-checks every current output and verifies the independent readback hashes. This entry explains only this measured root, with no projection of values or supports; original imported PMI remains compared."
+  },
+  {
+    "case": "nist/nist_ctc_05_asme1_ap242",
+    "path": "python_readback.existing[key=dimension|Size_Diameter|[29,30,31,32,33,34,35,36]|#1]",
+    "pattern": "Python reports new shared-planner General dimensions which settle no Specify interview question (#75)",
+    "verdict": "rust-correct",
+    "evidence": "Shared planner, #75: this exact nominal-only dimension is newly written from quiddity::dimensioning v0.4.0 under the part general tolerance. The independently recaptured Python reader reports it; Specify read_existing intentionally excludes authored DimTolerance::None dimensions (#63, src/existing.rs), because they settle no interview question. The raw PMI, scene and characteristic APIs retain them. tests/planner_dimensions.rs checks the complete required STEP set; cross_engine byte-checks every current output and verifies the independent readback hashes. This entry explains only this measured root, with no projection of values or supports; original imported PMI remains compared."
+  },
+  {
+    "case": "nist/nist_ctc_05_asme1_ap242",
+    "path": "python_readback.existing[key=dimension|Size_Diameter|[39,41,42,44,45,47,48,50,51,53,54,56,57,59,60,62,63,65,66,68]|#1]",
+    "pattern": "Python reports new shared-planner General dimensions which settle no Specify interview question (#75)",
+    "verdict": "rust-correct",
+    "evidence": "Shared planner, #75: this exact nominal-only dimension is newly written from quiddity::dimensioning v0.4.0 under the part general tolerance. The independently recaptured Python reader reports it; Specify read_existing intentionally excludes authored DimTolerance::None dimensions (#63, src/existing.rs), because they settle no interview question. The raw PMI, scene and characteristic APIs retain them. tests/planner_dimensions.rs checks the complete required STEP set; cross_engine byte-checks every current output and verifies the independent readback hashes. This entry explains only this measured root, with no projection of values or supports; original imported PMI remains compared."
+  },
+  {
+    "case": "nist/nist_ctc_05_asme1_ap242",
+    "path": "python_readback.existing[key=dimension|Size_Diameter|[39,41,42,44,45,47,48,50,51,53,54,56,57,59,60,62,63,65,66,68]|#2]",
+    "pattern": "Python reports new shared-planner General dimensions which settle no Specify interview question (#75)",
+    "verdict": "rust-correct",
+    "evidence": "Shared planner, #75: this exact nominal-only dimension is newly written from quiddity::dimensioning v0.4.0 under the part general tolerance. The independently recaptured Python reader reports it; Specify read_existing intentionally excludes authored DimTolerance::None dimensions (#63, src/existing.rs), because they settle no interview question. The raw PMI, scene and characteristic APIs retain them. tests/planner_dimensions.rs checks the complete required STEP set; cross_engine byte-checks every current output and verifies the independent readback hashes. This entry explains only this measured root, with no projection of values or supports; original imported PMI remains compared."
+  },
+  {
+    "case": "nist/nist_ctc_05_asme1_ap242",
+    "path": "python_readback.existing[key=dimension|Size_Diameter|[78,79,80,81,82,83]|#1]",
+    "pattern": "Resolved exact unsupported or superseded General item (shared planner, #75)",
+    "verdict": "resolved",
+    "evidence": "Shared planner, #75: fresh independent STEP readback and current writer byte comparison. The former General bore-size root on [78, 79, 80, 81, 82, 83] is no longer appended beside the existing/answered size contract. Specified-wins retains the authoritative size; any General group that cannot reconcile its contract is omitted and reported. No duplicate General diameter is exempted. This resolved entry asserts continued absence of this exact former difference; it never explains away a returning difference. The actual corpus PMI passes face-support, duplicate-pair and independent-plane-chain checks."
+  },
+  {
+    "case": "nist/nist_ctc_05_asme1_ap242",
+    "path": "python_readback.existing[key=dimension|Size_Diameter|[84,85,86,87,88,89]|#1]",
+    "pattern": "Resolved exact unsupported or superseded General item (shared planner, #75)",
+    "verdict": "resolved",
+    "evidence": "Shared planner, #75: fresh independent STEP readback and current writer byte comparison. The former General bore-size root on [84, 85, 86, 87, 88, 89] is no longer appended beside the existing/answered size contract. Specified-wins retains the authoritative size; any General group that cannot reconcile its contract is omitted and reported. No duplicate General diameter is exempted. This resolved entry asserts continued absence of this exact former difference; it never explains away a returning difference. The actual corpus PMI passes face-support, duplicate-pair and independent-plane-chain checks."
+  },
+  {
+    "case": "nist/nist_ctc_01_asme1_ap242",
+    "path": "python_readback.existing[key=dimension|Location_LinearDistance|[4]|[0,1,71,72,73,74,91,92,93,94,95,96]#1]",
+    "pattern": "Exact shared-planner General dimension read only by Python (#63, #75)",
+    "verdict": "rust-correct",
+    "evidence": "Shared planner, #75: independent fresh STEP readback states Location_LinearDistance 400.0 mm on [4] to [0, 1, 71, 72, 73, 74, 91, 92, 93, 94, 95, 96]. The exact nominal-only dimension is retained as physical PMI but read_existing intentionally excludes authored untoleranced dimensions (#63); the independent Python reader includes it. Its complete semantic target includes every coincident hole or pattern origin, rather than silently dropping covered members. The corpus physical-support/duplicate/chain checks pass, and cross_engine verifies current writer bytes and reader evidence hashes. Only this exact item is covered."
+  },
+  {
+    "case": "nist/nist_ctc_01_asme1_ap242",
+    "path": "python_readback.existing[key=dimension|Location_LinearDistance|[6,22]|[0,1,71,72,73,74,91,92,93,94,95,96]#1]",
+    "pattern": "Exact shared-planner General dimension read only by Python (#63, #75)",
+    "verdict": "rust-correct",
+    "evidence": "Shared planner, #75: independent fresh STEP readback states Location_LinearDistance 225.0 mm on [6, 22] to [0, 1, 71, 72, 73, 74, 91, 92, 93, 94, 95, 96]. The exact nominal-only dimension is retained as physical PMI but read_existing intentionally excludes authored untoleranced dimensions (#63); the independent Python reader includes it. Its complete semantic target includes every coincident hole or pattern origin, rather than silently dropping covered members. The corpus physical-support/duplicate/chain checks pass, and cross_engine verifies current writer bytes and reader evidence hashes. Only this exact item is covered."
+  },
+  {
+    "case": "nist/nist_ctc_01_asme1_ap242",
+    "path": "python_readback.existing[key=dimension|Location_LinearDistance|[97]|[50,51,52,53,56,57,58,59]#1]",
+    "pattern": "Exact shared-planner General dimension read only by Python (#63, #75)",
+    "verdict": "rust-correct",
+    "evidence": "Shared planner, #75: independent fresh STEP readback states Location_LinearDistance 25.0 mm on [97] to [50, 51, 52, 53, 56, 57, 58, 59]. The exact nominal-only dimension is retained as physical PMI but read_existing intentionally excludes authored untoleranced dimensions (#63); the independent Python reader includes it. Its complete semantic target includes every coincident hole or pattern origin, rather than silently dropping covered members. The corpus physical-support/duplicate/chain checks pass, and cross_engine verifies current writer bytes and reader evidence hashes. Only this exact item is covered."
+  },
+  {
+    "case": "nist/nist_ctc_03_asme1_ap242",
+    "path": "python_readback.existing[key=dimension|Location_LinearDistance|[101]|[24,25,26,27,28,29,42,43]#1]",
+    "pattern": "Exact shared-planner General dimension read only by Python (#63, #75)",
+    "verdict": "rust-correct",
+    "evidence": "Shared planner, #75: independent fresh STEP readback states Location_LinearDistance 211.45754 mm on [101] to [24, 25, 26, 27, 28, 29, 42, 43]. The exact nominal-only dimension is retained as physical PMI but read_existing intentionally excludes authored untoleranced dimensions (#63); the independent Python reader includes it. Its complete semantic target includes every coincident hole or pattern origin, rather than silently dropping covered members. The corpus physical-support/duplicate/chain checks pass, and cross_engine verifies current writer bytes and reader evidence hashes. Only this exact item is covered."
+  },
+  {
+    "case": "nist/nist_ctc_03_asme1_ap242",
+    "path": "python_readback.existing[key=dimension|Location_LinearDistance|[18,19]|[16,17]#1]",
+    "pattern": "Exact shared-planner General dimension read only by Python (#63, #75)",
+    "verdict": "rust-correct",
+    "evidence": "Shared planner, #75: independent fresh STEP readback states Location_LinearDistance 203.2 mm on [18, 19] to [16, 17]. The exact nominal-only dimension is retained as physical PMI but read_existing intentionally excludes authored untoleranced dimensions (#63); the independent Python reader includes it. This 203.2 pitch now uses aligned existing member holes, not the old diagonal or faceless destination. The corpus physical-support/duplicate/chain checks pass, and cross_engine verifies current writer bytes and reader evidence hashes. Only this exact item is covered."
+  },
+  {
+    "case": "nist/nist_ctc_05_asme1_ap242",
+    "path": "python_readback.existing[key=dimension|Location_LinearDistance|[9]|[37,51,53,54,56]#1]",
+    "pattern": "Exact shared-planner General dimension read only by Python (#63, #75)",
+    "verdict": "rust-correct",
+    "evidence": "Shared planner, #75: independent fresh STEP readback states Location_LinearDistance 263.525 mm on [9] to [37, 51, 53, 54, 56]. The exact nominal-only dimension is retained as physical PMI but read_existing intentionally excludes authored untoleranced dimensions (#63); the independent Python reader includes it. Its complete semantic target includes every coincident hole or pattern origin, rather than silently dropping covered members. The corpus physical-support/duplicate/chain checks pass, and cross_engine verifies current writer bytes and reader evidence hashes. Only this exact item is covered."
+  },
+  {
+    "case": "nist/nist_ctc_05_asme1_ap242",
+    "path": "python_readback.existing[key=dimension|Location_LinearDistance|[9]|[39,41,42,44]#1]",
+    "pattern": "Exact shared-planner General dimension read only by Python (#63, #75)",
+    "verdict": "rust-correct",
+    "evidence": "Shared planner, #75: independent fresh STEP readback states Location_LinearDistance 71.050854 mm on [9] to [39, 41, 42, 44]. The exact nominal-only dimension is retained as physical PMI but read_existing intentionally excludes authored untoleranced dimensions (#63); the independent Python reader includes it. Its complete semantic target includes every coincident hole or pattern origin, rather than silently dropping covered members. The corpus physical-support/duplicate/chain checks pass, and cross_engine verifies current writer bytes and reader evidence hashes. Only this exact item is covered."
+  },
+  {
+    "case": "nist/nist_ctc_05_asme1_ap242",
+    "path": "python_readback.existing[key=dimension|Location_LinearDistance|[9]|[45,47,48,50]#1]",
+    "pattern": "Exact shared-planner General dimension read only by Python (#63, #75)",
+    "verdict": "rust-correct",
+    "evidence": "Shared planner, #75: independent fresh STEP readback states Location_LinearDistance 152.412219 mm on [9] to [45, 47, 48, 50]. The exact nominal-only dimension is retained as physical PMI but read_existing intentionally excludes authored untoleranced dimensions (#63); the independent Python reader includes it. Its complete semantic target includes every coincident hole or pattern origin, rather than silently dropping covered members. The corpus physical-support/duplicate/chain checks pass, and cross_engine verifies current writer bytes and reader evidence hashes. Only this exact item is covered."
+  },
+  {
+    "case": "nist/nist_ctc_05_asme1_ap242",
+    "path": "python_readback.existing[key=dimension|Location_LinearDistance|[9]|[57,59,60,62]#1]",
+    "pattern": "Exact shared-planner General dimension read only by Python (#63, #75)",
+    "verdict": "rust-correct",
+    "evidence": "Shared planner, #75: independent fresh STEP readback states Location_LinearDistance 374.637781 mm on [9] to [57, 59, 60, 62]. The exact nominal-only dimension is retained as physical PMI but read_existing intentionally excludes authored untoleranced dimensions (#63); the independent Python reader includes it. Its complete semantic target includes every coincident hole or pattern origin, rather than silently dropping covered members. The corpus physical-support/duplicate/chain checks pass, and cross_engine verifies current writer bytes and reader evidence hashes. Only this exact item is covered."
+  },
+  {
+    "case": "nist/nist_ctc_05_asme1_ap242",
+    "path": "python_readback.existing[key=dimension|Location_LinearDistance|[9]|[63,65,66,68]#1]",
+    "pattern": "Exact shared-planner General dimension read only by Python (#63, #75)",
+    "verdict": "rust-correct",
+    "evidence": "Shared planner, #75: independent fresh STEP readback states Location_LinearDistance 455.999146 mm on [9] to [63, 65, 66, 68]. The exact nominal-only dimension is retained as physical PMI but read_existing intentionally excludes authored untoleranced dimensions (#63); the independent Python reader includes it. Its complete semantic target includes every coincident hole or pattern origin, rather than silently dropping covered members. The corpus physical-support/duplicate/chain checks pass, and cross_engine verifies current writer bytes and reader evidence hashes. Only this exact item is covered."
   }
 ]

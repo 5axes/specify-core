@@ -297,12 +297,16 @@ pub fn answers_for(loaded: &LoadedPart) -> Result<Option<Map<String, Value>>, Fe
         let features = crate::features::recognise(loaded)?;
         return Ok(report_for_parsed(loaded, Some(&doc), &features)?.map(|r| r.answers));
     }
-    Ok(match check(loaded, &payload, form)? {
+    let mut answers = match check(loaded, &payload, form)? {
         Check::Mismatch => None,
         Check::Verified | Check::Legacy => {
             payload.get("answers").and_then(Value::as_object).cloned()
         }
-    })
+    };
+    if let Some(answers) = &mut answers {
+        answers.extend(crate::bom::answered_in(&doc, &loaded.definition));
+    }
+    Ok(answers)
 }
 
 /// What a payload's face evidence (`face_count`, and `faces` of its `schema`) says of a part.
@@ -390,6 +394,22 @@ const UNVERIFIED_EACH: &str = "the faces it was given for cannot be matched to t
 /// features. Legacy schemas contain no quiddity fingerprint: their ordered whole-part
 /// geometry fingerprint is the evidence tying each old face index to this geometry.
 pub fn report_for_parsed(
+    loaded: &LoadedPart,
+    doc: Option<&Document>,
+    features: &[crate::features::Feature],
+) -> Result<Option<Resumed>, FeatureError> {
+    let mut report = ordinary_report_for_parsed(loaded, doc, features)?;
+    if let Some(report) = &mut report
+        && let Some(doc) = doc
+    {
+        report
+            .answers
+            .extend(crate::bom::answered_in(doc, &loaded.definition));
+    }
+    Ok(report)
+}
+
+fn ordinary_report_for_parsed(
     loaded: &LoadedPart,
     doc: Option<&Document>,
     features: &[crate::features::Feature],

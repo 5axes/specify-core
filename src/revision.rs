@@ -2048,6 +2048,7 @@ pub fn diff(old: &LoadedPart, new: &LoadedPart, given: &Map<String, Value>) -> R
     };
     crate::characteristics::carry_revision(old, new, &corr, &mut carried)
         .map_err(api::Error::Analysis)?;
+    crate::bom::carry(old, &mut carried).map_err(api::Error::Analysis)?;
     let alignment = corr.alignment.clone();
     let mut revised = Revised {
         pmi,
