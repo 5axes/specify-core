@@ -1,4 +1,4 @@
-// The PMI on /diff's 3D view, drawn by the As drawn layer (drawn-layer.ts) over the diff's
+// The PMI on /diff's 3D view, drawn by the Graphical layer (drawn-layer.ts) over the diff's
 // three-cad-viewer view: the new revision's callouts, each in its change's colour, and the old
 // revision's removed ones as a translucent red ghost, as removed faces are. The layers are drawn
 // in a scene of their own, by renderers of their own over the viewer's canvas, as the Specify
