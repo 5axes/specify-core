@@ -544,16 +544,20 @@ pub(crate) fn allocate(
     }
     let eligible = |item: &Item| replace || item.key.kind == "datum";
     let mut used = BTreeSet::new();
-    // Pair unchanged coexisting controls first, so an insertion cannot steal a sibling's
-    // number. These value hints come from the actual entities, never stored identity.
+    // A unique structural key (including a planner role) wins even after a value edit.
+    // Only indistinguishable coexisting controls need value hints, so an insertion cannot
+    // steal a sibling's number. Hints come from actual entities, never stored identity.
     let mut matched = vec![None; new.len()];
     for (n, item) in new.iter().enumerate().filter(|(_, item)| eligible(item)) {
+        let unique = old.entries.iter().filter(|e| e.key == item.key).count() == 1
+            && new.iter().filter(|other| other.key == item.key).count() == 1;
         if let Some((i, _)) = old.entries.iter().enumerate().find(|(i, e)| {
             !used.contains(i)
                 && e.key == item.key
-                && value_hints
-                    .get(&e.number)
-                    .is_some_and(|hint| **hint == item.value_hint)
+                && (unique
+                    || value_hints
+                        .get(&e.number)
+                        .is_some_and(|hint| **hint == item.value_hint))
         }) {
             used.insert(i);
             matched[n] = Some(i);
