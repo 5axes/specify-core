@@ -221,3 +221,18 @@ test('views: a saved view with a camera, and one a way the shown graphics\' plan
   // would otherwise frame every graphic, as one with no graphics of its own does).
   assert.deepEqual(drawnViews(generated, shown({ default: true, existing: true, general: false })).map((v) => v.name), ['Saved', 'Plane 1: 10 · 20']);
 });
+
+test('looking square at a plane, its text reads along its x axis: /diff\'s removed ⌖ ⌀0.2 A (#12), whose up is -Z', () => {
+  // spindle_pmi_before's plane for #12 as pmiScene states it: x along +Y, facing -X, so the
+  // text's up (normal × x axis) is -Z, the way an orbit control holding +Z up would turn over.
+  const plane = { id: 'step:2099', name: '⌖ ⌀0.2 A', origin: [1.5, -10.587552, 1.9736], xAxis: [0, 1, 0], normal: [-1, 0, -2.22044604925e-16] };
+  const frame = { ...graphic, name: '⌖ ⌀0.2 A', planeId: plane.id, polylines: [[[1.5, -10.6, 1.9], [1.5, 0, 1.9]]] };
+  const pmi = { presentation: { items: { 'position:holes:15': [frame] }, unlinked: [], semanticIds: ['position:holes:15'], planes: [plane], views: [] }, links: {} };
+  const [view] = drawnViews(pmi, () => true);
+  const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  const near = (a, b) => a.every((x, k) => Math.abs(x - b[k]) < 1e-9);
+  assert.ok(near(view.eye, [-1, 0, 0]), `eye ${view.eye}`);
+  assert.ok(near(view.up, [0, 0, -1]), `up ${view.up}`);
+  // On screen, right is the look direction (−eye) × up: the plane's x axis, so the text reads left to right.
+  assert.ok(near(cross(view.eye.map((x) => -x), view.up), plane.xAxis), 'screen right is the plane\'s x axis');
+});
