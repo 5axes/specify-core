@@ -210,6 +210,11 @@ export function createCadView(
     ambientIntensity: 0.55, directIntensity: 0.7, metalness: 0.04, roughness: 0.6,
     edgeColor: 0x4a5058, defaultOpacity: 0.5, normalLen: 0,
   }, options);
+  // The orientation cube says which way the view faces; the viewer's XYZ marker in the corner
+  // is off by default (the toolbar's axes button still shows the axes on the part).
+  // The viewer builds its marker as it renders, so it is hidden each frame, not once.
+  const hideMarker = () => { try { viewer.orientationMarker.setVisible(false); } catch { /* not rendered yet */ } };
+  hideMarker();
   // The tree opened one level, its nodes closed. Set once the caller has set up what is shown:
   // the viewer's tree closes again as nodes are first shown or hidden.
   // On a narrow view (a phone), its tools and tree start folded too: they would cover half the
@@ -249,7 +254,7 @@ export function createCadView(
   canvas.addEventListener('wheel', press, { passive: true });
   const frames: (() => void)[] = [];
   let ticking = 0;
-  const tick = () => { for (const f of frames) f(); ticking = requestAnimationFrame(tick); };
+  const tick = () => { hideMarker(); for (const f of frames) f(); ticking = requestAnimationFrame(tick); };
   const vector = (v: readonly number[]) => new THREE.Vector3(v[0], v[1], v[2]);
 
   // The orientation cube, on a small canvas of its own at the canvas's top right, turned with the
@@ -362,7 +367,7 @@ export function createCadView(
       if (Math.abs(up.dot(along)) > 0.999) up = new THREE.Vector3(0, 0, 1);
       const aim = new THREE.Matrix4().lookAt(eye, target, up);
       viewer.setCameraQuaternion(new THREE.Quaternion().setFromRotationMatrix(aim).toArray() as [number, number, number, number], false);
-      viewer.setCameraZoom(Math.min(8, Math.max(0.5, box.getSize(new THREE.Vector3()).length() / Math.max(span, 1e-6))), false);
+      viewer.setCameraZoom(Math.min(8, Math.max(0.2, box.getSize(new THREE.Vector3()).length() / Math.max(span, 1e-6))), false);
     },
     show(path, visible) {
       if (visible) hidden.delete(path); else hidden.add(path);
