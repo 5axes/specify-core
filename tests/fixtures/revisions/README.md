@@ -95,3 +95,13 @@ MIT redistribution grant and copyright notice are in `LICENSE-cadgen`.
 Reproduce from an xcaf-pmi checkout using
 `xcaf-pmi tests/fixtures/cadgen_pmi_plate.xbf --step cadgen_pmi_plate.step`,
 then gzip with mtime 0. xcaf-pmi uses `cadquery-ocp-novtk>=8.0,<8.1`.
+
+
+Notes scene regressions (copied without modifying the STEP records; deterministic gzip):
+- `xcaf_pmi_plate.step.gz`: editor-team `31-xcaf_pmi_plate.step`, an xcaf-pmi export
+  with haecceity 0.2.8 callouts; material-only file block plus two semantic notes.
+- `spindle-q137.step.gz`: quiddity-rust `crates/haecceity/tests/fixtures/presentation/`.
+- `presentation_plate.step.gz`: quiddity-rust `tests/fixtures/ap242/presentation-placement/plate.step.gz`.
+- `cadgen_notes_plate.step.gz`: quiddity-rust `crates/haecceity/tests/fixtures/xcaf/pmi_plate.geom.step.gz`.
+The last three mirror #163's geometry checks. The existing NIST CTC-01 fixture completes
+the one-block sweep; bare geometry uses accepted defaults to supply notes.
