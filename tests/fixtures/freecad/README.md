@@ -19,3 +19,32 @@ Added in `7f6c942480` (2015-03-19); copied from dw-examples `steps/freecad/`.
 Uncompressed SHA-256: `e37e54ea1d82012caf60b181a140e8ae30be707473f438b937729d9edd2f536d`.
 Its three separate Ø19 lands share datum A. The regression checks that the
 0.4.2 datum-constituent reader does not merge their independent size supports.
+
+## Local acceptance check, 2026-11-01
+
+Read-only inputs from dw-examples `steps/freecad/`, with scratch outputs, answers
+`{"part.material":"6061-T6"}`, and `--accept-defaults`. Each file passed CLI
+analysis, write, PMI/answer readback and resave. GT2 is an assembly: analyse each
+of its three parts with `--part`, then supply all three analysis/answer pairs to
+one write.
+
+| Input | PRODUCT_TYPE instance ids rewritten |
+| --- | --- |
+| hex-standoff-m3.step | 769 |
+| nema17-mount-bracket.step | 24, 3381 |
+| bearing-608zz.step | 684 |
+| bearing-lm10uu.step | 922 |
+| gt2-pulley.stp | 702, 1398, 6389 |
+| retaining-ring-din471-m10.step | 1014 |
+
+Every other original entity record stayed byte-identical. Also checked FreeCAD's
+corner-bracket-2020, sk08 and l-plate-5-holes, plus text-to-cad's angle-bracket,
+stepped-shaft-keyway and circular-flange. Eleven of these twelve files have
+byte-identical output against `origin/main` (`d6f65a8`, kernel v0.4.1); LM10UU
+adds the independent size compositions described above. Existing warnings match.
+All twelve main outputs, new outputs and resaved main outputs read with v0.4.2
+and validate against the packaged PMI/presentation schemas (42 part scenes).
+
+Specify does not expose upstream `edition_rewrites` in its own write report;
+the existing report shape is retained. These checks compare the actual keyword
+rewrites and every original entity, rather than inferring conversion from success.

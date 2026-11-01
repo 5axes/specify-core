@@ -12,6 +12,10 @@ specific language governing permissions and limitations under the License.
 
 Third-party material:
 
+- tests/fixtures/freecad contains unmodified FreeCAD-library STEP files by
+  nicoguaro and Francisco, compressed for regression tests, under CC-BY-3.0.
+  Attribution, source links and the licence are in that directory.
+
 - src/specify_core/fonts/futural.jhf is the Hershey "Futura Light" single-stroke
   font in James Hurt's format, from https://github.com/kamalmostafa/hershey-fonts.
   The Hershey Fonts were originally created by Dr. A. V. Hershey while working
