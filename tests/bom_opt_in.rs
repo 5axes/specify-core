@@ -21,6 +21,7 @@ fn no_opt_in_matches_main_8d5a040_except_history_schema_through_api_and_cli() {
     // For #95/#96, retain main's no-BOM byte guard across history schemas. These hashes
     // were computed from the original captured 8d5a040 outputs, after verifying their
     // original SHA-256 pins (f527d60c, ca33fa37, cfddc2ec, 294a33b8 respectively).
+    // Canonicalized with the shared Rust helper (including its JSON map ordering).
     // Only schema/role/specification text is normalized; all other STEP bytes, history
     // counters, supports and actual ID_ATTRIBUTE values remain pinned. API/CLI bytes
     // still match each other exactly in all six defaulted/complete cases.
@@ -29,37 +30,37 @@ fn no_opt_in_matches_main_8d5a040_except_history_schema_through_api_and_cli() {
             "plate",
             false,
             true,
-            "9334541fdbfbea7679e8671ed986b095de9a709b12f5f92a681c4854cd6778af",
+            "719a9250015997e8021059afdaae4dc11bbbdd063dece04afde3d87080b6f8b4",
         ),
         (
             "assembly",
             true,
             false,
-            "f18c708898694e72a5f21f17754966e4a7957a1de5e26fa57525a6bc12721bdd",
+            "55652e8eace808ec52b16176c1d7d4081828aae04a403bc7c9e0f8084830d9f8",
         ),
         (
             "assembly",
             true,
             true,
-            "f18c708898694e72a5f21f17754966e4a7957a1de5e26fa57525a6bc12721bdd",
+            "55652e8eace808ec52b16176c1d7d4081828aae04a403bc7c9e0f8084830d9f8",
         ),
         (
             "assembly",
             false,
             true,
-            "325a5e135ff45c23c372cd2d43f2d7645fb3722756d6e078aef94ec01c8d765a",
+            "a039e2ec22bbaad786fbb311f39cb03ee031cffd6a79fff8c2753b00eaebeb9c",
         ),
         (
             "plate",
             true,
             false,
-            "95fbb3b5ade988f34e0a9a35e621a67256964797228d213cb0a1649fb7701382",
+            "c65e05be5d621d2b2a7d4780c2ec9c8b68eb44e3bbb76e7ec2306a7093a215f3",
         ),
         (
             "plate",
             true,
             true,
-            "95fbb3b5ade988f34e0a9a35e621a67256964797228d213cb0a1649fb7701382",
+            "c65e05be5d621d2b2a7d4780c2ec9c8b68eb44e3bbb76e7ec2306a7093a215f3",
         ),
     ] {
         let path = Path::new(env!("CARGO_MANIFEST_DIR"))
