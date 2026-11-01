@@ -150,3 +150,13 @@ test('the PMI scenes asked for are those the diff compared, and each item takes 
   assert.ok(!drawsItem(pmi, 'b'));
   assert.ok(!drawsItem(null, 'a'));
 });
+
+test('a section the page lists itself (its PMI changes) is left out of the report', () => {
+  const md = ['# x.step', '', 'Summary', '', '**What changed**', '', '- a face moved', '', '**PMI**', '', '- #13 changed', '', '**Answers not carried**', '', '- none'].join('\n');
+  const kept = reportHtml(md);
+  assert.match(kept, /#13 changed/);
+  const html = reportHtml(md, { omit: ['PMI'] });
+  assert.doesNotMatch(html, /#13 changed|>PMI</);
+  assert.match(html, /a face moved/);
+  assert.match(html, /Answers not carried/);
+});
