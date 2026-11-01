@@ -530,7 +530,10 @@ impl Reading {
             out.insert("notes".into(), Value::from(notes));
         }
         if let Some(text) = self.pmi.notes.iter().find_map(|note| {
-            (note.on.is_none() && edge_break_note(&note.text)).then_some(&note.text)
+            (note.on.is_none()
+                && note.kind == crate::writer::SEMANTIC_TEXT
+                && edge_break_note(&note.text))
+            .then_some(&note.text)
         }) {
             // A foreign part-level edge instruction answers the question as written.
             // Feature notes cannot establish a default for every edge of the part.
