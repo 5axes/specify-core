@@ -396,8 +396,9 @@ Pass an optional seventh argument `true` to `diff` to include
 `report.pmi.scenes: {old: PmiScene, new: PmiScene}` (also in each matched assembly
 part's report). Omitted/false keeps scene documents out of the report; removing
 `scenes` from an opted-in report gives the exact default JSON. The scenes are
-already built by the comparison: old uses given/stored answers; new uses carried
-answers unless it has Specify PMI, when actual semantic requirements win. They
+already built by the comparison: old uses explicit given answers, or actual file
+PMI with saved interview metadata when none are given; new uses carried answers
+unless it has Specify PMI, when actual semantic requirements win. They
 have the same shape as `pmiScene`, with fresh semantic notation rather than saved
 As Drawn ink. `view` continues to describe geometry; use the scene pair and
 `report.pmi.items` for the PMI overlays shown in the CLI PNG. Use this pair directly

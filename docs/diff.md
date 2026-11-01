@@ -140,9 +140,10 @@ Opt in to `report.pmi.scenes: {"old": PmiScene, "new": PmiScene}` using:
 - Python: `api.diff(old, new, answers, scenes=True)`.
 
 Both documents have the `pmiScene` shape (`pmi`, `presentation`, `specify`). They
-are the exact primary scenes already built by the comparison: old with the given
-or stored answers, new with carried answers unless the new file has Specify PMI,
-when its actual semantic requirements win. Comparison presentations use current
+are the exact primary scenes already built by the comparison: old with explicit
+given answers, or its actual file PMI with saved interview metadata when none
+are given; new with carried answers unless the new file has Specify PMI, when
+its actual semantic requirements win. Comparison presentations use current
 semantic notation, not potentially stale saved As Drawn ink. Supplemental
 carried-plan differences retain their existing `reason`; the new scene remains
 the actual destination. No additional scene derivation is performed. Assembly
