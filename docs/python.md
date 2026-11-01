@@ -70,6 +70,11 @@ specify-core wrote (schema 1) do not resume in Rust.
 
 Each of these is recorded with its reason (docs/known-differences.md, docs/questions.md):
 
+- **Assembly analysis includes a sourced `bom` row** for optional editor questions.
+  This Rust-engine extension is also exposed by the current Python package; the archived
+  Python oracle predates it. Exact per-part entries and evidence are in the
+  [analysis ledger](../tests/fixtures/known_differences/analysis.json). BOM writing remains
+  opt-in; see [the BOM contract](bom.md).
 - **Datums are proposed as measurement origins in ± mode too** (maintainer decision,
   draftwright-rust #122; rules version 2). The same A/B/C defaults apply, including a turned
   part's axis A and shoulder B. They are written as AP242 datum features without adding

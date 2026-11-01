@@ -479,7 +479,7 @@ input therefore stays gzipped. `write_bytes` returns STEP text. Tests: `tests/gz
 `tests/common/` (oracle stream): load a case, compare a Rust JSON value with the oracle's by path
 with numeric tolerances (relative 1e-9 by default, per-field overrides such as areas 1e-6),
 collect differences as `{case, path, python, rust}`. Each difference must match an entry in
-`tests/fixtures/known_differences/<area>.json`, one file per area (`features`, `existing`,
+`tests/fixtures/known_differences/<area>.json`, one file per area (`analysis`, `features`, `existing`,
 `rules`, `mates`, `mesh`, `anchors`, `writer`, `cli`), each owned by the stream for that area:
 
 ```json

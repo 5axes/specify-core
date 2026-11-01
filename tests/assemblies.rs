@@ -178,6 +178,16 @@ fn a_part_is_analysed_as_before_from_one_read() {
         let legacy = |mut analysis: Value, at: &str| {
             // For #79 the only additive analysis field is the sourced BOM row.
             // Keep comparing every pre-existing key, value and ordering to the old capture.
+            let difference = common::Difference {
+                case: format!("parts/assembly#{k}"),
+                path: "bom".into(),
+                python: None,
+                rust: analysis.get("bom").cloned(),
+            };
+            assert!(
+                common::explained(&["analysis"], &[difference]).is_empty(),
+                "unrecorded BOM addition"
+            );
             assert_eq!(
                 analysis.as_object_mut().unwrap().shift_remove("bom"),
                 Some(bom.clone())

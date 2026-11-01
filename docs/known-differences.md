@@ -11,6 +11,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 | Area | rust-correct | rust-wrong | equivalent | undetermined | not-applicable | resolved | Total |
 |---|---:|---:|---:|---:|---:|---:|---:|
+| [analysis](#analysis) | 5 | 0 | 0 | 0 | 0 | 0 | 5 |
 | [anchors](#anchors) | 4 | 0 | 2 | 1 | 2 | 0 | 9 |
 | [cli](#cli) | 143 | 0 | 52 | 0 | 2 | 1 | 198 |
 | [cross_engine](#cross_engine) | 8 | 1 | 0 | 1 | 1 | 0 | 11 |
@@ -21,7 +22,15 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 0 | 40 |
 | [rules](#rules) | 89 | 0 | 615 | 0 | 0 | 0 | 704 |
 | [writer](#writer) | 16 | 0 | 0 | 0 | 15 | 0 | 31 |
-| **all** | 3705 | 1433 | 1192 | 2489 | 1101 | 1687 | 11607 |
+| **all** | 3710 | 1433 | 1192 | 2489 | 1101 | 1687 | 11612 |
+
+## analysis
+
+### analysis: rust-correct (5 entries)
+
+- **Rust assembly analysis adds the sourced BOM row for optional editor questions** (5 entries, 5 case globs)
+
+  The evidence is stated per entry (5 distinct; all in `analysis.json`). The first, for `parts/stack#0` at `bom`: For #79, checked tests/fixtures/parts/stack.step: part 0 is base, with 1 placed occurrence(s) (NAUO #800). The archived Python oracle predates the BOM API and has no bom key. tests/api.rs::analyses_have_python_layout checks this row against the public BOM reader and independently asserts part index, native name, occurrence quantity and no allocated item number. It preserves every legacy key in Python order; tests/assemblies.rs additionally retains every captured legacy value and ordering for path, shared-file and in-memory reads. BOM metadata is needed before opt-in to display suggestions; no answers or STEP records are created. tests/bom_opt_in.rs verifies unchanged ordinary writes with and without default acceptance.
 
 ## anchors
 

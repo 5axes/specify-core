@@ -8,6 +8,9 @@ All notable changes to specify-core-rust. The format follows
 
 ### Changed
 
+- For #79: record the additive assembly `analysis.bom` field in the per-part oracle
+  ledger, preserving all legacy layout/value assertions and opt-in write behavior.
+
 - Fix #92: compare and label each part note by its semantic wording, so a change
   within the shared GENERAL NOTES graphic leaves other note requirements unchanged.
 - Pin quiddity and haecceity to v0.4.1. Recognition `/6` and fingerprints `/3`

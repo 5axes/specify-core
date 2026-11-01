@@ -74,7 +74,11 @@ are JSON null. Unnumbered files are not numbered merely by reading.
 - CLI: `specify-core bom assembly.step` (also accepts gzip through the normal loader).
 - Python: `specify_core.bom(path)` or `specify_core.api.bom(path)`.
 - WASM: `JSON.parse(IntentEngine.bom(stepBytes))`. The STEP size limit also applies.
-- Assembly analysis adds `bom`, that part's row. Existing `parts`, `analyse --part`
+- Assembly analysis adds `bom`, that part's row, even before writing is requested.
+  This Rust-engine extension lets the editor show optional questions from current file data;
+  reading it never accepts suggestions or allocates numbers. The archived Python oracle
+  predates BOM support: exact per-part departures are recorded in
+  [the analysis ledger](../tests/fixtures/known_differences/analysis.json). Existing `parts`, `analyse --part`
   and multi-part `write` workflows continue to select the parts being answered.
   Analysis derives only the selected row from the existing parsed document and PMI
   reading, rather than loading and reading the whole BOM again. A resumed part reads
