@@ -823,7 +823,12 @@ fn picture_draws_changed_added_and_removed_presentation_inside_the_frame() {
     let mut pixels = vec![0; reader.output_buffer_size().unwrap()];
     let info = reader.next_frame(&mut pixels).unwrap();
     let (mut orange, mut green, mut red) = (0, 0, 0);
-    for (i, pixel) in pixels[..info.buffer_size()].chunks_exact(3).enumerate() {
+    for (i, pixel) in pixels[..info.buffer_size()]
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .enumerate()
+    {
         let (r, g, b) = (pixel[0] as i32, pixel[1] as i32, pixel[2] as i32);
         let is_orange = r > g + 30 && g > b + 30;
         let is_green = g > r + 30 && g > b + 30;

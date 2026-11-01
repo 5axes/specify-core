@@ -193,6 +193,8 @@ The answers carried are, in order of preference:
 `model.png` is the new part, seen isometrically with Z up. Changed faces are orange, new faces
 green, faces that can't be told apart purple, and the rest grey. The old part's faces that are
 gone or moved are drawn over it in translucent red, placed by the matching motion.
+Changed PMI callouts and removed ghosts also appear, with the camera including
+their presentation geometry; see [PMI requirements](#pmi-requirements).
 
 ## Assemblies
 
