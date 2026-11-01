@@ -52,6 +52,57 @@ An additive write retains earlier snapshots; the last snapshot is current and it
 must be at least every preceding snapshot's counter. The property name is reserved from
 caller attributes. A corrupt history or exhausted counter refuses the write, without output.
 
+### Schema-2 key grammar (For #96)
+
+Keys are JSON objects with fields in the following writer order: `role`, `kind`, `type`,
+`faces`, `reference`. Face lists contain sorted, unique, zero-based face indices in the
+history's fingerprint namespace; an absent support is `[]`. Strings use ordinary JSON
+escaping. These spellings are a storage contract, independent of Rust enum names,
+Debug output and derived enum serialization.
+
+| `kind` | `type` | Base `role` |
+| --- | --- | --- |
+| `datum` | The stated datum label, e.g. `A` | `datum` |
+| `dimension` | Explicit size/location vocabulary below | `size` or `location` |
+| `geometric_tolerance` | Explicit tolerance vocabulary below | `feature`, `dimension`, `relation`, `whole_part` |
+| `surface_texture` | Stated ISO parameter names sorted and joined by `\|`, e.g. `Ra\|Rz` | `feature` or `whole_part` |
+| `thread` | `Internal` or `External` (explicit constants retained from schema 1) | `feature` |
+| `knurl` | `knurl` | `feature` |
+
+Size types are `Size_` followed by `CurveLength`, `Diameter`, `SphericalDiameter`,
+`Radius`, `SphericalRadius`, `ToroidalMinorDiameter`, `ToroidalMajorDiameter`,
+`ToroidalMinorRadius`, `ToroidalMajorRadius`, `ToroidalHighMajorDiameter`,
+`ToroidalLowMajorDiameter`, `ToroidalHighMajorRadius`, `ToroidalLowMajorRadius`,
+or `Thickness`. An angular size is `Size_Angular`; an otherwise unnamed size with
+a path is `Size_WithPath`, otherwise `Location_None` (the existing API convention).
+Location types are `Location_Angular`, `Location_CurvedDistance`,
+`Location_LinearDistance`, or `Location_LinearDistance_From<X>To<Y>` where X/Y are
+`Center`, `Inner`, `Outer`, excluding Center-to-Center. Unmapped location names use
+`Location_WithPath` when a path exists, otherwise `Location_None`.
+
+Tolerance types are `Angularity`, `CircularRunout`, `Coaxiality`, `Concentricity`,
+`Cylindricity`, `Flatness`, `ProfileOfLine`, `Parallelism`, `Perpendicularity`,
+`Position`, `CircularityOrRoundness`, `Straightness`, `ProfileOfSurface`, `Symmetry`,
+and `TotalRunout`. These are hand-written mappings in `existing.rs`, shared with
+the read API; changing an upstream variant's Rust spelling cannot change a key.
+
+A planned dimension appends `|planner:` to its base role, followed by
+`measure=<stated measurement role>` for a size (e.g. `measure=bore.depth`), or
+`axis=x`, `axis=y`, `axis=z` for a location. Measurement roles are literal planner
+measurement names, not its generated requirement IDs. An optional suffix describes
+the structural pattern role: `;pattern=first`, `;pattern=centre`, `;pattern=pitch`.
+Neither pattern counts nor pitch interval counts enter identity. An out-of-domain
+axis is spelled `unknown`; valid planner locations use axes 0–2.
+
+For example, an H7 hole fit and an h6 shaft fit both use `Size_Diameter`; `6H`/`6g`
+thread classes, `ISO 2768-m`, `qualifier=max`, `pattern=6x`, nominal/tolerance values,
+knurl patterns and GD&T modifiers are **values or notation, not key components**.
+They must not be added as ISO tokens to the key. The old
+`specification:"10.000000000|fit:Iso286Class { ... }"` becomes `role:"size"`;
+an old `specification:"0.200000000|[MaximumMaterialRequirement]|..."` becomes
+`role:"feature"`. A unique requirement keeps its number across either edit.
+Temporary matching hints compare typed values and are never serialized.
+
 ## Allocation and carry
 
 The **first allocation is in inspection order**, consecutively 1…N without gaps on a
@@ -159,10 +210,14 @@ existing kind/type/support match. Actual entity numbers and the high-water mark 
 The next rewrite or revision carry emits schema 2; a byte-preserving no-op may retain schema 1.
 Older engines that only accept schema 1 cannot rewrite schema-2 histories.
 
-Planner dimensions retain their structural planner id in `role` after `|planner:`.
-It distinguishes coincident measurements without storing their value or tolerance. Older
-schema-2 roles without this suffix still use the conservative unique-support fallback;
+Planner dimensions retain only their measurement/axis and structural pattern role after
+`|planner:`. Upstream generated IDs are not a storage format: stored IDs can include
+nominals and Debug tolerance text. Earlier unreleased schema-2 roles containing those
+IDs, and roles without a suffix, still use the conservative unique-support fallback;
 linear locations also retain main's reversed-support matching during planner upgrades.
+The `v0.1.6` fixture `characteristic-numbers-016.step.gz` contains authentic schema-1
+Debug fit/qualifier/pattern signatures. Its upgrade test rewrites all six requirements,
+retains every number and the high-water mark, and checks a second write is unchanged.
 
 For #96, the LM10UU regression pins the three independently sized Ø19 datum constituents.
 Their identities use leaf face supports `[0]`, `[4]`, `[8]`, `Size_Diameter` and role `size`;

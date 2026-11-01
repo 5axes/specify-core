@@ -13,6 +13,7 @@ use crate::part::LoadedPart;
 use crate::resume;
 
 mod inspection;
+mod keys;
 
 /// Part-level CAx-IF UDA. The characteristic itself uses standard `ID_ATTRIBUTE`, not a UDA.
 pub const PROPERTY: &str = "specify characteristic numbers";
@@ -65,7 +66,7 @@ struct Item {
     entity: u64,
     // Only an in-memory tie breaker for unchanged coexisting requirements. Never identity
     // or persisted history: a unique structural match survives any value edit.
-    value_hint: String,
+    value_hint: ValueHint,
 }
 
 fn is_a(doc: &Document, id: u64, ancestor: &str) -> bool {
@@ -104,20 +105,51 @@ pub(crate) fn texture_number(doc: &Document, ids: &[u64]) -> Option<u64> {
     number(doc, texture_root(Some(doc), ids))
 }
 
-fn measure(v: Option<&pmi::Value>) -> String {
-    v.map(|v| format!("{:.9}", crate::existing::value(v)))
+// These comparisons only disambiguate unchanged, coincident requirements. Keeping
+// typed values here prevents Debug (or any value spelling) becoming a storage format.
+#[derive(PartialEq, Eq)]
+enum ValueHint {
+    None,
+    Dimension(String, DimensionHint),
+    Tolerance(
+        String,
+        Vec<pmi::ToleranceModifier>,
+        Option<Vec<Vec<String>>>,
+    ),
+    Texture(pmi::MaterialRemoval, Vec<(String, String)>),
+    Thread(Option<String>),
+    Knurl(pmi::KnurlPattern),
+}
+
+#[derive(PartialEq, Eq)]
+enum DimensionHint {
+    None,
+    Basic,
+    Deviations(String, String),
+    Limits(String, String),
+    Fit(pmi::Iso286Class),
+}
+
+fn measure(value: Option<&pmi::Value>) -> String {
+    // Preserve the existing comparison's unit normalization and noise tolerance.
+    value
+        .map(|v| format!("{:.9}", crate::existing::value(v)))
         .unwrap_or_default()
 }
 
-fn dimension_hint(d: &pmi::Dimension) -> String {
+fn dimension_hint(d: &pmi::Dimension) -> ValueHint {
     let tolerance = match &d.tolerance {
-        pmi::DimTolerance::Fit { class, .. } => format!("fit:{class:?}"),
+        pmi::DimTolerance::None => DimensionHint::None,
+        pmi::DimTolerance::Basic => DimensionHint::Basic,
         pmi::DimTolerance::Deviations(b) => {
-            format!("{}:{}", measure(Some(b.upper())), measure(Some(b.lower())))
+            DimensionHint::Deviations(measure(Some(b.upper())), measure(Some(b.lower())))
         }
-        other => format!("{other:?}"),
+        pmi::DimTolerance::Limits(b) => {
+            DimensionHint::Limits(measure(Some(b.upper())), measure(Some(b.lower())))
+        }
+        pmi::DimTolerance::Fit { class, .. } => DimensionHint::Fit(*class),
     };
-    format!("{}|{tolerance}", measure(d.nominal.as_ref()))
+    ValueHint::Dimension(measure(d.nominal.as_ref()), tolerance)
 }
 
 /// Requirement identity is kind/type, target role and geometric support, including a
@@ -148,7 +180,7 @@ fn items(p: &PartPmi, prov: Option<&PartProvenance>, doc: Option<&Document>) -> 
             faces_of(p, &features),
             vec![],
             "datum",
-            String::new(),
+            ValueHint::None,
             entity,
         );
     }
@@ -198,8 +230,8 @@ fn items(p: &PartPmi, prov: Option<&PartProvenance>, doc: Option<&Document>) -> 
                 }
                 _ => None,
             })
-            .map(|p| p.required.id);
-        // Planner ids describe feature/support/measurement roles, never current values.
+            .map(|p| keys::planner(&p.required));
+        // Own the stored grammar: upstream planner IDs can contain values and Debug text.
         let role = planner.map_or_else(|| role.to_owned(), |id| format!("{role}|planner:{id}"));
         add(
             "dimension",
@@ -235,19 +267,20 @@ fn items(p: &PartPmi, prov: Option<&PartProvenance>, doc: Option<&Document>) -> 
                 ToleranceTarget::Relation { .. } => "relation",
                 ToleranceTarget::WholePart => "whole_part",
             },
-            format!(
-                "{}|{:?}|{:?}",
+            ValueHint::Tolerance(
                 measure(t.magnitude.as_ref()),
-                t.modifiers,
-                t.datums.as_ref().map(|s| s
-                    .compartments()
-                    .iter()
-                    .map(|c| c
-                        .references
+                t.modifiers.clone(),
+                t.datums.as_ref().map(|s| {
+                    s.compartments()
                         .iter()
-                        .map(|r| p.datums[r.datum.0].label().as_str())
-                        .collect::<Vec<_>>())
-                    .collect::<Vec<_>>())
+                        .map(|c| {
+                            c.references
+                                .iter()
+                                .map(|r| p.datums[r.datum.0].label().as_str().to_owned())
+                                .collect()
+                        })
+                        .collect()
+                }),
             ),
             root(
                 doc,
@@ -275,13 +308,12 @@ fn items(p: &PartPmi, prov: Option<&PartProvenance>, doc: Option<&Document>) -> 
             } else {
                 "whole_part"
             },
-            format!(
-                "{:?}|{:?}",
+            ValueHint::Texture(
                 t.material_removal,
                 t.parameters
                     .iter()
-                    .map(|p| format!("{}:{:.9}", p.characteristic, p.value.mm()))
-                    .collect::<Vec<_>>()
+                    .map(|p| (p.characteristic.clone(), format!("{:.9}", p.value.mm())))
+                    .collect(),
             ),
             entity,
         );
@@ -292,11 +324,11 @@ fn items(p: &PartPmi, prov: Option<&PartProvenance>, doc: Option<&Document>) -> 
     for (i, t) in p.threads.iter().enumerate() {
         add(
             "thread",
-            format!("{:?}", t.side),
+            keys::thread_side(t.side).into(),
             faces_of(p, &[t.feature]),
             vec![],
             "feature",
-            format!("{:?}", t.qualifier),
+            ValueHint::Thread(t.qualifier.clone()),
             root(
                 doc,
                 prov.map_or(&[], |v| &v.threads[i]),
@@ -311,7 +343,7 @@ fn items(p: &PartPmi, prov: Option<&PartProvenance>, doc: Option<&Document>) -> 
             faces_of(p, &[k.feature]),
             vec![],
             "feature",
-            format!("{:?}", k.pattern),
+            ValueHint::Knurl(k.pattern),
             root(
                 doc,
                 prov.map_or(&[], |v| &v.knurls[i]),

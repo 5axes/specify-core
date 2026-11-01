@@ -53,6 +53,76 @@ fn rebind(i: &rules::Intent, p: &part::LoadedPart) -> rules::Intent {
 }
 
 #[test]
+fn release_016_debug_history_upgrades_every_number_to_schema_2() {
+    // Captured by the unmodified v0.1.6 tag (d6f65a8), using this exact intent
+    // on parts/pin.step. Never regenerate this fixture with the current writer.
+    let old = load("characteristic-numbers-016.step.gz");
+    let mut i = rules::Intent::new(serde_json::to_value(&old.binding).unwrap());
+    i.datums.push(
+        json!({"letter":"A","faces":[6]})
+            .as_object()
+            .unwrap()
+            .clone(),
+    );
+    for (face, nominal, fit) in [(0, 10., "h6"), (3, 4.2, "H7")] {
+        let (upper, lower) = specify_core::standards::fit_limits(fit, nominal).unwrap();
+        requirement(
+            &mut i,
+            json!({"kind":"size","faces":[face],"nominal":nominal,"fit":fit,"upper":upper,"lower":lower}),
+        );
+    }
+    for r in [
+        json!({"kind":"flatness","faces":[6],"tolerance":0.2}),
+        json!({"kind":"thread","faces":[4],"side":"external","spec":"M6x1","class":"6g","hand":"RH","pitch":1.,"nominal":6.,"length":12.}),
+        json!({"kind":"knurl","faces":[0],"pattern":"diamond","pitch":1.,"diameter":10.}),
+    ] {
+        requirement(&mut i, r);
+    }
+    i.part
+        .insert("general_tolerance".into(), json!("ISO 2768-m"));
+    let history = |p: &part::LoadedPart| {
+        let doc = Document::parse(p.bytes.to_vec()).unwrap();
+        let read = haecceity::pmi::read(&doc, std::slice::from_ref(&p.definition)).unwrap();
+        let a = read.parts[0]
+            .attributes
+            .iter()
+            .find(|a| a.name == characteristics::PROPERTY)
+            .unwrap();
+        let haecceity::pmi::AttributeValue::Text(s) = &a.items[0].1 else {
+            panic!("history")
+        };
+        serde_json::from_str::<Value>(s).unwrap()
+    };
+    let prior = history(&old);
+    assert_eq!(prior["schema"], 1);
+    assert!(prior.to_string().contains("Iso286Class {"));
+    let upgraded = write(&old, &i);
+    let current = history(&upgraded);
+    assert_eq!(current["schema"], 2);
+    assert_eq!(current["high_water"], prior["high_water"]);
+    assert_eq!(current["entries"].as_array().unwrap().len(), 6);
+    let identity_numbers = |p: &part::LoadedPart| {
+        numbers(p)
+            .into_iter()
+            .map(|c| (c.number, c.kind, c.r#type, c.faces, c.reference))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(identity_numbers(&old), identity_numbers(&upgraded));
+    assert!(!current.to_string().contains("specification"));
+    assert!(!current.to_string().contains("Iso286Class"));
+    assert_eq!(
+        upgraded.bytes,
+        write(&upgraded, &rebind(&i, &upgraded)).bytes
+    );
+    let report = revision::diff(&old, &upgraded, &Map::new()).unwrap();
+    assert!(
+        report.pmi.items.iter().all(|c| c.class != "renumbered"),
+        "{:?}",
+        report.pmi.items
+    );
+}
+
+#[test]
 fn every_kind_round_trips_standard_ids_additively_and_is_exposed_in_analysis_and_pmi() {
     let p = load("parts/plate.step");
     let i = intent(&p);

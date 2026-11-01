@@ -72,6 +72,11 @@ All notable changes to specify-core-rust. The format follows
 
 ### Fixed
 
+- For #96: give characteristic-history schema 2 an explicit text vocabulary, independent
+  of Rust Debug and generated planner IDs. Keep fit classes, modifiers and values out of
+  identity; compare temporary matching hints as typed values. Pin readable keys and
+  preserve all six numbers when upgrading a file written by the v0.1.6 engine.
+
 - For #95: keep characteristic numbers through tolerance value and material-modifier edits,
   so diff reports one changed requirement without a spurious renumbering. History schema 2
   uses structural requirement identity; schema-1 files retain their numbers and high-water
