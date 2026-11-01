@@ -153,6 +153,7 @@ fn assert_same(got: &Value, want: &Value, at: &str) {
 fn a_part_is_analysed_as_before_from_one_read() {
     // quiddity #123 adds the pin's whole turned-body classification. The captured
     // base includes that one record; every face, feature and PMI field stays checked.
+    // #75 adds the complete typed shared-planner input to both frozen analyses.
     let base: Value = serde_json::from_str(
         &std::fs::read_to_string(
             common::fixtures()

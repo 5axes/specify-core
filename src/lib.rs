@@ -39,3 +39,4 @@ pub mod triangulate;
 pub mod writer;
 
 pub mod bom;
+mod dimensioning;

@@ -407,12 +407,34 @@ fn a_mixed_write_replaces_the_resumed_part_and_adds_to_the_other() {
     // The pin: added to, nothing lost (its datums, tolerance, material, the renamed set).
     assert!(!report.written.iter().any(|w| w.starts_with("pin: datum ")));
     let (before, after) = (pmi_of(&mixed, PIN), pmi_of(&x, PIN));
-    assert_eq!(after.datums, before.datums);
-    assert_eq!(after.tolerances, before.tolerances);
-    assert_eq!(after.dimensions, before.dimensions);
-    assert_eq!(after.material, before.material);
-    for a in &before.attributes {
-        assert!(after.attributes.contains(a), "the pin lost {a:?}");
+    // #75 can insert shared planner features before preserved imported aspects.
+    // Resolve every target and datum to its semantic supports instead of comparing
+    // arena indices; still compare all dimension/tolerance fields and counts.
+    assert_eq!(after.datums.len(), before.datums.len());
+    assert_eq!(
+        after.dimensions.len(),
+        before.dimensions.len(),
+        "{:?}",
+        pmi::write::differences_as_stated(&before, &after)
+    );
+    assert_eq!(after.tolerances.len(), before.tolerances.len());
+    let keys = |p: &pmi::PartPmi| {
+        pmi::write::differences_as_stated(&pmi::PartPmi::default(), p)
+            .into_iter()
+            .collect::<std::collections::BTreeSet<_>>()
+    };
+    let (old_keys, new_keys) = (keys(&before), keys(&after));
+    assert!(
+        old_keys.is_subset(&new_keys),
+        "lost: {:?}",
+        old_keys.difference(&new_keys)
+    );
+    // Only bookkeeping attributes may be added to the pin in this mixed write.
+    for added in new_keys.difference(&old_keys) {
+        assert!(
+            added.starts_with("attribute only in the second:"),
+            "unexpected: {added}"
+        );
     }
     assert_eq!(answers_for(&load(&x, Some(PIN)).unwrap()).unwrap(), None);
     assert_eq!(datum_count(&x), datum_count(&mixed));

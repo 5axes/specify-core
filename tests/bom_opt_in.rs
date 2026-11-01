@@ -10,52 +10,52 @@ fn hash(bytes: &[u8]) -> String {
         .collect()
 }
 #[test]
-fn no_opt_in_is_byte_identical_to_06a97df_through_api_and_cli() {
+fn no_opt_in_is_byte_identical_to_main_8d5a040_through_api_and_cli() {
     let dir = std::env::temp_dir().join(format!("bom-opt-in-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let complete: Vec<Map<String, Value>> =
         serde_json::from_str(include_str!("fixtures/bom/legacy-assembly-answers.json")).unwrap();
     let plate_complete: Map<String, Value> =
         serde_json::from_str(include_str!("fixtures/bom/legacy-plate-answers.json")).unwrap();
-    // SHA-256 of actual 06a97df CLI writes, including owners of answers/characteristic history.
-    // Revalidated unchanged against main d8073b5 with fresh per-engine analyses: all six
-    // single-part/assembly and complete/defaulted CLI writes match byte for byte.
+    // SHA-256 of pristine main 8d5a040 CLI writes, including planner dimensions and
+    // owners of answers/characteristic history. Captured with fresh per-engine analyses:
+    // all six single-part/assembly and complete/defaulted CLI writes match byte for byte.
     for (fixture, all_answered, defaults, expected) in [
         (
             "plate",
             false,
             true,
-            "3589e69db716bb0fe0a102b4c66ade65669743351f7bbe38b9b01ab242e55100",
+            "f527d60c401ded8dc99d0ec8e3e8e380edabf6aad9af8667dbd55c2cc34eb023",
         ),
         (
             "assembly",
             true,
             false,
-            "a4f8021e855fa74fb3644807daf885b2f45b04542a3c63400a0291a2d5a12170",
+            "ca33fa372e9d1be19ff1accc2e59ac7d945e977b64bf3565fc482a709a866b89",
         ),
         (
             "assembly",
             true,
             true,
-            "a4f8021e855fa74fb3644807daf885b2f45b04542a3c63400a0291a2d5a12170",
+            "ca33fa372e9d1be19ff1accc2e59ac7d945e977b64bf3565fc482a709a866b89",
         ),
         (
             "assembly",
             false,
             true,
-            "48260c09bfffc0dccb00739aa0b8723af95d439a7a235ce0594cdd29df129814",
+            "cfddc2ec06aed65d58d85b43f75e54ace80fe91f7047cc62d7e612822711b111",
         ),
         (
             "plate",
             true,
             false,
-            "551db0393e872689a0986d08e940ba2a479c72d36bbe831c8bbfe8cb4f5c3262",
+            "294a33b82728b26c94c3202f60d3e27bbed1036f8253ea0ad0b8f5a0b9bb59cf",
         ),
         (
             "plate",
             true,
             true,
-            "551db0393e872689a0986d08e940ba2a479c72d36bbe831c8bbfe8cb4f5c3262",
+            "294a33b82728b26c94c3202f60d3e27bbed1036f8253ea0ad0b8f5a0b9bb59cf",
         ),
     ] {
         let path = Path::new(env!("CARGO_MANIFEST_DIR"))

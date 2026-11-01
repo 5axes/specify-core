@@ -6,17 +6,15 @@
 //! edit of OpenCascade's output that this port does not make (haecceity writes a basic
 //! dimension as basic).
 
-mod common;
-
 use serde_json::{Map, Value, json};
 use specify_core::choices::interpret;
 use specify_core::locations::parse;
 use specify_core::rules::{Intent, LOCATING, apply_with_defaults, questions};
 
 fn plate() -> Value {
-    common::case("parts/plate")
-        .artifact("analysis")
-        .expect("a captured analysis")
+    let path =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/parts/plate.step");
+    specify_core::api::analyse(&specify_core::part::load(&path, None).unwrap()).unwrap()
 }
 
 fn answers(value: Value) -> Map<String, Value> {
@@ -49,7 +47,16 @@ fn positioned_holes_get_basic_dimensions_from_their_datum_planes() {
         .filter(|d| d["letter"] == "B" || d["letter"] == "C")
         .map(|d| &d["faces"])
         .collect();
-    assert!(basic.iter().all(|r| datum_faces.contains(&&r["reference"])));
+    let pitch =
+        |r: &&Map<String, Value>| r["planner"]["required"]["pattern"].get("pitch").is_some();
+    assert_eq!(basic.iter().filter(|r| pitch(r)).count(), 2); // the two counted grid pitches (#75)
+    assert_eq!(basic.len(), 5); // shared origin Y, two origin Xs, and two pitches
+    assert!(
+        basic
+            .iter()
+            .filter(|r| !pitch(r))
+            .all(|r| datum_faces.contains(&&r["reference"]))
+    );
     // The M5 hole at x=45, y=0 on a 100 x 60 plate: 95 and 30 from its edges.
     let mut m5: Vec<f64> = basic
         .iter()
@@ -57,7 +64,8 @@ fn positioned_holes_get_basic_dimensions_from_their_datum_planes() {
         .map(|r| r["distance"].as_f64().unwrap())
         .collect();
     m5.sort_by(f64::total_cmp);
-    assert_eq!(m5, [30.0, 95.0]);
+    assert_eq!(m5.len(), 2);
+    assert!(m5.iter().zip([30., 95.]).all(|(a, b)| (a - b).abs() < 1e-6));
 }
 
 // test_locations.py::test_holes_located_by_plus_minus_can_be_given_a_tolerance
@@ -88,7 +96,8 @@ fn holes_located_by_plus_minus_can_be_given_a_tolerance() {
     }));
     let intent = apply_with_defaults(&plate, &given, true).unwrap();
     let located = locations(&intent);
-    assert_eq!(located.len(), 12);
+    // Shared planner: two pattern-origin offsets and two counted pitches replace twelve member offsets (#75).
+    assert_eq!(located.len(), 4);
     assert!(
         located
             .iter()
@@ -186,13 +195,18 @@ fn plus_minus_locations_follow_changed_and_removed_datums() {
     assert!(
         located
             .iter()
+            .filter(|r| r["planner"]["required"]["pattern"].get("pitch").is_none())
             .all(|r| r["reference"] == json!([opposite["id"]]))
     );
-    assert!(located.iter().any(|r| {
-        !locations(&original)
-            .iter()
-            .any(|o| o["feature"] == r["feature"] && o["distance"] == r["distance"])
-    }));
+    // The grid, centre hole and M5 are symmetric at 30 from either Y side.
+    // Shared planner offsets therefore keep their value while changing their origin (#75).
+    let origins: Vec<_> = located
+        .iter()
+        .filter(|r| r["planner"]["required"]["pattern"].get("pitch").is_none())
+        .collect();
+    assert_eq!(origins.len(), 1);
+    assert!((origins[0]["distance"].as_f64().unwrap() - 30.).abs() < 1e-6);
+    assert_ne!(origins[0]["reference"], *old_b);
     assert!(
         located
             .iter()

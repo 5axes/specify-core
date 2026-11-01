@@ -207,7 +207,7 @@ fn keyed(items: &Value) -> Value {
 /// The ISO 286 limits each fit of `intent` means, by its sorted faces: the writer writes a fit
 /// as its class alone (and refuses an intent whose limits are not its class's), so a fit reads
 /// back with no limits, and the read-back is compared as the limits its class states.
-fn fits(intent: &Value) -> Vec<(Vec<u64>, f64, f64)> {
+fn fits(intent: &Value) -> Vec<(Vec<u64>, f64, f64, f64)> {
     let mut out = Vec::new();
     for r in intent["requirements"].as_array().into_iter().flatten() {
         let (Some(fit), Some(nominal)) = (r["fit"].as_str(), r["nominal"].as_f64()) else {
@@ -224,7 +224,7 @@ fn fits(intent: &Value) -> Vec<(Vec<u64>, f64, f64)> {
             .collect();
         faces.sort_unstable();
         if let Ok((upper, lower)) = specify_core::standards::fit_limits(fit, nominal) {
-            out.push((faces, upper, lower));
+            out.push((faces, nominal, upper, lower));
         }
     }
     out
@@ -232,7 +232,7 @@ fn fits(intent: &Value) -> Vec<(Vec<u64>, f64, f64)> {
 
 /// A Rust read-back with each size that reads back as a class alone (no limits, on the faces
 /// of one of `fits`) given the limits that class states.
-fn with_class_limits(rust: &Value, fits: &[(Vec<u64>, f64, f64)]) -> Value {
+fn with_class_limits(rust: &Value, fits: &[(Vec<u64>, f64, f64, f64)]) -> Value {
     let mut rust = rust.clone();
     for item in rust["existing"].as_array_mut().into_iter().flatten() {
         if item["kind"] != "dimension"
@@ -249,7 +249,12 @@ fn with_class_limits(rust: &Value, fits: &[(Vec<u64>, f64, f64)]) -> Value {
             .filter_map(Value::as_u64)
             .collect();
         faces.sort_unstable();
-        if let Some((_, upper, lower)) = fits.iter().find(|(f, _, _)| *f == faces) {
+        if let Some((_, _, upper, lower)) = fits.iter().find(|(f, nominal, _, _)| {
+            *f == faces
+                && item["value"]
+                    .as_f64()
+                    .is_some_and(|v| (v - nominal).abs() < 1e-6)
+        }) {
             item["upper"] = json!(upper);
             item["lower"] = json!(lower);
         }
@@ -409,6 +414,26 @@ fn rewrite(c: &Captured, dir: &Path) -> Vec<Difference> {
             out.extend(compare_readback(&name, python, &rust));
         }
     }
+    if let Some(dump) = std::env::var_os("SPECIFY_DUMP")
+        && output.is_file()
+    {
+        let dump = PathBuf::from(dump).join("writes");
+        std::fs::create_dir_all(&dump).unwrap();
+        std::fs::copy(&output, dump.join(output.file_name().unwrap())).unwrap();
+        let rows: Vec<_> = out
+            .iter()
+            .map(|d| {
+                json!({"case":d.case,"path":d.path,
+            "python":d.python,"rust":d.rust})
+            })
+            .collect();
+        std::fs::write(
+            dump.join(output.file_name().unwrap())
+                .with_extension("differences.json"),
+            serde_json::to_vec_pretty(&rows).unwrap(),
+        )
+        .unwrap();
+    }
     let _ = std::fs::remove_file(&output);
     out
 }
@@ -565,5 +590,31 @@ fn writes_match_the_oracle() {
     // left is the writer's.
     let mut differences = explained(&["existing"], &differences);
     differences.extend(dropped());
+    if let Some(dir) = std::env::var_os("SPECIFY_DUMP") {
+        let dir = PathBuf::from(dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let rows: Vec<_> = differences
+            .iter()
+            .map(|d| json!({"case":d.case,"path":d.path,"python":d.python,"rust":d.rust}))
+            .collect();
+        std::fs::write(
+            dir.join("writer.json"),
+            serde_json::to_vec_pretty(&rows).unwrap(),
+        )
+        .unwrap();
+    }
     check_area(&differences);
+}
+
+#[test]
+fn class_limits_never_attach_to_another_size_on_the_same_faces() {
+    let read = json!({"existing":[
+        {"kind":"dimension","type":"Size_Diameter","faces":[1,2],"value":90.},
+        {"kind":"dimension","type":"Size_Diameter","faces":[1,2],"value":10.}
+    ]});
+    let actual = with_class_limits(&read, &[(vec![1, 2], 10., 0.09, 0.)]);
+    assert!(actual["existing"][0].get("upper").is_none());
+    assert!(actual["existing"][0].get("lower").is_none());
+    assert_eq!(actual["existing"][1]["upper"], json!(0.09));
+    assert_eq!(actual["existing"][1]["lower"], json!(0.));
 }

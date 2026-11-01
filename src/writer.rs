@@ -652,6 +652,25 @@ fn write_verified(
             mode == Mode::Replace,
         )
         .map_err(WriteError::Invalid)?;
+        if mode == Mode::Replace {
+            let retired = crate::characteristics::retired(
+                before,
+                &source.read.provenance.parts[loaded.binding.part],
+                &source.doc,
+                &pmi,
+            )
+            .map_err(WriteError::Invalid)?;
+            if !retired.is_empty() {
+                lines.warnings.push(format!(
+                    "retired characteristic numbers: {}",
+                    retired
+                        .iter()
+                        .map(u64::to_string)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ));
+            }
+        }
         planned.push(Planned {
             loaded,
             pmi,
@@ -1149,6 +1168,130 @@ fn faceless(kind: &str, req: &Map<String, Json>) -> Option<String> {
     }
 }
 
+fn planned_kind(
+    planned: &crate::dimensioning::Planned,
+    features: &mut Features<'_>,
+    geometry: &mut Vec<pmi::Geometry>,
+    unit: &LengthUnit,
+) -> Result<DimensionKind, WriteError> {
+    fn resolve(
+        id: &str,
+        planned: &crate::dimensioning::Planned,
+        f: &mut Features<'_>,
+        geometry: &mut Vec<pmi::Geometry>,
+        cache: &mut std::collections::BTreeMap<String, FeatureId>,
+        unit: &LengthUnit,
+    ) -> Result<FeatureId, WriteError> {
+        if let Some(id) = cache.get(id) {
+            return Ok(*id);
+        }
+        let feature = if let Some(members) = planned.groups.get(id) {
+            let members = members
+                .iter()
+                .map(|id| resolve(id, planned, f, geometry, cache, unit))
+                .collect::<Result<Vec<_>, _>>()?;
+            Feature::Group {
+                members,
+                kind: if id.starts_with("pattern[") {
+                    pmi::GroupKind::PatternOfFeatures
+                } else {
+                    pmi::GroupKind::MultipleElements
+                },
+            }
+        } else {
+            let support = planned
+                .supports
+                .iter()
+                .find(|s| s.feature == id)
+                .ok_or_else(|| WriteError::Invalid(format!("planner support {id} is absent")))?;
+            if !support.faces.is_empty() {
+                Feature::Items(
+                    support
+                        .faces
+                        .iter()
+                        .map(|&i| Anchor::Face(FaceIndex(i)))
+                        .collect(),
+                )
+            } else {
+                let point = planned
+                    .frame
+                    .to_world(support.at)
+                    .map(|v| v / unit.millimetres());
+                let coords = point
+                    .into_iter()
+                    .map(|v| decimal(crate::rules::round(v, 9) + 0.0))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let item = pmi::GeometryItem {
+                    leaves: vec![(
+                        "CARTESIAN_POINT".into(),
+                        vec![
+                            pmi::GeometryValue::Text(PMI_PROVENANCE.into()),
+                            pmi::GeometryValue::List(
+                                coords.into_iter().map(pmi::GeometryValue::Real).collect(),
+                            ),
+                        ],
+                    )],
+                };
+                let i = geometry.len();
+                geometry.push(pmi::Geometry {
+                    item,
+                    length_unit: Some(unit.clone()),
+                });
+                Feature::Items(vec![Anchor::Geometry(pmi::GeometryId(i))])
+            }
+        };
+        let at = f.0.iter().position(|x| *x == feature).unwrap_or_else(|| {
+            let at = f.0.len();
+            f.0.push(feature);
+            at
+        });
+        let at = FeatureId(at);
+        cache.insert(id.into(), at);
+        Ok(at)
+    }
+    let mut ids = std::collections::BTreeMap::new();
+    match &planned.required.kind {
+        quiddity::dimensioning::Kind::Size { feature, .. } => {
+            resolve(feature, planned, features, geometry, &mut ids, unit)?;
+        }
+        quiddity::dimensioning::Kind::Location { from, to, .. } => {
+            resolve(&from.feature, planned, features, geometry, &mut ids, unit)?;
+            resolve(&to.feature, planned, features, geometry, &mut ids, unit)?;
+            if let Some([a, b]) = &planned.witnesses {
+                let af = resolve(&a.feature, planned, features, geometry, &mut ids, unit)?;
+                let bf = resolve(&b.feature, planned, features, geometry, &mut ids, unit)?;
+                ids.insert(from.feature.clone(), af);
+                ids.insert(to.feature.clone(), bf);
+            }
+            let alias = format!("coincident:{}", planned.required.id);
+            if let Some(members) = planned.groups.get(&alias) {
+                let target = if members.len() == 1 {
+                    &members[0]
+                } else {
+                    &alias
+                };
+                let group = resolve(target, planned, features, geometry, &mut ids, unit)?;
+                ids.insert(to.feature.clone(), group);
+            }
+        }
+    }
+    // Both (or the sole size) resolver keys were checked above.
+    let mut kind = planned.required.dimension_kind(|id| ids[id]);
+    // The planner's generic "length" is not an AP242 Table 4 size name. Axial
+    // lengths use its standard curve-length size; the exact depth role stays in the UDA.
+    if matches!(
+        &planned.required.kind,
+        quiddity::dimensioning::Kind::Size {
+            kind: quiddity::dimensioning::SizeKind::Length,
+            ..
+        }
+    ) && let DimensionKind::Size { kind, .. } = &mut kind
+    {
+        *kind = SizeKind::CurveLength;
+    }
+    Ok(kind)
+}
+
 impl Features<'_> {
     fn of(&mut self, faces: Option<&Json>, what: &str) -> Result<FeatureId, WriteError> {
         let Some(ids) = face_ids(faces) else {
@@ -1222,6 +1365,37 @@ pub(crate) fn scene_model(
     part_pmi_observed(loaded, intent, before, mode, observe).map(|(p, _)| p)
 }
 
+// Add mode retains imported thread manufacturing attributes. They already carry
+// their exact drill requirements even when the interview emits no new thread row.
+fn thread_carries_planned(before: &PartPmi, planned: &crate::dimensioning::Planned) -> bool {
+    let quiddity::dimensioning::Kind::Size { role, .. } = &planned.required.kind else {
+        return false;
+    };
+    let parameter = match role.as_str() {
+        "bore.diameter" => "tapping drill diameter",
+        "bore.depth" => "tapping drill depth",
+        _ => return false,
+    };
+    !planned.required.covers.is_empty() && planned.required.covers.iter().all(|id| {
+        let Some(support) = planned.supports.iter().find(|s| &s.feature == id) else {
+            return false;
+        };
+        before.threads.iter().any(|thread| {
+            thread.side == ThreadSide::Internal
+                && crate::existing::faces_of(before, &[thread.feature])
+                    .iter().any(|f| support.faces.contains(f))
+                && before.attributes.iter().any(|a| {
+                    a.name == "thread manufacturing"
+                        && matches!(a.on, Some(NoteOwner::Feature(f)) if before.same_target(&ToleranceTarget::Feature(f), &ToleranceTarget::Feature(thread.feature)))
+                        && a.items.iter().any(|(name, value)| name == parameter
+                            && matches!(value, AttributeValue::Measure(v)
+                                if matches!(v.quantity, pmi::Quantity::Length(_))
+                                && (crate::existing::value(v) - planned.required.nominal).abs() < 1e-4))
+                })
+        })
+    })
+}
+
 fn part_pmi_observed(
     loaded: &LoadedPart,
     intent: &Intent,
@@ -1229,6 +1403,69 @@ fn part_pmi_observed(
     mode: Mode,
     observe: &mut impl FnMut(&str, usize, &Map<String, Json>),
 ) -> Result<(PartPmi, Lines), WriteError> {
+    // Old JSON analyses/intents lack the typed planner input. Upgrade only rule-generated
+    // intent here; a caller's hand-authored dimensions remain authoritative as stated.
+    // Rule-produced General rows always carry a feature key (empty for plane levels).
+    let mut upgraded;
+    let intent = if !intent
+        .requirements
+        .iter()
+        .chain(&intent.general)
+        .any(|r| r.contains_key("planner"))
+        && (intent.general.iter().any(|r| r.contains_key("feature"))
+            || intent
+                .requirements
+                .iter()
+                .chain(&intent.datums)
+                .any(|r| r.contains_key("question")))
+    {
+        upgraded = intent.clone();
+        if mode == Mode::Add {
+            upgraded
+                .requirements
+                .extend(crate::dimensioning::stated(before));
+        }
+        let input = crate::dimensioning::input(&loaded.part).map_err(WriteError::Failed)?;
+        crate::dimensioning::apply(input, &mut upgraded).map_err(WriteError::Failed)?;
+        &upgraded
+    } else {
+        intent
+    };
+    let has_points = intent
+        .requirements
+        .iter()
+        .chain(&intent.general)
+        .filter_map(|r| r.get("planner"))
+        .filter_map(|p| p.get("supports").and_then(Json::as_array))
+        .flatten()
+        .any(|s| {
+            s.get("faces")
+                .and_then(Json::as_array)
+                .is_some_and(Vec::is_empty)
+        });
+    let point_unit = if has_points {
+        let (model, _) = step_io::read(loaded.bytes.as_slice())
+            .map_err(|e| WriteError::Failed(format!("planner point units: {e}")))?;
+        let u =
+            model.scene().units().length.ok_or_else(|| {
+                WriteError::Invalid("planner point has no source length unit".into())
+            })?;
+        // step-io's unit factor is a float: INCH may arrive as 0.025400000000000002.
+        // Recover standard exact units before comparing with the kernel's decimal units.
+        [
+            LengthUnit::Millimetre,
+            LengthUnit::Micrometre,
+            LengthUnit::Centimetre,
+            LengthUnit::Metre,
+            LengthUnit::Inch,
+            LengthUnit::Foot,
+        ]
+        .into_iter()
+        .find(|unit| (unit.millimetres() / 1000. - u.to_si).abs() <= u.to_si.abs() * 1e-12)
+        .unwrap_or(LengthUnit::from_metres(&u.name, decimal(u.to_si)?))
+    } else {
+        LengthUnit::Millimetre
+    };
     let mut p = PartPmi::default();
     let origins = crate::pmi_origin::Planner::new(loaded).map_err(WriteError::Failed)?;
     let mut lines = Lines::default();
@@ -1301,17 +1538,19 @@ fn part_pmi_observed(
 
     // The dimensions the general tolerance covers (`general.rs`) follow the requirements, each
     // written with its nominal alone: the general tolerance written for the part governs it, as
-    // on a drawing, so the file states every size and hole location, not only those specified
-    // (#63). They are counted in one line of the report, not listed. A part with PMI from
-    // elsewhere (`Mode::Add`) gets none: its own dimensions are the ones its designer chose, and
-    // these would repeat them, on faces its PMI already uses.
+    // on a drawing (#63). They are counted in one report line. Shared slice-one rows account
+    // for stored PMI; deferred General rows keep their original Add-mode omission.
     let mut general = 0usize;
-    let covered: &[Map<String, Json>] = if mode == Mode::Replace {
-        &intent.general
-    } else {
-        &[]
-    };
+    // The shared planner has accounted for stored dimensions. Its slice-one rows are
+    // required in Add mode too; only later-slice legacy General rows retain the old omission.
+    let covered = intent
+        .general
+        .iter()
+        .filter(|r| mode == Mode::Replace || r.contains_key("planner"));
     for req in intent.requirements.iter().chain(covered) {
+        if truthy(req.get("stored")) {
+            continue;
+        }
         let kind = req.get("kind").and_then(Json::as_str).unwrap_or("");
         let under_general = truthy(req.get("general"));
         // Not on a datum's own faces: a size there makes the datum a datum feature of size
@@ -1319,6 +1558,7 @@ fn part_pmi_observed(
         // does not mark (docs/pmi-provenance.md), so a resumed write would not keep its bytes.
         // The general tolerance still covers it.
         if under_general
+            && !req.contains_key("planner")
             && kind == "size"
             && intent.datums.iter().any(|d| {
                 face_ids(d.get("faces")).is_some()
@@ -1327,10 +1567,14 @@ fn part_pmi_observed(
         {
             continue;
         }
+        if let Some(reason) = req.get("not_written_reason").and_then(Json::as_str) {
+            lines.not_written.push(reason.into());
+            continue;
+        }
         let feature_name = || py_str(req.get("feature").unwrap_or(&Json::Null));
         // A requirement on no faces (a hole whose bores the rules keep no cylinder for) is
         // listed and the rest written (question Q17).
-        if let Some(what) = faceless(kind, req) {
+        if let Some(what) = faceless(kind, req).filter(|_| !req.contains_key("planner")) {
             // One the general tolerance covers is not a requirement: nothing to report.
             if under_general {
                 continue;
@@ -1338,6 +1582,145 @@ fn part_pmi_observed(
             lines.not_written.push(format!(
                 "{what} names no faces, so nothing in the file can carry it (question Q17)"
             ));
+            continue;
+        }
+        if let Some(planned) = req.get("planner") {
+            let mut planned: crate::dimensioning::Planned = serde_json::from_value(planned.clone())
+                .map_err(|e| WriteError::Invalid(format!("planned dimension: {e}")))?;
+            // Add mode omits later-slice General rows. A reference must not rely
+            // on those unwritten baselines (stored dimension proofs remain valid).
+            if mode == Mode::Add
+                && planned
+                    .required
+                    .reference
+                    .as_ref()
+                    .is_some_and(|by| by.iter().any(|id| id.starts_with("legacy:")))
+            {
+                planned.required.reference = None;
+            }
+            if matches!(&planned.required.kind,
+                quiddity::dimensioning::Kind::Location { from, to, .. }
+                if from.faces.is_empty() || to.faces.is_empty()
+                    || planned.witnesses.as_ref().is_some_and(|pair| pair.iter().any(|s| s.faces.is_empty())))
+            {
+                lines.not_written.push(format!(
+                    "location {} has a support with no faces; not written",
+                    planned.required.id
+                ));
+                continue;
+            }
+            if mode == Mode::Add && thread_carries_planned(before, &planned) {
+                continue;
+            }
+            let dimension_kind = planned_kind(&planned, &mut f, &mut p.geometry, &point_unit)?;
+            // Keep generated measurements at Specify's established six decimal places in mm;
+            // sub-nanometre frame-inference noise must not create inspection revisions.
+            let measured = if planned.required.id.starts_with("specified:")
+                || planned.required.id.starts_with("stored:")
+            {
+                planned.required.nominal
+            } else {
+                crate::rules::round(planned.required.nominal, 6)
+            };
+            let nominal = if matches!(
+                &planned.required.kind,
+                quiddity::dimensioning::Kind::Size {
+                    kind: quiddity::dimensioning::SizeKind::Angle,
+                    ..
+                }
+            ) {
+                Value::angle(decimal(measured)?, pmi::AngleUnit::Degree)
+            } else {
+                mm(measured)?
+            };
+            let tolerance = match &planned.required.tolerance {
+                quiddity::dimensioning::Tolerance::Basic => DimTolerance::Basic,
+                quiddity::dimensioning::Tolerance::General
+                | quiddity::dimensioning::Tolerance::Untoleranced => DimTolerance::None,
+                quiddity::dimensioning::Tolerance::Explicit(_) => {
+                    if let Some(name) = req
+                        .get("fit")
+                        .and_then(Json::as_str)
+                        .filter(|s| !s.is_empty())
+                    {
+                        let (u, l) = crate::standards::fit_limits(name, planned.required.nominal)
+                            .map_err(|e| WriteError::Invalid(e.to_string()))?;
+                        if (u - number(req, "upper")?).abs() > 1e-9
+                            || (l - number(req, "lower")?).abs() > 1e-9
+                        {
+                            return invalid(format!(
+                                "the {name} size limits are not the class's limits"
+                            ));
+                        }
+                        DimTolerance::Fit {
+                            class: fit_class(name)?,
+                            limits: None,
+                        }
+                    } else {
+                        deviations(
+                            number(req, "upper")?,
+                            number(req, "lower")?,
+                            "planned dimension",
+                        )?
+                    }
+                }
+            };
+            observe("dimensions", p.dimensions.len(), req);
+            p.dimensions.push(Dimension {
+                kind: dimension_kind,
+                nominal: Some(nominal),
+                tolerance,
+                qualifier: None,
+                modifiers: if planned.required.reference.is_some() {
+                    vec![pmi::DimensionModifier::Reference]
+                } else {
+                    vec![]
+                },
+                principle: None,
+            });
+            origins.dimension(&mut p, req, under_general, f.0);
+            p.attributes.push(AttributeSet {
+                name: "specify dimension plan".into(),
+                on: Some(NoteOwner::Dimension(pmi::DimensionId(
+                    p.dimensions.len() - 1,
+                ))),
+                items: vec![(
+                    "requirement".into(),
+                    AttributeValue::Text(
+                        crate::dimensioning::metadata(&planned)
+                            .map_err(|e| WriteError::Failed(e.to_string()))?,
+                    ),
+                )],
+                description: None,
+                general_property: None,
+            });
+            if under_general {
+                general += 1;
+            } else if kind == "size" {
+                lines.written.push(format!(
+                    "Ø{} {} on {}",
+                    pyfmt::g(planned.required.nominal),
+                    req.get("fit").map_or(String::new(), py_str),
+                    feature_name()
+                ));
+            } else {
+                let how = if truthy(req.get("basic")) {
+                    "basic".into()
+                } else {
+                    let (upper, lower) = (number(req, "upper")?, number(req, "lower")?);
+                    if upper == -lower {
+                        format!("±{}", pyfmt::g(upper))
+                    } else {
+                        format!("+{}/{}", pyfmt::g(upper), pyfmt::signed_g(lower))
+                    }
+                };
+                lines.written.push(format!(
+                    "location {} {how} to {} from faces {}",
+                    pyfmt::g(planned.required.nominal),
+                    feature_name(),
+                    face_list(req.get("reference"))
+                ));
+            }
             continue;
         }
         match kind {
@@ -1389,7 +1772,7 @@ fn part_pmi_observed(
                     modifiers: Vec::new(),
                     principle: None,
                 });
-                origins.dimension(&mut p, req, under_general);
+                origins.dimension(&mut p, req, under_general, f.0);
                 if under_general {
                     general += 1;
                 } else {
@@ -1442,7 +1825,7 @@ fn part_pmi_observed(
                     modifiers: Vec::new(),
                     principle: None,
                 });
-                origins.dimension(&mut p, req, under_general);
+                origins.dimension(&mut p, req, under_general, f.0);
                 if under_general {
                     general += 1;
                 } else {

@@ -570,6 +570,356 @@
     ]
    }
   ],
+  "dimensioning": {
+   "frame": {
+    "origin": [
+     -0.10784685352958251,
+     3.2241969407333114e-16,
+     2.998426146511425e-17
+    ],
+    "x": [
+     1.0,
+     -0.0,
+     -0.0
+    ],
+    "y": [
+     0.0,
+     1.0,
+     0.0
+    ],
+    "z": [
+     0.0,
+     0.0,
+     1.0
+    ],
+    "gauge": "orthogonal"
+   },
+   "bounds": [
+    [
+     -49.89215314647042,
+     -30.0,
+     -5.0
+    ],
+    [
+     50.10784685352958,
+     30.0,
+     5.0
+    ]
+   ],
+   "holes": [
+    {
+     "support": {
+      "feature": "hole:6",
+      "faces": [
+       6
+      ],
+      "body": 0,
+      "at": [
+       -29.892153147,
+       -15.0,
+       5.0
+      ],
+      "plane": false
+     },
+     "direction": [
+      0.0,
+      0.0,
+      -1.0
+     ],
+     "diameter": 6.6,
+     "depth": null,
+     "traversal": 10.0,
+     "bottom": "through",
+     "details": []
+    },
+    {
+     "support": {
+      "feature": "hole:7",
+      "faces": [
+       7
+      ],
+      "body": 0,
+      "at": [
+       0.10784685353,
+       -15.0,
+       5.0
+      ],
+      "plane": false
+     },
+     "direction": [
+      0.0,
+      0.0,
+      -1.0
+     ],
+     "diameter": 6.6,
+     "depth": null,
+     "traversal": 10.0,
+     "bottom": "through",
+     "details": []
+    },
+    {
+     "support": {
+      "feature": "hole:8",
+      "faces": [
+       8
+      ],
+      "body": 0,
+      "at": [
+       30.107846853,
+       -15.0,
+       5.0
+      ],
+      "plane": false
+     },
+     "direction": [
+      0.0,
+      0.0,
+      -1.0
+     ],
+     "diameter": 6.6,
+     "depth": null,
+     "traversal": 10.0,
+     "bottom": "through",
+     "details": []
+    },
+    {
+     "support": {
+      "feature": "hole:9",
+      "faces": [
+       9
+      ],
+      "body": 0,
+      "at": [
+       -29.892153147,
+       15.0,
+       5.0
+      ],
+      "plane": false
+     },
+     "direction": [
+      0.0,
+      0.0,
+      -1.0
+     ],
+     "diameter": 6.6,
+     "depth": null,
+     "traversal": 10.0,
+     "bottom": "through",
+     "details": []
+    },
+    {
+     "support": {
+      "feature": "hole:10",
+      "faces": [
+       10
+      ],
+      "body": 0,
+      "at": [
+       0.10784685353,
+       15.0,
+       5.0
+      ],
+      "plane": false
+     },
+     "direction": [
+      0.0,
+      0.0,
+      -1.0
+     ],
+     "diameter": 6.6,
+     "depth": null,
+     "traversal": 10.0,
+     "bottom": "through",
+     "details": []
+    },
+    {
+     "support": {
+      "feature": "hole:11",
+      "faces": [
+       11
+      ],
+      "body": 0,
+      "at": [
+       45.107846853,
+       0.0,
+       5.0
+      ],
+      "plane": false
+     },
+     "direction": [
+      0.0,
+      0.0,
+      -1.0
+     ],
+     "diameter": 4.2,
+     "depth": null,
+     "traversal": 10.0,
+     "bottom": "through",
+     "details": []
+    },
+    {
+     "support": {
+      "feature": "hole:12",
+      "faces": [
+       12
+      ],
+      "body": 0,
+      "at": [
+       30.107846853,
+       15.0,
+       5.0
+      ],
+      "plane": false
+     },
+     "direction": [
+      0.0,
+      0.0,
+      -1.0
+     ],
+     "diameter": 6.6,
+     "depth": null,
+     "traversal": 10.0,
+     "bottom": "through",
+     "details": []
+    }
+   ],
+   "patterns": [
+    {
+     "members": [
+      "hole:6",
+      "hole:7",
+      "hole:8",
+      "hole:9",
+      "hole:10",
+      "hole:12"
+     ],
+     "arrangement": "grid"
+    }
+   ],
+   "planes": [
+    {
+     "support": {
+      "feature": "plane:0",
+      "faces": [
+       0
+      ],
+      "body": 0,
+      "at": [
+       -49.89215314647042,
+       0.0,
+       0.0
+      ],
+      "plane": true
+     },
+     "axis": 0,
+     "body": 0
+    },
+    {
+     "support": {
+      "feature": "plane:1",
+      "faces": [
+       1
+      ],
+      "body": 0,
+      "at": [
+       0.0,
+       -30.0,
+       0.0
+      ],
+      "plane": true
+     },
+     "axis": 1,
+     "body": 0
+    },
+    {
+     "support": {
+      "feature": "plane:2",
+      "faces": [
+       2
+      ],
+      "body": 0,
+      "at": [
+       0.0,
+       0.0,
+       5.0
+      ],
+      "plane": true
+     },
+     "axis": 2,
+     "body": 0
+    },
+    {
+     "support": {
+      "feature": "plane:3",
+      "faces": [
+       3
+      ],
+      "body": 0,
+      "at": [
+       0.0,
+       30.0,
+       0.0
+      ],
+      "plane": true
+     },
+     "axis": 1,
+     "body": 0
+    },
+    {
+     "support": {
+      "feature": "plane:4",
+      "faces": [
+       4
+      ],
+      "body": 0,
+      "at": [
+       0.0,
+       0.0,
+       -5.0
+      ],
+      "plane": true
+     },
+     "axis": 2,
+     "body": 0
+    },
+    {
+     "support": {
+      "feature": "plane:5",
+      "faces": [
+       5
+      ],
+      "body": 0,
+      "at": [
+       50.10784685352958,
+       0.0,
+       0.0
+      ],
+      "plane": true
+     },
+     "axis": 0,
+     "body": 0
+    }
+   ],
+   "steps": {
+    "axis": 2,
+    "heights": [],
+    "shoulders": []
+   },
+   "cartesian_envelope": true,
+   "deferred": [],
+   "datums": [],
+   "round_axes": [],
+   "specified": [],
+   "policy": {
+    "origins": [
+     "automatic",
+     "automatic",
+     "automatic"
+    ],
+    "general_tolerance": true,
+    "references": false
+   }
+  },
   "mates": {},
   "existing": [],
   "part": {}
@@ -996,7 +1346,7 @@
      5,
      6
     ],
-    "description": "Ø10 × 32 turned body"
+    "description": "\u00d810 \u00d7 32 turned body"
    },
    {
     "id": "risers:2",
@@ -1037,6 +1387,203 @@
     ]
    }
   ],
+  "dimensioning": {
+   "frame": {
+    "origin": [
+     -3.4713131330485794e-17,
+     -2.801223467097147e-17,
+     18.613214136052523
+    ],
+    "x": [
+     1.0,
+     0.0,
+     0.0
+    ],
+    "y": [
+     -0.0,
+     1.0,
+     -0.0
+    ],
+    "z": [
+     -0.0,
+     -0.0,
+     1.0
+    ],
+    "gauge": "axial"
+   },
+   "bounds": [
+    [
+     -5.0,
+     -5.0,
+     -18.613214136052523
+    ],
+    [
+     5.0,
+     5.0,
+     13.386785863947477
+    ]
+   ],
+   "holes": [
+    {
+     "support": {
+      "feature": "hole:3",
+      "faces": [
+       3
+      ],
+      "body": 0,
+      "at": [
+       0.0,
+       0.0,
+       13.386785864
+      ],
+      "plane": false
+     },
+     "direction": [
+      0.0,
+      0.0,
+      -1.0
+     ],
+     "diameter": 4.2,
+     "depth": 8.0,
+     "traversal": null,
+     "bottom": "flat",
+     "details": []
+    }
+   ],
+   "patterns": [],
+   "planes": [
+    {
+     "support": {
+      "feature": "plane:1",
+      "faces": [
+       1
+      ],
+      "body": 0,
+      "at": [
+       0.0,
+       0.0,
+       13.386785863947477
+      ],
+      "plane": true
+     },
+     "axis": 2,
+     "body": 0
+    },
+    {
+     "support": {
+      "feature": "plane:2",
+      "faces": [
+       2
+      ],
+      "body": 0,
+      "at": [
+       0.0,
+       0.0,
+       -6.613214136052523
+      ],
+      "plane": true
+     },
+     "axis": 2,
+     "body": 0
+    },
+    {
+     "support": {
+      "feature": "plane:5",
+      "faces": [
+       5
+      ],
+      "body": 0,
+      "at": [
+       0.0,
+       0.0,
+       5.386785863947477
+      ],
+      "plane": true
+     },
+     "axis": 2,
+     "body": 0
+    },
+    {
+     "support": {
+      "feature": "plane:6",
+      "faces": [
+       6
+      ],
+      "body": 0,
+      "at": [
+       0.0,
+       0.0,
+       -18.613214136052523
+      ],
+      "plane": true
+     },
+     "axis": 2,
+     "body": 0
+    }
+   ],
+   "steps": {
+    "axis": 2,
+    "heights": [],
+    "shoulders": []
+   },
+   "cartesian_envelope": false,
+   "deferred": [
+    {
+     "id": "deferred:envelope:0",
+     "faces": [],
+     "family": "turned envelope"
+    },
+    {
+     "id": "deferred:envelope:1",
+     "faces": [],
+     "family": "turned envelope"
+    },
+    {
+     "id": "deferred:envelope:2",
+     "faces": [],
+     "family": "turned envelope"
+    },
+    {
+     "id": "deferred:turned_bodies:0.1.2.3.4.5.6",
+     "faces": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6
+     ],
+     "family": "turned_bodies"
+    },
+    {
+     "id": "deferred:turned_steps:0",
+     "faces": [
+      0
+     ],
+     "family": "turned_steps"
+    },
+    {
+     "id": "deferred:turned_steps:4",
+     "faces": [
+      4
+     ],
+     "family": "turned_steps"
+    }
+   ],
+   "datums": [],
+   "round_axes": [],
+   "specified": [],
+   "policy": {
+    "origins": [
+     "automatic",
+     "automatic",
+     "automatic"
+    ],
+    "general_tolerance": true,
+    "references": false
+   }
+  },
   "mates": {},
   "existing": [],
   "part": {}

@@ -405,6 +405,11 @@ fn moving_a_hole_recomputes_default_basic_locations() {
         "{:?}",
         report.pmi.items
     );
+    assert_eq!(
+        report.pmi.items.len(),
+        1,
+        "only the moved hole changes; planner frame metadata and rounding noise are not inspection changes (#75)"
+    );
     let written_new = write(&new, &report.answers);
     let saved_report = revision::diff(&old, &written_new, &Map::new()).unwrap();
     assert_scene_ids(&saved_report, &written_new);

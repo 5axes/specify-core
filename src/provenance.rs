@@ -49,8 +49,12 @@ pub fn marked(doc: &Document, ids: &[u64], kind: &str) -> bool {
         };
         match kind {
             "feature" => {
-                matches!(name.as_str(), "SHAPE_ASPECT" | "DATUM_FEATURE")
-                    && string(attributes.get(1), MARKER)
+                (matches!(
+                    name.as_str(),
+                    "SHAPE_ASPECT" | "DATUM_FEATURE" | "COMPOSITE_SHAPE_ASPECT"
+                ) && string(attributes.get(1), MARKER))
+                    || (name == "COMPOSITE_GROUP_SHAPE_ASPECT"
+                        && string(attributes.first(), MARKER))
             }
             "datum" => name == "DATUM" && string(attributes.get(1), MARKER),
             "thread" => name == "THREAD" && string(attributes.get(1), MARKER),
@@ -114,7 +118,12 @@ pub fn mark_new(before: &Document, after: &Document) -> Edit {
         }
         let slot = match name.as_str() {
             "THREAD" | "DATUM" => Some(1),
-            "SHAPE_ASPECT" | "DATUM_FEATURE" if string(attributes.get(1), "") => Some(1),
+            "SHAPE_ASPECT" | "DATUM_FEATURE" | "COMPOSITE_SHAPE_ASPECT"
+                if string(attributes.get(1), "") =>
+            {
+                Some(1)
+            }
+            "COMPOSITE_GROUP_SHAPE_ASPECT" if string(attributes.first(), "") => Some(0),
             "TURNED_KNURL" => Some(0),
             _ => None,
         };
@@ -166,6 +175,7 @@ pub fn all(p: &PartPmi, prov: &PartProvenance, doc: &Document) -> bool {
         && p.datum_targets.is_empty()
         && p.tolerance_relations.is_empty()
         && p.standards.is_empty()
-        && p.geometry.is_empty()
+        && prov.geometry_items.len()==p.geometry.len()
+        && prov.geometry_items.iter().all(|id|matches!(doc.get(*id),Some(RawEntity::Simple {name,attributes,..}) if name=="CARTESIAN_POINT" && string(attributes.first(),MARKER)))
         && p.decimal_places.is_none()
 }
