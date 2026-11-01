@@ -72,6 +72,10 @@ All notable changes to specify-core-rust. The format follows
 
 ### Fixed
 
+- The step-diff Action's "answers carried" block hides Specify's own `_specify*`
+  records (such as `_specify_characteristic_numbers`) at any depth. They stay in the
+  committed answers file.
+
 - Preserve separately sized lands that also compose a multi-face datum with the
   v0.4.2 reader. Give their new requirements independent shape-aspect compositions
   sharing the original face usages (no duplicate GISUs), so LM10UU's three Ø19

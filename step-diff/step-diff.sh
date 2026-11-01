@@ -169,9 +169,11 @@ body="$RUNNER_TEMP/comment.md"
         what="the part" by=
         if [ $assembly = yes ]; then what="the assembly" by=", by part"; fi
         if [ -n "$viewer" ]; then printf '\n[Turn %s round in 3D](%s), compared live in the browser.\n' "$what" "$viewer"; fi
-        if [ "$(< "$out/answers.json")" != "{}" ]; then
+        # Specify's own records (_specify*) stay in the committed file but aren't shown.
+        shown=$(jq 'walk(if type == "object" then with_entries(select(.key | startswith("_specify") | not)) else . end)' "$out/answers.json")
+        if [ "$shown" != "{}" ]; then
           printf '\n<details><summary>The answers carried to the new revision%s (<code>%s.answers.json</code>)</summary>\n\n```json\n' "$by" "${new%.*}"
-          cat "$out/answers.json"
+          printf '%s\n' "$shown"
           printf '\n```\n\n</details>\n'
         fi
         echo
