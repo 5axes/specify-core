@@ -201,7 +201,7 @@ for (const [part, path] of parts) {
 // new aspects to the current numbered byte pin. The native thread_depth_help test compares
 // every legacy semantic readback field and part setting to the unchanged alpha.7 input.
 // #77 leaves this M2-only pin unchanged: it writes no size/location dimensions.
-// v0.2.7 moves its General notes block; refresh only the numbered output golden.
+// v0.4.1 regenerates GENERAL NOTES and plane views; refresh only the numbered output golden.
 const alpha7 = gunzipSync(readFileSync(new URL('tests/fixtures/thread-depth-alpha7.step.gz', root)));
 const numberedTap = gunzipSync(readFileSync(new URL('tests/fixtures/thread-depth-numbered.step.gz', root)));
 const savedTap = new IntentEngine('shaft.step', alpha7);

@@ -402,7 +402,12 @@ available: `auto` identifies the questions whose values are unreviewed automatic
 An explicitly supplied value is `answered`, even when it equals a question's default.
 Unanswered suggestions produce no PMI, just as in `review` and `writePmi`.
 
-The result is:
+Both calls return a JSON string. The generated declarations export `PmiScene`,
+`PmiSceneItem`, `PmiSceneItems`, `PmiSceneGraphic`, `PmiSceneTextPlacement`,
+`PmiScenePlane`, `PmiSceneView`, `PmiSceneMetadata`, `PmiSceneStatus` and `PmiSceneId`.
+For example, `const scene: PmiScene = JSON.parse(engine.pmiScene(JSON.stringify(answers)))`.
+Semantic values retain the packaged haecceity schema (`unknown` in the row interface);
+scene structure and presentation metadata are typed. The result is:
 
 ```ts
 {
@@ -413,6 +418,7 @@ The result is:
       status: 'answered' | 'default' | 'general' | 'existing';
       question?: string; // extra.N for a face-picked extra
       number?: number;   // characteristic number, as the STEP writer allocates it
+      notation?: string; // this requirement's own semantic note wording
       origin?: 'requirement' | 'general_tolerance' | 'imported';
       source?: {schema: number; faces: string; support: number[]; parameter: string};
     }
@@ -423,10 +429,17 @@ The result is:
 The two haecceity documents retain their schemas: units are explicit and semantic decimals
 are strings. `pmi.pmi` holds collections of `{id, value}`; references use those ids.
 `presentation.items[id]` holds graphics with `name` (full notation), `text` (cells),
-`polylines`, `triangles`, and `source: 'generated' | 'file'`. With haecceity v0.4.0,
+`polylines`, `triangles`, and `source: 'generated' | 'file'`. With haecceity v0.4.1,
 optional `id`, `plane_id` and `text_placements` retain model-space text origins, axes,
-heights/alignment when stated; document `planes` and `views` preserve annotation planes
-and saved-view membership. Datum-feature graphics also appear under their datum ids.
+heights/alignment when stated. Each placement can carry `stroked?: boolean`: when
+true, its glyphs are already present in that graphic's polylines, so skip rendering
+that text run again. Absent or false permits rendering the text literal.
+The scene prunes view membership after filtering or replacing graphics, and removes
+views with no remaining graphics; document `planes` and `views` preserve annotation planes
+and saved-view membership. Generated presentations now include plane views; v0.4.1
+regenerates ladders/callouts and combines part settings into one numbered GENERAL NOTES block.
+Feature-on scene and written STEP presentation output therefore changes. Datum-feature
+graphics also appear under their datum ids.
 These fields survive a live review that adds PMI beside a file's existing callouts.
 Pattern sizes, locations and tolerances include `6×` in the name and first cell;
 datum labels carry only their letter. `presentation.unlinked` retains graphics with no semantic
@@ -439,6 +452,11 @@ distinguishing a member's measurement from its pattern's. General locations with
 feature id use their face supports. Changing a value leaves
 the id intact. Foreign items retain haecceity's `ID_ATTRIBUTE` or content-derived id.
 The same ids key semantic references, presentation and the requirement overlay `specify`.
+For note and characteristic labels, use `specify[id].notation` when present: it is
+that requirement's semantic wording (for example `Keep dry` or
+`GENERAL TOLERANCES ISO 2768-m`). Several requirements can alias one GENERAL NOTES
+graphic, whose `name`, text cells, strokes and id describe the whole block. Those
+shared fields must not be used as an individual requirement's label or identity.
 Supporting features, geometry and units remain in the haecceity documents but are omitted
 from `specify`, as are saved-answer and number-history attributes. Their graphics may
 therefore have no overlay entry. Thread/knurl manufacturing attributes inherit the owning
@@ -466,6 +484,6 @@ packaged schemas are `specify_core/schema/haecceity.pmi-1.json` and
 `specify_core/schema/haecceity.presentation-1.json`.
 
 Scene export uses haecceity's serialise-only `json` feature in native, WASM and Python.
-`json-import` is not enabled. The Python package ships the v0.4.0 schemas as data; its
+`json-import` is not enabled. The Python package ships the v0.4.1 schemas as data; its
 smoke tests validate exports with Python's `jsonschema`, keeping schemas and import
 validation code out of the WASM binary.

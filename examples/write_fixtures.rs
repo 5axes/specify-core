@@ -15,8 +15,9 @@
 //! /Users/paul/repos/specify-core/.venv/bin/python tools/capture.py cross-engine tests/fixtures/cross_engine
 //! ```
 //!
-//! **For quiddity-rust 0.2.7.** Recaptured for slash-separated deviations and
-//! clearer notes/frame placement; semantic PMI and recognition are unchanged.
+//! **For quiddity-rust 0.4.1.** Recaptured for regenerated ladders/callouts,
+//! one numbered GENERAL NOTES block and generated plane views. Semantic intent and
+//! recognition are unchanged; AP214 PRODUCT_TYPE entities upgrade with the schema.
 //! The previous v0.2.6 recapture added: default presentation adds callouts,
 //! surface symbols and notes; composite and location aspects change semantic structure.
 //! These files include #65 ids/history and #77 dimension origin/source UDAs, checked byte

@@ -16,7 +16,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SIBLING = "pzfreo/draftwright-rust"
 KERNEL = "pzfreo/quiddity-rust"
-REQUIRED_TAG = "v0.4.0"
+REQUIRED_TAG = "v0.4.1"
 
 
 def api(path):
@@ -59,6 +59,16 @@ def pins(manifest):
             raise ValueError(f"{name} must have exactly one tag or rev pin")
         result[name] = (fields[0], dependency[fields[0]])
     return result
+
+
+def check_wasm_pin(local, manifest=ROOT / "crates/specify-core-wasm/Cargo.toml"):
+    """The WASM kernel must follow the root pin (v0.4.1 for this release)."""
+    dependency = tomllib.loads(manifest.read_text())["dependencies"]["haecceity"]
+    kind, value = local["haecceity"]
+    if (dependency.get("git", "").removesuffix(".git").rstrip("/") != f"https://github.com/{KERNEL}"
+            or dependency.get(kind) != value
+            or any(key in dependency for key in ("tag", "rev") if key != kind)):
+        raise ValueError("WASM haecceity must use the same source and pin as the root crate")
 
 
 def resolve(pin):
@@ -107,6 +117,8 @@ def main():
         local = pins(tomllib.loads(args.manifest.read_text()))
         if any(pin != ("tag", REQUIRED_TAG) for pin in local.values()):
             warning(f"Expected both kernel crates pinned to {REQUIRED_TAG}: {describe(local)}")
+        if args.manifest.resolve() == (ROOT / "Cargo.toml").resolve():
+            check_wasm_pin(local)
         tag = latest_release(SIBLING)
         contents = api(f"{SIBLING}/contents/Cargo.toml?ref={urllib.parse.quote(tag, safe='')}")
         sibling = pins(tomllib.loads(base64.b64decode(contents["content"]).decode()))

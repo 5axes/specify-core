@@ -158,6 +158,10 @@
           "type": "integer",
           "minimum": 0
         },
+        "stroked": {
+          "type": "boolean",
+          "description": "True when this text run is already drawn in the graphic's polylines; absent or false for unstroked text literals."
+        },
         "origin": {
           "$ref": "#/$defs/Vector3"
         },

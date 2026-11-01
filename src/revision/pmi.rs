@@ -164,13 +164,16 @@ fn items(scene: &Value) -> Vec<Item> {
             continue;
         }
         let graphics = &scene["presentation"]["items"][id];
-        let text = graphics
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|g| g["name"].as_str())
-            .collect::<Vec<_>>()
-            .join("; ");
+        let notation = meta["notation"].as_str();
+        let text = notation.map(str::to_owned).unwrap_or_else(|| {
+            graphics
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|g| g["name"].as_str())
+                .collect::<Vec<_>>()
+                .join("; ")
+        });
         let kind = match collection {
             "dimensions" => "dimension",
             "tolerances" => "geometric_tolerance",
@@ -183,7 +186,7 @@ fn items(scene: &Value) -> Vec<Item> {
             "datum_targets" => "datum_target",
             other => other,
         };
-        let text = if text.is_empty() {
+        let text = if text.is_empty() && notation.is_none() {
             // Some semantic requirements (e.g. manufacturing attributes) have no callout.
             value
                 .get("text")
@@ -193,14 +196,20 @@ fn items(scene: &Value) -> Vec<Item> {
         } else {
             text
         };
-        let cells = json!(
-            graphics
-                .as_array()
-                .into_iter()
-                .flatten()
-                .map(|g| g["text"].clone())
-                .collect::<Vec<_>>()
-        );
+        let cells = if notation.is_some() {
+            // The block's cells include other requirements. Own notation and
+            // semantic fields already capture every change to this note.
+            json!([])
+        } else {
+            json!(
+                graphics
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .map(|g| g["text"].clone())
+                    .collect::<Vec<_>>()
+            )
+        };
         let mut faces = Vec::new();
         supports(value, &rows, &mut BTreeSet::new(), &mut faces, false);
         faces.sort_unstable();

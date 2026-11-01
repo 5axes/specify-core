@@ -38,7 +38,24 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           key: cli-${{ matrix.target }}
-      - run: cargo build --locked --release --bin specify-core --target ${{ matrix.target }}
+      - name: Install Linux cross-linker
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        run: |
+          python3 -m pip install --user ziglang==0.17.0
+          cargo install cargo-zigbuild --version 0.23.4 --locked
+      - name: Build Linux for glibc 2.28
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        # The glibc suffix selects the link baseline, not the artifact directory/name.
+        run: cargo zigbuild --locked --release --bin specify-core --target x86_64-unknown-linux-gnu.2.28
+      - if: matrix.target != 'x86_64-unknown-linux-gnu'
+        run: cargo build --locked --release --bin specify-core --target ${{ matrix.target }}
+      - name: Check Linux glibc requirements
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        run: |
+          highest=$(objdump -T target/${{ matrix.target }}/release/specify-core | grep -oE 'GLIBC_[0-9]+(\.[0-9]+)*' | sort -Vu | tail -n 1)
+          echo "Highest required glibc symbol version: $highest"
+          test -n "$highest"
+          test "$(printf '%s\n' "$highest" GLIBC_2.28 | sort -V | tail -n 1)" = GLIBC_2.28
       - name: Try it on a revision
         # The hole_removed pair: one entry renumbers with its hole, one is set aside with the
         # removed hole.
@@ -52,6 +69,23 @@ jobs:
           cat smoke/answers.json
           # The ⌀6 hole's answer follows it from faces 9 to 8.
           grep -q '"hole.function:holes:8": *"general"' smoke/answers.json && ! grep -q 'holes:9' smoke/answers.json
+      - name: Try Linux on Amazon Linux 2023 and AlmaLinux 8
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        run: |
+          for image in amazonlinux:2023 almalinux:8; do
+            docker run --rm -i --volume "$PWD:/work:ro" --workdir /work "$image" bash -euo pipefail -s <<'SMOKE'
+          bin=target/x86_64-unknown-linux-gnu/release/specify-core
+          "$bin" --help
+          fixtures=tests/fixtures/revisions
+          echo '{"hole.function:holes:7": "fit:H7", "hole.function:holes:9": "general"}' > /tmp/given.json
+          printed=$("$bin" diff "$fixtures/hole_removed.old.step.gz" "$fixtures/hole_removed.new.step.gz" --answers /tmp/given.json -o /tmp/smoke)
+          echo "$printed"
+          echo "$printed" | grep -q '"verdict": *"decide"'
+          cat /tmp/smoke/answers.json
+          grep -q '"hole.function:holes:8": *"general"' /tmp/smoke/answers.json
+          ! grep -q holes:9 /tmp/smoke/answers.json
+          SMOKE
+          done
       - name: Package and checksum
         run: |
           name="specify-core-${RELEASE_TAG:-pr}-${{ matrix.target }}"

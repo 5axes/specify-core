@@ -1,16 +1,16 @@
 {
   "parts/plate.step": {
-    "settings_only_writer_sha256": "0316334115148d808f08e35e33266343c84898ab2986b689764fb1aa3bb6f12d",
+    "settings_only_writer_sha256": "2254c7a7c7b931f43214aec07b0a1d834e616812aaeff7165c67d0e3c778279a",
     "analysis_sha256": "87fa03dc320a80624fa15e4a09ffad2da8e2f817fad36664c7878b3de13bfbe6",
     "pmi_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
   },
   "resume-alpha6/plate.step.gz": {
-    "settings_only_writer_sha256": "80e71cbdfa545dbcf39b217accfc6030e8b4c422a67f2e4a742104d7cb969768",
+    "settings_only_writer_sha256": "02b3a98862c34b31b8354f027e4f080c165c2327d41c06c9038b4f1981c88b7d",
     "analysis_sha256": "734d0a8c9c4c77d727bd84c5cd308a80ff122e9ae38b454b71b006285146f538",
     "pmi_sha256": "c05e775c3f7bbb590c032cf1d3e3cd25635008c2b183cbd0880d2c0ebcbe772c"
   },
   "resume-alpha6/shaft.step.gz": {
-    "settings_only_writer_sha256": "1cdaf173f54a21a06eaa33da6cb08b3693558cc8b40fa0fac54ab86d2dd175c9",
+    "settings_only_writer_sha256": "09e57b2116473fa6c5a2ac6095472a53e78b410201a03ebb941685192ac6d189",
     "analysis_sha256": "356326694f0840d851227d99082d6fd46469a00427f4bc42dedcaaa06dfbd456",
     "pmi_sha256": "2d92823734856810ff457b23d1730c323cf1a72733dd3a25973cfc20e3232222"
   }

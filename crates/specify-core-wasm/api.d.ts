@@ -112,6 +112,93 @@ export interface PmiItemChange {
   status: "answered" | "default" | "general" | "existing";
 }
 
+export interface PmiScene {
+  pmi: { schema: "haecceity.pmi/1"; units: {length: PmiSceneItem[]; angle: PmiSceneItem[]; density: PmiSceneItem[]; other: PmiSceneItem[]}; pmi: PmiSceneItems; };
+  presentation: { schema: "haecceity.presentation/1"; length_unit: string; semantic_ids: PmiSceneId[]; items: Record<PmiSceneId, PmiSceneGraphic[]>; unlinked: PmiSceneGraphic[]; planes?: PmiScenePlane[]; views?: PmiSceneView[]; };
+  specify: Record<PmiSceneId, PmiSceneMetadata>;
+}
+
+export interface PmiSceneGraphic {
+  id?: PmiSceneId;
+  name: string;
+  plane_id?: PmiSceneId;
+  polylines: PmiSceneVector[][];
+  source: "generated" | "file";
+  step_ids: number[];
+  text: string[];
+  text_placements?: PmiSceneTextPlacement[];
+  triangles: [PmiSceneVector, PmiSceneVector, PmiSceneVector][];
+  unsupported: string[];
+}
+
+export interface PmiSceneItem {
+  id: PmiSceneId;
+  value: unknown;
+}
+
+export interface PmiSceneItems {
+  attributes: PmiSceneItem[];
+  datum_targets: PmiSceneItem[];
+  datums: PmiSceneItem[];
+  decimal_places: number | null;
+  derived_geometry: PmiSceneItem[];
+  dimensions: PmiSceneItem[];
+  features: PmiSceneItem[];
+  general: PmiSceneItem[];
+  geometry: PmiSceneItem[];
+  holes: unknown[];
+  knurls: PmiSceneItem[];
+  material: unknown;
+  notes: PmiSceneItem[];
+  standards: unknown[];
+  surface_textures: PmiSceneItem[];
+  threads: PmiSceneItem[];
+  tolerance_relations: PmiSceneItem[];
+  tolerances: PmiSceneItem[];
+}
+
+export interface PmiSceneMetadata {
+  notation?: string;
+  number?: number;
+  origin?: "requirement" | "general_tolerance" | "imported";
+  question?: string;
+  source?: {schema: number; faces: string; support: number[]; parameter: string};
+  status: PmiSceneStatus;
+}
+
+export interface PmiScenePlane {
+  id: PmiSceneId;
+  name: string;
+  normal: PmiSceneVector;
+  origin: PmiSceneVector;
+  x_axis: PmiSceneVector;
+}
+
+export interface PmiSceneTextPlacement {
+  alignment?: string;
+  height?: number;
+  line_spacing?: number;
+  normal: PmiSceneVector;
+  origin: PmiSceneVector;
+  stroked?: boolean;
+  text_index?: number;
+  x_axis: PmiSceneVector;
+}
+
+export interface PmiSceneView {
+  direction?: PmiSceneVector;
+  graphics: PmiSceneId[];
+  id: PmiSceneId;
+  name: string;
+  up?: PmiSceneVector;
+}
+
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
+
+export type PmiSceneId = string;
+
+export type PmiSceneStatus = "answered" | "default" | "general" | "existing";
+
+export type PmiSceneVector = [number, number, number];
 
 export type SyncInitInput = BufferSource | WebAssembly.Module;

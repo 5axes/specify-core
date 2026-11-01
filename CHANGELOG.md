@@ -8,7 +8,18 @@ All notable changes to specify-core-rust. The format follows
 
 ### Changed
 
-- Upgrade quiddity/haecceity to **v0.4.0**. For #75, written hole sizes, pattern
+- Fix #92: compare and label each part note by its semantic wording, so a change
+  within the shared GENERAL NOTES graphic leaves other note requirements unchanged.
+- Pin quiddity and haecceity to v0.4.1. Recognition `/6` and fingerprints `/3`
+  stay unchanged. Adopt regenerated ladders/callouts, one numbered GENERAL NOTES
+  block, generated plane views, AP214 PRODUCT_TYPE upgrades, panic isolation and
+  graphical callout reading; feature-on scenes and written STEP layouts change.
+- Build the Linux CLI against glibc 2.28 using pinned Zig/cargo-zigbuild tools;
+  check its symbols and revision smoke on Amazon Linux 2023 and AlmaLinux 8.
+  Release asset names and archive layout stay the same.
+- Preserve optional text-placement `stroked` flags in PMI scenes; prune saved-view
+  references when graphics are filtered or replaced, removing empty views.
+- For #75, written hole sizes, pattern
   origins/pitches and prismatic plane levels/extents follow the shared planner.
   Inspection plans contain fewer rows: the default cross-engine plate changes from
   21 dimensions / 28 characteristics to 12 / 19. The raw all-General planner has
@@ -40,6 +51,11 @@ All notable changes to specify-core-rust. The format follows
 
 ### WASM API
 
+- Add optional `PmiSceneMetadata.notation` for individual semantic note labels;
+  shared presentation graphics retain their render-once identity and geometry.
+- Add `PmiScene` JSON result interfaces for both `pmiScene` entry points, including
+  semantic rows/ids, graphics, optional `stroked` text placements, planes, views and
+  Specify statuses. Document parsing and rendering; the wire return remains a string.
 - For #75: live analysis snapshots carry optional shared-planner input and stored
   dimension contracts. Planned scene dimension IDs include stable face-derived
   roles; pitch callouts use interval counts and datum members leave group counts.

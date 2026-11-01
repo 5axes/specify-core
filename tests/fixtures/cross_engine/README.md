@@ -67,9 +67,23 @@ Recapture the independent readbacks and byte hashes with the same schema-2 refer
 `characteristic-numbers-legacy.json` settings-only writer hashes change solely because
 v0.2.7 moves the General notes block; their analysis and semantic-read hashes stay fixed.
 
-For the shared planner (#75), regenerate Rust outputs with v0.4.0 and recapture
+For v0.4.1 (`a2195eed`), regenerate the fourteen successful outputs for the
+regenerated ladders/callouts, one numbered GENERAL NOTES block and generated plane
+views; AP214 PRODUCT_TYPE entities upgrade when written as AP242. The two refusals
+stay unchanged. Recapture Python readbacks and hashes with the same `cc341dd` +
+`63e67bd` + `d97d030` source. The main-only recapture preserved all fourteen
+Python semantic readbacks; the combined planner recapture is checked separately.
+Keep Python-written
+inputs/evidence and historical upgrade specimens unchanged. The three macOS
+settings-only hashes, the unnamed face-name STEP hash and the current numbered
+M2 tap golden change for the new presentation; stored-answer, analysis and semantic
+readback assertions remain unchanged.
+
+For the shared planner (#75), regenerate Rust outputs with v0.4.1 and recapture
 with `tools/capture.py cross-engine tests/fixtures/cross_engine --rust-only`.
 This option retains the independent, unchanged Python-written specimens and their
 original resume evidence. Use the same `cc341dd` + `iso286-3150` + `fingerprint-v2`
-reference described above. Planner counts/roles now have dimension-owned metadata;
+reference described above (this combined recapture uses the clean reconstruction
+`7e2125d`, recorded by the capture tool in every `python_meta.json.gz`).
+Planner counts/roles now have dimension-owned metadata;
 synthetic support points use the source context's length unit, including inches.

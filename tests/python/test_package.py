@@ -186,7 +186,12 @@ def test_foreign_pmi_scene_schema_and_as_drawn_metadata():
         Draft202012Validator(schema).validate(scene[name])
         Draft202012Validator(schema).validate(merged[name])
     assert scene["pmi"]["pmi"]["datums"] == merged["pmi"]["pmi"]["datums"]
-    assert scene["presentation"]["views"] == merged["presentation"]["views"]
+    # v0.4.1 adds a generated plane view without changing any saved file view.
+    views = merged["presentation"]["views"]
+    assert all(view in views for view in scene["presentation"]["views"])
+    generated = [view for view in views if view["id"].startswith("generated:")]
+    assert len(generated) == 1
+    assert generated[0]["graphics"] == ["generated:tolerances:flatness:extra.1"]
     presentation = scene["presentation"]
     assert presentation["planes"]
     assert presentation["views"]
