@@ -1514,7 +1514,9 @@ fn check_datum_origin_departures(differences: &[Difference]) {
     let prior: Vec<_> = load_known(&common::known_differences_file("cli"))
         .into_iter()
         .filter(|e| {
-            e.pattern != PATTERN && e.pattern != "Shared planner report item in serve (#75)"
+            e.pattern != PATTERN
+                && e.pattern != "Shared planner report item in serve (#75)"
+                && e.pattern != "Exact tap-drill defaults and dependent question order"
         })
         .collect();
     let ties: Vec<_> = load_known(&common::known_differences_file("cli"))
