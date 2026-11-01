@@ -13,10 +13,34 @@ local STEP downloads and drawing handoff, and a local unavailable-QIF notice. Th
 application's authentication, HTTP transport, durable server sessions, analytics,
 and drawing handoff are not included in this standalone browser prototype.
 
-`public/samples/plate.step` comes from `pzfreo/specify-core` at
-`42ff22c093f544aab934f30dbe625844fa5d55a3`, under AGPL-3.0-or-later.
-`plate.json` is captured by this repository's `dw-bench` capture example using both Rust
-engines. Its provenance records the Specify revision and the input fixture.
+`public/samples/mounting-plate.step`, the editor's sample part (also offered on the start
+screens as "Mounting plate"), is text-to-cad's mounting plate: the model in
+[`models/examples/src/mounting_plate.py`](https://github.com/amywork777/text-to-cad-upstream/blob/85d8fdbfb467ebd7e22994fe8bcd86afa6626ed3/models/examples/src/mounting_plate.py)
+at `amywork777/text-to-cad-upstream` commit `85d8fdbfb467ebd7e22994fe8bcd86afa6626ed3`
+(the branch of earthtojake/text-to-cad#674), exported to STEP with build123d 0.13.0's
+`export_step`. text-to-cad publishes its models as build123d Python, so the STEP is an export,
+not an original file. The file is copied unchanged from `pzfreo/dw-examples`
+(`steps/text-to-cad/mounting-plate.step`, commit `c4c72a71c6440f0c824678660b59d0474f105e71`),
+whose README records the export; its SHA-256 is
+`1e71caba689593eb357ca6ac0108130c2655adfda280909db88f49a8baf3c750`.
+text-to-cad is Copyright (c) 2026 Thompson Labs LLC, under the MIT License, reproduced in
+`text-to-cad/LICENSE`.
+`mounting-plate.json` is captured from it by this repository's `dw-bench` capture example using
+both Rust engines. Its provenance records the Specify, Draftwright and kernel revisions and the
+input part.
+
+`public/samples/nist_ctc_01_asme1_ap242-e1.stp`, the "NIST CTC-01 with PMI" sample, is NIST's
+Combined Test Case 1 (CTC-01, ASME tolerancing) in its AP242 edition 1, from the NIST MBE PMI
+Validation and Conformance Testing Project, as the file's own header says. It is unmodified: the same bytes as `tests/fixtures/ap242/nist/nist_ctc_01_asme1_ap242-e1.stp.gz` in
+`pzfreo/quiddity-rust` at `v0.4.1` (`a2195eed18057ec33389cd7d59d47dfeb2c20870`), decompressed;
+SHA-256 `036683e8358ac27d51a92c35362e175c91bc44d3b600a5c605fb496865edcd37`. NIST's test files are
+works of the US Government and not subject to copyright in the United States (public domain).
+`scripts/fixtures/ctc01-text-filled.step.gz` is the same part with one authored text literal added
+(see `scripts/fixtures/README.md`); the sample is the original.
+
+The previous sample, Specify's synthetic mounting plate, is now the engine verification fixture
+`scripts/fixtures/plate.step` (see `scripts/fixtures/README.md`). It comes from
+`pzfreo/specify-core` at `42ff22c093f544aab934f30dbe625844fa5d55a3`, under AGPL-3.0-or-later.
 
 `scripts/fixtures/assembly.step` and `placed.step` are the same upstream revision's
 synthetic `assembly.step` and

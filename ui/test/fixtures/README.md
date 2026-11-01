@@ -9,14 +9,28 @@ restoring a computed callout that the automatic planner replaced with a hole tab
 `pzfreo/specify-core` at `42ff22c093f544aab934f30dbe625844fa5d55a3`, under
 AGPL-3.0-only. They exercise assembly refusal and single-part placement restoration.
 
+`plate.step` is Specify's synthetic mounting plate from `pzfreo/specify-core` at
+`42ff22c093f544aab934f30dbe625844fa5d55a3` (`tests/fixtures/parts/plate.step`), under
+AGPL-3.0-or-later. It was the editor's sample until text-to-cad's mounting plate replaced it;
+`verify:engines`, `test:wasm-parity`, the bench edit sequences, the MCP evaluation tasks, the
+native `dw-bench` tests, `scripts/mcp-card-browser.mjs` and smoke's STEP-reopening steps use it
+for its holes (the ⌀8 bore `holes:9`, the 6× ⌀6.6 pattern), its M5 tapped holes and its datums.
+
+`specify-sample-plate.step` is the plate draftwright.io's Specify offered as a sample, copied
+unchanged from `pzfreo/draftwright-io`'s `public/samples` (MIT, `third_party/draftwright-io/LICENSE`).
+It was the start screens' "Plate" sample until text-to-cad's mounting plate replaced it.
+`scripts/agent-wasm.test.mjs`, `bench/agent-bench.mjs`, `scripts/webmcp-browser.mjs` and the
+sheet-format steps of `scripts/sheets-browser.mjs` use it for its unclaimed face, its fix choices
+at 5:1 and its sheet sizes.
+
 `legacy_specify.step` is the mounting-plate sample saved by the pre-alpha browser
 writer (Specify `42ff22c0`) with H7 and 6082-T6 answers, using stored-answer schema 1.
-The geometry is `public/samples/plate.step` from Specify's AGPL sample corpus.
+The geometry is `plate.step`, Specify's AGPL sample.
 Since quiddity v0.1.1 its schema 1 fingerprint cannot be reproduced (some zero centroids
 change sign). Specify alpha.8 resumes its answers by feature ID and marks them unverified;
 the editor's report says so.
 
-`alpha6_specify.step` is `public/samples/plate.step` written by the Specify
+`alpha6_specify.step` is `plate.step` written by the Specify
 v0.1.0-alpha.6 WASM (stored-answer schema 2, quiddity alpha.8) with 6082-T6, an H7 fit on
 `holes:9` and an answer for `holes:99`, a feature the plate does not have. It verifies
 that alpha.6 exports resume under the current kernel and that an answer that cannot be
