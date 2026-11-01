@@ -160,6 +160,7 @@ export interface PmiSceneItems {
 }
 
 export interface PmiSceneMetadata {
+  notation?: string;
   number?: number;
   origin?: "requirement" | "general_tolerance" | "imported";
   question?: string;
