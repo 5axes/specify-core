@@ -132,8 +132,8 @@ export interface PmiSceneGraphic {
 }
 
 export interface PmiSceneItem {
-  identifier?: string;
   id: PmiSceneId;
+  identifier?: string;
   value: unknown;
 }
 

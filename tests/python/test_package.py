@@ -141,7 +141,7 @@ def test_cli_main_returns_the_exit_code(capsys):
     assert "error:" in capsys.readouterr().err
 
 
-def test_pmi_scene_and_packaged_schemas(plate):
+def test_pmi_scene_and_packaged_schemas(plate, tmp_path):
     import importlib.resources
     import json
     import specify_core
@@ -159,6 +159,13 @@ def test_pmi_scene_and_packaged_schemas(plate):
     assert scene["specify"]["part.surface_finish"]["number"] > 0
     empty = api.pmi_scene(plate.read_bytes())
     assert empty["pmi"]["pmi"]["dimensions"] == []
+    answers = {"part.material": "6061-T6"}
+    written = tmp_path / "numbered.step"
+    api.write(plate, api.apply(api.analyse(plate), answers, accept_defaults=True),
+              written, answers=answers)
+    readback = api.pmi_scene(written.read_bytes())
+    dimensions = readback["pmi"]["pmi"]["dimensions"]
+    assert dimensions and all(isinstance(row["identifier"], str) for row in dimensions)
     root = importlib.resources.files("specify_core").joinpath("schema")
     for name in ("pmi", "presentation"):
         schema = json.loads(root.joinpath(f"haecceity.{name}-1.json").read_text())
@@ -167,6 +174,7 @@ def test_pmi_scene_and_packaged_schemas(plate):
         Draft202012Validator.check_schema(schema)
         Draft202012Validator(schema).validate(scene[name])
         Draft202012Validator(schema).validate(empty[name])
+        Draft202012Validator(schema).validate(readback[name])
 
 
 def test_foreign_pmi_scene_schema_and_as_drawn_metadata():

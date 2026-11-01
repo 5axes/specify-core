@@ -17,11 +17,19 @@ All notable changes to specify-core-rust. The format follows
   The documented reader binding moves from `haecceity-pmi-read/11` to `/13`
   because #168/#170 change readings and findings; Specify always rereads STEP.
 
+### Fixed
+
+- Preserve separately sized lands that also compose a multi-face datum with the
+  v0.4.2 reader. Give their new requirements independent shape-aspect compositions
+  sharing the original face usages (no duplicate GISUs), so LM10UU's three Ø19
+  sizes retain their supports and characteristic numbers instead of refusing.
+
 ### Added
 
 - Regression coverage for #89 using FreeCAD's attributed CC-BY-3.0 hex standoff:
   AP214 `PRODUCT_TYPE` upgrades to `PRODUCT_RELATED_PRODUCT_CATEGORY`, preserving
-  every other original entity byte, and written PMI/answers read back.
+  every other original entity byte, and written PMI/answers read back. Add the
+  attributed LM10UU fixture to cover independent size supports and unchanged resaves.
 
 ### WASM API
 
