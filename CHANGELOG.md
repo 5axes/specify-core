@@ -6,29 +6,6 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
-### Changed
-
-- For #79: record the additive assembly `analysis.bom` field in the per-part oracle
-  ledger, preserving all legacy layout/value assertions and opt-in write behavior.
-  Review the three `--bom` CLI usage/help departures with exact text assertions;
-  retain the datum-origin snapshot and revalidate ordinary write bytes against main.
-
-- Fix #92: compare and label each part note by its semantic wording, so a change
-  within the shared GENERAL NOTES graphic leaves other note requirements unchanged.
-- Pin quiddity and haecceity to v0.4.1. Recognition `/6` and fingerprints `/3`
-  stay unchanged. Adopt regenerated ladders/callouts, one numbered GENERAL NOTES
-  block, generated plane views, AP214 PRODUCT_TYPE upgrades, panic isolation and
-  graphical callout reading; feature-on scenes and written STEP layouts change.
-- Build the Linux CLI against glibc 2.28 using pinned Zig/cargo-zigbuild tools;
-  check its symbols and revision smoke on Amazon Linux 2023 and AlmaLinux 8.
-  Release asset names and archive layout stay the same.
-- Preserve optional text-placement `stroked` flags in PMI scenes; prune saved-view
-  references when graphics are filtered or replaced, removing empty views.
-- For #87 fix round 1: only unique names in the authored `f:` namespace become
-  face identities. Shared names and generic/class labels (including singletons)
-  retain geometric evidence and schema 2 when no usable identities remain. Omit
-  unusable labels from analysis; retain the full oracle comparison unchanged.
-
 ### Added
 
 - For #79: opt-in assembly BOM writes via explicit `bom.*` answers or `--bom` / API
@@ -39,6 +16,43 @@ All notable changes to specify-core-rust. The format follows
   and stable duplicate ordering; removed numbers are retired. Read through Rust, CLI,
   Python and WASM. See [BOM storage and numbering](docs/bom.md).
 
+### Changed
+
+- For #79: record the additive assembly `analysis.bom` field in the per-part oracle
+  ledger, preserving all legacy layout/value assertions and opt-in write behavior.
+  Review the three `--bom` CLI usage/help departures with exact text assertions;
+  retain the datum-origin snapshot and revalidate ordinary write bytes against main.
+
+### WASM API
+
+- For #79: add static `IntentEngine.bom(bytes)` returning sourced assembly BOM JSON;
+  optional fourth `writePmi` argument explicitly accepts BOM suggestions. Omitted/false
+  preserves the ordinary PMI write. BOM analysis questions are optional suggestions.
+
+## 0.1.6 (2026-11-01)
+
+On quiddity/haecceity 0.4.1. Adds answers keyed by authored STEP face names (#87, cadgen's `f:` names), adopts 0.4.1's presentation (callouts by their features, one numbered GENERAL NOTES block, plane views, `stroked` text), adds `PmiScene` TypeScript types, and builds the Linux command line against glibc 2.28 so it runs on Amazon Linux 2023 and other older distributions. Feature-on scenes and written STEP layouts change with the new presentation. Named parts store answers schema 3; unnamed parts are unchanged.
+
+### Changed
+
+- Compare and label each part note by its semantic wording, so a change
+  within the shared GENERAL NOTES graphic leaves other note requirements unchanged.
+- Pin quiddity and haecceity to v0.4.1. Recognition `/6` and fingerprints `/3`
+  stay unchanged. Adopt regenerated ladders/callouts, one numbered GENERAL NOTES
+  block, generated plane views, AP214 PRODUCT_TYPE upgrades, panic isolation and
+  graphical callout reading; feature-on scenes and written STEP layouts change.
+- Build the Linux CLI against glibc 2.28 using pinned Zig/cargo-zigbuild tools;
+  check its symbols and revision smoke on Amazon Linux 2023 and AlmaLinux 8.
+  Release asset names and archive layout stay the same.
+- Preserve optional text-placement `stroked` flags in PMI scenes; prune saved-view
+  references when graphics are filtered or replaced, removing empty views.
+- For #87: only unique names in the authored `f:` namespace become
+  face identities. Shared names and generic/class labels (including singletons)
+  retain geometric evidence and schema 2 when no usable identities remain. Omit
+  unusable labels from analysis; retain the full oracle comparison unchanged.
+
+### Added
+
 - For #87: carry authored STEP face names in analysis and stored-answer schema 3.
   Resume and diff match names exactly before unnamed geometric supports; missing or
   duplicate names leave answers unresolved. Unnamed parts retain schema 2 and their
@@ -48,9 +62,6 @@ All notable changes to specify-core-rust. The format follows
 
 - Add optional `PmiSceneMetadata.notation` for individual semantic note labels;
   shared presentation graphics retain their render-once identity and geometry.
-- For #79: add static `IntentEngine.bom(bytes)` returning sourced assembly BOM JSON;
-  optional fourth `writePmi` argument explicitly accepts BOM suggestions. Omitted/false
-  preserves the ordinary PMI write. BOM analysis questions are optional suggestions.
 - Add `PmiScene` JSON result interfaces for both `pmiScene` entry points, including
   semantic rows/ids, graphics, optional `stroked` text placements, planes, views and
   Specify statuses. Document parsing and rendering; the wire return remains a string.
