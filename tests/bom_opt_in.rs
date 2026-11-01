@@ -1,4 +1,5 @@
 //! For #79: exercise question/completeness/intent/write through the actual public APIs and CLI.
+mod common;
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 use specify_core::{api, part::File, rules};
@@ -10,52 +11,55 @@ fn hash(bytes: &[u8]) -> String {
         .collect()
 }
 #[test]
-fn no_opt_in_is_byte_identical_to_main_8d5a040_through_api_and_cli() {
+fn no_opt_in_matches_main_8d5a040_except_history_schema_through_api_and_cli() {
     let dir = std::env::temp_dir().join(format!("bom-opt-in-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let complete: Vec<Map<String, Value>> =
         serde_json::from_str(include_str!("fixtures/bom/legacy-assembly-answers.json")).unwrap();
     let plate_complete: Map<String, Value> =
         serde_json::from_str(include_str!("fixtures/bom/legacy-plate-answers.json")).unwrap();
-    // SHA-256 of pristine main 8d5a040 CLI writes, including planner dimensions and
-    // owners of answers/characteristic history. Captured with fresh per-engine analyses:
-    // all six single-part/assembly and complete/defaulted CLI writes match byte for byte.
+    // For #95/#96, retain main's no-BOM byte guard across history schemas. These hashes
+    // were computed from the original captured 8d5a040 outputs, after verifying their
+    // original SHA-256 pins (f527d60c, ca33fa37, cfddc2ec, 294a33b8 respectively).
+    // Only schema/role/specification text is normalized; all other STEP bytes, history
+    // counters, supports and actual ID_ATTRIBUTE values remain pinned. API/CLI bytes
+    // still match each other exactly in all six defaulted/complete cases.
     for (fixture, all_answered, defaults, expected) in [
         (
             "plate",
             false,
             true,
-            "f527d60c401ded8dc99d0ec8e3e8e380edabf6aad9af8667dbd55c2cc34eb023",
+            "9334541fdbfbea7679e8671ed986b095de9a709b12f5f92a681c4854cd6778af",
         ),
         (
             "assembly",
             true,
             false,
-            "ca33fa372e9d1be19ff1accc2e59ac7d945e977b64bf3565fc482a709a866b89",
+            "f18c708898694e72a5f21f17754966e4a7957a1de5e26fa57525a6bc12721bdd",
         ),
         (
             "assembly",
             true,
             true,
-            "ca33fa372e9d1be19ff1accc2e59ac7d945e977b64bf3565fc482a709a866b89",
+            "f18c708898694e72a5f21f17754966e4a7957a1de5e26fa57525a6bc12721bdd",
         ),
         (
             "assembly",
             false,
             true,
-            "cfddc2ec06aed65d58d85b43f75e54ace80fe91f7047cc62d7e612822711b111",
+            "325a5e135ff45c23c372cd2d43f2d7645fb3722756d6e078aef94ec01c8d765a",
         ),
         (
             "plate",
             true,
             false,
-            "294a33b82728b26c94c3202f60d3e27bbed1036f8253ea0ad0b8f5a0b9bb59cf",
+            "95fbb3b5ade988f34e0a9a35e621a67256964797228d213cb0a1649fb7701382",
         ),
         (
             "plate",
             true,
             true,
-            "294a33b82728b26c94c3202f60d3e27bbed1036f8253ea0ad0b8f5a0b9bb59cf",
+            "95fbb3b5ade988f34e0a9a35e621a67256964797228d213cb0a1649fb7701382",
         ),
     ] {
         let path = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -99,7 +103,7 @@ fn no_opt_in_is_byte_identical_to_main_8d5a040_through_api_and_cli() {
             .unwrap()
             .0;
         assert_eq!(
-            hash(&bytes),
+            hash(&common::numbering::comparable_number_history(&bytes)),
             expected,
             "API {fixture}, complete={all_answered}, defaults={defaults}"
         );

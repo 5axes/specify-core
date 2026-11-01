@@ -76,57 +76,6 @@ fn rust_written(case: &str) -> Option<PathBuf> {
 // (a) The committed files are today's writer's
 // ---------------------------------------------------------------------------------------------
 
-// For #95, retain the independently read Python fixtures. Compare the common history
-// fields (numbers, high-water mark, fingerprint and supports) exactly, and every byte
-// outside its text payload. Only schema 1's obsolete value signature and schema 2's
-// structural role differ; migration/role behavior is covered by revision_pmi.
-fn comparable_number_history(bytes: &[u8]) -> Vec<u8> {
-    use haecceity::p21::{Attribute, Document, Edit, RawEntity};
-    let doc = Document::parse(bytes.to_vec()).unwrap();
-    let defs = haecceity::step::read_part_definitions(bytes).unwrap();
-    let read = haecceity::pmi::read(&doc, &defs).unwrap();
-    let mut edit = Edit::new();
-    for (part, prov) in read.parts.iter().zip(&read.provenance.parts) {
-        for (i, a) in part.attributes.iter().enumerate() {
-            if a.name != specify_core::characteristics::PROPERTY {
-                continue;
-            }
-            for &id in &prov.attributes[i] {
-                let Some(mut entity) = doc.get(id).cloned() else {
-                    continue;
-                };
-                let RawEntity::Simple {
-                    name, attributes, ..
-                } = &mut entity
-                else {
-                    continue;
-                };
-                if name != "DESCRIPTIVE_REPRESENTATION_ITEM" {
-                    continue;
-                }
-                let [Attribute::String(name), Attribute::String(text)] = attributes.as_mut_slice()
-                else {
-                    continue;
-                };
-                if name != "history" {
-                    continue;
-                }
-                let mut history: Value = serde_json::from_str(text).unwrap();
-                assert!(matches!(history["schema"].as_u64(), Some(1 | 2)));
-                history["schema"] = json!("common fields");
-                for entry in history["entries"].as_array_mut().unwrap() {
-                    let key = entry["key"].as_object_mut().unwrap();
-                    key.remove("specification");
-                    key.remove("role");
-                }
-                *text = serde_json::to_string(&history).unwrap();
-                edit.replace(id, entity);
-            }
-        }
-    }
-    doc.apply(&edit).unwrap().bytes
-}
-
 #[test]
 fn rust_written_files_match_the_current_presentation_writer() {
     let scratch = write_fixtures::scratch();
@@ -139,8 +88,8 @@ fn rust_written_files_match_the_current_presentation_writer() {
         let (step, refused) = (dir.join("rust.step.gz"), dir.join("rust.refused.txt"));
         match (write_fixtures::write(case, &output), step.is_file()) {
             (Ok(bytes), true)
-                if comparable_number_history(&gunzip(&step))
-                    == comparable_number_history(&bytes) => {}
+                if common::numbering::comparable_number_history(&gunzip(&step))
+                    == common::numbering::comparable_number_history(&bytes) => {}
             (Ok(_), true) => stale.push(format!("{}: writer bytes changed", case.name)),
             (Ok(_), false) => stale.push(format!("{}: written now, not committed", case.name)),
             (Err(why), false)
