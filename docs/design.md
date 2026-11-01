@@ -88,7 +88,7 @@ the resume correspondence rule below handles feature-ID changes.
 ## Dependency plan
 
 - `quiddity` and `haecceity` by git from `https://github.com/pzfreo/quiddity-rust`,
-  pinned to tag `v0.4.2` (`d7112fd`) in both manifests and Cargo.lock.
+  pinned to tag `v0.4.3` (`56a4cbc`) in both manifests and Cargo.lock.
   Update only these packages with `cargo update -p quiddity -p haecceity`, then run
   the named local profile below and the full suite in CI, and rejudge any departures from the frozen Python captures with
   independent evidence. `correspondence::recognise` returns published file-coordinate records (#92);
@@ -100,7 +100,7 @@ the resume correspondence rule below handles feature-ID changes.
   Specify keeps its own analysis schema and binding because face numbering
   is unchanged. Derived PMI geometry is followed through its deriving faces by
   `existing::faces_of`; Specify reads PMI anew from STEP, never persists the upstream
-  PMI JSON (version 2, now reader binding `haecceity-pmi-read/13`; older readings must be reread).
+  PMI JSON (version 2, now reader binding `haecceity-pmi-read/14`; older readings must be reread).
   It builds its own write report, so upstream parts/write-report version 2 and the
   graphic-only `Accounting::presentation` do not change that report's shape.
 - **Cargo.toml and Cargo.lock across parallel streams.** A stream that adds a crate adds its
@@ -179,7 +179,9 @@ except where a hash is taken (resume fingerprint, `pyjson.rs`).
   Python's exit codes and error codes (`incomplete`, `invalid`, `failed`).
 - Stored answers: `{schema, answers, part, face_count, faces}`, compact JSON
   (`separators=(",", ":")`), base64, in a `DESCRIPTIVE_REPRESENTATION_ITEM('pmi-assist
-  answers','<base64>')`. Schema 2 is written; schemas 1 and 2 are read (compared as Python's
+  answers','<base64>')`, or haecceity v0.4.3's marked ordered text compound when
+  it exceeds the encoded string bound. Chunk text is joined in list order. Named
+  parts write schema 3; wholly unnamed parts retain schema 2. Schemas 1–3 are read (compared as Python's
   `==` compares: `1.0` and `true` are schema 1), any other is passed over. A payload resumes
   when its `face_count` is the part's and its `faces` is the part's fingerprint *of the
   payload's own schema* (Q14).

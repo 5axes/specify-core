@@ -1,0 +1,623 @@
+{
+  "characteristic_count": 21,
+  "dimensions": [
+    {
+      "kind": {
+        "location": {
+          "from": [
+            {
+              "face": 11
+            }
+          ],
+          "to": [
+            {
+              "face": 13
+            }
+          ],
+          "kind": "linear distance",
+          "path": null,
+          "directed": false,
+          "angle": null
+        }
+      },
+      "nominal": {
+        "quantity": {
+          "length": {
+            "value": "0.7",
+            "unit": "millimetre"
+          }
+        },
+        "decimal_places": null
+      },
+      "tolerance": "none",
+      "qualifier": null,
+      "modifiers": [],
+      "principle": null
+    },
+    {
+      "kind": {
+        "location": {
+          "from": [
+            {
+              "face": 11
+            }
+          ],
+          "to": [
+            {
+              "face": 15
+            }
+          ],
+          "kind": "linear distance",
+          "path": null,
+          "directed": false,
+          "angle": null
+        }
+      },
+      "nominal": {
+        "quantity": {
+          "length": {
+            "value": "26.9",
+            "unit": "millimetre"
+          }
+        },
+        "decimal_places": null
+      },
+      "tolerance": "none",
+      "qualifier": null,
+      "modifiers": [],
+      "principle": null
+    },
+    {
+      "kind": {
+        "location": {
+          "from": [
+            {
+              "face": 11
+            }
+          ],
+          "to": [
+            {
+              "face": 17
+            }
+          ],
+          "kind": "linear distance",
+          "path": null,
+          "directed": false,
+          "angle": null
+        }
+      },
+      "nominal": {
+        "quantity": {
+          "length": {
+            "value": "26.2",
+            "unit": "millimetre"
+          }
+        },
+        "decimal_places": null
+      },
+      "tolerance": "none",
+      "qualifier": null,
+      "modifiers": [],
+      "principle": null
+    },
+    {
+      "kind": {
+        "location": {
+          "from": [
+            {
+              "face": 11
+            }
+          ],
+          "to": [
+            {
+              "face": 19
+            }
+          ],
+          "kind": "linear distance",
+          "path": null,
+          "directed": false,
+          "angle": null
+        }
+      },
+      "nominal": {
+        "quantity": {
+          "length": {
+            "value": "27.6",
+            "unit": "millimetre"
+          }
+        },
+        "decimal_places": null
+      },
+      "tolerance": "none",
+      "qualifier": null,
+      "modifiers": [],
+      "principle": null
+    },
+    {
+      "kind": {
+        "location": {
+          "from": [
+            {
+              "face": 11
+            }
+          ],
+          "to": [
+            {
+              "face": 1
+            }
+          ],
+          "kind": "linear distance",
+          "path": null,
+          "directed": false,
+          "angle": null
+        }
+      },
+      "nominal": {
+        "quantity": {
+          "length": {
+            "value": "24.1",
+            "unit": "millimetre"
+          }
+        },
+        "decimal_places": null
+      },
+      "tolerance": "none",
+      "qualifier": null,
+      "modifiers": [],
+      "principle": null
+    },
+    {
+      "kind": {
+        "location": {
+          "from": [
+            {
+              "face": 11
+            }
+          ],
+          "to": [
+            {
+              "face": 3
+            }
+          ],
+          "kind": "linear distance",
+          "path": null,
+          "directed": false,
+          "angle": null
+        }
+      },
+      "nominal": {
+        "quantity": {
+          "length": {
+            "value": "22.8",
+            "unit": "millimetre"
+          }
+        },
+        "decimal_places": null
+      },
+      "tolerance": "none",
+      "qualifier": null,
+      "modifiers": [],
+      "principle": null
+    },
+    {
+      "kind": {
+        "location": {
+          "from": [
+            {
+              "face": 11
+            }
+          ],
+          "to": [
+            {
+              "face": 5
+            }
+          ],
+          "kind": "linear distance",
+          "path": null,
+          "directed": false,
+          "angle": null
+        }
+      },
+      "nominal": {
+        "quantity": {
+          "length": {
+            "value": "3.4",
+            "unit": "millimetre"
+          }
+        },
+        "decimal_places": null
+      },
+      "tolerance": "none",
+      "qualifier": null,
+      "modifiers": [],
+      "principle": null
+    },
+    {
+      "kind": {
+        "location": {
+          "from": [
+            {
+              "face": 11
+            }
+          ],
+          "to": [
+            {
+              "face": 7
+            }
+          ],
+          "kind": "linear distance",
+          "path": null,
+          "directed": false,
+          "angle": null
+        }
+      },
+      "nominal": {
+        "quantity": {
+          "length": {
+            "value": "2.1",
+            "unit": "millimetre"
+          }
+        },
+        "decimal_places": null
+      },
+      "tolerance": "none",
+      "qualifier": null,
+      "modifiers": [],
+      "principle": null
+    },
+    {
+      "kind": {
+        "location": {
+          "from": [
+            {
+              "face": 11
+            }
+          ],
+          "to": [
+            {
+              "face": 9
+            }
+          ],
+          "kind": "linear distance",
+          "path": null,
+          "directed": false,
+          "angle": null
+        }
+      },
+      "nominal": {
+        "quantity": {
+          "length": {
+            "value": "1.4",
+            "unit": "millimetre"
+          }
+        },
+        "decimal_places": null
+      },
+      "tolerance": "none",
+      "qualifier": null,
+      "modifiers": [],
+      "principle": null
+    },
+    {
+      "kind": {
+        "size": {
+          "feature": [
+            {
+              "face": 0
+            }
+          ],
+          "kind": "diameter",
+          "path": null,
+          "angle": null
+        }
+      },
+      "nominal": {
+        "quantity": {
+          "length": {
+            "value": "19.",
+            "unit": "millimetre"
+          }
+        },
+        "decimal_places": null
+      },
+      "tolerance": "none",
+      "qualifier": null,
+      "modifiers": [],
+      "principle": null
+    },
+    {
+      "kind": {
+        "size": {
+          "feature": [
+            {
+              "face": 10
+            },
+            {
+              "face": 14
+            },
+            {
+              "face": 18
+            }
+          ],
+          "kind": "curve length",
+          "path": null,
+          "angle": null
+        }
+      },
+      "nominal": {
+        "quantity": {
+          "length": {
+            "value": "1.4",
+            "unit": "millimetre"
+          }
+        },
+        "decimal_places": null
+      },
+      "tolerance": "none",
+      "qualifier": null,
+      "modifiers": [
+        "reference"
+      ],
+      "principle": null
+    },
+    {
+      "kind": {
+        "size": {
+          "feature": [
+            {
+              "face": 10
+            },
+            {
+              "face": 14
+            },
+            {
+              "face": 18
+            }
+          ],
+          "kind": "diameter",
+          "path": null,
+          "angle": null
+        }
+      },
+      "nominal": {
+        "quantity": {
+          "length": {
+            "value": "10.",
+            "unit": "millimetre"
+          }
+        },
+        "decimal_places": null
+      },
+      "tolerance": {
+        "fit": {
+          "class": {
+            "deviation": {
+              "letter": "h",
+              "of": "hole"
+            },
+            "grade": "11"
+          },
+          "limits": null
+        }
+      },
+      "qualifier": null,
+      "modifiers": [],
+      "principle": null
+    },
+    {
+      "kind": {
+        "size": {
+          "feature": [
+            {
+              "face": 10
+            },
+            {
+              "face": 14
+            },
+            {
+              "face": 18
+            }
+          ],
+          "kind": "diameter",
+          "path": null,
+          "angle": null
+        }
+      },
+      "nominal": {
+        "quantity": {
+          "length": {
+            "value": "16.4",
+            "unit": "millimetre"
+          }
+        },
+        "decimal_places": null
+      },
+      "tolerance": "none",
+      "qualifier": null,
+      "modifiers": [],
+      "principle": null
+    },
+    {
+      "kind": {
+        "size": {
+          "feature": [
+            {
+              "face": 2
+            }
+          ],
+          "kind": "diameter",
+          "path": null,
+          "angle": null
+        }
+      },
+      "nominal": {
+        "quantity": {
+          "length": {
+            "value": "18.3",
+            "unit": "millimetre"
+          }
+        },
+        "decimal_places": null
+      },
+      "tolerance": "none",
+      "qualifier": null,
+      "modifiers": [],
+      "principle": null
+    },
+    {
+      "kind": {
+        "size": {
+          "feature": [
+            {
+              "face": 4
+            }
+          ],
+          "kind": "diameter",
+          "path": null,
+          "angle": null
+        }
+      },
+      "nominal": {
+        "quantity": {
+          "length": {
+            "value": "19.",
+            "unit": "millimetre"
+          }
+        },
+        "decimal_places": null
+      },
+      "tolerance": "none",
+      "qualifier": null,
+      "modifiers": [],
+      "principle": null
+    },
+    {
+      "kind": {
+        "size": {
+          "feature": [
+            {
+              "face": 6
+            }
+          ],
+          "kind": "diameter",
+          "path": null,
+          "angle": null
+        }
+      },
+      "nominal": {
+        "quantity": {
+          "length": {
+            "value": "18.3",
+            "unit": "millimetre"
+          }
+        },
+        "decimal_places": null
+      },
+      "tolerance": "none",
+      "qualifier": null,
+      "modifiers": [],
+      "principle": null
+    },
+    {
+      "kind": {
+        "size": {
+          "feature": [
+            {
+              "face": 8
+            }
+          ],
+          "kind": "diameter",
+          "path": null,
+          "angle": null
+        }
+      },
+      "nominal": {
+        "quantity": {
+          "length": {
+            "value": "19.",
+            "unit": "millimetre"
+          }
+        },
+        "decimal_places": null
+      },
+      "tolerance": "none",
+      "qualifier": null,
+      "modifiers": [],
+      "principle": null
+    }
+  ],
+  "tolerances": [
+    {
+      "kind": "position_tolerance",
+      "target": {
+        "feature": [
+          {
+            "face": 14
+          }
+        ]
+      },
+      "magnitude": {
+        "quantity": {
+          "length": {
+            "value": "2.",
+            "unit": "millimetre"
+          }
+        },
+        "decimal_places": null
+      },
+      "zone": {
+        "form": "cylindrical or circular",
+        "projected": null,
+        "non_uniform": null,
+        "runout_angle": null,
+        "affected_plane": null,
+        "affected_plane_kind": null
+      },
+      "modifiers": [
+        "maximum_material_requirement"
+      ],
+      "unit_basis": null,
+      "maximum": null,
+      "unequal": null,
+      "datums": [
+        {
+          "references": [
+            {
+              "datum": "A",
+              "modifiers": []
+            }
+          ],
+          "modifiers": []
+        }
+      ],
+      "auxiliary": [],
+      "description": "specify-core:written:v1"
+    }
+  ],
+  "datums": [
+    {
+      "label": "A",
+      "feature": [
+        {
+          "face": 0
+        },
+        {
+          "face": 4
+        },
+        {
+          "face": 8
+        }
+      ],
+      "targets": []
+    },
+    {
+      "label": "B",
+      "feature": [
+        {
+          "face": 11
+        }
+      ],
+      "targets": []
+    }
+  ]
+}

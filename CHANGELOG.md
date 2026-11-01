@@ -23,6 +23,19 @@ All notable changes to specify-core-rust. The format follows
 
 ### Changed
 
+- Move quiddity/haecceity (native, WASM and the Python binding) to v0.4.3
+  (`56a4cbc0`). The pin checker requires the same release. Reader binding advances
+  to `haecceity-pmi-read/14` for datum-constituent identity (#173); the packaged
+  `haecceity.pmi/1` schema is byte-identical to upstream and remains unchanged.
+  Upstream #171 improves callout/frame placement and label packing; #172 bounds
+  generated STEP string literals and chunks long descriptive values. Recognition /6
+  and fingerprints /3 are unchanged.
+- Read haecceity #172's marked ordered text chunks when recovering saved answers
+  and carried application payloads. Previously a long saved answer failed write
+  verification after the kernel bounded its strings; legacy single strings remain
+  readable. Regression coverage checks long-answer resume/resave and rejects
+  unmarked, unordered or cyclic compounds.
+
 - For #163: live PMI scenes combine accepted part settings, imported semantic notes and
   material in one GENERAL NOTES block, replacing the file block in the scene while
   lossless writes keep its records. Reopened appended files also draw one block.
@@ -61,7 +74,7 @@ All notable changes to specify-core-rust. The format follows
 - For #79: preserve opt-in BOM alongside shared planner dimensions; ordinary writes
   are checked byte for byte against main 8d5a040 through the CLI and API.
 
-- Pin quiddity and haecceity (native, WASM and Python) to v0.4.2 (`d7112fd`).
+- Earlier v0.4.2 upgrade (`d7112fd`), retained as recognition evidence:
   Recognition /6 and fingerprints /3 stay unchanged; turned steps with spanner
   flats, grouped interrupted torus fillets and unproved corners follow upstream #167.
   PMI now repairs reversed bounds and datum-feature child aspects (#168), and
@@ -95,12 +108,11 @@ All notable changes to specify-core-rust. The format follows
   records (such as `_specify_characteristic_numbers`) at any depth. They stay in the
   committed answers file.
 
-- Preserve separately sized lands that also compose a multi-face datum with the
-  v0.4.2 reader. Give their new requirements independent shape-aspect compositions
-  sharing the original face usages (no duplicate GISUs), so LM10UU's three Ø19
-  sizes retain their supports and characteristic numbers instead of refusing.
-  This is temporary compensation for haecceity #168, to be removed with the planned
-  0.4.3 constituent-identity fix. A raw-reader regression guard signals its removal.
+- Remove the temporary LM10UU writer adjustment: haecceity #173 now preserves
+  separately sized datum constituents itself. Replace the retirement guard with a
+  direct upstream write/read regression for the three Ø19 lands and the whole
+  datum A. A structural v0.4.2 workaround baseline checks all dimensions, tolerances,
+  datums and the characteristic count, independently of STEP IDs and presentation.
 
 ### WASM API
 
