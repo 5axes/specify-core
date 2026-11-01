@@ -7,12 +7,15 @@
 //! **The payload** is a CAx-IF user defined attribute on the part, written in the same edit as
 //! the PMI ([`writer::write_bytes_with`](crate::writer::write_bytes_with)): an `AttributeSet`
 //! named `name` with one text item of that name, whose text is base64 of the value's compact
-//! JSON (UTF-8). In Part 21 that is `DESCRIPTIVE_REPRESENTATION_ITEM('<name>','<base64>')`,
+//! JSON (UTF-8). Short values retain
+//! `DESCRIPTIVE_REPRESENTATION_ITEM('<name>','<base64>')`,
 //! which is what the editor's `readProject` (draftwright-editor `src/model/step-project.ts`) and
 //! draftwright-mcp's `project::read` match for `draftwright editor project`, so files written
 //! either way are read either way. [`payload`] reads the last item of that name held by a user
 //! defined attribute, as the writer stores it; an item of that name anywhere else in the file is
 //! not the payload.
+//! Long values use haecceity 0.4.3's marked, ordered text compounds; raw STEP
+//! consumers must concatenate their chunks in list order. Both forms read here.
 //!
 //! **The original** is recorded beside it, in a second attribute named [`ORIGINAL`]:
 //! `{schema: 1, sha256, header, from}`, the original's sha256, its `FILE_SCHEMA` statement
@@ -28,7 +31,7 @@
 //! elsewhere set their own (the WASM build refuses one over 8 MiB).
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
-use haecceity::p21::{Attribute, Document, RawEntity};
+use haecceity::p21::Document;
 use haecceity::pmi::{self, AttributeSet, AttributeValue};
 use haecceity::step::read_part_definitions;
 use regex::bytes::{NoExpand, Regex};
@@ -209,13 +212,7 @@ fn last_text(doc: &Document, name: &str) -> Option<String> {
 }
 
 fn text_of(doc: &Document, id: u64) -> Option<String> {
-    match doc.get(id) {
-        Some(RawEntity::Simple { attributes, .. }) => match attributes.get(1) {
-            Some(Attribute::String(text)) => Some(text.clone()),
-            _ => None,
-        },
-        _ => None,
-    }
+    resume::descriptive_text(doc, id)
 }
 
 fn decode(text: &str) -> Option<Value> {

@@ -17,7 +17,7 @@ import wasm_size
 class WorkspacePinTests(unittest.TestCase):
     def test_release_and_wasm_use_the_reviewed_kernel(self):
         local = kernel.pins(kernel.tomllib.loads((kernel.ROOT / "Cargo.toml").read_text()))
-        self.assertEqual(set(local.values()), {("tag", "v0.4.2")})
+        self.assertEqual(set(local.values()), {("tag", "v0.4.3")})
         self.assertEqual(set(local.values()), {("tag", kernel.REQUIRED_TAG)})
         kernel.check_wasm_pin(local)
 
@@ -26,7 +26,7 @@ class WorkspacePinTests(unittest.TestCase):
             manifest = Path(directory) / "Cargo.toml"
             manifest.write_text('[dependencies.haecceity]\ngit = "https://github.com/pzfreo/quiddity-rust"\ntag = "v0.2.8"\n')
             with self.assertRaisesRegex(ValueError, "same source and pin"):
-                kernel.check_wasm_pin({"haecceity": ("tag", "v0.4.2")}, manifest)
+                kernel.check_wasm_pin({"haecceity": ("tag", "v0.4.3")}, manifest)
 
 
 class ApiTests(unittest.TestCase):

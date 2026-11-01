@@ -43,6 +43,32 @@ fn apply(analysis: &Value, given: Value) -> Intent {
     apply_with_defaults(analysis, given.as_object().unwrap(), true).expect("an intent")
 }
 
+#[test]
+fn long_saved_answers_resume_from_ordered_text_chunks() {
+    let loaded = load(&fixture("plate"), None).unwrap();
+    let analysis = specify_core::api::analyse(&loaded).unwrap();
+    let given = json!({"part.material":"steel", "part.notes":["Keep dry. ".repeat(1000)]});
+    let intent = apply(&analysis, given.clone());
+    let (bytes, _) =
+        specify_core::writer::write_bytes(&loaded, &intent, Some(given.as_object().unwrap()))
+            .unwrap();
+    let back = specify_core::part::load_bytes("chunked.step", bytes.clone()).unwrap();
+    assert_eq!(
+        answers_for(&back).unwrap(),
+        Some(given.as_object().unwrap().clone())
+    );
+    assert!(String::from_utf8_lossy(&bytes).contains("haecceity text chunk/1"));
+    let resumed = specify_core::api::analyse(&back).unwrap();
+    let intent = apply(&resumed, given.clone());
+    let (again, _) =
+        specify_core::writer::write_bytes(&back, &intent, Some(given.as_object().unwrap()))
+            .unwrap();
+    assert_eq!(
+        again, bytes,
+        "unchanged chunked answers must resave without drift"
+    );
+}
+
 fn feature(analysis: &Value, family: &str, diameter: f64) -> String {
     analysis["features"]
         .as_array()

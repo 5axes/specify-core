@@ -1,6 +1,6 @@
 # Shared dimension requirements (#75)
 
-Specify uses `quiddity::dimensioning` from quiddity/haecceity v0.4.2. The dependency's
+Specify uses `quiddity::dimensioning` from quiddity/haecceity v0.4.3. The dependency's
 `docs/dimensioning.md` defines the selection rules and slice boundary. Specify does
 not select an independent set of holes, pitches or plane intervals.
 

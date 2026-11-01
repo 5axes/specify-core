@@ -106,3 +106,11 @@ independent Python readbacks and capture metadata remain byte-identical to main;
 both recorded refusals also remain unchanged. No capture or cross-engine ledger
 change is needed. These cases do not exercise the temporary #168 datum-constituent
 adjustment. Keep historical inputs and Python-written evidence frozen.
+
+For v0.4.3 (`56a4cbc0`), rerun the same Rust writer generation and independent
+`--rust-only` Python capture using reference `7e2125d`. All fourteen STEP byte
+goldens, semantic readbacks, metadata and both refusals remain unchanged. Although
+upstream #171/#172 change some presentation and long-text outputs, these cases
+keep their existing presentation and short descriptive values. No golden or
+known-difference changes are needed. The packaged Python PMI schema also matches
+v0.4.3 byte for byte, so the schema mirror is retained.
