@@ -3298,6 +3298,10 @@
               },
               "value": {
                 "$ref": "#/$defs/Feature"
+              },
+              "identifier": {
+                "type": "string",
+                "description": "Original file identifier or characteristic number. May be empty or duplicated; independent of the unique reference id."
               }
             },
             "required": [
@@ -3318,6 +3322,10 @@
               },
               "value": {
                 "$ref": "#/$defs/DatumTarget"
+              },
+              "identifier": {
+                "type": "string",
+                "description": "Original file identifier or characteristic number. May be empty or duplicated; independent of the unique reference id."
               }
             },
             "required": [
@@ -3338,6 +3346,10 @@
               },
               "value": {
                 "$ref": "#/$defs/Datum"
+              },
+              "identifier": {
+                "type": "string",
+                "description": "Original file identifier or characteristic number. May be empty or duplicated; independent of the unique reference id."
               }
             },
             "required": [
@@ -3358,6 +3370,10 @@
               },
               "value": {
                 "$ref": "#/$defs/Dimension"
+              },
+              "identifier": {
+                "type": "string",
+                "description": "Original file identifier or characteristic number. May be empty or duplicated; independent of the unique reference id."
               }
             },
             "required": [
@@ -3378,6 +3394,10 @@
               },
               "value": {
                 "$ref": "#/$defs/GeometricTolerance"
+              },
+              "identifier": {
+                "type": "string",
+                "description": "Original file identifier or characteristic number. May be empty or duplicated; independent of the unique reference id."
               }
             },
             "required": [
@@ -3398,6 +3418,10 @@
               },
               "value": {
                 "$ref": "#/$defs/ToleranceRelation"
+              },
+              "identifier": {
+                "type": "string",
+                "description": "Original file identifier or characteristic number. May be empty or duplicated; independent of the unique reference id."
               }
             },
             "required": [
@@ -3418,6 +3442,10 @@
               },
               "value": {
                 "$ref": "#/$defs/GeneralTolerance"
+              },
+              "identifier": {
+                "type": "string",
+                "description": "Original file identifier or characteristic number. May be empty or duplicated; independent of the unique reference id."
               }
             },
             "required": [
@@ -3438,6 +3466,10 @@
               },
               "value": {
                 "$ref": "#/$defs/Thread"
+              },
+              "identifier": {
+                "type": "string",
+                "description": "Original file identifier or characteristic number. May be empty or duplicated; independent of the unique reference id."
               }
             },
             "required": [
@@ -3458,6 +3490,10 @@
               },
               "value": {
                 "$ref": "#/$defs/Knurl"
+              },
+              "identifier": {
+                "type": "string",
+                "description": "Original file identifier or characteristic number. May be empty or duplicated; independent of the unique reference id."
               }
             },
             "required": [
@@ -3494,6 +3530,10 @@
               },
               "value": {
                 "$ref": "#/$defs/Note"
+              },
+              "identifier": {
+                "type": "string",
+                "description": "Original file identifier or characteristic number. May be empty or duplicated; independent of the unique reference id."
               }
             },
             "required": [
@@ -3514,6 +3554,10 @@
               },
               "value": {
                 "$ref": "#/$defs/SurfaceTexture"
+              },
+              "identifier": {
+                "type": "string",
+                "description": "Original file identifier or characteristic number. May be empty or duplicated; independent of the unique reference id."
               }
             },
             "required": [
@@ -3534,6 +3578,10 @@
               },
               "value": {
                 "$ref": "#/$defs/AttributeSet"
+              },
+              "identifier": {
+                "type": "string",
+                "description": "Original file identifier or characteristic number. May be empty or duplicated; independent of the unique reference id."
               }
             },
             "required": [
@@ -3554,6 +3602,10 @@
               },
               "value": {
                 "$ref": "#/$defs/Geometry"
+              },
+              "identifier": {
+                "type": "string",
+                "description": "Original file identifier or characteristic number. May be empty or duplicated; independent of the unique reference id."
               }
             },
             "required": [
@@ -3574,6 +3626,10 @@
               },
               "value": {
                 "$ref": "#/$defs/DerivedGeometry"
+              },
+              "identifier": {
+                "type": "string",
+                "description": "Original file identifier or characteristic number. May be empty or duplicated; independent of the unique reference id."
               }
             },
             "required": [

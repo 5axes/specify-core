@@ -141,9 +141,10 @@ def test_cli_main_returns_the_exit_code(capsys):
     assert "error:" in capsys.readouterr().err
 
 
-def test_pmi_scene_and_packaged_schemas(plate):
+def test_pmi_scene_and_packaged_schemas(plate, tmp_path):
     import importlib.resources
     import json
+    import re
     import specify_core
     from specify_core import api
 
@@ -159,6 +160,23 @@ def test_pmi_scene_and_packaged_schemas(plate):
     assert scene["specify"]["part.surface_finish"]["number"] > 0
     empty = api.pmi_scene(plate.read_bytes())
     assert empty["pmi"]["pmi"]["dimensions"] == []
+    answers = {"part.material": "6061-T6"}
+    written = tmp_path / "numbered.step"
+    api.write(plate, api.apply(api.analyse(plate), answers, accept_defaults=True),
+              written, answers=answers)
+    readback = api.pmi_scene(written.read_bytes())
+    dimensions = readback["pmi"]["pmi"]["dimensions"]
+    assert dimensions and all(isinstance(row["identifier"], str) for row in dimensions)
+    readbacks = [readback]
+    for identifier in ("repeated", ""):
+        data, changed = re.subn(rb"ID_ATTRIBUTE\('[^']*',",
+                                f"ID_ATTRIBUTE('{identifier}',".encode(), written.read_bytes())
+        assert changed > 1
+        recovered = api.pmi_scene(data)
+        dimensions = recovered["pmi"]["pmi"]["dimensions"]
+        assert dimensions and all(row["identifier"] == identifier for row in dimensions)
+        assert len({row["id"] for row in dimensions}) == len(dimensions)
+        readbacks.append(recovered)
     root = importlib.resources.files("specify_core").joinpath("schema")
     for name in ("pmi", "presentation"):
         schema = json.loads(root.joinpath(f"haecceity.{name}-1.json").read_text())
@@ -167,6 +185,8 @@ def test_pmi_scene_and_packaged_schemas(plate):
         Draft202012Validator.check_schema(schema)
         Draft202012Validator(schema).validate(scene[name])
         Draft202012Validator(schema).validate(empty[name])
+        for readback in readbacks:
+            Draft202012Validator(schema).validate(readback[name])
 
 
 def test_foreign_pmi_scene_schema_and_as_drawn_metadata():

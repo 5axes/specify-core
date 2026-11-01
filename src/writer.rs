@@ -110,6 +110,8 @@ use crate::pyjson;
 use crate::resume;
 use crate::rules::Intent;
 
+mod datum_supports;
+
 /// Stable STEP authorship token. See `docs/pmi-provenance.md` for its AP242 fields.
 pub const PMI_PROVENANCE: &str = provenance::MARKER;
 
@@ -863,6 +865,11 @@ fn write_by_modes(
             .map_err(|e| WriteError::Failed(format!("haecceity could not apply the edit: {e}")))?;
         let after =
             Document::parse(applied.bytes).map_err(|e| WriteError::Failed(e.to_string()))?;
+        let independent = after
+            .apply(&datum_supports::independent(current, &after))
+            .map_err(|e| WriteError::Failed(e.to_string()))?;
+        let after =
+            Document::parse(independent.bytes).map_err(|e| WriteError::Failed(e.to_string()))?;
         let marker_edit = provenance::mark_new(current, &after);
         let marked = after
             .apply(&marker_edit)
