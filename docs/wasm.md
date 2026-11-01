@@ -452,6 +452,13 @@ distinguishing a member's measurement from its pattern's. General locations with
 feature id use their face supports. Changing a value leaves
 the id intact. Foreign items retain haecceity's `ID_ATTRIBUTE` or content-derived id.
 The same ids key semantic references, presentation and the requirement overlay `specify`.
+Material is the scalar exception: Specify exposes `part.material` as a companion alias
+for `pmi.pmi.material`, including it in `semantic_ids`, `items` and `specify`. No semantic
+row is added. The live scene replaces part-note graphics from the file with one combined
+block, retaining imported text and putting material last. A file-only scene retains the
+file callout and its STEP identity; its source is `file`, including graphics previously
+written by haecceity. Material links follow the file's DMIA and part provenance. Feature
+notes keep their feature and use a generated fallback when the file has no graphic.
 For note and characteristic labels, use `specify[id].notation` when present: it is
 that requirement's semantic wording (for example `Keep dry` or
 `GENERAL TOLERANCES ISO 2768-m`). Several requirements can alias one GENERAL NOTES
