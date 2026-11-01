@@ -31,6 +31,12 @@ All notable changes to specify-core-rust. The format follows
 
 ### Changed
 
+- Refresh the numbered M2 presentation fixture and four distinct no-BOM write
+  hashes for v0.4.4's added thread ink and neighbouring callout placement.
+  Legacy semantic/part-setting comparisons and all six exact API/CLI byte
+  comparisons remain enforced; neither the old semantic inputs nor recognition
+  expectations change.
+
 - Keep exact tap-drill defaults and their exact-value guards after the main merge:
   five frozen rule cases (CGB202, CGB217, CGB243, NIST CTC-04 part 0 and FTC-10)
   gain thread/depth answers and dependent ordering; thirteen CLI envelope entries

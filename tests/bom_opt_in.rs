@@ -11,56 +11,55 @@ fn hash(bytes: &[u8]) -> String {
         .collect()
 }
 #[test]
-fn no_opt_in_matches_main_8d5a040_except_history_schema_through_api_and_cli() {
+fn no_opt_in_matches_v044_presentation_through_api_and_cli() {
     let dir = std::env::temp_dir().join(format!("bom-opt-in-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let complete: Vec<Map<String, Value>> =
         serde_json::from_str(include_str!("fixtures/bom/legacy-assembly-answers.json")).unwrap();
     let plate_complete: Map<String, Value> =
         serde_json::from_str(include_str!("fixtures/bom/legacy-plate-answers.json")).unwrap();
-    // For #95/#96, retain main's no-BOM byte guard across history schemas. These hashes
-    // were computed from the original captured 8d5a040 outputs, after verifying their
-    // original SHA-256 pins (f527d60c, ca33fa37, cfddc2ec, 294a33b8 respectively).
-    // Canonicalized with the shared Rust helper (including its JSON map ordering).
-    // Only schema/role/specification text is normalized; all other STEP bytes, history
-    // counters, supports and actual ID_ATTRIBUTE values remain pinned. API/CLI bytes
-    // still match each other exactly in all six defaulted/complete cases.
+    // v0.4.4 adds thread ink and repacks neighbouring annotations. Four distinct
+    // hashes pin these six no-BOM cases. Independent v0.4.3-main CLI writes retain
+    // identical bare recognition, semantic PMI and part settings in all six cases.
+    // Keep #95/#96's history-schema projection: only schema/role/specification
+    // text is normalized. Every other STEP byte, counter, support and numeric ID
+    // remains pinned; API and CLI bytes must still match exactly.
     for (fixture, all_answered, defaults, expected) in [
         (
             "plate",
             false,
             true,
-            "719a9250015997e8021059afdaae4dc11bbbdd063dece04afde3d87080b6f8b4",
+            "9554820a86f79f36290f292c95314d29036d53f697e701efcc5a431db31dafcd",
         ),
         (
             "assembly",
             true,
             false,
-            "55652e8eace808ec52b16176c1d7d4081828aae04a403bc7c9e0f8084830d9f8",
+            "1d627fdc6520470e1098cd2fa670d9c4eb8cbcf95c495853b6b5965a43a59a22",
         ),
         (
             "assembly",
             true,
             true,
-            "55652e8eace808ec52b16176c1d7d4081828aae04a403bc7c9e0f8084830d9f8",
+            "1d627fdc6520470e1098cd2fa670d9c4eb8cbcf95c495853b6b5965a43a59a22",
         ),
         (
             "assembly",
             false,
             true,
-            "a039e2ec22bbaad786fbb311f39cb03ee031cffd6a79fff8c2753b00eaebeb9c",
+            "17c82d9b786db0bef46de003b9b6319abfe100aff1576ca478f53595b2b92c38",
         ),
         (
             "plate",
             true,
             false,
-            "c65e05be5d621d2b2a7d4780c2ec9c8b68eb44e3bbb76e7ec2306a7093a215f3",
+            "faf228b938a5a6366837f0085ef9766b9bc74d9044dc0c2507c15c68d780ac72",
         ),
         (
             "plate",
             true,
             true,
-            "c65e05be5d621d2b2a7d4780c2ec9c8b68eb44e3bbb76e7ec2306a7093a215f3",
+            "faf228b938a5a6366837f0085ef9766b9bc74d9044dc0c2507c15c68d780ac72",
         ),
     ] {
         let path = Path::new(env!("CARGO_MANIFEST_DIR"))

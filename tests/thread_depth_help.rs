@@ -186,7 +186,7 @@ fn answered_m2_without_depth_preserves_alpha7_semantics_and_pins_presentation_by
     )
     .unwrap();
     // This is also the WASM byte pin: #137 callouts, aspects and #65 numbering.
-    // v0.4.1 regenerates GENERAL NOTES and plane views; recapture only this output.
+    // v0.4.4 adds the M2 thread callout and reserves its feature stack; recapture only this output.
     // Keep the historical alpha.7 input and every semantic readback check unchanged.
     assert_eq!(bytes.as_slice(), numbered.bytes.as_slice());
     for (source, answers) in [(loaded, given.clone()), (baseline, given)] {
