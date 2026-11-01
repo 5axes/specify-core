@@ -105,6 +105,108 @@ export interface DiffPmi {
 }
 "#;
 
+    /// Types for the JSON returned by both scene entry points.
+    #[wasm_bindgen(typescript_custom_section)]
+    const PMI_SCENE_TYPES: &str = r#"
+/** Document-local semantic or graphic identity; never a mesh face index. */
+export type PmiSceneId = string;
+export type PmiSceneVector = [number, number, number];
+export type PmiSceneStatus = "answered" | "default" | "general" | "existing";
+/** A lossless semantic/unit row. Values follow the packaged haecceity.pmi/1 schema;
+ * decimal quantities are strings and semantic references use PmiSceneId. */
+export interface PmiSceneItem {
+  id: PmiSceneId;
+  value: unknown;
+}
+export interface PmiSceneItems {
+  standards: unknown[];
+  decimal_places: number | null;
+  features: PmiSceneItem[];
+  datum_targets: PmiSceneItem[];
+  datums: PmiSceneItem[];
+  dimensions: PmiSceneItem[];
+  tolerances: PmiSceneItem[];
+  tolerance_relations: PmiSceneItem[];
+  general: PmiSceneItem[];
+  threads: PmiSceneItem[];
+  knurls: PmiSceneItem[];
+  holes: unknown[];
+  material: unknown;
+  notes: PmiSceneItem[];
+  surface_textures: PmiSceneItem[];
+  attributes: PmiSceneItem[];
+  geometry: PmiSceneItem[];
+  derived_geometry: PmiSceneItem[];
+}
+/** Placement in model-space millimetres. A placeholder can omit text_index. */
+export interface PmiSceneTextPlacement {
+  text_index?: number;
+  /** True when this run's glyphs are already drawn by the graphic's polylines.
+   * Absent or false means the host may render the text literal. */
+  stroked?: boolean;
+  origin: PmiSceneVector;
+  x_axis: PmiSceneVector;
+  normal: PmiSceneVector;
+  height?: number;
+  line_spacing?: number;
+  alignment?: string;
+}
+export interface PmiSceneGraphic {
+  id?: PmiSceneId;
+  plane_id?: PmiSceneId;
+  text_placements?: PmiSceneTextPlacement[];
+  source: "generated" | "file";
+  name: string;
+  text: string[];
+  polylines: PmiSceneVector[][];
+  triangles: [PmiSceneVector, PmiSceneVector, PmiSceneVector][];
+  step_ids: number[];
+  unsupported: string[];
+}
+export interface PmiScenePlane {
+  id: PmiSceneId;
+  name: string;
+  origin: PmiSceneVector;
+  x_axis: PmiSceneVector;
+  normal: PmiSceneVector;
+}
+/** Saved/group or generated plane view; direction points into the scene. */
+export interface PmiSceneView {
+  id: PmiSceneId;
+  name: string;
+  direction?: PmiSceneVector;
+  up?: PmiSceneVector;
+  graphics: PmiSceneId[];
+}
+export interface PmiSceneMetadata {
+  /** This requirement's semantic note wording, independent of shared graphics. */
+  notation?: string;
+  status: PmiSceneStatus;
+  question?: string;
+  number?: number;
+  origin?: "requirement" | "general_tolerance" | "imported";
+  source?: {schema: number; faces: string; support: number[]; parameter: string};
+}
+/** JSON.parse of either pmiScene call. Supporting rows may lack a specify entry. */
+export interface PmiScene {
+  pmi: {
+    schema: "haecceity.pmi/1";
+    units: {length: PmiSceneItem[]; angle: PmiSceneItem[]; density: PmiSceneItem[]; other: PmiSceneItem[]};
+    pmi: PmiSceneItems;
+  };
+  presentation: {
+    schema: "haecceity.presentation/1";
+    length_unit: string;
+    semantic_ids: PmiSceneId[];
+    items: Record<PmiSceneId, PmiSceneGraphic[]>;
+    unlinked: PmiSceneGraphic[];
+    planes?: PmiScenePlane[];
+    views?: PmiSceneView[];
+  };
+  specify: Record<PmiSceneId, PmiSceneMetadata>;
+}
+"#;
+
     #[wasm_bindgen]
     pub struct IntentEngine(session::Session);
 
@@ -131,6 +233,8 @@ export interface DiffPmi {
                 .map(|value| value.to_string())
                 .map_err(|error| JsValue::from_str(&error))
         }
+        /// `PmiScene` JSON for current answers or `{answers, auto?, gdt?}` review state.
+        /// Parse with `JSON.parse`; ids join semantic rows, graphics and Specify statuses.
         #[wasm_bindgen(js_name = pmiScene)]
         pub fn pmi_scene(&self, answers: &str) -> Result<String, JsValue> {
             let value = json("Answers or review state", answers)?;
@@ -275,7 +379,8 @@ export interface DiffPmi {
             .map_err(|error| JsValue::from_str(&error))
     }
 
-    /// View-only scene without an interview; `part` selects an assembly part.
+    /// View-only `PmiScene` JSON without an interview; `part` selects an assembly part.
+    /// Parse with `JSON.parse`; file graphics retain their text placement and saved views.
     #[wasm_bindgen(js_name = pmiScene)]
     pub fn pmi_scene(bytes: &[u8], part: Option<usize>) -> Result<String, JsValue> {
         input::size("STEP input", bytes.len(), input::STEP_LIMIT).map_err(js_error)?;

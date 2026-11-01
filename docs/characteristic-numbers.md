@@ -215,3 +215,9 @@ location aspects introduced by quiddity-rust#137.
 
 For #77, per-dimension records also expose optional stored `origin` and `source`.
 See [dimension origin and source](pmi-origin.md) for the UDA and geometric source grammar.
+
+Scene labels for a characteristic that appears in GENERAL NOTES use
+`specify[id].notation`, the requirement's semantic wording. Presentation graphics
+can be shared across requirements: their titles, text cells and graphic ids identify
+the complete render-once block, not an individual characteristic. Number allocation
+and characteristic identities continue to use semantic roots and supports.

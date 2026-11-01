@@ -355,7 +355,13 @@ fn generated_graphics_expose_model_space_placement_and_plane_ids() {
         for graphic in rows.as_array().unwrap() {
             assert!(graphic["id"].is_string());
             assert!(graphic["plane_id"].is_string());
-            assert!(!graphic["text_placements"].as_array().unwrap().is_empty());
+            let placements = graphic["text_placements"].as_array().unwrap();
+            assert!(!placements.is_empty());
+            assert!(
+                placements
+                    .iter()
+                    .all(|placement| placement["stroked"] == true)
+            );
         }
     }
     for datum in scene["pmi"]["pmi"]["datums"].as_array().unwrap() {
@@ -439,9 +445,19 @@ fn new_foreign_control_preserves_saved_views_planes_and_datum_callouts() {
     validate(&review);
     assert_eq!(review["specify"]["flatness:extra.1"]["status"], "answered");
     assert_eq!(file["pmi"]["pmi"]["datums"], review["pmi"]["pmi"]["datums"]);
+    // v0.4.1 adds a plane view for the new control alongside unchanged file views.
+    let views = review["presentation"]["views"].as_array().unwrap();
+    for view in file["presentation"]["views"].as_array().unwrap() {
+        assert!(views.contains(view));
+    }
+    let generated: Vec<_> = views
+        .iter()
+        .filter(|view| view["id"].as_str().unwrap().starts_with("generated:"))
+        .collect();
+    assert_eq!(generated.len(), 1);
     assert_eq!(
-        file["presentation"]["views"],
-        review["presentation"]["views"]
+        generated[0]["graphics"],
+        json!(["generated:tolerances:flatness:extra.1"])
     );
     for plane in file["presentation"]["planes"].as_array().unwrap() {
         assert!(
@@ -899,5 +915,55 @@ fn a_pattern_and_its_datum_member_keep_distinct_location_ids_and_numbers() {
                 .map(|c| c.number)
                 .collect()
         );
+    }
+}
+
+#[test]
+fn shared_general_notes_have_individual_semantic_labels_live_and_from_the_file() {
+    let loaded = plate();
+    let analysis = api::analyse(&loaded).unwrap();
+    let answers = json!({
+        "part.general_tolerance":"ISO 2768-m", "part.surface_finish":"Ra 3.2",
+        "part.edges":"Break sharp edges 0.2 max", "part.coating":"Zinc plated",
+        "part.heat_treatment":"Harden to 40 HRC", "part.notes":["Keep dry", "Do not stack"]
+    })
+    .as_object()
+    .unwrap()
+    .clone();
+    let live = Scene::new(&loaded)
+        .unwrap()
+        .scene(&loaded, Some(&analysis), Some(&answers))
+        .unwrap();
+    let bytes = writer::write_bytes(
+        &loaded,
+        &api::preview(&analysis, &answers).unwrap(),
+        Some(&answers),
+    )
+    .unwrap()
+    .0;
+    let file = pmi_scene::pmi_scene(&bytes, None).unwrap();
+    for scene in [live, file] {
+        validate(&scene);
+        let graphic_id = &scene["presentation"]["items"]["part.notes:1"][0]["id"];
+        assert!(graphic_id.is_string());
+        for (id, text) in [
+            ("part.general_tolerance", "GENERAL TOLERANCES ISO 2768-m"),
+            (
+                "part.surface_finish",
+                "SURFACE FINISH Ra 3.2 UNLESS OTHERWISE STATED",
+            ),
+            ("part.edges", "Break sharp edges 0.2 max"),
+            ("part.coating", "Zinc plated"),
+            ("part.heat_treatment", "Harden to 40 HRC"),
+            ("part.notes:1", "Keep dry"),
+            ("part.notes:2", "Do not stack"),
+        ] {
+            assert_eq!(scene["specify"][id]["notation"], text, "{id}");
+            // Preserve the upstream graphic as a single block with shared identity.
+            assert_eq!(
+                &scene["presentation"]["items"][id][0]["id"], graphic_id,
+                "{id}"
+            );
+        }
     }
 }

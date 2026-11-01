@@ -95,7 +95,9 @@ Semantic fields are compared too, including the datum system, basic flag and fit
 class even when equal stated limits hide the class in the notation. Topology and
 file-local support/unit identities are compared through their correspondence or
 resolved meaning rather than their JSON ids. A semantic-only change carries a
-`reason` even when its displayed text stays equal.
+`reason` even when its displayed text stays equal. Notes use their own semantic
+wording (`pmiScene.specify[id].notation`), not the shared GENERAL NOTES graphic;
+changing one note does not change the other requirements in that block.
 
 `report.json` adds `pmi.items`, an ordered list of changes:
 

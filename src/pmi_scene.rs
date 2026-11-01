@@ -653,14 +653,72 @@ fn recorded_numbers(semantic: &Semantic) -> Result<BTreeMap<(&'static str, usize
     Ok(result)
 }
 
+// A graphic can render several semantic requirements once (GENERAL NOTES).
+// Labels and comparisons belong to each requirement, never to that shared block.
+fn note_notation(semantic: &Semantic, metadata: &mut Map<String, Value>) {
+    use haecceity::presentation::notes::{Source, general_notes};
+
+    for (id, note) in semantic.ids["notes"].iter().zip(&semantic.pmi.notes) {
+        if let Some(meta) = metadata.get_mut(id) {
+            meta["notation"] = json!(note.text);
+        }
+    }
+    let mut texts: BTreeMap<&str, Vec<String>> = BTreeMap::new();
+    for row in general_notes(&semantic.pmi) {
+        let (collection, index) = match row.source {
+            Source::General(i) => ("general", i),
+            Source::Texture(i) => ("surface_textures", i),
+            Source::Attribute(i) => ("attributes", i),
+            Source::Note(i) => ("notes", i),
+            Source::Material => continue,
+        };
+        if let Some(id) = semantic.ids.get(collection).and_then(|ids| ids.get(index)) {
+            texts.entry(id).or_default().push(row.text);
+        }
+    }
+    for (id, text) in texts {
+        if let Some(meta) = metadata.get_mut(id) {
+            meta["notation"] = json!(text.join("; "));
+        }
+    }
+}
+
 fn encode(
     semantic: &Semantic,
     graphics: presentation::Presentation,
-    metadata: Map<String, Value>,
+    mut metadata: Map<String, Value>,
 ) -> Result<Value, String> {
-    Ok(
-        json!({"pmi": wire::to_value(semantic).map_err(|e|e.to_string())?, "presentation": graphics, "specify":metadata}),
-    )
+    note_notation(semantic, &mut metadata);
+    // Serialize the upstream document directly, including optional stroked flags.
+    let mut result = json!({"pmi": wire::to_value(semantic).map_err(|e|e.to_string())?, "presentation": graphics, "specify":metadata});
+    prune_views(&mut result["presentation"]);
+    Ok(result)
+}
+
+fn prune_views(presentation: &mut Value) {
+    // Filtering or replacing semantic graphics can leave generated plane views
+    // behind. An alias or unlinked graphic still keeps its membership alive.
+    let ids: std::collections::BTreeSet<String> = presentation["items"]
+        .as_object()
+        .into_iter()
+        .flat_map(|items| items.values())
+        .filter_map(Value::as_array)
+        .flatten()
+        .chain(presentation["unlinked"].as_array().into_iter().flatten())
+        .filter_map(|graphic| graphic["id"].as_str().map(str::to_owned))
+        .collect();
+    if let Some(views) = presentation.get_mut("views").and_then(Value::as_array_mut) {
+        for view in views.iter_mut() {
+            if let Some(graphics) = view["graphics"].as_array_mut() {
+                graphics.retain(|id| id.as_str().is_some_and(|id| ids.contains(id)));
+            }
+        }
+        views.retain(|view| {
+            view["graphics"]
+                .as_array()
+                .is_some_and(|ids| !ids.is_empty())
+        });
+    }
 }
 
 fn merge(target: &mut Value, other: Value) -> Result<(), String> {
@@ -754,6 +812,7 @@ fn merge(target: &mut Value, other: Value) -> Result<(), String> {
             }
         }
     }
+    prune_views(&mut target["presentation"]);
     Ok(())
 }
 
@@ -763,4 +822,118 @@ pub fn pmi_scene(bytes: &[u8], part: Option<usize>) -> Result<Value, String> {
         .map_err(|e| e.to_string())?;
     let loaded = file.load(part).map_err(|e| e.to_string())?;
     Scene::new(&loaded)?.scene(&loaded, None, None)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use presentation::{Graphic, Source, TextPlacement, View};
+
+    fn graphic(id: &str, stroked: Option<bool>) -> Graphic {
+        Graphic {
+            id: Some(id.into()),
+            plane_id: None,
+            source: Source::File,
+            name: "Text".into(),
+            text: vec!["Text".into()],
+            polylines: vec![],
+            triangles: vec![],
+            step_ids: vec![],
+            unsupported: vec![],
+            text_placements: vec![TextPlacement {
+                text_index: Some(0),
+                stroked,
+                origin: [0.; 3],
+                x_axis: [1., 0., 0.],
+                normal: [0., 0., 1.],
+                height: Some(2.),
+                line_spacing: None,
+                alignment: None,
+            }],
+        }
+    }
+
+    fn encoded(graphics: presentation::Presentation) -> Value {
+        let semantic = wire::identify(PartPmi::default(), None).unwrap();
+        encode(&semantic, graphics, Map::new()).unwrap()
+    }
+
+    #[test]
+    fn text_placement_stroked_survives_true_absent_and_false() {
+        for stroked in [Some(true), None, Some(false)] {
+            let scene = encoded(presentation::Presentation {
+                unlinked: vec![graphic("text", stroked)],
+                ..Default::default()
+            });
+            let placement = &scene["presentation"]["unlinked"][0]["text_placements"][0];
+            assert_eq!(placement.get("stroked"), stroked.map(Value::Bool).as_ref());
+            assert_eq!(placement["text_index"], 0);
+        }
+    }
+
+    #[test]
+    fn merging_replaced_graphics_prunes_obsolete_views() {
+        let document = |id: &str| {
+            encoded(presentation::Presentation {
+                items: BTreeMap::from([("requirement".into(), vec![graphic(id, None)])]),
+                views: vec![View {
+                    id: format!("{id}/view"),
+                    name: id.into(),
+                    direction: None,
+                    up: None,
+                    graphics: vec![id.into()],
+                }],
+                ..Default::default()
+            })
+        };
+        let mut scene = document("generated");
+        let file = document("file");
+        merge(&mut scene, file.clone()).unwrap();
+        assert_eq!(
+            scene["presentation"]["views"],
+            file["presentation"]["views"]
+        );
+        assert_eq!(
+            scene["presentation"]["items"],
+            file["presentation"]["items"]
+        );
+    }
+
+    #[test]
+    fn filtered_graphics_are_pruned_from_views_but_aliases_and_unlinked_survive() {
+        let mut graphics = presentation::Presentation {
+            items: BTreeMap::from([
+                ("removed".into(), vec![graphic("filtered", None)]),
+                ("original".into(), vec![graphic("aliased", None)]),
+                ("alias".into(), vec![graphic("aliased", None)]),
+            ]),
+            unlinked: vec![graphic("unlinked", None)],
+            views: vec![
+                View {
+                    id: "mixed".into(),
+                    name: "Mixed view".into(),
+                    direction: Some([0., 0., -1.]),
+                    up: Some([0., 1., 0.]),
+                    graphics: vec!["filtered".into(), "aliased".into(), "unlinked".into()],
+                },
+                View {
+                    id: "empty".into(),
+                    name: "Filtered view".into(),
+                    direction: None,
+                    up: None,
+                    graphics: vec!["filtered".into()],
+                },
+            ],
+            ..Default::default()
+        };
+        graphics.items.remove("removed");
+        graphics.items.remove("original");
+        let scene = encoded(graphics);
+        assert_eq!(scene["presentation"]["views"].as_array().unwrap().len(), 1);
+        let view = &scene["presentation"]["views"][0];
+        assert_eq!(view["id"], "mixed");
+        assert_eq!(view["graphics"], json!(["aliased", "unlinked"]));
+        assert_eq!(view["direction"], json!([0., 0., -1.]));
+        assert_eq!(view["up"], json!([0., 1., 0.]));
+    }
 }

@@ -56,7 +56,7 @@ quiddity-rust is used as a library (Rust to Rust), not through its `quiddity` co
 | Features | `quiddity::correspondence::recognise(&Part) -> Recognition { features: PublishedFeatures, fingerprints }`; `recognition::document` records (published defining faces and hole-pattern record types) |
 | Point classification for sightlines | `haecceity::classify::Classifier::new(&part).classify(p) -> State` |
 | Edge polylines | `Part.edges[e].samples`, `Part::edge_faces()` (a seam lists its face once) |
-| Existing PMI | `haecceity::p21::Document`, `haecceity::pmi::read(&doc, &parts) -> PmiRead { parts: Vec<PartPmi>, findings, provenance, accounting }` (anchors are face indices of the part) |
+| Existing PMI | `haecceity::p21::Document`, `haecceity::pmi::read(&doc, &parts) -> PmiRead { parts: Vec<PartPmi>, findings, provenance, accounting, callouts }` (anchors are face indices of the part) |
 | Writing PMI | `haecceity::pmi::write(doc, parts, &[(PartId, PartPmi)], Mode::{Add, Replace, Remove}, PresentationPolicy) -> (Edit, WriteReport)`; every instance validated against the AP242 schema table, rule checks, datum feature symbols for added datums |
 | Verification | `haecceity::pmi::read` of the output and `haecceity::pmi::write::differences(&written, &read)` |
 

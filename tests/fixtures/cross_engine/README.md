@@ -66,3 +66,14 @@ Recapture the independent readbacks and byte hashes with the same schema-2 refer
 (`84c770e`); retain the original Python-written oracle and its evidence. The three
 `characteristic-numbers-legacy.json` settings-only writer hashes change solely because
 v0.2.7 moves the General notes block; their analysis and semantic-read hashes stay fixed.
+
+For v0.4.1 (`a2195eed`), regenerate the fourteen successful outputs for the
+regenerated ladders/callouts, one numbered GENERAL NOTES block and generated plane
+views; AP214 PRODUCT_TYPE entities upgrade when written as AP242. The two refusals
+stay unchanged. Recapture Python readbacks and hashes with the same `cc341dd` +
+`63e67bd` + `d97d030` source (locally reconstructed as `43ffe35`). All fourteen Python
+semantic readbacks are identical to the previous capture. Keep Python-written
+inputs/evidence and historical upgrade specimens unchanged. The three macOS
+settings-only hashes, the unnamed face-name STEP hash and the current numbered
+M2 tap golden change for the new presentation; stored-answer, analysis and semantic
+readback assertions remain unchanged.
