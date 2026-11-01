@@ -10,6 +10,8 @@ All notable changes to specify-core-rust. The format follows
 
 - For #79: record the additive assembly `analysis.bom` field in the per-part oracle
   ledger, preserving all legacy layout/value assertions and opt-in write behavior.
+  Review the three `--bom` CLI usage/help departures with exact text assertions;
+  retain the datum-origin snapshot and revalidate ordinary write bytes against main.
 
 - Fix #92: compare and label each part note by its semantic wording, so a change
   within the shared GENERAL NOTES graphic leaves other note requirements unchanged.

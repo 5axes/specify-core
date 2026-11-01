@@ -13,7 +13,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 |---|---:|---:|---:|---:|---:|---:|---:|
 | [analysis](#analysis) | 5 | 0 | 0 | 0 | 0 | 0 | 5 |
 | [anchors](#anchors) | 4 | 0 | 2 | 1 | 2 | 0 | 9 |
-| [cli](#cli) | 143 | 0 | 52 | 0 | 2 | 1 | 198 |
+| [cli](#cli) | 146 | 0 | 52 | 0 | 2 | 1 | 201 |
 | [cross_engine](#cross_engine) | 8 | 1 | 0 | 1 | 1 | 0 | 11 |
 | [existing](#existing) | 26 | 0 | 0 | 0 | 7 | 0 | 33 |
 | [features](#features) | 3413 | 1415 | 514 | 2483 | 1066 | 1686 | 10577 |
@@ -22,7 +22,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 0 | 40 |
 | [rules](#rules) | 89 | 0 | 615 | 0 | 0 | 0 | 704 |
 | [writer](#writer) | 16 | 0 | 0 | 0 | 15 | 0 | 31 |
-| **all** | 3710 | 1433 | 1192 | 2489 | 1101 | 1687 | 11612 |
+| **all** | 3713 | 1433 | 1192 | 2489 | 1101 | 1687 | 11615 |
 
 ## analysis
 
@@ -76,7 +76,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## cli
 
-### cli: rust-correct (143 entries)
+### cli: rust-correct (146 entries)
 
 - **measurement datum defaults in CLI and serve envelopes** (100 entries, 94 case globs)
 
@@ -137,6 +137,10 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 - **axis-first turned defaults change string-post datum and basic-location report lines** (4 entries, 1 case glob)
 
   The existing axis-first turned defaults (cx/turned-part-defaults) select string_post axis A on face 0 and shoulder B on face 8, replacing Python's A plane 11 and B axis 0. Consequently B is now a written datum; the old 1.2 mm basic offsets from plane 11 disappear, and the transverse hole holes:5 has a 3.85 mm basic location from shoulder 8. This is the report envelope of the already pinned library intent in rule_defaults_oracle.json.gz; tests/turned_defaults.rs verifies the actual axis, shoulder, coaxial hole and cross-hole defaults, and tests/writer.rs verifies readback. The full corpus CLI sweep compares executable/library composition independently.
+
+- **BOM opt-in flag in exact CLI usage and help captures** (3 entries, 3 case globs)
+
+  The evidence is stated per entry (3 distinct; all in `cli.json`). The first, for `cli/usage/09 write tests/fixtures/parts/plate.step` at `stderr`: For #79, compared the archived Python CLI capture with the current command: the usage adds [--bom]; write help also adds its explicit optional-BOM description and clarifies that --accept-defaults accepts PMI defaults. tests/cli.rs::command_lines asserts this exact transformation for this individual capture before consulting the ledger: every other byte, argument-error wording and exit code remains checked. No datum-origin snapshot or other oracle value is changed. tests/bom_opt_in.rs verifies ordinary writes against main d8073b5 with and without default acceptance. In this capture, missing ANALYSIS ANSWERS and -o/--output still produce exactly the Python argument error.
 
 ### cli: equivalent (52 entries)
 

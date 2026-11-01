@@ -18,6 +18,8 @@ fn no_opt_in_is_byte_identical_to_06a97df_through_api_and_cli() {
     let plate_complete: Map<String, Value> =
         serde_json::from_str(include_str!("fixtures/bom/legacy-plate-answers.json")).unwrap();
     // SHA-256 of actual 06a97df CLI writes, including owners of answers/characteristic history.
+    // Revalidated unchanged against main d8073b5 with fresh per-engine analyses: all six
+    // single-part/assembly and complete/defaulted CLI writes match byte for byte.
     for (fixture, all_answered, defaults, expected) in [
         (
             "plate",

@@ -1187,6 +1187,33 @@ fn command_lines(dir: &Path) -> Vec<Difference> {
         let ran = run(&args);
         let scrub = |t: &str| t.replace(&tmp_s, "{tmp}");
         let (stdout, stderr) = (scrub(&ran.stdout), scrub(&ran.stderr));
+        // For #79: these three exact Python usage captures differ only by the
+        // documented opt-in flag and the PMI-only default wording. Keep every
+        // other byte (including argument errors) under an exact assertion.
+        let bom_usage = |python: &str| {
+            assert!(python.contains("[--accept-defaults] [--intent INTENT]"));
+            python.replace("[--accept-defaults] [--intent INTENT]", "[--accept-defaults] [--bom] [--intent INTENT]")
+                .replace("  --accept-defaults    take defaults for the rest\n", "  --accept-defaults    take PMI defaults for the rest\n  --bom                explicitly accept optional BOM suggestions\n")
+        };
+        match name.as_str() {
+            "cli/usage/09 write tests/fixtures/parts/plate.step"
+            | "cli/usage/15 write tests/fixtures/parts/plate.step a b -o {tmp}/o.step --intent" => {
+                assert_eq!(
+                    stderr,
+                    bom_usage(r["stderr"].as_str().unwrap()),
+                    "{name}: only BOM usage may differ"
+                );
+            }
+            "cli/usage/21 write -h" => {
+                assert_eq!(
+                    stdout,
+                    bom_usage(r["stdout"].as_str().unwrap()),
+                    "{name}: only BOM help may differ"
+                );
+            }
+            _ => {}
+        }
+
         out.extend(same_text(
             &name,
             "exit",
