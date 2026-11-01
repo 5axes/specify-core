@@ -1098,6 +1098,22 @@ fn xcaf_plate_combines_imported_and_accepted_notes_without_another_edge_requirem
                 .iter()
                 .any(|t| t.as_str().unwrap().contains(mask))
         );
+        let z_bounds = |g: &Value| {
+            g["polylines"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .flat_map(|line| line.as_array().unwrap())
+                .map(|p| p[2].as_f64().unwrap())
+                .fold((f64::INFINITY, f64::NEG_INFINITY), |(low, high), z| {
+                    (low.min(z), high.max(z))
+                })
+        };
+        let height = graphic["text_placements"][0]["height"].as_f64().unwrap();
+        assert!(
+            z_bounds(graphic).1 <= z_bounds(block).0 - 2. * height + 1e-9,
+            "feature note must clear the combined block by two text heights"
+        );
         assert!(
             !scene["presentation"]["items"]
                 .as_object()

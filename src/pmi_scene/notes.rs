@@ -302,6 +302,95 @@ pub(super) fn combined(
     }
     // Use the same per-requirement labels for imported and new rows.
     note_notation(&display, scene["specify"].as_object_mut().unwrap());
+    stack_feature_notes(&mut scene["presentation"]);
     prune_views(&mut scene["presentation"]);
     Ok(())
+}
+
+// Imported feature notes without file ink were laid out against the file's shorter
+// block. Reserve the combined block's ink before their generated notes column.
+fn stack_feature_notes(presentation: &mut Value) {
+    let graphics: Vec<_> = presentation["items"]
+        .as_object()
+        .unwrap()
+        .values()
+        .filter_map(Value::as_array)
+        .flatten()
+        .collect();
+    let feature = |g: &Value| {
+        g["source"] == "generated"
+            && g["id"]
+                .as_str()
+                .is_some_and(|id| id.starts_with("generated:notes:"))
+    };
+    let z = |g: &Value| {
+        g["polylines"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_array)
+            .flatten()
+            .filter_map(|p| p[2].as_f64())
+            .collect::<Vec<_>>()
+    };
+    let bottom = graphics
+        .iter()
+        .filter(|g| block(g))
+        .flat_map(|g| z(g))
+        .reduce(f64::min);
+    let top = graphics
+        .iter()
+        .filter(|g| feature(g))
+        .flat_map(|g| z(g))
+        .reduce(f64::max);
+    let (Some(bottom), Some(top)) = (bottom, top) else {
+        return;
+    };
+    let height = graphics
+        .iter()
+        .filter(|g| feature(g))
+        .flat_map(|g| g["text_placements"].as_array().into_iter().flatten())
+        .filter_map(|p| p["height"].as_f64())
+        .fold(0., f64::max);
+    let dz = (bottom - 2. * height - top).min(0.);
+    if dz == 0. {
+        return;
+    }
+    let planes: BTreeSet<_> = graphics
+        .iter()
+        .filter(|g| feature(g))
+        .filter_map(|g| g["plane_id"].as_str().map(str::to_owned))
+        .collect();
+    for graphic in presentation["items"]
+        .as_object_mut()
+        .unwrap()
+        .values_mut()
+        .filter_map(Value::as_array_mut)
+        .flatten()
+        .filter(|g| feature(g))
+    {
+        for field in ["polylines", "triangles"] {
+            for point in graphic[field]
+                .as_array_mut()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_array_mut)
+                .flatten()
+            {
+                point[2] = json!(point[2].as_f64().unwrap() + dz);
+            }
+        }
+        for placement in graphic["text_placements"]
+            .as_array_mut()
+            .into_iter()
+            .flatten()
+        {
+            placement["origin"][2] = json!(placement["origin"][2].as_f64().unwrap() + dz);
+        }
+    }
+    for plane in presentation["planes"].as_array_mut().into_iter().flatten() {
+        if plane["id"].as_str().is_some_and(|id| planes.contains(id)) {
+            plane["origin"][2] = json!(plane["origin"][2].as_f64().unwrap() + dz);
+        }
+    }
 }

@@ -79,7 +79,8 @@ marked it `haecceity.generated/1`, and resolves its material DMIA through part p
 Material is a scalar in `haecceity.pmi/1`, so Specify adds `part.material` as a companion
 alias in `presentation.items`, `presentation.semantic_ids` and `specify`, without adding
 or changing a semantic PMI row. Feature-owned notes keep separate feature callouts;
-unpresented feature notes get the upstream generated fallback. Imported manufacturing
+unpresented feature notes get the upstream generated fallback and stack below the combined
+block with a gap of two text heights. Imported manufacturing
 requirements of kind `semantic text` are rendered as free part notes. Explicit part-level
 phrases such as “break sharp edges” answer `part.edges` using the original text; feature
 notes and unrelated manufacturing prose never supply that part default.
