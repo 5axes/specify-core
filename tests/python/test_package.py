@@ -155,6 +155,12 @@ def test_pmi_scene_and_packaged_schemas(plate, tmp_path):
     })
     assert scene["pmi"]["schema"] == "haecceity.pmi/1"
     assert scene["presentation"]["schema"] == "haecceity.presentation/1"
+    generated = [g for rows in scene["presentation"]["items"].values() for g in rows
+                 if g["source"] == "generated"]
+    assert generated
+    for graphic in generated:
+        assert len(graphic["polyline_roles"]) == len(graphic["polylines"])
+        assert all("cell_box" in run for run in graphic.get("text_placements", []))
     assert scene["specify"]["planner:specified:dim:hole:9/bore.diameter"]["status"] == "answered"
     assert scene["specify"]["planner:specified:dim:hole:9/bore.diameter"]["question"] == "hole.function:holes:9"
     assert scene["specify"]["part.surface_finish"]["number"] > 0

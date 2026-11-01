@@ -373,8 +373,9 @@ fn named_parts_keep_questions_defaults_locations_and_written_pmi_under_rigid_mot
         }
         if name == "GRM-02_shaft" {
             // For #65: these are independent FIRST writes of two numberless poses.
-            // #75 omits the unsupported blind-depth row, shifting fresh allocations
-            // down by one. Stored-frame view/position order can change under rotation. Pin both
+            // #75 omits the unsupported blind-depth row. The exact Ø2.5 drill
+            // now defaults to a thread rather than an H11 size; positions precede
+            // the two internal threads. Stored-frame view/position order can change under rotation. Pin both
             // allocations explicitly; every other PMI field still compares below.
             let numbers: Vec<_> = readbacks[0]
                 .as_array()
@@ -382,14 +383,14 @@ fn named_parts_keep_questions_defaults_locations_and_written_pmi_under_rigid_mot
                 .iter()
                 .map(|r| r["number"].clone())
                 .collect();
-            assert_eq!(json!(numbers), json!([9, 10, 11, 1, 2, 12]));
+            assert_eq!(json!(numbers), json!([9, 10, 1, 2, 11, 12]));
             // Rotated Z coordinates separate the end-on holes and side flat that
             // coincide in the original right view. Datums A/B remain first.
             for (row, number) in expected_readback
                 .as_array_mut()
                 .unwrap()
                 .iter_mut()
-                .zip([12, 9, 13, 1, 2, 10])
+                .zip([9, 12, 1, 2, 10, 13])
             {
                 row["number"] = json!(number);
             }

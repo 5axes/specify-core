@@ -1288,3 +1288,67 @@ fn rotated_xcaf_plate_notes_are_placed_together_in_their_plane() {
         "rotated margin {margins:?}"
     );
 }
+
+#[test]
+fn an_exact_tap_drill_default_writes_thread_semantics_instead_of_a_clearance_fit() {
+    let loaded = part::load(
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/parts/GRM-01_shank.step.gz"),
+        None,
+    )
+    .unwrap();
+    let analysis = api::analyse(&loaded).unwrap();
+    let defaults = specify_core::rules::with_all_defaults(&analysis, &Map::new()).unwrap();
+    assert_eq!(defaults["hole.function:holes:7"], "tapped:M3");
+    let scene = Scene::new(&loaded)
+        .unwrap()
+        .scene(&loaded, Some(&analysis), Some(&defaults))
+        .unwrap();
+    let threads = scene["pmi"]["pmi"]["threads"].as_array().unwrap();
+    let thread = threads
+        .iter()
+        .find(|r| r["id"] == "thread:holes:7")
+        .unwrap();
+    let feature = &thread["value"]["feature"];
+    assert_eq!(thread["value"]["qualifier"], "M3x0.5");
+    assert!(
+        !scene["pmi"]["pmi"]["dimensions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|d| d["value"]["kind"]["size"]["feature"] == *feature)
+    );
+    assert!(
+        !scene["presentation"]["items"]
+            .as_object()
+            .unwrap()
+            .contains_key("size:holes:7")
+    );
+    for (id, text) in [
+        ("thread:holes:7", "M3×0.5-6H THRU"),
+        ("thread:holes:20.25", "M6×1-6H THRU"),
+    ] {
+        let g = &scene["presentation"]["items"][id][0];
+        assert_eq!(g["text"][0], text);
+        assert_eq!(
+            g["polyline_roles"].as_array().unwrap().len(),
+            g["polylines"].as_array().unwrap().len()
+        );
+        assert!(g["text_placements"][0]["cell_box"].is_array());
+    }
+    assert_eq!(notes_blocks(&scene).len(), 1);
+    assert!(!scene["presentation"].to_string().contains("⌀2.5 H11"));
+    // An explicit clearance decision is still honoured.
+    let mut clearance = defaults;
+    clearance.insert("hole.function:holes:7".into(), json!("clearance:M2"));
+    let explicit = Scene::new(&loaded)
+        .unwrap()
+        .scene(&loaded, Some(&analysis), Some(&clearance))
+        .unwrap();
+    assert!(
+        !explicit["pmi"]["pmi"]["threads"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|r| r["id"] == "thread:holes:7")
+    );
+}

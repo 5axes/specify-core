@@ -688,8 +688,20 @@ fn answered_h11_bores_keep_their_fit_and_basic_locations() {
     };
     let p = part::load(&corpus.join("mfcadpp/10224.step"), None).unwrap();
     let a = api::analyse(&p).unwrap();
-    let given = json!({"part.material":"steel"});
-    let i = rules::apply_with_defaults(&a, given.as_object().unwrap(), true).unwrap();
+    let mut given = json!({"part.material":"steel"})
+        .as_object()
+        .unwrap()
+        .clone();
+    // This test specifies clearance fits explicitly. An exact tap drill now
+    // defaults to a thread, so accepting defaults would test a different intent.
+    for q in rules::questions(&a, &given).unwrap() {
+        if q.id.starts_with("hole.function:")
+            && let Some(clearance) = q.options.iter().find(|v| v.starts_with("clearance"))
+        {
+            given.insert(q.id, json!(clearance));
+        }
+    }
+    let i = rules::apply_with_defaults(&a, &given, true).unwrap();
     let sizes: Vec<_> = i
         .requirements
         .iter()

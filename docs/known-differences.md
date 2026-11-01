@@ -13,7 +13,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 |---|---:|---:|---:|---:|---:|---:|---:|
 | [analysis](#analysis) | 5 | 0 | 0 | 0 | 0 | 0 | 5 |
 | [anchors](#anchors) | 4 | 0 | 2 | 1 | 2 | 0 | 9 |
-| [cli](#cli) | 208 | 0 | 52 | 0 | 2 | 1 | 263 |
+| [cli](#cli) | 221 | 0 | 52 | 0 | 2 | 1 | 276 |
 | [cross_engine](#cross_engine) | 53 | 1 | 0 | 1 | 1 | 20 | 76 |
 | [existing](#existing) | 26 | 0 | 0 | 0 | 7 | 0 | 33 |
 | [features](#features) | 3460 | 1415 | 543 | 2481 | 1066 | 1878 | 10843 |
@@ -22,7 +22,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 0 | 40 |
 | [rules](#rules) | 89 | 0 | 615 | 0 | 0 | 0 | 704 |
 | [writer](#writer) | 1086 | 0 | 0 | 0 | 15 | 0 | 1101 |
-| **all** | 4937 | 1433 | 1221 | 2487 | 1101 | 1899 | 13078 |
+| **all** | 4950 | 1433 | 1221 | 2487 | 1101 | 1899 | 13091 |
 
 ## analysis
 
@@ -76,7 +76,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## cli
 
-### cli: rust-correct (208 entries)
+### cli: rust-correct (221 entries)
 
 - **Shared planner report item in serve (#75)** (62 entries, 4 case globs)
 
@@ -145,6 +145,10 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 - **BOM opt-in flag in exact CLI usage and help captures** (3 entries, 3 case globs)
 
   The evidence is stated per entry (3 distinct; all in `cli.json`). The first, for `cli/usage/09 write tests/fixtures/parts/plate.step` at `stderr`: For #79, compared the archived Python CLI capture with the current command: the usage adds [--bom]; write help also adds its explicit optional-BOM description and clarifies that --accept-defaults accepts PMI defaults. tests/cli.rs::command_lines asserts this exact transformation for this individual capture before consulting the ledger: every other byte, argument-error wording and exit code remains checked. No datum-origin snapshot or other oracle value is changed. tests/bom_opt_in.rs verifies ordinary writes against main 8d5a040 with and without default acceptance. In this capture, missing ANALYSIS ANSWERS and -o/--output still produce exactly the Python argument error.
+
+- **Exact tap-drill defaults and dependent question order** (13 entries, 3 case globs)
+
+  src/rules/holes.rs prefers an exact tabulated tap drill to an ambiguous smaller clearance screw. Accepted defaults now include the thread and its optional full-thread edit, changing dependent question positions. cli_datum_origins.json.gz pins the complete before/after values; explicit clearance answers remain supported.
 
 ### cli: equivalent (52 entries)
 
