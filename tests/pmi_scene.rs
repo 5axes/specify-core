@@ -1068,7 +1068,7 @@ fn xcaf_plate_combines_imported_and_accepted_notes_without_another_edge_requirem
             .map(|v| v.as_str().unwrap())
             .collect::<Vec<_>>()
             .join("\n");
-        assert!(text.contains("GENERAL TOLERANCES ISO 2768-f"), "{text}");
+        assert!(text.contains("GENERAL TOLERANCES ISO 2768-m"), "{text}");
         assert!(text.contains("SURFACE FINISH Ra 3.2"), "{text}");
         assert!(text.contains(edge), "{text}");
         assert!(text.contains("MATERIAL: Alu_G6061_T6"), "{text}");

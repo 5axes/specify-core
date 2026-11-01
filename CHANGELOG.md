@@ -18,6 +18,12 @@ All notable changes to specify-core-rust. The format follows
 
 ### Changed
 
+- For #163: live PMI scenes combine accepted part settings, imported semantic notes and
+  material in one GENERAL NOTES block, replacing the file block in the scene while
+  lossless writes keep its records. Part-level edge-break prose answers `part.edges`
+  as written. Feature notes retain their owner. File callouts report file source and
+  material DMIAs link through `part.material`.
+
 - For #75, written hole sizes, pattern
   origins/pitches and prismatic plane levels/extents follow the shared planner.
   Inspection plans contain fewer rows: the default cross-engine plate changes from
@@ -48,6 +54,10 @@ All notable changes to specify-core-rust. The format follows
   are checked byte for byte against main 8d5a040 through the CLI and API.
 
 ### WASM API
+
+- `pmiScene` exposes the scalar material through the `part.material` companion alias
+  in `presentation.items`, `semantic_ids` and `specify`; the upstream semantic material
+  field is unchanged. Reviewed scenes alias every part note to one shared graphic.
 
 - For #75: live analysis snapshots carry optional shared-planner input and stored
   dimension contracts. Planned scene dimension IDs include stable face-derived

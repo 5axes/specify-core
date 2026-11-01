@@ -529,6 +529,13 @@ impl Reading {
         if !notes.is_empty() {
             out.insert("notes".into(), Value::from(notes));
         }
+        if let Some(text) = self.pmi.notes.iter().find_map(|note| {
+            (note.on.is_none() && edge_break_note(&note.text)).then_some(&note.text)
+        }) {
+            // A foreign part-level edge instruction answers the question as written.
+            // Feature notes cannot establish a default for every edge of the part.
+            out.insert("edges".into(), Value::String(text.clone()));
+        }
         if loaded.part_count > 1 {
             return out;
         }
@@ -593,6 +600,25 @@ impl Reading {
         }
         out
     }
+}
+
+/// Only explicit edge-breaking prose, not a general manufacturing-note classifier.
+pub(crate) fn edge_break_note(text: &str) -> bool {
+    let words: Vec<_> = text
+        .split(|c: char| !c.is_ascii_alphabetic())
+        .filter(|word| !word.is_empty())
+        .map(str::to_ascii_lowercase)
+        .collect();
+    words.iter().enumerate().any(|(i, word)| {
+        if !matches!(word.as_str(), "break" | "breaking") {
+            return false;
+        }
+        let rest = &words[i + 1..];
+        let rest = rest.strip_prefix(&["all".into()]).unwrap_or(rest);
+        let rest = rest.strip_prefix(&["sharp".into()]).unwrap_or(rest);
+        rest.first()
+            .is_some_and(|word| matches!(word.as_str(), "edge" | "edges"))
+    })
 }
 
 /// Part-owned semantic text, PMI practice §7.4. Each note has its own set, a `general note`
@@ -969,6 +995,27 @@ mod tests {
             Some("Ra 3.2")
         );
         assert_eq!(default_finish("Ra 0.8 µm"), None);
+    }
+
+    #[test]
+    fn edge_break_recognition_is_only_an_explicit_instruction() {
+        for text in [
+            "Remove all burrs and break sharp edges",
+            "BREAK ALL SHARP EDGES 0.2 MAX",
+            "Break edges",
+            "Breaking all edges",
+        ] {
+            assert!(edge_break_note(text), "{text}");
+        }
+        for text in [
+            "Mask these features before coating with primer",
+            "Inspect edges",
+            "Edge finish Ra 3.2",
+            "Break coating before inspection",
+            "Keep the sharp edges clean",
+        ] {
+            assert!(!edge_break_note(text), "{text}");
+        }
     }
 
     #[test]

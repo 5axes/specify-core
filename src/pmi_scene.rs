@@ -12,6 +12,8 @@ use serde_json::{Map, Value, json};
 
 use crate::{api, characteristics, part::LoadedPart, pmi_origin, resume, writer};
 
+mod notes;
+
 type PlannedScene = (Semantic, Map<String, Value>, BTreeMap<String, usize>);
 
 type Bindings = BTreeMap<(String, usize), (String, Value, usize)>;
@@ -166,6 +168,16 @@ impl Scene {
                 file["presentation"]["views"] = json!([]);
                 merge(&mut result, file)?;
             }
+            let original = foreign
+                .then(|| {
+                    wire::identify(
+                        before.clone(),
+                        Some(&self.read.identifiers.parts[self.index]),
+                    )
+                    .map_err(|e| e.to_string())
+                })
+                .transpose()?;
+            notes::combined(&mut result, &semantic, original.as_ref(), loaded)?;
             return Ok(result);
         }
         // Reconstruct only the interview identities/numbers of Specify-written files.
@@ -383,7 +395,7 @@ impl Scene {
 
     fn file(
         &self,
-        _loaded: &LoadedPart,
+        loaded: &LoadedPart,
         planned: Option<&Map<String, Value>>,
         comparison: bool,
     ) -> Result<Value, String> {
@@ -427,13 +439,25 @@ impl Scene {
             let ids: std::collections::BTreeSet<_> = semantic.ids.values().flatten().collect();
             metadata.retain(|id, _| ids.contains(id));
         }
-        let graphics = if comparison {
-            presentation::generated(&semantic, &_loaded.part)
+        let mut graphics = if comparison {
+            presentation::generated(&semantic, &loaded.part)
         } else {
             presentation::read(&self.doc, &self.read, PartId(self.index), &semantic)
         }
         .map_err(|e| e.to_string())?;
-        encode(&semantic, graphics, metadata)
+        if !comparison {
+            notes::file(
+                &self.doc,
+                &self.read,
+                self.index,
+                &semantic,
+                loaded,
+                &mut graphics,
+            )?;
+        }
+        let mut result = encode(&semantic, graphics, metadata)?;
+        notes::material(&mut result, &semantic, self.stored.as_ref());
+        Ok(result)
     }
 }
 
@@ -703,6 +727,9 @@ fn note_notation(semantic: &Semantic, metadata: &mut Map<String, Value>) {
     for (id, note) in semantic.ids["notes"].iter().zip(&semantic.pmi.notes) {
         if let Some(meta) = metadata.get_mut(id) {
             meta["notation"] = json!(note.text);
+            if note.on.is_none() && crate::existing::edge_break_note(&note.text) {
+                meta["question"] = json!("part.edges");
+            }
         }
     }
     let mut texts: BTreeMap<&str, Vec<String>> = BTreeMap::new();
