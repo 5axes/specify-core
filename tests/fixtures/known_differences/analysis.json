@@ -1,0 +1,37 @@
+[
+  {
+    "case": "parts/stack#0",
+    "path": "bom",
+    "pattern": "Rust assembly analysis adds the sourced BOM row for optional editor questions",
+    "verdict": "rust-correct",
+    "evidence": "For #79, checked tests/fixtures/parts/stack.step: part 0 is base, with 1 placed occurrence(s) (NAUO #800). The archived Python oracle predates the BOM API and has no bom key. tests/api.rs::analyses_have_python_layout checks this row against the public BOM reader and independently asserts part index, native name, occurrence quantity and no allocated item number. It preserves every legacy key in Python order; tests/assemblies.rs additionally retains every captured legacy value and ordering for path, shared-file and in-memory reads. BOM metadata is needed before opt-in to display suggestions; no answers or STEP records are created. tests/bom_opt_in.rs verifies unchanged ordinary writes with and without default acceptance."
+  },
+  {
+    "case": "parts/stack#1",
+    "path": "bom",
+    "pattern": "Rust assembly analysis adds the sourced BOM row for optional editor questions",
+    "verdict": "rust-correct",
+    "evidence": "For #79, checked tests/fixtures/parts/stack.step: part 1 is cover, with 1 placed occurrence(s) (NAUO #1569). The archived Python oracle predates the BOM API and has no bom key. tests/api.rs::analyses_have_python_layout checks this row against the public BOM reader and independently asserts part index, native name, occurrence quantity and no allocated item number. It preserves every legacy key in Python order; tests/assemblies.rs additionally retains every captured legacy value and ordering for path, shared-file and in-memory reads. BOM metadata is needed before opt-in to display suggestions; no answers or STEP records are created. tests/bom_opt_in.rs verifies unchanged ordinary writes with and without default acceptance."
+  },
+  {
+    "case": "parts/stack#2",
+    "path": "bom",
+    "pattern": "Rust assembly analysis adds the sourced BOM row for optional editor questions",
+    "verdict": "rust-correct",
+    "evidence": "For #79, checked tests/fixtures/parts/stack.step: part 2 is pin, with 1 placed occurrence(s) (NAUO #1776). The archived Python oracle predates the BOM API and has no bom key. tests/api.rs::analyses_have_python_layout checks this row against the public BOM reader and independently asserts part index, native name, occurrence quantity and no allocated item number. It preserves every legacy key in Python order; tests/assemblies.rs additionally retains every captured legacy value and ordering for path, shared-file and in-memory reads. BOM metadata is needed before opt-in to display suggestions; no answers or STEP records are created. tests/bom_opt_in.rs verifies unchanged ordinary writes with and without default acceptance."
+  },
+  {
+    "case": "parts/assembly#0",
+    "path": "bom",
+    "pattern": "Rust assembly analysis adds the sourced BOM row for optional editor questions",
+    "verdict": "rust-correct",
+    "evidence": "For #79, checked tests/fixtures/parts/assembly.step: part 0 is plate, with 1 placed occurrence(s). The archived Python oracle predates the BOM API and has no bom key. tests/api.rs::analyses_have_python_layout checks this row against the public BOM reader and independently asserts part index, native name, occurrence quantity and no allocated item number. It preserves every legacy key in Python order; tests/assemblies.rs additionally retains every captured legacy value and ordering for path, shared-file and in-memory reads. BOM metadata is needed before opt-in to display suggestions; no answers or STEP records are created. tests/bom_opt_in.rs verifies unchanged ordinary writes with and without default acceptance."
+  },
+  {
+    "case": "parts/assembly#1",
+    "path": "bom",
+    "pattern": "Rust assembly analysis adds the sourced BOM row for optional editor questions",
+    "verdict": "rust-correct",
+    "evidence": "For #79, checked tests/fixtures/parts/assembly.step: part 1 is pin, with 2 placed occurrence(s). The archived Python oracle predates the BOM API and has no bom key. tests/api.rs::analyses_have_python_layout checks this row against the public BOM reader and independently asserts part index, native name, occurrence quantity and no allocated item number. It preserves every legacy key in Python order; tests/assemblies.rs additionally retains every captured legacy value and ordering for path, shared-file and in-memory reads. BOM metadata is needed before opt-in to display suggestions; no answers or STEP records are created. tests/bom_opt_in.rs verifies unchanged ordinary writes with and without default acceptance."
+  }
+]

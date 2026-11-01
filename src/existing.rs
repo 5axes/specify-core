@@ -924,6 +924,21 @@ pub fn tolerance_type(kind: ToleranceKind) -> &'static str {
     }
 }
 
+impl Reading {
+    /// BOM metadata from this already parsed/read part; no extra STEP or PMI read.
+    pub(crate) fn bom(&self, loaded: &LoadedPart) -> Result<crate::bom::Item, String> {
+        crate::bom::read_rows(
+            &self.doc,
+            std::slice::from_ref(&loaded.definition),
+            loaded.binding.part,
+            std::slice::from_ref(&self.pmi),
+        )?
+        .into_iter()
+        .next()
+        .ok_or("missing BOM row".into())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

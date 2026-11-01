@@ -155,24 +155,64 @@ fn analyses_have_python_layout() {
             "unwritten input has no stored contracts"
         );
     }
-    for k in 0..3 {
-        let a = api::analyse_file(&part("stack"), Some(k)).unwrap();
-        let keys: Vec<&String> = a.as_object().unwrap().keys().collect();
-        assert_eq!(
-            keys,
-            [
-                "schema",
-                "binding",
-                "faces",
-                "features",
-                "dimensioning",
-                "mates",
-                "existing",
-                "part"
-            ],
-            "stack#{k}"
-        );
+    let mut differences = Vec::new();
+    for (stem, count) in [("stack", 3), ("assembly", 2)] {
+        let file = specify_core::part::File::read(&part(stem)).unwrap();
+        let rows = specify_core::bom::read(&file).unwrap();
+        for (k, row) in rows.iter().enumerate().take(count) {
+            let mut a = api::analyse_file(&part(stem), Some(k)).unwrap();
+            let case = format!("parts/{stem}#{k}");
+            // Record the actual additive value, rather than silently allowing a key.
+            // Missing BOM rows leave stale ledger entries; any other layout change
+            // still fails the exact Python key-order assertion below.
+            if let Some(bom) = a.as_object_mut().unwrap().shift_remove("bom") {
+                assert_eq!(
+                    bom,
+                    serde_json::to_value(row).unwrap(),
+                    "{case}: BOM reader"
+                );
+                assert_eq!(bom["part"], json!(k));
+                assert_eq!(
+                    bom["name"],
+                    json!({"value":file.definitions()[k].name,"source":"file"})
+                );
+                assert_eq!(
+                    bom["quantity"],
+                    json!({"value":file.definitions()[k].placements.len(),"source":"file"})
+                );
+                assert_eq!(bom["item_number"], json!({"value":null,"source":"default"}));
+                differences.push(common::Difference {
+                    case: case.clone(),
+                    path: "bom".into(),
+                    python: None,
+                    rust: Some(bom),
+                });
+            }
+            let input: quiddity::dimensioning::Input =
+                serde_json::from_value(a["dimensioning"].clone()).unwrap();
+            assert!(
+                input.specified.is_empty(),
+                "{case}: unwritten planner contracts"
+            );
+            let keys: Vec<&String> = a.as_object().unwrap().keys().collect();
+            assert_eq!(
+                keys,
+                [
+                    "schema",
+                    "binding",
+                    "faces",
+                    "features",
+                    "dimensioning",
+                    "mates",
+                    "existing",
+                    "part"
+                ],
+                "{case}"
+            );
+        }
+        assert_eq!(rows.len(), count);
     }
+    common::check_known("analysis", &differences);
     // The stack's parts rest on one another: some face of the base has a contact.
     let base = api::analyse_file(&part("stack"), Some(0)).unwrap();
     let contacts: Vec<&Value> = base["faces"]

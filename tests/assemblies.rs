@@ -175,9 +175,28 @@ fn a_part_is_analysed_as_before_from_one_read() {
     .unwrap();
     for k in [PLATE, PIN] {
         let want = &base[k.to_string()];
-        assert_same(
-            &api::analyse_file(&assembly(), Some(k)).unwrap(),
-            want,
+        let bom = serde_json::to_value(&specify_core::bom::read(&file).unwrap()[k]).unwrap();
+        let legacy = |mut analysis: Value, at: &str| {
+            // For #79 the only additive analysis field is the sourced BOM row.
+            // Keep comparing every pre-existing key, value and ordering to the old capture.
+            let difference = common::Difference {
+                case: format!("parts/assembly#{k}"),
+                path: "bom".into(),
+                python: None,
+                rust: analysis.get("bom").cloned(),
+            };
+            assert!(
+                common::explained(&["analysis"], &[difference]).is_empty(),
+                "unrecorded BOM addition"
+            );
+            assert_eq!(
+                analysis.as_object_mut().unwrap().shift_remove("bom"),
+                Some(bom.clone())
+            );
+            assert_same(&analysis, want, at);
+        };
+        legacy(
+            api::analyse_file(&assembly(), Some(k)).unwrap(),
             &format!("part {k}"),
         );
 
@@ -185,7 +204,7 @@ fn a_part_is_analysed_as_before_from_one_read() {
         assert!(!loaded.rebuilt && loaded.degraded().is_none());
         assert_eq!(loaded.unresolved_faces, loaded.part.unresolved_faces());
         let (analysis, warnings) = api::analyse_reporting_in(&file, &loaded).unwrap();
-        assert_same(&analysis, want, &format!("part {k}, its file gone"));
+        legacy(analysis.clone(), &format!("part {k}, its file gone"));
         assert!(warnings.is_empty(), "{warnings:?}");
         // #92: the old working X was -file Z. The converted station must still be on
         // riser face 2; its height interval must still span that face in file Y.
@@ -214,9 +233,8 @@ fn a_part_is_analysed_as_before_from_one_read() {
         }
 
         let loaded = in_memory.load(Some(k)).unwrap();
-        assert_same(
-            &api::analyse(&loaded).unwrap(),
-            want,
+        legacy(
+            api::analyse(&loaded).unwrap(),
             &format!("part {k} from memory"),
         );
     }

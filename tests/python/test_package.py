@@ -232,3 +232,30 @@ def test_diff_exposes_numbered_pmi_with_scene_identities(plate, tmp_path):
     for item in changed:
         assert scene["specify"][item["id"]]["number"] == item["number"]
     assert "→" in result["markdown"]
+
+
+def test_bom_read_api_and_cli_agree_on_file_sources(assembly):
+    from specify_core import bom
+    from specify_core import _native
+    import json
+
+    rows = bom(assembly)
+    assert len(rows) == 2
+    assert rows[1]["quantity"] == {"value": 2, "source": "file"}
+    assert rows[0]["item_number"] == {"value": None, "source": "default"}
+    assert json.loads(_native.bom(assembly)) == rows
+
+
+def test_bom_write_requires_explicit_acceptance(assembly, tmp_path):
+    from specify_core import bom
+    analysis = api.analyse(assembly, part=0)
+    questions = [q for q in api.questions(analysis, {}) if q.id.startswith("bom.")]
+    assert questions and all(q.optional and q.default is None and q.suggestions for q in questions)
+    assert "bom" not in api.apply(analysis, STEEL, accept_defaults=True).part
+    intent = api.apply(analysis, STEEL, accept_defaults=True, bom=True)
+    out = tmp_path / "bom.step"
+    api.write(assembly, intent, out, answers=STEEL)
+    rows = bom(out)
+    assert rows[0]["item_number"]["value"] == 1
+    assert rows[0]["description"]["source"] == "default"
+    assert api.analyse(out, part=0)["resume"]["answers"] == STEEL

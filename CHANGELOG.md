@@ -6,6 +6,16 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+### Added
+
+- For #79: opt-in assembly BOM writes via explicit `bom.*` answers or `--bom` / API
+  acceptance. Optional questions expose suggestions, never ordinary defaults. Assembly
+  analysis adds a sourced `bom` row using its existing parse. Separate occurrence UDAs
+  preserve older-engine resume; explicit answers override current export data, accepted
+  suggestions do not. Geometric item history tolerates fingerprint drift, small parts
+  and stable duplicate ordering; removed numbers are retired. Read through Rust, CLI,
+  Python and WASM. See [BOM storage and numbering](docs/bom.md).
+
 ### Changed
 
 - For #75, written hole sizes, pattern
@@ -29,11 +39,23 @@ All notable changes to specify-core-rust. The format follows
   written dimension, keeping boundary values stable under rigid moves. Source
   metadata for newly shared dimensions names their complete measured target.
 
+- For #79: record the additive assembly `analysis.bom` field in the per-part oracle
+  ledger, preserving all legacy layout/value assertions and opt-in write behavior.
+  Review the three `--bom` CLI usage/help departures with exact text assertions;
+  retain the datum-origin snapshot and revalidate ordinary write bytes against main.
+
+- For #79: preserve opt-in BOM alongside shared planner dimensions; ordinary writes
+  are checked byte for byte against main 8d5a040 through the CLI and API.
+
 ### WASM API
 
 - For #75: live analysis snapshots carry optional shared-planner input and stored
   dimension contracts. Planned scene dimension IDs include stable face-derived
   roles; pitch callouts use interval counts and datum members leave group counts.
+
+- For #79: add static `IntentEngine.bom(bytes)` returning sourced assembly BOM JSON;
+  optional fourth `writePmi` argument explicitly accepts BOM suggestions. Omitted/false
+  preserves the ordinary PMI write. BOM analysis questions are optional suggestions.
 
 ## 0.1.6 (2026-11-01)
 

@@ -277,6 +277,20 @@ fn analyse_with(
         .map_err(|e| refused(&e))?
     {
         Some(resumed) => {
+            if loaded.part_count > 1
+                && let Ok(doc) = &doc
+            {
+                let rows = crate::bom::read_parsed(
+                    doc,
+                    std::slice::from_ref(&loaded.definition),
+                    loaded.binding.part,
+                )
+                .map_err(Error::Analysis)?;
+                analysis.insert(
+                    "bom".into(),
+                    serde_json::to_value(&rows[0]).map_err(|e| refused(&e))?,
+                );
+            }
             // A file specify-core wrote, opened to be changed: its PMI is the answers', not
             // the file's to keep, and the answers come back to be edited.
             analysis.insert("existing".into(), json!([]));
@@ -310,6 +324,13 @@ fn analyse_with(
             };
             let reading =
                 existing::read_parsed(loaded, doc, definitions).map_err(|e| refused(&e))?;
+            if loaded.part_count > 1 {
+                analysis.insert(
+                    "bom".into(),
+                    serde_json::to_value(reading.bom(loaded).map_err(Error::Analysis)?)
+                        .map_err(|e| refused(&e))?,
+                );
+            }
             let existing = reading.existing(loaded).map_err(|e| refused(&e))?;
             let settings = reading.settings(loaded);
             let stated = crate::dimensioning::stated(reading.model());

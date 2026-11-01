@@ -46,11 +46,15 @@ checks it).
   A sweep that crosses areas (the CLI's, which runs features, rules and the writer together)
   filters through the earlier areas' files with it, because their `check_known` there would
   report as stale every entry that sweep does not meet.
-- **Each area file is owned by one stream** (`features`, `existing`, `rules`, `mates`, `mesh`,
-  `anchors`, `writer`, `cli`; see `docs/design.md`, "Comparison harness and known
+- **Each area file is owned by one stream** (`analysis`, `features`, `existing`, `rules`,
+  `mates`, `mesh`, `anchors`, `writer`, `cli`; see `docs/design.md`, "Comparison harness and known
   differences"): only that stream edits it.
 - An entry is as narrow as the evidence: a pattern seen on every corpus case may be `corpus/*`;
   one checked on one file names that file.
+
+The `analysis` area is owned by `tests/api.rs::analyses_have_python_layout`. It records
+exact per-part additive fields; other API tests consult it through `explained`. Legacy
+key order and values remain exact assertions, and missing additions make entries stale.
 
 ## Corrected historical differences
 

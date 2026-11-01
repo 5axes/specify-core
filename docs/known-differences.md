@@ -11,8 +11,9 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 | Area | rust-correct | rust-wrong | equivalent | undetermined | not-applicable | resolved | Total |
 |---|---:|---:|---:|---:|---:|---:|---:|
+| [analysis](#analysis) | 5 | 0 | 0 | 0 | 0 | 0 | 5 |
 | [anchors](#anchors) | 4 | 0 | 2 | 1 | 2 | 0 | 9 |
-| [cli](#cli) | 205 | 0 | 52 | 0 | 2 | 1 | 260 |
+| [cli](#cli) | 208 | 0 | 52 | 0 | 2 | 1 | 263 |
 | [cross_engine](#cross_engine) | 53 | 1 | 0 | 1 | 1 | 20 | 76 |
 | [existing](#existing) | 26 | 0 | 0 | 0 | 7 | 0 | 33 |
 | [features](#features) | 3413 | 1415 | 514 | 2483 | 1066 | 1686 | 10577 |
@@ -21,7 +22,15 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 0 | 40 |
 | [rules](#rules) | 89 | 0 | 615 | 0 | 0 | 0 | 704 |
 | [writer](#writer) | 1086 | 0 | 0 | 0 | 15 | 0 | 1101 |
-| **all** | 4882 | 1433 | 1192 | 2489 | 1101 | 1707 | 12804 |
+| **all** | 4890 | 1433 | 1192 | 2489 | 1101 | 1707 | 12812 |
+
+## analysis
+
+### analysis: rust-correct (5 entries)
+
+- **Rust assembly analysis adds the sourced BOM row for optional editor questions** (5 entries, 5 case globs)
+
+  The evidence is stated per entry (5 distinct; all in `analysis.json`). The first, for `parts/stack#0` at `bom`: For #79, checked tests/fixtures/parts/stack.step: part 0 is base, with 1 placed occurrence(s) (NAUO #800). The archived Python oracle predates the BOM API and has no bom key. tests/api.rs::analyses_have_python_layout checks this row against the public BOM reader and independently asserts part index, native name, occurrence quantity and no allocated item number. It preserves every legacy key in Python order; tests/assemblies.rs additionally retains every captured legacy value and ordering for path, shared-file and in-memory reads. BOM metadata is needed before opt-in to display suggestions; no answers or STEP records are created. tests/bom_opt_in.rs verifies unchanged ordinary writes with and without default acceptance.
 
 ## anchors
 
@@ -67,7 +76,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## cli
 
-### cli: rust-correct (205 entries)
+### cli: rust-correct (208 entries)
 
 - **Shared planner report item in serve (#75)** (62 entries, 4 case globs)
 
@@ -132,6 +141,10 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 - **axis-first turned defaults change string-post datum and basic-location report lines** (4 entries, 1 case glob)
 
   The existing axis-first turned defaults (cx/turned-part-defaults) select string_post axis A on face 0 and shoulder B on face 8, replacing Python's A plane 11 and B axis 0. Consequently B is now a written datum; the old 1.2 mm basic offsets from plane 11 disappear, and the transverse hole holes:5 has a 3.85 mm basic location from shoulder 8. This is the report envelope of the already pinned library intent in rule_defaults_oracle.json.gz; tests/turned_defaults.rs verifies the actual axis, shoulder, coaxial hole and cross-hole defaults, and tests/writer.rs verifies readback. The full corpus CLI sweep compares executable/library composition independently.
+
+- **BOM opt-in flag in exact CLI usage and help captures** (3 entries, 3 case globs)
+
+  The evidence is stated per entry (3 distinct; all in `cli.json`). The first, for `cli/usage/09 write tests/fixtures/parts/plate.step` at `stderr`: For #79, compared the archived Python CLI capture with the current command: the usage adds [--bom]; write help also adds its explicit optional-BOM description and clarifies that --accept-defaults accepts PMI defaults. tests/cli.rs::command_lines asserts this exact transformation for this individual capture before consulting the ledger: every other byte, argument-error wording and exit code remains checked. No datum-origin snapshot or other oracle value is changed. tests/bom_opt_in.rs verifies ordinary writes against main 8d5a040 with and without default acceptance. In this capture, missing ANALYSIS ANSWERS and -o/--output still produce exactly the Python argument error.
 
 ### cli: equivalent (52 entries)
 
