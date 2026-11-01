@@ -11,7 +11,7 @@ use std::fmt::Write;
 use serde::Serialize;
 use serde_json::{Map, Value};
 
-use super::{Revised, Size, edges, mark, render, triangles};
+use super::{Revised, Size, edges, mark, triangles};
 use crate::api::{self, Result};
 use crate::part::{File, LoadedPart};
 use crate::rules;
@@ -182,6 +182,16 @@ pub fn diff(
     new: &[LoadedPart],
     given: &Map<String, Value>,
 ) -> Result<Assembly> {
+    diff_with_options(old, new, given, super::DiffOptions::default())
+}
+
+/// Apply the report options to every matched part.
+pub fn diff_with_options(
+    old: &[LoadedPart],
+    new: &[LoadedPart],
+    given: &Map<String, Value>,
+    options: super::DiffOptions,
+) -> Result<Assembly> {
     let (old_names, new_names) = (names_of(old), names_of(new));
     let wrapped;
     let given = match old_names.as_slice() {
@@ -222,7 +232,7 @@ pub fn diff(
                     .and_then(Value::as_object)
                     .cloned()
                     .unwrap_or_default();
-                let r = super::diff(&old[i], &new[j], &answers)?;
+                let r = super::diff_with_options(&old[i], &new[j], &answers, options)?;
                 let (status, gone) = if unchanged(&r) {
                     placed(&old[i].placements, &placing_old(&new[j].placements, &r))
                 } else {
@@ -405,6 +415,7 @@ impl Assembly {
     /// placements that went; a PNG *width* pixels wide.
     pub fn picture(&self, old: &[LoadedPart], new: &[LoadedPart], width: u32) -> Vec<u8> {
         let (mut solid, mut ghost, mut lines) = (Vec::new(), Vec::new(), Vec::new());
+        let mut graphics = Vec::new();
         let red = [0.84, 0.16, 0.16];
         let place = |at: &Place| {
             let at = *at;
@@ -413,6 +424,20 @@ impl Assembly {
             }
         };
         for p in &self.parts {
+            if let Some(revised) = &p.revised {
+                for graphic in &revised.pmi_graphics {
+                    let placed = if graphic.old {
+                        p.old.as_ref().map(|o| &old[o.part])
+                    } else {
+                        p.new.as_ref().map(|n| &new[n.part])
+                    };
+                    if let Some(part) = placed {
+                        for at in &part.placements {
+                            graphics.push(graphic.placed(&place(at)));
+                        }
+                    }
+                }
+            }
             if let (false, Some(o)) = (p.gone.is_empty(), &p.old) {
                 let mesh = crate::mesh::mesh(&old[o.part]);
                 for &i in &p.gone {
@@ -430,6 +455,13 @@ impl Assembly {
                     n.part,
                     match p.status {
                         "unchanged" => [0.80, 0.81, 0.83],
+                        "changed"
+                            if p.revised.as_ref().is_some_and(|r| {
+                                r.features.is_empty() && r.faces.is_empty() && r.gone.is_empty()
+                            }) =>
+                        {
+                            [0.80, 0.81, 0.83]
+                        }
                         "added" => [0.04, 0.56, 0.24],
                         _ => [0.88, 0.48, 0.0],
                     },
@@ -448,7 +480,7 @@ impl Assembly {
                 }
             }
         }
-        render(&solid, &ghost, &lines, true, width)
+        super::render_with_pmi(&solid, &ghost, &lines, &graphics, true, width)
     }
 }
 

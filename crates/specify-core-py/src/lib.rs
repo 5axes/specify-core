@@ -169,7 +169,7 @@ fn mesh(py: Python<'_>, step: &Bound<'_, PyAny>, part: Option<usize>) -> PyResul
 
 /// Revision report and Markdown, including numbered semantic PMI changes.
 #[pyfunction]
-#[pyo3(signature = (old, new, answers="{}", title="Revision", part=None))]
+#[pyo3(signature = (old, new, answers="{}", title="Revision", part=None, scenes=false))]
 fn diff(
     py: Python<'_>,
     old: &Bound<'_, PyAny>,
@@ -177,6 +177,7 @@ fn diff(
     answers: &str,
     title: &str,
     part: Option<usize>,
+    scenes: bool,
 ) -> PyResult<String> {
     let answers = answers_of(answers)?;
     let old_owned;
@@ -196,7 +197,12 @@ fn diff(
         }
     };
     py.detach(|| {
-        let report = specify_core::revision::diff(&old.loaded, &new.loaded, &answers)?;
+        let report = specify_core::revision::diff_with_options(
+            &old.loaded,
+            &new.loaded,
+            &answers,
+            specify_core::revision::DiffOptions { scenes },
+        )?;
         Ok(json!({"markdown": report.markdown(title, None), "report": report}).to_string())
     })
     .map_err(raised)

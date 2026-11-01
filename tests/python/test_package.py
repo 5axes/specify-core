@@ -279,3 +279,13 @@ def test_bom_write_requires_explicit_acceptance(assembly, tmp_path):
     assert rows[0]["item_number"]["value"] == 1
     assert rows[0]["description"]["source"] == "default"
     assert api.analyse(out, part=0)["resume"]["answers"] == STEEL
+
+
+def test_diff_scenes_are_optional_and_match_pmi_scene(plate):
+    given = {"part.notes": ["Keep dry"]}
+    default = api.diff(plate, plate, given)
+    included = api.diff(plate, plate, given, scenes=True)
+    scenes = included["report"]["pmi"].pop("scenes")
+    assert included == default
+    assert scenes["old"] == api.pmi_scene(plate, given)
+    assert scenes["new"] == api.pmi_scene(plate, included["report"]["answers"])

@@ -184,3 +184,27 @@ fn numbered_requirement_changes_use_the_same_identity_as_pmi_scene() {
     assert_eq!(items[0]["number"], meta["number"]);
     assert_eq!(items[0]["status"], meta["status"]);
 }
+
+#[test]
+fn optional_scenes_use_the_same_report_without_changing_defaults() {
+    let (old, new) = (bytes("hole_moved.old"), bytes("hole_moved.new"));
+    let answers = serde_json::from_value(serde_json::json!({"part.notes":["Keep dry"]})).unwrap();
+    let default =
+        session::diff(("old.step", &old), ("new.step", &new), &answers, "Scenes").unwrap();
+    let mut included = session::diff_with_options(
+        ("old.step", &old),
+        ("new.step", &new),
+        &answers,
+        "Scenes",
+        revision::DiffOptions { scenes: true },
+    )
+    .unwrap();
+    let scenes = included["report"]["pmi"]
+        .as_object_mut()
+        .unwrap()
+        .remove("scenes")
+        .unwrap();
+    assert_eq!(included, default);
+    let old = session::Session::open("old.step", &old).unwrap();
+    assert_eq!(scenes["old"], old.pmi_scene(&answers).unwrap());
+}

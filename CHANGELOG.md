@@ -8,6 +8,12 @@ All notable changes to specify-core-rust. The format follows
 
 ### Added
 
+- Diff reports optionally include the exact compared `pmi.scenes` through Rust,
+  CLI `--pmi-scenes`, WASM and Python. Requirement items add differing `old_id`
+  and per-side mesh face anchors, including semantic-only requirements. Revision
+  PNGs draw changed/added presentation callouts and translucent removed ghosts,
+  framing their supplied geometry alongside existing geometry change colours.
+
 - For #79: opt-in assembly BOM writes via explicit `bom.*` answers or `--bom` / API
   acceptance. Optional questions expose suggestions, never ordinary defaults. Assembly
   analysis adds a sourced `bom` row using its existing parse. Separate occurrence UDAs
@@ -103,6 +109,10 @@ All notable changes to specify-core-rust. The format follows
   0.4.3 constituent-identity fix. A raw-reader regression guard signals its removal.
 
 ### WASM API
+
+- `diff` accepts an optional seventh `scenes` boolean. `DiffPmi.scenes` contains
+  `{old: PmiScene, new: PmiScene}` when requested; `PmiItemChange` adds optional
+  `old_id` and `faces: {old: {face: number}[], new: {face: number}[]}`.
 
 - `pmiScene` exposes the scalar material through the `part.material` companion alias
   in `presentation.items`, `semantic_ids` and `specify`; the upstream semantic material

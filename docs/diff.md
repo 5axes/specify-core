@@ -1,7 +1,7 @@
 # Comparing revisions: `specify-core diff`
 
 ```bash
-specify-core diff old.step new.step [--answers old.answers.json] [--title TITLE] [--part N]
+specify-core diff old.step new.step [--answers old.answers.json] [--title TITLE] [--part N] [--pmi-scenes]
                   [--viewer URL] -o DIR
 ```
 
@@ -103,6 +103,7 @@ changing one note does not change the other requirements in that block.
 
 ```json
 {"class":"changed","number":7,"id":"size:holes:9","kind":"dimension",
+ "faces":{"old":[{"face":9}],"new":[{"face":9}]},
  "status":"answered","on":"⌀6.6 holes","old":"⌀6.6 H7","new":"⌀6.6 H8"}
 ```
 
@@ -120,6 +121,49 @@ characteristic number, then unnumbered id. Markdown prints one line per change, 
 #5 retired: 50 (hole moved)
 ```
 
+Paired items (`changed` and `renumbered`) include `old_id` **only when it differs
+from `id`**. Use `old_id ?? id` for the old callout; removed items already use the
+old `id`, and added items have no old identity. Every item includes
+`faces: {"old": [{"face": meshIndex}], "new": [{"face": meshIndex}]}`. An absent
+side or a part-level requirement has an empty array. These are sorted, unique
+mesh face indices in each side's local frame, the same anchors as scene links;
+they include semantic support even when no presentation graphic exists. Keeping
+anchors on the item avoids requiring large scenes or making focus depend on ink.
+Datum-system references do not add the datum's faces to the controlled feature.
+
+Opt in to `report.pmi.scenes: {"old": PmiScene, "new": PmiScene}` using:
+
+- Rust: `revision::diff_with_options(old, new, answers, DiffOptions { scenes: true })`
+  (also `revision::assembly::diff_with_options`). `revision::diff` keeps its default.
+- CLI: `specify-core diff old.step new.step -o result --pmi-scenes`.
+- WASM: `diff(oldName, oldBytes, newName, newBytes, answersJson, title, true)`.
+- Python: `api.diff(old, new, answers, scenes=True)`.
+
+Both documents have the `pmiScene` shape (`pmi`, `presentation`, `specify`). They
+are the exact primary scenes already built by the comparison: old with the given
+or stored answers, new with carried answers unless the new file has Specify PMI,
+when its actual semantic requirements win. Comparison presentations use current
+semantic notation, not potentially stale saved As Drawn ink. Supplemental
+carried-plan differences retain their existing `reason`; the new scene remains
+the actual destination. No additional scene derivation is performed. Assembly
+reports include the pair in each matched part's `report.pmi.scenes`.
+
+Scenes are omitted by default because they can dominate report size. Opting in
+only adds `pmi.scenes`; removing that property gives byte-identical serialized
+report JSON to the default call. The other additive item fields above are always
+available. The renderer retains only the changed presentation geometry from the
+same scene pair even when JSON scenes are omitted.
+
+`model.png` draws changed/renumbered callouts orange, added callouts green and
+removed old callouts as translucent red ghosts (45% opacity), transformed by the
+same alignment as old geometry. Unchanged callouts are omitted. Haecceity's
+polylines and triangles are used as supplied, including leaders and stroked text;
+there is no text layout or replacement of missing glyph geometry. Shared graphic
+aliases (such as GENERAL NOTES) draw once per side; an added alias makes the
+shared block green. Geometry keeps its existing change colours; a PMI-only part
+is grey. The camera bounds include every selected stroke and triangle, on both
+sides. Callouts overlay the part so their leaders remain visible.
+
 `pmi.stored`, `pmi.existing` and `pmi.existing_count` retain their legacy meanings
 for one release; **`stored` and `existing` are deprecated**. They omit requirements
 and notation details covered by `items`; new clients should use `items`.
@@ -127,7 +171,7 @@ and notation details covered by `items`; new clients should use `items`.
 WASM `diff` returns these items in `report.pmi.items` (and in each assembly part's
 report), with ids and numbers suitable for highlighting `pmiScene` characteristics
 in `/diff`. The Python package exposes `specify_core.api.diff(old, new, answers=None,
-*, title="Revision", part=None)`, returning `{report, markdown}` for the selected
+*, title="Revision", part=None, scenes=False)`, returning `{report, markdown}` for the selected
 part. It accepts paths or loaded part handles; paths accept a part index.
 
 ## How answers carry

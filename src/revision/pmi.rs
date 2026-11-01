@@ -1,5 +1,5 @@
 //! Requirement changes on the same semantic documents and identities as `pmiScene`.
-use super::{Bind, Feature, PmiItemChange, pmi_on};
+use super::{Bind, FaceAnchor, Feature, PmiFaces, PmiItemChange, PmiScenes, pmi_on};
 use crate::{api, part::LoadedPart, pmi_scene::Scene};
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet};
@@ -358,6 +358,22 @@ fn compare(
             class: class.into(),
             number: item.number,
             id: item.id.clone(),
+            old_id: was
+                .zip(now)
+                .filter(|(a, b)| a.id != b.id)
+                .map(|(a, _)| a.id.clone()),
+            faces: PmiFaces {
+                old: was
+                    .into_iter()
+                    .flat_map(|p| &p.faces)
+                    .map(|&face| FaceAnchor { face })
+                    .collect(),
+                new: now
+                    .into_iter()
+                    .flat_map(|p| &p.faces)
+                    .map(|&face| FaceAnchor { face })
+                    .collect(),
+            },
             kind: item.kind.clone(),
             status: item.status.clone(),
             on: pmi_on(
@@ -447,7 +463,7 @@ pub(super) fn diff(
     carried: &Map<String, Value>,
     faces: &BTreeMap<usize, Bind>,
     features: (&[Feature], &[Feature]),
-) -> api::Result<Vec<PmiItemChange>> {
+) -> api::Result<(Vec<PmiItemChange>, PmiScenes)> {
     let scene = |part: &LoadedPart, analysis: &Value, answers| {
         Scene::new(part)
             .and_then(|scene| scene.comparison(part, analysis, answers))
@@ -455,11 +471,17 @@ pub(super) fn diff(
     };
     let (old_analysis, new_analysis) = analyses;
     let before = scene(old, old_analysis, given)?;
-    let before = items(&before);
+    let before_items = items(&before);
     let projected = scene(new, new_analysis, (!carried.is_empty()).then_some(carried))?;
-    let mut changes = if new_analysis["resume"].is_object() {
+    let (mut changes, after) = if new_analysis["resume"].is_object() {
         let actual = scene(new, new_analysis, None)?;
-        let mut changes = compare(&before, &items(&actual), faces, features.0, features.1);
+        let mut changes = compare(
+            &before_items,
+            &items(&actual),
+            faces,
+            features.0,
+            features.1,
+        );
         // Compare the two plans too: generated requirements can follow geometry
         // without any answer changing. File edits own the final requirement when
         // they differ; otherwise retain the geometry-derived change from the plan.
@@ -482,9 +504,18 @@ pub(super) fn diff(
                 }
             }
         }
-        changes
+        (changes, actual)
     } else {
-        compare(&before, &items(&projected), faces, features.0, features.1)
+        (
+            compare(
+                &before_items,
+                &items(&projected),
+                faces,
+                features.0,
+                features.1,
+            ),
+            projected,
+        )
     };
     changes.sort_by(|a, b| {
         (a.number.is_none(), a.number, &a.id, &a.class).cmp(&(
@@ -494,7 +525,13 @@ pub(super) fn diff(
             &b.class,
         ))
     });
-    Ok(changes)
+    Ok((
+        changes,
+        PmiScenes {
+            old: before,
+            new: after,
+        },
+    ))
 }
 
 #[cfg(test)]
@@ -558,6 +595,25 @@ mod tests {
         let result = compare(&old, &new, &BTreeMap::new(), &[], &[]);
         assert_eq!(result.iter().filter(|c| c.class == "removed").count(), 2);
         assert_eq!(result.iter().filter(|c| c.class == "added").count(), 2);
+    }
+
+    #[test]
+    fn old_id_is_only_emitted_when_the_paired_identity_differs() {
+        let old = [control("old", vec![0], "0.2")];
+        let mut new = [control("new", vec![0], "0.1")];
+        new[0].number = Some(7);
+        let faces = BTreeMap::from([(0, Bind::To(0))]);
+        let changes = compare(&old, &new, &faces, &[], &[]);
+        assert_eq!(changes.len(), 2);
+        for class in ["changed", "renumbered"] {
+            let item = changes.iter().find(|c| c.class == class).unwrap();
+            assert_eq!(item.old_id.as_deref(), Some("old"));
+            assert_eq!(item.id, "new");
+        }
+        new[0].id = "old".into();
+        for item in compare(&old, &new, &faces, &[], &[]) {
+            assert!(serde_json::to_value(item).unwrap().get("old_id").is_none());
+        }
     }
 
     #[test]
