@@ -968,6 +968,20 @@ fn first_shaft_walk_uses_front_shoulders_then_end_on_holes_and_side_width() {
     let a = api::analyse(&p).unwrap();
     let answers = rules::with_all_defaults(&a, &Map::new()).unwrap();
     let i = api::preview(&a, &answers).unwrap();
+    // The axis-based position requirements cannot be replaced by an unrelated
+    // General offset from the flats; report that proposal instead (#75).
+    let rejected: Vec<_> = i
+        .requirements
+        .iter()
+        .filter_map(|r| r.get("not_written_reason"))
+        .collect();
+    assert_eq!(rejected.len(), 1);
+    assert!(
+        rejected[0]
+            .as_str()
+            .unwrap()
+            .contains("General contract conflicts with an answered requirement")
+    );
     let written = back(writer::write_bytes(&p, &i, Some(&answers)).unwrap().0);
     assert_walk(
         &written,
@@ -983,7 +997,6 @@ fn first_shaft_walk_uses_front_shoulders_then_end_on_holes_and_side_width() {
             ("dimension", "Location_LinearDistance", &[8], &[10]),
             ("dimension", "Location_LinearDistance", &[2, 6], &[10]),
             ("dimension", "Size_Diameter", &[14], &[]),
-            ("dimension", "Location_LinearDistance", &[14, 15], &[2, 6]),
             ("geometric_tolerance", "Position", &[15], &[]),
             ("geometric_tolerance", "Position", &[14], &[]),
             ("thread", "Internal", &[15], &[]),

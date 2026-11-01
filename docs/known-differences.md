@@ -20,8 +20,8 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | [mates](#mates) | 1 | 0 | 0 | 0 | 3 | 0 | 4 |
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 0 | 40 |
 | [rules](#rules) | 89 | 0 | 615 | 0 | 0 | 0 | 704 |
-| [writer](#writer) | 1078 | 0 | 0 | 0 | 15 | 0 | 1093 |
-| **all** | 4874 | 1433 | 1192 | 2489 | 1101 | 1707 | 12796 |
+| [writer](#writer) | 1086 | 0 | 0 | 0 | 15 | 0 | 1101 |
+| **all** | 4882 | 1433 | 1192 | 2489 | 1101 | 1707 | 12804 |
 
 ## anchors
 
@@ -1065,7 +1065,7 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 
 ## writer
 
-### writer: rust-correct (1078 entries)
+### writer: rust-correct (1086 entries)
 
 - **Specify-written requirements retain STEP-only authorship (issue #22)** (`*` at `existing[key=*].provenance`)
 
@@ -1113,7 +1113,7 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 
 - **Python's write fails its verification on items with no faces; Rust writes the rest and lists them (Q17)** (`nist/nist_ctc_05_asme1_ap242` at `write`)
 
-  Captured from specify-core with its ISO 286 extension (branch iso286-3150; docs/questions.md Q8, 'Recapture source'), which applies this part's answers where the earlier specify-core refused its Ø558.8 diameter. Python's own intent has the size (H11, 0.11/0.0, clearance for M10) and the position of two hole patterns, hole_patterns.linear:84.85.86.87.88.89 and :78.79.80.81.82.83, with faces []; its write raises VerificationError naming exactly those four ('limits 0.11/0.0 not in file' twice, 'position on [] missing or wrong' twice). As question Q17 decides, the Rust writer writes the rest (material, general tolerance, finish, edges) and lists each of the four in not_written ('the size on hole_patterns.linear:84.85.86.87.88.89 names no faces, so nothing in the file can carry it (question Q17)'; checked by running specify-core write --accept-defaults with the oracle's analysis), verified by reading back; the same file is the cross-engine check's nist/nist_ctc_05_asme1_ap242, which OpenCascade opens and reads (tests/cross_engine.rs).
+  Captured from specify-core with its ISO 286 extension (branch iso286-3150; docs/questions.md Q8, 'Recapture source'), which applies this part's answers where the earlier specify-core refused its Ø558.8 diameter. Python's own intent has the size (H11, 0.11/0.0, clearance for M10) and the position of two hole patterns, hole_patterns.linear:84.85.86.87.88.89 and :78.79.80.81.82.83, with faces []; its write raises VerificationError naming exactly those four ('limits 0.11/0.0 not in file' twice, 'position on [] missing or wrong' twice). As question Q17 decides, the Rust writer writes the rest (material, general tolerance, finish, edges) and lists each of the four in not_written ('the size on hole_patterns.linear:84.85.86.87.88.89 names no faces, so nothing in the file can carry it (question Q17)'; checked by running specify-core write --accept-defaults with the oracle's analysis), verified by reading back; the same file is the cross-engine check's nist/nist_ctc_05_asme1_ap242, which OpenCascade opens and reads (tests/cross_engine.rs). Shared planner, #75 integration: the writer also reports and omits the General offsets 171.45, 206.375 and 241.3 from face 8 to target sets [78,79,84,85], [80,81,86,87] and [82,83,88,89]. Those fallback coordinates cannot be reconciled with the answered position requirements. They have no written PMI or new characteristic numbers; the independent cross-engine recapture confirms all three are absent, and their stale per-item cross-engine exceptions are removed. This parent write-result difference still records Python’s Q17 refusal versus Rust’s supported write and explicit unresolved-proposal report.
 
 - **the report counts the dimensions written under the general tolerance (#63)** (`*` at `write.written[*under the general tolerance]`)
 
@@ -1135,9 +1135,9 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 
   The evidence is stated per entry (4 distinct; all in `writer.json`). The first, for `corpus/cadgenbench_inputs/cgb243` at `existing[key=dimension|Size_Diameter|[2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,572,573,574,575,576,577,578,579,580,581,582,583,584,585,586,587]|#1]`: Shared planner, #75: this exact occurrence now reads Ø70 Basic from answered:dim:pattern[hole:10.11.578.579,hole:12.13.576.577,hole:14.15.574.575,hole:16.17.572.573,hole:2.3.586.587,hole:4.5.584.585,hole:6.7.582.583,hole:8.9.580.581]/bolt_circle.diameter, before the answered-fit bore on the same complete face support. Python states only its member bore size. The separate bore retains its answered fit and moves to the next same-face comparison occurrence; characteristic identities use planner roles and are unchanged. The oracle's fit-limit projection requires both matching faces and matching nominal, preventing the Basic bolt-circle diameter from inheriting the bore fit limits. Exact fresh readback differences: {"case":"corpus/cadgenbench_inputs/cgb243","path":"existing[key=dimension\|Size_Diameter\|[2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,572,573,574,575,576,577,578,579,580,581,582,583,584,585,586,587]\|#1]","python":null,"rust":{"kind":"dimension","type":"Size_Diameter","faces":[2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,572,573,574,575,576,577,578,579,580,581,582,583,584,585,586,587],"value":70.0,"provenance":"specify-core:written:v1","key":"dimension\|Size_Diameter\|[2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,572,573,574,575,576,577,578,579,580,581,582,583,584,585,586,587]\|#1"}}. The actual STEP Basic tolerance is verified by the planner regression; no dimensional value is normalized away.
 
-- **Exact unsupported planner proposal is reported, not written (shared planner, #75)** (55 entries, 12 case globs)
+- **Exact unsupported planner proposal is reported, not written (shared planner, #75)** (63 entries, 12 case globs)
 
-  The evidence is stated per entry (4 distinct; all in `writer.json`). The first, for `corpus/cadgenbench_inputs/cgb202` at `write.not_written[shared planner dim:envelope:0:min/to/hole:1261.1262/0: General contract conflicts with an answered requirement; retained answered intent instead]`: Shared planner, #75: fresh writer-oracle report has this exact diagnostic absent from the frozen Python writer. The shared General proposal cannot replace the answered/stored tolerance contract. It is omitted and explicitly reported; the existing intent path remains authoritative. This entry covers the exact not_written diagnostic, never an extra dimension. tests/planner_dimensions.rs verifies actual STEP supports, unique pairs, independent plane chains and Required/readback correspondence across the corpus; writer-oracle also checks EXPRESS conformance.
+  The evidence is stated per entry (12 distinct; all in `writer.json`). The first, for `corpus/cadgenbench_inputs/cgb202` at `write.not_written[shared planner dim:envelope:0:min/to/hole:1261.1262/0: General contract conflicts with an answered requirement; retained answered intent instead]`: Shared planner, #75: fresh writer-oracle report has this exact diagnostic absent from the frozen Python writer. The shared General proposal cannot replace the answered/stored tolerance contract. It is omitted and explicitly reported; the existing intent path remains authoritative. This entry covers the exact not_written diagnostic, never an extra dimension. tests/planner_dimensions.rs verifies actual STEP supports, unique pairs, independent plane chains and Required/readback correspondence across the corpus; writer-oracle also checks EXPRESS conformance.
 
 - **Exact shared location conveyance or physical-support change (#75)** (903 entries, 31 case globs)
 
