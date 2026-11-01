@@ -118,3 +118,35 @@ test('another page hands over two files: Blobs, ArrayBuffers or typed arrays, na
     { type: 'draftwright:diff', before: { name: 'a', data: 'ISO-10303-21;' }, after: { name: 'b', data: new Blob([]) } },
   ]) assert.equal(handedFiles(bad), null);
 });
+
+test('the PMI scenes asked for are those the diff compared, and each item takes its change', async () => {
+  const { changeOf, drawsItem, movedPmi, sceneAnswers } = await import('../src/model/diff-pmi.ts');
+  const given = { 'part.material': 'Steel' };
+  const carried = { 'part.material': 'Steel', 'datum.A': [3] };
+  // Answers given and no Specify PMI in the new file: both planned, the new with what carried.
+  assert.deepEqual(sceneAnswers({ answers_from: 'given', new_stored: false, items: [] }, given, carried), { old: given, new: carried });
+  // Both files written by Specify: each as its file has it.
+  assert.deepEqual(sceneAnswers({ answers_from: 'stored', new_stored: true, items: [] }, {}, carried), { old: null, new: null });
+  // Nothing to plan with: the files' own.
+  assert.deepEqual(sceneAnswers({ answers_from: 'none', new_stored: false, items: [] }, {}, {}), { old: null, new: null });
+  const items = [
+    { class: 'removed', id: 'position:holes:15', kind: 'geometric_tolerance', number: 12, on: 'x', old: '⌖ ⌀0.2 A', status: 'answered' },
+    { class: 'changed', id: 'position:holes:14', kind: 'geometric_tolerance', number: 13, on: 'x', old: 'a', new: 'b', status: 'answered' },
+    { class: 'renumbered', id: 'position:holes:14', kind: 'geometric_tolerance', number: 13, on: 'x', status: 'answered' },
+    { class: 'renumbered', id: 'size:holes:14', kind: 'dimension', number: 3, on: 'x', status: 'answered' },
+    { class: 'added', id: 'perpendicularity:datum B', kind: 'geometric_tolerance', number: 18, on: 'x', new: '⟂ 0.05 A', status: 'answered' },
+  ];
+  const { now, removed } = changeOf(items);
+  assert.deepEqual([...now], [['position:holes:14', 'changed'], ['size:holes:14', 'changed'], ['perpendicularity:datum B', 'added']]);
+  assert.deepEqual([...removed], ['position:holes:15']);
+  // The old part's callouts go where its faces go.
+  const graphic = { source: 'file', name: 'A', polylines: [[[1, 0, 0], [0, 1, 0]]], triangles: [], text: [], textPlacements: [{ origin: [1, 0, 0], xAxis: [1, 0, 0], normal: [0, 0, 1] }] };
+  const pmi = { links: {}, presentation: { items: { a: [graphic] }, unlinked: [], semanticIds: ['a'], planes: [], views: [] } };
+  assert.equal(movedPmi(pmi, null), pmi);
+  const turned = movedPmi(pmi, { rotation: [[0, -1, 0], [1, 0, 0], [0, 0, 1]], translation: [10, 0, 0] });
+  assert.deepEqual(turned.presentation.items.a[0].polylines[0], [[10, 1, 0], [9, 0, 0]]);
+  assert.deepEqual(turned.presentation.items.a[0].textPlacements[0], { origin: [10, 1, 0], xAxis: [0, 1, 0], normal: [0, 0, 1] });
+  assert.ok(drawsItem(pmi, 'a'));
+  assert.ok(!drawsItem(pmi, 'b'));
+  assert.ok(!drawsItem(null, 'a'));
+});
