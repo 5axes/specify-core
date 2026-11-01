@@ -23,6 +23,15 @@ All notable changes to specify-core-rust. The format follows
 
 ### Changed
 
+- For #163: live PMI scenes combine accepted part settings, imported semantic notes and
+  material in one GENERAL NOTES block, replacing the file block in the scene while
+  lossless writes keep its records. Reopened appended files also draw one block.
+  Part-level edge-break prose answers `part.edges`
+  as written. Feature notes retain their owner; haecceity generates their fallback ink
+  together with the combined block and owns all placement. Rotated-part regression
+  checks use the notes plane. File callouts
+  report file source and material DMIAs link through `part.material`.
+
 - For #75, written hole sizes, pattern
   origins/pitches and prismatic plane levels/extents follow the shared planner.
   Inspection plans contain fewer rows: the default cross-engine plate changes from
@@ -82,6 +91,10 @@ All notable changes to specify-core-rust. The format follows
   uses structural requirement identity; schema-1 files retain their numbers and high-water
   marks on migration. Removed numbers stay retired.
 
+- The step-diff Action's "answers carried" block hides Specify's own `_specify*`
+  records (such as `_specify_characteristic_numbers`) at any depth. They stay in the
+  committed answers file.
+
 - Preserve separately sized lands that also compose a multi-face datum with the
   v0.4.2 reader. Give their new requirements independent shape-aspect compositions
   sharing the original face usages (no duplicate GISUs), so LM10UU's three Ø19
@@ -90,6 +103,10 @@ All notable changes to specify-core-rust. The format follows
   0.4.3 constituent-identity fix. A raw-reader regression guard signals its removal.
 
 ### WASM API
+
+- `pmiScene` exposes the scalar material through the `part.material` companion alias
+  in `presentation.items`, `semantic_ids` and `specify`; the upstream semantic material
+  field is unchanged. Reviewed scenes alias every part note to one shared graphic.
 
 - For #75: live analysis snapshots carry optional shared-planner input and stored
   dimension contracts. Planned scene dimension IDs include stable face-derived
