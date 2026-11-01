@@ -119,26 +119,34 @@ test('another page hands over two files: Blobs, ArrayBuffers or typed arrays, na
   ]) assert.equal(handedFiles(bad), null);
 });
 
-test('the PMI scenes asked for are those the diff compared, and each item takes its change', async () => {
-  const { changeOf, drawsItem, movedPmi, sceneAnswers } = await import('../src/model/diff-pmi.ts');
-  const given = { 'part.material': 'Steel' };
-  const carried = { 'part.material': 'Steel', 'datum.A': [3] };
-  // Answers given and no Specify PMI in the new file: both planned, the new with what carried.
-  assert.deepEqual(sceneAnswers({ answers_from: 'given', new_stored: false, items: [] }, given, carried), { old: given, new: carried });
-  // Both files written by Specify: each as its file has it.
-  assert.deepEqual(sceneAnswers({ answers_from: 'stored', new_stored: true, items: [] }, {}, carried), { old: null, new: null });
-  // Nothing to plan with: the files' own.
-  assert.deepEqual(sceneAnswers({ answers_from: 'none', new_stored: false, items: [] }, {}, {}), { old: null, new: null });
+test('each PMI item takes its change, a changed one its old id, and its faces', async () => {
+  const { changeOf, drawsItem, facesOf, movedPmi } = await import('../src/model/diff-pmi.ts');
+  const none = { old: [], new: [] };
   const items = [
-    { class: 'removed', id: 'position:holes:15', kind: 'geometric_tolerance', number: 12, on: 'x', old: '⌖ ⌀0.2 A', status: 'answered' },
-    { class: 'changed', id: 'position:holes:14', kind: 'geometric_tolerance', number: 13, on: 'x', old: 'a', new: 'b', status: 'answered' },
-    { class: 'renumbered', id: 'position:holes:14', kind: 'geometric_tolerance', number: 13, on: 'x', status: 'answered' },
-    { class: 'renumbered', id: 'size:holes:14', kind: 'dimension', number: 3, on: 'x', status: 'answered' },
-    { class: 'added', id: 'perpendicularity:datum B', kind: 'geometric_tolerance', number: 18, on: 'x', new: '⟂ 0.05 A', status: 'answered' },
+    { class: 'removed', id: 'position:holes:15', kind: 'geometric_tolerance', number: 12, on: 'x', old: '⌖ ⌀0.2 A', status: 'answered', faces: { old: [{ face: 15 }], new: [] } },
+    { class: 'changed', id: 'position:holes:14', kind: 'geometric_tolerance', number: 13, on: 'x', old: 'a', new: 'b', status: 'answered', faces: none },
+    { class: 'renumbered', id: 'position:holes:14', kind: 'geometric_tolerance', number: 13, on: 'x', status: 'answered', faces: none },
+    { class: 'renumbered', id: 'size:holes:14', old_id: 'size:holes:12', kind: 'dimension', number: 3, on: 'x', status: 'answered', faces: none },
+    { class: 'added', id: 'perpendicularity:datum B', kind: 'geometric_tolerance', number: 18, on: 'x', new: '⟂ 0.05 A', status: 'answered', faces: none },
   ];
-  const { now, removed } = changeOf(items);
+  const { now, removed, was } = changeOf(items);
   assert.deepEqual([...now], [['position:holes:14', 'changed'], ['size:holes:14', 'changed'], ['perpendicularity:datum B', 'added']]);
   assert.deepEqual([...removed], ['position:holes:15']);
+  // A changed item's old callout: by its old id when it has one, else its own.
+  assert.deepEqual([...was], [['position:holes:14', 'position:holes:14'], ['size:holes:14', 'size:holes:12']]);
+  assert.deepEqual(facesOf(items[0]), { old: [15], new: [] });
+  // A changed item's old callout, where the new one is, is set beside it, up its plane.
+  const { besideNew } = await import('../src/model/diff-pmi.ts');
+  const frame = (y, id) => ({ source: 'generated', name: id, planeId: 'p', polylines: [[[0, y, 0], [10, y, 0], [10, y + 2, 0]]], triangles: [], text: [],
+    textPlacements: [{ origin: [1, y, 0], xAxis: [1, 0, 0], normal: [0, 0, 1] }] });
+  const planes = [{ id: 'p', name: 'p', origin: [0, 0, 0], xAxis: [1, 0, 0], normal: [0, 0, 1] }];
+  const [moved] = besideNew([frame(0, 'old')], [frame(0, 'new')], planes);
+  assert.deepEqual(moved.polylines[0], [[0, 2.5, 0], [10, 2.5, 0], [10, 4.5, 0]]);
+  assert.deepEqual(moved.textPlacements[0].origin, [1, 2.5, 0]);
+  // Already clear of it, or with no plane to go up, it stays where it is drawn.
+  assert.deepEqual(besideNew([frame(5, 'old')], [frame(0, 'new')], planes)[0].polylines, frame(5, 'old').polylines);
+  const loose = { ...frame(0, 'old'), planeId: undefined, textPlacements: undefined };
+  assert.deepEqual(besideNew([loose], [frame(0, 'new')], planes)[0], loose);
   // The old part's callouts go where its faces go.
   const graphic = { source: 'file', name: 'A', polylines: [[[1, 0, 0], [0, 1, 0]]], triangles: [], text: [], textPlacements: [{ origin: [1, 0, 0], xAxis: [1, 0, 0], normal: [0, 0, 1] }] };
   const pmi = { links: {}, presentation: { items: { a: [graphic] }, unlinked: [], semanticIds: ['a'], planes: [], views: [] } };

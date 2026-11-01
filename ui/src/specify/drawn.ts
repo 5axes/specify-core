@@ -189,9 +189,10 @@ export function readPresentation(json: unknown): Read<Presentation> {
 /**
  * Each presented item's faces, from the `haecceity.pmi/1` document the presentation was made with:
  * its features' (`features[].value.items[].face`, the session's numbering). Refused unless the
- * document's ids are the presentation's `semantic_ids`.
+ * document's ids are the presentation's `semantic_ids`, with ``aliases``: ids a scene gives what
+ * the document holds without one.
  */
-export function linksFromPmi(json: unknown, presentation: Presentation): Read<Record<string, DrawnLink>> {
+export function linksFromPmi(json: unknown, presentation: Presentation, aliases: readonly string[] = []): Read<Record<string, DrawnLink>> {
   if (!isObject(json) || json['schema'] !== 'haecceity.pmi/1' || !isObject(json['pmi'])) {
     return { ok: false, reason: 'not a haecceity.pmi/1 document' };
   }
@@ -206,7 +207,7 @@ export function linksFromPmi(json: unknown, presentation: Presentation): Read<Re
     faces.set(e.id, on.flatMap((x) => (isObject(x) && typeof x['face'] === 'number' ? [x['face']] : [])));
   }
   // The presentation's links hold only for the document it was made with: the same ids.
-  const ids = [...new Set(entries.map((e) => e.id))].sort();
+  const ids = [...new Set([...entries.map((e) => e.id), ...aliases])].sort();
   const expected = [...presentation.semanticIds].sort();
   if (ids.join('\n') !== expected.join('\n')) return { ok: false, reason: 'the PMI document is not the one the presentation was made with (semantic_ids differ)' };
   // An item's faces: those of every feature it names, however deep.
@@ -234,9 +235,12 @@ export function drawnFromScene(scene: unknown): Read<DrawnPmi> {
   if (!isObject(scene)) return { ok: false, reason: 'the PMI scene is not a JSON object' };
   const read = readPresentation(scene['presentation']);
   if (!read.ok) return read;
-  const links = linksFromPmi(scene['pmi'], read.value);
-  if (!links.ok) return links;
   const overlay = isObject(scene['specify']) ? scene['specify'] : {};
+  // Specify names the document's material, a scalar with no id, by its question (specify-core 0.1.7).
+  const pmi = isObject(scene['pmi']) && isObject(scene['pmi']['pmi']) ? scene['pmi']['pmi'] : {};
+  const aliases = isObject(pmi['material']) && isObject(overlay['part.material']) && read.value.semanticIds.includes('part.material') ? ['part.material'] : [];
+  const links = linksFromPmi(scene['pmi'], read.value, aliases);
+  if (!links.ok) return links;
   const linked: Record<string, DrawnLink> = {};
   for (const [id, link] of Object.entries(links.value)) {
     const entry = overlay[id];
