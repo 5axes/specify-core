@@ -251,6 +251,10 @@ export function drawnFromScene(scene: unknown): Read<DrawnPmi> {
 export const hasGraphics = (pmi: DrawnPmi): boolean =>
   pmi.presentation.unlinked.length > 0 || Object.values(pmi.presentation.items).some((graphics) => graphics.length > 0);
 
+/** Whether any graphic is the file's own (``source: "file"``), not one Specify generated. */
+export const hasFileGraphics = (pmi: DrawnPmi): boolean =>
+  [...pmi.presentation.unlinked, ...Object.values(pmi.presentation.items).flat()].some((g) => g.source === 'file');
+
 /** What the Show menu says of the drawn PMI, as it says it of the labels: which kinds are shown. */
 export interface DrawnShow {
   /** "Defaults to check": items Specify defaulted. */

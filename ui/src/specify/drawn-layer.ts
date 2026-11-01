@@ -1,4 +1,4 @@
-// The part's PMI as it is drawn ("As drawn"), from Specify's pmiScene: haecceity's polylines as
+// The part's PMI as it is drawn (View PMI: "Graphical"), from Specify's pmiScene: haecceity's polylines as
 // Line2-family lines and its filled triangles as meshes, both drawn without depth testing so the
 // part never hides a callout; text the strokes do not draw as DOM text, set as text, never HTML,
 // and never reformatted here. Each item is drawn in its Specify status's colour.

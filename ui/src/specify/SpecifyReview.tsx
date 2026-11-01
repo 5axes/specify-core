@@ -9,7 +9,7 @@ import { addedOf, CALL_OUTS, describe, kindsFor, MAY_HAVE_DATUM, nextKey } from 
 import { codeOf } from './choose';
 import { appliedByRule, chosenForYou, type Chosen } from './chosen';
 import { datumChips, freeLetter, removal } from './datums';
-import { drawnShown, drawnViews, partCentre, type DrawnPmi } from './drawn';
+import { drawnShown, drawnViews, hasFileGraphics, partCentre, type DrawnPmi } from './drawn';
 import { optionHint } from './hints';
 import { balloonsBySource, type Characteristic, characteristics, ranges, toCsv } from './characteristics';
 import { CharacteristicsTable, ExtraEditor, PurposeChoice, SpecBox, SuggestBox, SuggestionCard, TOLERANCE_PICKS, type ExtraDraft } from './inputs';
@@ -87,9 +87,11 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     // What the general tolerance covers can be a hundred labels: drawn only when chosen.
     labels: true, defaults: true, existing: true, general: false, farSide: true,
   });
-  // The PMI as drawn, when it has graphics: shown as our labels (Semantic, the default), as
-  // drawn (As drawn), or both.
-  const [showing, setShowing] = useState<'semantic' | 'drawn' | 'both'>('semantic');
+  // View PMI, when the scene has graphics: as our labels (Semantic), as drawn (Graphical, key
+  // 'drawn'), or both. Until one is chosen, Graphical when the file has its own graphical PMI,
+  // Semantic otherwise. The choice lasts while the part is open; it is not saved.
+  const [chosenShowing, setShowing] = useState<'semantic' | 'drawn' | 'both' | null>(null);
+  const showing = chosenShowing ?? (drawnPmi && hasFileGraphics(drawnPmi) ? 'drawn' : 'semantic');
   // A face clicked that no question is about shows what the general tolerance says of it.
   const [peek, setPeek] = useState<number | null>(null);
   // Set by a label clicked: the question it opens is turned to without moving the view.
@@ -715,6 +717,19 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     {createPortal(<div className="pmi-lab pmi-lab-pane">
       <div className="pmi-lab-view">
         <div className="pmi-lab-stage" ref={stage} />
+        {/* View PMI: always on the view, top centre under its toolbar, clear of the tree (left),
+            the filter and cube (right), the pad (bottom right) and the readout (bottom left). */}
+        {drawnPmi && (
+          <div className="pmi-lab-viewpmi" role="radiogroup" aria-label="View PMI">
+            <span aria-hidden="true">View PMI</span>
+            {(['semantic', 'drawn', 'both'] as const).map((key) => (
+              <label key={key} className={showing === key ? 'on' : ''}>
+                <input type="radio" name="pmi-showing" checked={showing === key} onChange={() => setShowing(key)} />
+                {{ semantic: 'Semantic', drawn: 'Graphical', both: 'Both' }[key]}
+              </label>
+            ))}
+          </div>
+        )}
         {/* The view's controls, together at its bottom right: what it shows, then how it is
             turned. What the view shows is about the part, so on it, not in the panel; folded,
             so it does not cover the part. */}
@@ -722,16 +737,6 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
           <details className="pmi-lab-show">
             <summary title="What the 3D view shows">⚙ Show ▾</summary>
             <div>
-              {drawnPmi && (
-                <div className="pmi-lab-showing" role="radiogroup" aria-label="PMI shown">
-                  {(['semantic', 'drawn', 'both'] as const).map((key) => (
-                    <label key={key}>
-                      <input type="radio" name="pmi-showing" checked={showing === key} onChange={() => setShowing(key)} />{' '}
-                      {{ semantic: 'Semantic', drawn: 'As drawn', both: 'Both' }[key]}
-                    </label>
-                  ))}
-                </div>
-              )}
               {drawnPmi && showing !== 'semantic' && squares.length > 0 && (
                 <div className="pmi-lab-squares" role="group" aria-label="Look square at">
                   <span>Look square at</span>

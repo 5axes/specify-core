@@ -52,7 +52,7 @@ linked to its semantic items. `19-spindle-semantic-links-only.presentation.json.
 `quiddity pmi json presentation` and `quiddity pmi json export` (quiddity-rust branch `cx/q142`
 at `3698257`, json feature), gzipped. `scripts/graphical-pmi.test.mjs` reads them;
 `scripts/pmi-scene-wasm.test.mjs` reads the spindle's scene from Specify's pmiScene, and
-`scripts/specify-only-browser.mjs` opens the spindle in /specify and draws it As drawn from it.
+`scripts/specify-only-browser.mjs` opens the spindle in /specify and draws it in Graphical (View PMI) from it.
 
 `ctc01-text-filled.step.gz` is haecceity's
 `crates/haecceity/tests/fixtures/presentation/ctc01-text-filled.step.gz` (quiddity-rust `v0.2.8`):
