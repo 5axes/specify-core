@@ -127,6 +127,7 @@ export interface PmiSceneGraphic {
   id?: PmiSceneId;
   name: string;
   plane_id?: PmiSceneId;
+  polyline_roles?: ("text" | "frame" | "leader" | "extension" | "symbol" | "dimension")[];
   polylines: PmiSceneVector[][];
   source: "generated" | "file";
   step_ids: number[];
@@ -182,6 +183,7 @@ export interface PmiScenePlane {
 
 export interface PmiSceneTextPlacement {
   alignment?: string;
+  cell_box?: [[number, number], [number, number]];
   height?: number;
   line_spacing?: number;
   normal: PmiSceneVector;

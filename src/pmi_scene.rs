@@ -922,12 +922,14 @@ mod tests {
             source: Source::File,
             name: "Text".into(),
             text: vec!["Text".into()],
+            polyline_roles: None,
             polylines: vec![],
             triangles: vec![],
             step_ids: vec![],
             unsupported: vec![],
             text_placements: vec![TextPlacement {
                 text_index: Some(0),
+                cell_box: None,
                 stroked,
                 origin: [0.; 3],
                 x_axis: [1., 0., 0.],
@@ -937,6 +939,24 @@ mod tests {
                 alignment: None,
             }],
         }
+    }
+
+    #[test]
+    fn geometry_roles_and_cell_boxes_survive_scene_encoding() {
+        let mut g = graphic("geometry", Some(true));
+        g.polylines = vec![vec![[0., 0., 0.], [1., 0., 0.]]];
+        g.polyline_roles = Some(vec![presentation::PolylineRole::Text]);
+        g.text_placements[0].cell_box = Some([[-2., -1.], [2., 1.]]);
+        let scene = encoded(presentation::Presentation {
+            unlinked: vec![g],
+            ..Default::default()
+        });
+        let g = &scene["presentation"]["unlinked"][0];
+        assert_eq!(g["polyline_roles"], json!(["text"]));
+        assert_eq!(
+            g["text_placements"][0]["cell_box"],
+            json!([[-2., -1.], [2., 1.]])
+        );
     }
 
     fn encoded(graphics: presentation::Presentation) -> Value {

@@ -6,6 +6,8 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+- Prefer an exact tap-drill match over an ambiguous smaller clearance screw when suggesting a hole function; accepted tapped holes carry thread semantics without a tap-drill fit. Document and type additive haecceity polyline roles and text cell boxes (pass-through from v0.4.4).
+
 ### Added
 
 - Diff reports optionally include the exact compared `pmi.scenes` through Rust,
@@ -29,8 +31,22 @@ All notable changes to specify-core-rust. The format follows
 
 ### Changed
 
-- Move quiddity/haecceity (native, WASM and the Python binding) to v0.4.3
-  (`56a4cbc0`). The pin checker requires the same release. Reader binding advances
+- Refresh the numbered M2 presentation fixture and four distinct no-BOM write
+  hashes for v0.4.4's added thread ink and neighbouring callout placement.
+  Legacy semantic/part-setting comparisons and all six exact API/CLI byte
+  comparisons remain enforced; neither the old semantic inputs nor recognition
+  expectations change.
+
+- Keep exact tap-drill defaults and their exact-value guards after the main merge:
+  five frozen rule cases (CGB202, CGB217, CGB243, NIST CTC-04 part 0 and FTC-10)
+  gain thread/depth answers and dependent ordering; thirteen CLI envelope entries
+  carry the same reason without wildcard cases or paths. Explicit-clearance fit
+  tests still choose clearance. Fresh-number order checks replace only the
+  former tap-drill size with its thread; CGB243's obsolete General-size conflict
+  disappears while its written count is unchanged.
+
+- Move quiddity/haecceity (native, WASM and the Python binding) to v0.4.4
+  (`53cf3604`), including thread callouts, polyline roles and text cell boxes. The pin checker requires the same release. Reader binding advances
   to `haecceity-pmi-read/14` for datum-constituent identity (#173); the packaged
   `haecceity.pmi/1` schema is byte-identical to upstream and remains unchanged.
   Upstream #171 improves callout/frame placement and label packing; #172 bounds
@@ -122,6 +138,7 @@ All notable changes to specify-core-rust. The format follows
 
 ### WASM API
 
+- Add optional `polyline_roles` and text-placement `cell_box` declarations for host-font presentation rendering; pass through when supplied by haecceity.
 - `diff` accepts an optional seventh `scenes` boolean. `DiffPmi.scenes` contains
   `{old: PmiScene, new: PmiScene}` when requested; `PmiItemChange` adds optional
   `old_id` and `faces: {old: {face: number}[], new: {face: number}[]}`.

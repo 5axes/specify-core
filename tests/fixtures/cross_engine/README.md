@@ -114,3 +114,14 @@ upstream #171/#172 change some presentation and long-text outputs, these cases
 keep their existing presentation and short descriptive values. No golden or
 known-difference changes are needed. The packaged Python PMI schema also matches
 v0.4.3 byte for byte, so the schema mirror is retained.
+
+For v0.4.4 (`53cf3604`), rerun the writer and the independent `--rust-only`
+Python capture using the same clean reference `7e2125d`, with dependencies from
+its frozen `uv.lock` in an isolated Python 3.12 environment. All fourteen
+successful files are refreshed: main's schema-2 stable-key number histories
+replace schema 1, and thread-bearing presentation gains the new callouts and
+packing. All fourteen decoded Python semantic readbacks are identical to main;
+metadata records the actual new STEP hashes. The two refusals and all
+Python-written inputs/evidence remain frozen. No cross-engine verdict changes
+are needed. Both packaged Python schemas are copied byte for byte from the
+locked v0.4.4 dependency and checked by `python_schemas_match_the_pinned_kernel`.

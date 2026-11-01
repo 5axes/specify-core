@@ -307,7 +307,11 @@ fn alpha7_tap_survives_cli_resave_without_a_depth_answer() {
     let defs = read_part_definitions(&bytes).unwrap();
     let doc = Document::parse(bytes).unwrap();
     let read = pmi::read(&doc, &defs).unwrap();
-    assert_eq!(read.parts[0].threads.len(), 1);
+    assert_eq!(
+        read.parts[0].threads.len(),
+        2,
+        "accepted defaults also tap the exact Ø2.5 drill"
+    );
     assert!(read.parts[0].attributes.iter().flat_map(|a| &a.items).any(|(n,v)| n == "minimum full thread" && matches!(v, pmi::AttributeValue::Measure(m) if matches!(&m.quantity, pmi::Quantity::Length(l) if l.mm() == 2.0))));
 }
 
@@ -1641,7 +1645,9 @@ fn check_datum_origin_departures(differences: &[Difference]) {
     let prior: Vec<_> = load_known(&common::known_differences_file("cli"))
         .into_iter()
         .filter(|e| {
-            e.pattern != PATTERN && e.pattern != "Shared planner report item in serve (#75)"
+            e.pattern != PATTERN
+                && e.pattern != "Shared planner report item in serve (#75)"
+                && e.pattern != "Exact tap-drill defaults and dependent question order"
         })
         .collect();
     let ties: Vec<_> = load_known(&common::known_differences_file("cli"))
