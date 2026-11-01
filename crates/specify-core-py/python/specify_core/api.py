@@ -156,13 +156,15 @@ def diff(
     *,
     title: str = "Revision",
     part: int | None = None,
+    scenes: bool = False,
 ) -> dict[str, Any]:
     """Compare revisions of a selected part: ``{report, markdown}``.
 
     ``report["pmi"]["items"]`` uses pmi_scene identities, numbers and statuses.
     Omitted answers carry the old file's saved answers. Paths accept a part index;
-    loaded handles already select their part.
+    loaded handles already select their part. ``scenes=True`` includes the exact
+    compared pmi_scene documents in ``report["pmi"]["scenes"]``.
     """
     return json.loads(_native.diff(
-        _step(old), _step(new), json.dumps(answers or {}), title, part
+        _step(old), _step(new), json.dumps(answers or {}), title, part, scenes
     ))

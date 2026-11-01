@@ -69,3 +69,24 @@ available. The complete Python/Rust rules departures are pinned in
 With quiddity-rust v0.2.6 (#137), written notes appear in the `General notes` callout.
 Blank and whitespace-only rows display `(blank)` to avoid an empty tessellated curve;
 their semantic strings, note indices and saved answers retain the exact original text.
+
+Specify's live `pmiScene` composes imported part notes and accepted settings into one
+GENERAL NOTES graphic in #163 order. It replaces their file graphic only in the scene;
+lossless append keeps all original STEP records. A file-only scene with one block retains
+its original callout geometry and `step:` identity. Several file blocks, including those
+from an appended write, become one scene block. File graphics report `source: "file"`
+even when the producer marked them `haecceity.generated/1`; material DMIAs resolve through
+part provenance.
+Material is a scalar in `haecceity.pmi/1`, so Specify adds `part.material` as a companion
+alias in `presentation.items`, `presentation.semantic_ids` and `specify`, without adding
+or changing a semantic PMI row. Feature-owned notes keep separate feature callouts;
+unpresented feature notes and the combined block are generated in one haecceity call,
+using the file's semantic support graph to retain each note owner. Haecceity reserves the
+block's ink and places feature notes below it with a gap of two text heights. Specify
+filters and aliases graphics without editing coordinates. The Rust `Scene::scene` with
+`answers: None` and the standalone Rust/WASM `pmi_scene`/`pmiScene(stepBytes, part?)`
+expose the original single-block file view, including `step:726` with `source: "file"`.
+Imported manufacturing requirements of kind `semantic text` are rendered as free part
+notes. Explicit part-level
+phrases such as “break sharp edges” answer `part.edges` using the original text; feature
+notes and unrelated manufacturing prose never supply that part default.

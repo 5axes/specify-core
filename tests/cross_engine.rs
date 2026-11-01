@@ -2,8 +2,9 @@
 //! can move a part between engines.
 //!
 //! - (a) `rust_written_files_match_the_current_presentation_writer`: the committed files
-//!   are exactly what `examples/write_fixtures.rs` produces, including #65 ids/history,
-//!   #77 dimension origin/source UDAs and
+//!   are what `examples/write_fixtures.rs` produces, including #65 ids/history,
+//!   with only the version-specific history key fields normalized for #95. All other
+//!   bytes remain exact, including #77 dimension origin/source UDAs and
 //!   quiddity-rust#137 presentation and aspect shapes. Deliberate changes require regenerating
 //!   them and independently recapturing Python's read-back (the example documents how).
 //!   The Python reference predates inspection numbers and origin/source UDAs; their absence is an explicit ledger
@@ -86,10 +87,9 @@ fn rust_written_files_match_the_current_presentation_writer() {
         let output = scratch.join(format!("{}.step", case.name.replace(['/', '#'], "_")));
         let (step, refused) = (dir.join("rust.step.gz"), dir.join("rust.refused.txt"));
         match (write_fixtures::write(case, &output), step.is_file()) {
-            (Ok(bytes), true) if gunzip(&step) == bytes => {}
-            // v0.4.1 regenerates callouts, GENERAL NOTES and generated plane views.
-            // The recaptured fixtures include #65 numbering and #77 origin/source UDAs:
-            // require exact bytes again.
+            (Ok(bytes), true)
+                if common::numbering::comparable_number_history(&gunzip(&step))
+                    == common::numbering::comparable_number_history(&bytes) => {}
             (Ok(_), true) => stale.push(format!("{}: writer bytes changed", case.name)),
             (Ok(_), false) => stale.push(format!("{}: written now, not committed", case.name)),
             (Err(why), false)

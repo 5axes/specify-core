@@ -110,6 +110,9 @@ use crate::pyjson;
 use crate::resume;
 use crate::rules::Intent;
 
+#[cfg(test)]
+mod tests;
+
 /// Stable STEP authorship token. See `docs/pmi-provenance.md` for its AP242 fields.
 pub const PMI_PROVENANCE: &str = provenance::MARKER;
 

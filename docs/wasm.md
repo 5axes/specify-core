@@ -63,7 +63,7 @@ All structured inputs and outputs are **JSON strings**, except the constructor's
 | `review(analysisJson, answersJson)` | Same review composition without a session or geometry anchors. Calls `specify_core::api::review`. |
 | `acceptDefaults(analysisJson, answersJson)` | Same accepted answers as the session method, using the supplied analysis. |
 | `interpret(analysisJson, answersJson, questionId, text)` | `{value, code, callout?}` for a choice question; includes a diameter callout for `hole.function:` and `diameter.fit:`. |
-| `diff(oldName, oldBytes, newName, newBytes, answersJson, title)` | Two revisions of a part compared, as `specify-core diff` compares two files, carrying `answersJson` (`{}` carries the answers Specify stored in the old file): `{report, markdown, view}`. `report` is what `report.json` holds and `markdown` is the report headed `title` with no picture. `view` is what a viewer needs to draw the change as `model.png` does: `new` and `old` meshes (as `snapshot().mesh`), `faces` (each new face's class, `changed`, `new` or `ambiguous`, keyed by face number; unchanged faces left out), `gone` (the old faces gone or moved), `motion` (`{rotation, translation}` taking the old part's frame to the new one's, or `null`) and `changes`, the report's "What changed" lines in order, each `{line, features, new, old}`: its text, its features (indices in `report.features`) and their faces on the new part and the old, for linking the lines and the faces. Two revisions of an assembly are compared part by part, `answersJson` by part name: `{report, markdown, parts}`, the assembly's report and Markdown, and each part's `{name, status, old, new}`, with its `report` when it is in both files and, when it changed, its `markdown` (headed `#### name`) and `view`, shaped as a part's. Refuses gzip. |
+| `diff(oldName, oldBytes, newName, newBytes, answersJson, title, scenes?)` | Two revisions of a part compared, as `specify-core diff` compares two files, carrying `answersJson` (`{}` carries the answers Specify stored in the old file): `{report, markdown, view}`. `report` is what `report.json` holds and `markdown` is the report headed `title` with no picture. `view` is what a viewer needs to draw the change as `model.png` does: `new` and `old` meshes (as `snapshot().mesh`), `faces` (each new face's class, `changed`, `new` or `ambiguous`, keyed by face number; unchanged faces left out), `gone` (the old faces gone or moved), `motion` (`{rotation, translation}` taking the old part's frame to the new one's, or `null`) and `changes`, the report's "What changed" lines in order, each `{line, features, new, old}`: its text, its features (indices in `report.features`) and their faces on the new part and the old, for linking the lines and the faces. Two revisions of an assembly are compared part by part, `answersJson` by part name: `{report, markdown, parts}`, the assembly's report and Markdown, and each part's `{name, status, old, new}`, with its `report` when it is in both files and, when it changed, its `markdown` (headed `#### name`) and `view`, shaped as a part's. Refuses gzip. |
 | `start()` | Installs `console_error_panic_hook`; initialization also calls it automatically. |
 
 Questions use `to_presented_dict()` with `diameter` and `depth` added when present. `open`
@@ -385,7 +385,27 @@ Numberless files omit the list. See [characteristic numbers](characteristic-numb
 
 `diff` also returns `report.pmi.items`, with `pmiScene` ids, numbers and statuses for
 highlighting changed requirements. The exported `PmiItemChange` and `DiffPmi`
-TypeScript interfaces describe this JSON. The old `stored` / `existing` PMI lists
+TypeScript interfaces describe this JSON. Items include
+`faces: {old: {face: meshIndex}[], new: {face: meshIndex}[]}`, including support for
+semantic-only requirements with no graphic. Missing sides and part-level support
+use empty arrays. `old_id` appears on paired changed/renumbered items only when
+it differs from `id`; use `old_id ?? id` to ghost the old callout. Renumbering
+semantics and characteristic-number matching are unchanged.
+
+Pass an optional seventh argument `true` to `diff` to include
+`report.pmi.scenes: {old: PmiScene, new: PmiScene}` (also in each matched assembly
+part's report). Omitted/false keeps scene documents out of the report; removing
+`scenes` from an opted-in report gives the exact default JSON. The scenes are
+already built by the comparison: old uses explicit given answers, or actual file
+PMI with saved interview metadata when none are given; new uses carried answers
+unless it has Specify PMI, when actual semantic requirements win. They
+have the same shape as `pmiScene`, with fresh semantic notation rather than saved
+As Drawn ink. `view` continues to describe geometry; use the scene pair and
+`report.pmi.items` for the PMI overlays shown in the CLI PNG. Use this pair directly
+in `/diff`, avoiding both TypeScript scene selection logic and two more scene derivations. See [native/CLI/Python options and
+PNG behaviour](diff.md#pmi-requirements).
+
+The old `stored` / `existing` PMI lists
 are deprecated for one release. See [PMI requirement comparison](diff.md#pmi-requirements).
 
 For #77, dimension entries in `snapshot().analysis.characteristics` also expose optional
@@ -427,17 +447,20 @@ scene structure and presentation metadata are typed. The result is:
 ```
 
 The two haecceity documents retain their schemas: units are explicit and semantic decimals
-are strings. `pmi.pmi` holds collections of `{id, value}`; references use those ids.
+are strings. `pmi.pmi` holds collections of `{id, value, identifier?}`; references use `id`.
+The optional `identifier` preserves the source characteristic number, including duplicates
+(haecceity v0.4.3); it is not a reference key.
 `presentation.items[id]` holds graphics with `name` (full notation), `text` (cells),
-`polylines`, `triangles`, and `source: 'generated' | 'file'`. With haecceity v0.4.1,
+`polylines`, `triangles`, and `source: 'generated' | 'file'`. With haecceity v0.4.3,
 optional `id`, `plane_id` and `text_placements` retain model-space text origins, axes,
 heights/alignment when stated. Each placement can carry `stroked?: boolean`: when
 true, its glyphs are already present in that graphic's polylines, so skip rendering
 that text run again. Absent or false permits rendering the text literal.
 The scene prunes view membership after filtering or replacing graphics, and removes
 views with no remaining graphics; document `planes` and `views` preserve annotation planes
-and saved-view membership. Generated presentations now include plane views; v0.4.1
-regenerates ladders/callouts and combines part settings into one numbered GENERAL NOTES block.
+and saved-view membership. Generated presentations include plane views, ladders/callouts and one numbered
+GENERAL NOTES block for part settings. v0.4.3 places size callouts above feature
+control frames and reserves label ink during saved-view packing.
 Feature-on scene and written STEP presentation output therefore changes. Datum-feature
 graphics also appear under their datum ids.
 These fields survive a live review that adds PMI beside a file's existing callouts.
@@ -452,6 +475,14 @@ distinguishing a member's measurement from its pattern's. General locations with
 feature id use their face supports. Changing a value leaves
 the id intact. Foreign items retain haecceity's `ID_ATTRIBUTE` or content-derived id.
 The same ids key semantic references, presentation and the requirement overlay `specify`.
+Material is the scalar exception: Specify exposes `part.material` as a companion alias
+for `pmi.pmi.material`, including it in `semantic_ids`, `items` and `specify`. No semantic
+row is added. The live scene replaces part-note graphics from the file with one combined
+block, retaining imported text and putting material last. A file-only scene with one block
+retains the file callout and its STEP identity; its source is `file`, including graphics previously
+written by haecceity. Material links follow the file's DMIA and part provenance. Reopening
+an appended file with several part-note blocks composes one scene block too. Feature
+notes keep their feature and use a generated fallback when the file has no graphic.
 For note and characteristic labels, use `specify[id].notation` when present: it is
 that requirement's semantic wording (for example `Keep dry` or
 `GENERAL TOLERANCES ISO 2768-m`). Several requirements can alias one GENERAL NOTES
@@ -472,8 +503,9 @@ source are read from the file; `general_tolerance` maps to `general`, `requireme
 For view-only use, import the free `pmiScene` function and call
 `JSON.parse(pmiScene(stepBytes, partIndex))`; omit the index for a single-part file.
 No interview is required. File-owned As Drawn callouts retain `source: 'file'`, including
-NIST CTC-01's graphics. For `/diff`, call it on both revisions; revision-report changes
-link to scene items by characteristic `number`, and by requirement `id` for Specify items.
+NIST CTC-01's graphics. For `/diff`, request `report.pmi.scenes` from `diff` instead;
+changes link to those exact scenes by `id`, optional `old_id` and characteristic
+`number`, with per-side face anchors for focus.
 
 Native Rust exposes `specify_core::pmi_scene::{Scene, pmi_scene}`. Construct `Scene::new`
 once with a `LoadedPart`, then call `scene` with cached analysis and answers, or
@@ -484,7 +516,7 @@ packaged schemas are `specify_core/schema/haecceity.pmi-1.json` and
 `specify_core/schema/haecceity.presentation-1.json`.
 
 Scene export uses haecceity's serialise-only `json` feature in native, WASM and Python.
-`json-import` is not enabled. The Python package ships the v0.4.1 schemas as data; its
+`json-import` is not enabled. The Python package ships the v0.4.3 schemas as data; its
 smoke tests validate exports with Python's `jsonschema`, keeping schemas and import
 validation code out of the WASM binary.
 

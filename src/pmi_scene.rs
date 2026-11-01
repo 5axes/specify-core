@@ -12,6 +12,8 @@ use serde_json::{Map, Value, json};
 
 use crate::{api, characteristics, part::LoadedPart, pmi_origin, resume, writer};
 
+mod notes;
+
 type PlannedScene = (Semantic, Map<String, Value>, BTreeMap<String, usize>);
 
 type Bindings = BTreeMap<(String, usize), (String, Value, usize)>;
@@ -166,6 +168,16 @@ impl Scene {
                 file["presentation"]["views"] = json!([]);
                 merge(&mut result, file)?;
             }
+            let original = foreign
+                .then(|| {
+                    wire::identify(
+                        before.clone(),
+                        Some(&self.read.identifiers.parts[self.index]),
+                    )
+                    .map_err(|e| e.to_string())
+                })
+                .transpose()?;
+            notes::combined(&mut result, &semantic, original.as_ref(), loaded)?;
             return Ok(result);
         }
         // Reconstruct only the interview identities/numbers of Specify-written files.
@@ -350,7 +362,11 @@ impl Scene {
                 Some(&self.read.identifiers.parts[self.index]),
             )
             .map_err(|e| e.to_string())?;
-            let recorded = recorded_numbers(&original)?;
+            let recorded = recorded_numbers(
+                &original,
+                &self.read.provenance.parts[self.index],
+                &self.doc,
+            )?;
             for (i, datum) in semantic.pmi.datums.iter().enumerate() {
                 if let Some(old) = before
                     .datums
@@ -383,7 +399,7 @@ impl Scene {
 
     fn file(
         &self,
-        _loaded: &LoadedPart,
+        loaded: &LoadedPart,
         planned: Option<&Map<String, Value>>,
         comparison: bool,
     ) -> Result<Value, String> {
@@ -392,7 +408,11 @@ impl Scene {
         let mut semantic =
             wire::identify(p.clone(), Some(&self.read.identifiers.parts[self.index]))
                 .map_err(|e| e.to_string())?;
-        let recorded = recorded_numbers(&semantic)?;
+        let recorded = recorded_numbers(
+            &semantic,
+            &self.read.provenance.parts[self.index],
+            &self.doc,
+        )?;
         let mut metadata = Map::new();
         for (collection, ids) in &mut semantic.ids {
             for (i, id) in ids.iter_mut().enumerate() {
@@ -427,13 +447,30 @@ impl Scene {
             let ids: std::collections::BTreeSet<_> = semantic.ids.values().flatten().collect();
             metadata.retain(|id, _| ids.contains(id));
         }
-        let graphics = if comparison {
-            presentation::generated(&semantic, &_loaded.part)
+        let mut graphics = if comparison {
+            presentation::generated(&semantic, &loaded.part)
         } else {
             presentation::read(&self.doc, &self.read, PartId(self.index), &semantic)
         }
         .map_err(|e| e.to_string())?;
-        encode(&semantic, graphics, metadata)
+        if !comparison {
+            notes::file(
+                &self.doc,
+                &self.read,
+                self.index,
+                &semantic,
+                loaded,
+                &mut graphics,
+            )?;
+        }
+        let mut result = encode(&semantic, graphics, metadata)?;
+        // Append keeps the original callout records. Reopening must still draw
+        // just one block, including the requirements from both generations.
+        if notes::multiple_blocks(&result) {
+            notes::combined(&mut result, &semantic, None, loaded)?;
+        }
+        notes::material(&mut result, &semantic, self.stored.as_ref());
+        Ok(result)
     }
 }
 
@@ -682,8 +719,12 @@ fn is_requirement(pmi: &PartPmi, collection: &str, index: usize) -> bool {
 
 // This walk returns numbers only from validated Specify history, never arbitrary
 // numeric ID_ATTRIBUTE values. The caller also checks the actual id on each item.
-fn recorded_numbers(semantic: &Semantic) -> Result<BTreeMap<(&'static str, usize), u64>, String> {
-    let mut numbers = characteristics::planned_numbers(&semantic.pmi)?.into_iter();
+fn recorded_numbers(
+    semantic: &Semantic,
+    prov: &pmi::PartProvenance,
+    doc: &haecceity::p21::Document,
+) -> Result<BTreeMap<(&'static str, usize), u64>, String> {
+    let mut numbers = characteristics::recorded_numbers(&semantic.pmi, prov, doc)?.into_iter();
     let mut result = BTreeMap::new();
     for collection in NUMBERED {
         for i in 0..semantic.ids[collection].len() {
@@ -703,6 +744,9 @@ fn note_notation(semantic: &Semantic, metadata: &mut Map<String, Value>) {
     for (id, note) in semantic.ids["notes"].iter().zip(&semantic.pmi.notes) {
         if let Some(meta) = metadata.get_mut(id) {
             meta["notation"] = json!(note.text);
+            if note.on.is_none() && crate::existing::edge_break_note(&note.text) {
+                meta["question"] = json!("part.edges");
+            }
         }
     }
     let mut texts: BTreeMap<&str, Vec<String>> = BTreeMap::new();
@@ -872,56 +916,29 @@ mod tests {
     use presentation::{Graphic, Source, View};
 
     fn graphic(id: &str, stroked: Option<bool>) -> Graphic {
-        // Obtain extensible presentation structs through the kernel API so these
-        // pass-through tests work with the released pin and additive future fields.
-        static TEMPLATE: std::sync::OnceLock<Graphic> = std::sync::OnceLock::new();
-        let mut g = TEMPLATE
-            .get_or_init(|| {
-                let loaded = crate::part::load_bytes(
-                    "spindle.step",
-                    include_bytes!("../tests/fixtures/spindle.step").to_vec(),
-                )
-                .unwrap();
-                let semantic = wire::identify(
-                    PartPmi {
-                        notes: vec![pmi::Note {
-                            kind: "semantic text".into(),
-                            text: "Text".into(),
-                            on: None,
-                            callouts: vec![],
-                        }],
-                        ..PartPmi::default()
-                    },
-                    None,
-                )
-                .unwrap();
-                let scene = presentation::generated(&semantic, &loaded.part).unwrap();
-                scene
-                    .items
-                    .values()
-                    .flatten()
-                    .chain(&scene.unlinked)
-                    .next()
-                    .unwrap()
-                    .clone()
-            })
-            .clone();
-        g.id = Some(id.into());
-        g.plane_id = None;
-        g.source = Source::File;
-        g.name = "Text".into();
-        g.text = vec!["Text".into()];
-        g.text_placements.truncate(1);
-        let text = &mut g.text_placements[0];
-        text.text_index = Some(0);
-        text.stroked = stroked;
-        text.origin = [0.; 3];
-        text.x_axis = [1., 0., 0.];
-        text.normal = [0., 0., 1.];
-        text.height = Some(2.);
-        text.line_spacing = None;
-        text.alignment = None;
-        g
+        Graphic {
+            id: Some(id.into()),
+            plane_id: None,
+            source: Source::File,
+            name: "Text".into(),
+            text: vec!["Text".into()],
+            polyline_roles: None,
+            polylines: vec![],
+            triangles: vec![],
+            step_ids: vec![],
+            unsupported: vec![],
+            text_placements: vec![TextPlacement {
+                text_index: Some(0),
+                cell_box: None,
+                stroked,
+                origin: [0.; 3],
+                x_axis: [1., 0., 0.],
+                normal: [0., 0., 1.],
+                height: Some(2.),
+                line_spacing: None,
+                alignment: None,
+            }],
+        }
     }
 
     fn encoded(graphics: presentation::Presentation) -> Value {

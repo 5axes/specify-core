@@ -1,5 +1,5 @@
 //! Stable inspection identities in AP242. See `docs/characteristic-numbers.md`.
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use haecceity::p21::{self, Attribute, Document, Edit, RawEntity};
 use haecceity::pmi::{
@@ -13,6 +13,7 @@ use crate::part::LoadedPart;
 use crate::resume;
 
 mod inspection;
+mod keys;
 
 /// Part-level CAx-IF UDA. The characteristic itself uses standard `ID_ATTRIBUTE`, not a UDA.
 pub const PROPERTY: &str = "specify characteristic numbers";
@@ -37,7 +38,9 @@ pub struct Characteristic {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct Key {
-    specification: String,
+    // Schema 1's value-sensitive `specification` is deliberately ignored on read.
+    #[serde(default)]
+    role: String,
     kind: String,
     r#type: String,
     faces: Vec<usize>,
@@ -61,6 +64,9 @@ struct History {
 struct Item {
     key: Key,
     entity: u64,
+    // Only an in-memory tie breaker for unchanged coexisting requirements. Never identity
+    // or persisted history: a unique structural match survives any value edit.
+    value_hint: ValueHint,
 }
 
 fn is_a(doc: &Document, id: u64, ancestor: &str) -> bool {
@@ -99,36 +105,68 @@ pub(crate) fn texture_number(doc: &Document, ids: &[u64]) -> Option<u64> {
     number(doc, texture_root(Some(doc), ids))
 }
 
-fn measure(v: Option<&pmi::Value>) -> String {
-    v.map(|v| format!("{:.9}", crate::existing::value(v)))
+// These comparisons only disambiguate unchanged, coincident requirements. Keeping
+// typed values here prevents Debug (or any value spelling) becoming a storage format.
+#[derive(PartialEq, Eq)]
+enum ValueHint {
+    None,
+    Dimension(String, DimensionHint),
+    Tolerance(
+        String,
+        Vec<pmi::ToleranceModifier>,
+        Option<Vec<Vec<String>>>,
+    ),
+    Texture(pmi::MaterialRemoval, Vec<(String, String)>),
+    Thread(Option<String>),
+    Knurl(pmi::KnurlPattern),
+}
+
+#[derive(PartialEq, Eq)]
+enum DimensionHint {
+    None,
+    Basic,
+    Deviations(String, String),
+    Limits(String, String),
+    Fit(pmi::Iso286Class),
+}
+
+fn measure(value: Option<&pmi::Value>) -> String {
+    // Preserve the existing comparison's unit normalization and noise tolerance.
+    value
+        .map(|v| format!("{:.9}", crate::existing::value(v)))
         .unwrap_or_default()
 }
 
-fn dimension_signature(d: &pmi::Dimension) -> String {
+fn dimension_hint(d: &pmi::Dimension) -> ValueHint {
     let tolerance = match &d.tolerance {
-        pmi::DimTolerance::Fit { class, .. } => format!("fit:{class:?}"),
+        pmi::DimTolerance::None => DimensionHint::None,
+        pmi::DimTolerance::Basic => DimensionHint::Basic,
         pmi::DimTolerance::Deviations(b) => {
-            format!("{}:{}", measure(Some(b.upper())), measure(Some(b.lower())))
+            DimensionHint::Deviations(measure(Some(b.upper())), measure(Some(b.lower())))
         }
-        other => format!("{other:?}"),
+        pmi::DimTolerance::Limits(b) => {
+            DimensionHint::Limits(measure(Some(b.upper())), measure(Some(b.lower())))
+        }
+        pmi::DimTolerance::Fit { class, .. } => DimensionHint::Fit(*class),
     };
-    format!("{}|{tolerance}", measure(d.nominal.as_ref()))
+    ValueHint::Dimension(measure(d.nominal.as_ref()), tolerance)
 }
 
-/// Values disambiguate coexisting requirements of the same kind on the same support.
-/// A unique support match also carries a requirement whose value changed.
+/// Requirement identity is kind/type, target role and geometric support, including a
+/// location's reference. Values, modifiers, zones and notation never enter the key.
 fn items(p: &PartPmi, prov: Option<&PartProvenance>, doc: Option<&Document>) -> Vec<Item> {
     let mut out = Vec::new();
-    let mut add = |kind: &str, ty: String, faces, reference, specification, entity| {
+    let mut add = |kind: &str, ty: String, faces, reference, role: &str, value_hint, entity| {
         out.push(Item {
             key: Key {
-                specification,
+                role: role.into(),
                 kind: kind.into(),
                 r#type: ty,
                 faces,
                 reference,
             },
             entity,
+            value_hint,
         });
     };
     for (i, d) in p.datums.iter().enumerate() {
@@ -141,7 +179,8 @@ fn items(p: &PartPmi, prov: Option<&PartProvenance>, doc: Option<&Document>) -> 
             d.label().as_str().into(),
             faces_of(p, &features),
             vec![],
-            String::new(),
+            "datum",
+            ValueHint::None,
             entity,
         );
     }
@@ -172,30 +211,35 @@ fn items(p: &PartPmi, prov: Option<&PartProvenance>, doc: Option<&Document>) -> 
                 "dimensional_location",
             ),
         };
+        let role = if matches!(d.kind, DimensionKind::Size { .. }) {
+            "size"
+        } else {
+            "location"
+        };
+        let planner = p
+            .attributes
+            .iter()
+            .find(|a| {
+                a.name == "specify dimension plan"
+                    && a.on == Some(pmi::NoteOwner::Dimension(pmi::DimensionId(i)))
+            })
+            .and_then(|a| a.items.iter().find(|(k, _)| k == "requirement"))
+            .and_then(|(_, v)| match v {
+                AttributeValue::Text(s) => {
+                    serde_json::from_str::<crate::dimensioning::Planned>(s).ok()
+                }
+                _ => None,
+            })
+            .map(|p| keys::planner(&p.required));
+        // Own the stored grammar: upstream planner IDs can contain values and Debug text.
+        let role = planner.map_or_else(|| role.to_owned(), |id| format!("{role}|planner:{id}"));
         add(
             "dimension",
             ty.into(),
             faces,
             reference,
-            {
-                let id = p
-                    .attributes
-                    .iter()
-                    .find(|a| {
-                        a.name == "specify dimension plan"
-                            && a.on == Some(pmi::NoteOwner::Dimension(pmi::DimensionId(i)))
-                    })
-                    .and_then(|a| a.items.iter().find(|(k, _)| k == "requirement"))
-                    .and_then(|(_, v)| match v {
-                        pmi::AttributeValue::Text(s) => {
-                            serde_json::from_str::<crate::dimensioning::Planned>(s).ok()
-                        }
-                        _ => None,
-                    })
-                    .map(|p| p.required.id);
-                let signature = dimension_signature(d);
-                id.map_or(signature.clone(), |id| format!("{signature}|planner:{id}"))
-            },
+            &role,
+            dimension_hint(d),
             root(doc, prov.map_or(&[], |v| &v.dimensions[i]), ancestor),
         );
     }
@@ -217,19 +261,26 @@ fn items(p: &PartPmi, prov: Option<&PartProvenance>, doc: Option<&Document>) -> 
             tolerance_type(t.kind).into(),
             faces,
             vec![],
-            format!(
-                "{}|{:?}|{:?}",
+            match &t.target {
+                ToleranceTarget::Feature(_) => "feature",
+                ToleranceTarget::Dimension(_) => "dimension",
+                ToleranceTarget::Relation { .. } => "relation",
+                ToleranceTarget::WholePart => "whole_part",
+            },
+            ValueHint::Tolerance(
                 measure(t.magnitude.as_ref()),
-                t.modifiers,
-                t.datums.as_ref().map(|s| s
-                    .compartments()
-                    .iter()
-                    .map(|c| c
-                        .references
+                t.modifiers.clone(),
+                t.datums.as_ref().map(|s| {
+                    s.compartments()
                         .iter()
-                        .map(|r| p.datums[r.datum.0].label().as_str())
-                        .collect::<Vec<_>>())
-                    .collect::<Vec<_>>())
+                        .map(|c| {
+                            c.references
+                                .iter()
+                                .map(|r| p.datums[r.datum.0].label().as_str().to_owned())
+                                .collect()
+                        })
+                        .collect()
+                }),
             ),
             root(
                 doc,
@@ -252,13 +303,17 @@ fn items(p: &PartPmi, prov: Option<&PartProvenance>, doc: Option<&Document>) -> 
             parameters.join("|"),
             faces_of(p, &t.on.into_iter().collect::<Vec<_>>()),
             vec![],
-            format!(
-                "{:?}|{:?}",
+            if t.on.is_some() {
+                "feature"
+            } else {
+                "whole_part"
+            },
+            ValueHint::Texture(
                 t.material_removal,
                 t.parameters
                     .iter()
-                    .map(|p| format!("{}:{:.9}", p.characteristic, p.value.mm()))
-                    .collect::<Vec<_>>()
+                    .map(|p| (p.characteristic.clone(), format!("{:.9}", p.value.mm())))
+                    .collect(),
             ),
             entity,
         );
@@ -269,10 +324,11 @@ fn items(p: &PartPmi, prov: Option<&PartProvenance>, doc: Option<&Document>) -> 
     for (i, t) in p.threads.iter().enumerate() {
         add(
             "thread",
-            format!("{:?}", t.side),
+            keys::thread_side(t.side).into(),
             faces_of(p, &[t.feature]),
             vec![],
-            format!("{:?}", t.qualifier),
+            "feature",
+            ValueHint::Thread(t.qualifier.clone()),
             root(
                 doc,
                 prov.map_or(&[], |v| &v.threads[i]),
@@ -286,7 +342,8 @@ fn items(p: &PartPmi, prov: Option<&PartProvenance>, doc: Option<&Document>) -> 
             "knurl".into(),
             faces_of(p, &[k.feature]),
             vec![],
-            format!("{:?}", k.pattern),
+            "feature",
+            ValueHint::Knurl(k.pattern),
             root(
                 doc,
                 prov.map_or(&[], |v| &v.knurls[i]),
@@ -393,8 +450,11 @@ fn history(p: &PartPmi) -> Result<Option<History>, String> {
         if name != "history" {
             return Err(format!("{PROPERTY}: missing history item"));
         }
-        let h: History = serde_json::from_str(text).map_err(|e| format!("{PROPERTY}: {e}"))?;
+        let mut h: History = serde_json::from_str(text).map_err(|e| format!("{PROPERTY}: {e}"))?;
         validate(&h)?;
+        // Schema 1 specifications were values, not identities. Serde discards them;
+        // absent roles remain compatible with the old kind/type/support identity.
+        h.schema = 2;
         // Add mode retains older snapshots; counters can only increase.
         if result
             .as_ref()
@@ -409,7 +469,7 @@ fn history(p: &PartPmi) -> Result<Option<History>, String> {
 
 fn validate(h: &History) -> Result<(), String> {
     let numbers: BTreeSet<_> = h.entries.iter().map(|e| e.number).collect();
-    if h.schema != 1
+    if !matches!(h.schema, 1 | 2)
         || numbers.len() != h.entries.len()
         || numbers.iter().any(|n| *n == 0 || *n > h.high_water)
     {
@@ -440,6 +500,8 @@ fn same_support(old: &Key, new: &Key) -> bool {
     };
     old.kind == new.kind
         && old.r#type == new.r#type
+        && (old.role.is_empty()
+            || old.role.split("|planner:").next() == new.role.split("|planner:").next())
         && ((grows(&old.faces, &new.faces) && grows(&old.reference, &new.reference))
             || (old.kind == "dimension"
                 && old.r#type == "Location_LinearDistance"
@@ -476,9 +538,15 @@ pub(crate) fn allocate(
     // Prefer numbers on the requirements themselves over the sidecar identities. This is
     // also how an annotated older-engine file is upgraded without feature-ID assumptions.
     let has_saved = saved.is_some();
+    let before_items = items(before, Some(prov), Some(doc));
+    let mut value_hints: BTreeMap<_, _> = before_items
+        .iter()
+        .filter_map(|item| Some((number(doc, item.entity)?, &item.value_hint)))
+        .collect();
     let mut old = saved.unwrap_or_default();
     if let Some(h) = carried.filter(|_| !has_saved) {
         old = h;
+        value_hints.clear();
     } else {
         old.entries = items(before, Some(prov), Some(doc))
             .into_iter()
@@ -506,19 +574,23 @@ pub(crate) fn allocate(
     if !replace && new.is_empty() {
         return Ok(());
     }
-    let before_items = items(before, Some(prov), Some(doc));
     let eligible = |item: &Item| replace || item.key.kind == "datum";
     let mut used = BTreeSet::new();
-    // Resolve every exact requirement first: a newly inserted control must not steal the
-    // number of an unchanged requirement appearing later in the intent.
+    // A unique structural key (including a planner role) wins even after a value edit.
+    // Only indistinguishable coexisting controls need value hints, so an insertion cannot
+    // steal a sibling's number. Hints come from actual entities, never stored identity.
     let mut matched = vec![None; new.len()];
     for (n, item) in new.iter().enumerate().filter(|(_, item)| eligible(item)) {
-        if let Some((i, _)) = old
-            .entries
-            .iter()
-            .enumerate()
-            .find(|(i, e)| !used.contains(i) && e.key == item.key)
-        {
+        let unique = old.entries.iter().filter(|e| e.key == item.key).count() == 1
+            && new.iter().filter(|other| other.key == item.key).count() == 1;
+        if let Some((i, _)) = old.entries.iter().enumerate().find(|(i, e)| {
+            !used.contains(i)
+                && e.key == item.key
+                && (unique
+                    || value_hints
+                        .get(&e.number)
+                        .is_some_and(|hint| **hint == item.value_hint))
+        }) {
             used.insert(i);
             matched[n] = Some(i);
         }
@@ -526,13 +598,6 @@ pub(crate) fn allocate(
     // Planner role ids distinguish equal quantities on one support. When upgrading older
     // PMI without that metadata, prefer an unchanged value/contract before the unique
     // support-growth fallback, so a newly added depth cannot steal a diameter's number.
-    let signature = |key: &Key| {
-        key.specification
-            .split("|planner:")
-            .next()
-            .unwrap_or("")
-            .to_owned()
-    };
     for (n, item) in new.iter().enumerate() {
         if matched[n].is_some() || !eligible(item) {
             continue;
@@ -544,7 +609,9 @@ pub(crate) fn allocate(
             .filter(|(i, e)| {
                 !used.contains(i)
                     && same_support(&e.key, &item.key)
-                    && signature(&e.key) == signature(&item.key)
+                    && value_hints
+                        .get(&e.number)
+                        .is_some_and(|hint| **hint == item.value_hint)
             })
             .collect();
         if let [(i, e)] = candidates.as_slice()
@@ -554,7 +621,9 @@ pub(crate) fn allocate(
                 .filter(|(n, item)| {
                     matched[*n].is_none()
                         && same_support(&e.key, &item.key)
-                        && signature(&e.key) == signature(&item.key)
+                        && value_hints
+                            .get(&e.number)
+                            .is_some_and(|hint| **hint == item.value_hint)
                 })
                 .count()
                 == 1
@@ -653,7 +722,7 @@ pub(crate) fn allocate(
     }
     if old.high_water > 0 {
         p.attributes.push(attribute(&History {
-            schema: 1,
+            schema: 2,
             faces: fingerprint,
             high_water: old.high_water,
             entries,
@@ -676,6 +745,31 @@ pub(crate) fn planned_numbers(p: &PartPmi) -> Result<Vec<Option<u64>>, String> {
                     used.insert(entry.number);
                     entry.number
                 })
+        })
+        .collect())
+}
+
+/// File numbers are authoritative. Validate membership by number and stable support,
+/// rather than trying to pair edited values with stale history specifications.
+pub(crate) fn recorded_numbers(
+    p: &PartPmi,
+    prov: &PartProvenance,
+    doc: &Document,
+) -> Result<Vec<Option<u64>>, String> {
+    let h = history(p)?.unwrap_or_default();
+    Ok(items(p, Some(prov), Some(doc))
+        .iter()
+        .map(|item| {
+            let n = number(doc, item.entity)?;
+            h.entries
+                .iter()
+                .any(|e| {
+                    e.number == n
+                        && same_support(&e.key, &item.key)
+                        && e.key.faces == item.key.faces
+                        && e.key.reference == item.key.reference
+                })
+                .then_some(n)
         })
         .collect())
 }
@@ -796,7 +890,7 @@ pub(crate) fn carry_revision(
             };
             Some(Entry {
                 key: Key {
-                    specification: c.specification,
+                    role: c.role,
                     kind: c.kind,
                     r#type: c.r#type,
                     faces: map(c.faces)?,

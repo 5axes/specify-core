@@ -45,6 +45,9 @@ fn validate(scene: &Value) {
             );
         }
     }
+    if !scene["pmi"]["pmi"]["material"].is_null() {
+        ids.insert("part.material");
+    }
     let listed: BTreeSet<_> = scene["presentation"]["semantic_ids"]
         .as_array()
         .unwrap()
@@ -981,6 +984,309 @@ fn shared_general_notes_have_individual_semantic_labels_live_and_from_the_file()
             );
         }
     }
+}
+
+fn notes_blocks(scene: &Value) -> std::collections::BTreeMap<String, Value> {
+    scene["presentation"]["items"]
+        .as_object()
+        .unwrap()
+        .values()
+        .filter_map(Value::as_array)
+        .flatten()
+        .chain(scene["presentation"]["unlinked"].as_array().unwrap())
+        .filter(|g| {
+            g["name"]
+                .as_str()
+                .is_some_and(|n| n.eq_ignore_ascii_case("general notes"))
+        })
+        .map(|g| (g["id"].as_str().unwrap().to_owned(), g.clone()))
+        .collect()
+}
+
+#[test]
+fn xcaf_plate_combines_imported_and_accepted_notes_without_another_edge_requirement() {
+    let loaded = part::load(
+        &common::fixtures().join("revisions/xcaf_pmi_plate.step.gz"),
+        None,
+    )
+    .unwrap();
+    let analysis = api::analyse(&loaded).unwrap();
+    let edge = "Remove all burrs and break sharp edges";
+    let mask = "Mask these features before coating with primer";
+    assert_eq!(analysis["part"]["edges"], edge);
+    assert!(
+        !api::questions(&analysis, &Map::new())
+            .unwrap()
+            .iter()
+            .any(|q| q.id == "part.edges")
+    );
+    let answers = specify_core::rules::with_all_defaults(&analysis, &Map::new()).unwrap();
+    assert!(!answers.contains_key("part.edges"));
+    let cache = Scene::new(&loaded).unwrap();
+    let file = cache.scene(&loaded, Some(&analysis), None).unwrap();
+    validate(&file);
+    let file_block = &file["presentation"]["items"]["part.material"][0];
+    assert_eq!(file_block["id"], "step:726");
+    assert_eq!(file_block["source"], "file");
+    assert!(
+        file_block["step_ids"]
+            .as_array()
+            .unwrap()
+            .contains(&json!(725))
+    );
+    assert!(
+        !file["presentation"]["unlinked"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|g| g["id"] == "step:726")
+    );
+    for state in [
+        specify_core::tolerancing::State {
+            answers: answers.clone(),
+            auto: Some(answers.keys().cloned().collect()),
+            gdt: None,
+        },
+        specify_core::tolerancing::State {
+            answers: answers.clone(),
+            auto: Some(vec![]),
+            gdt: None,
+        },
+    ] {
+        let scene = cache
+            .scene_with_state(&loaded, Some(&analysis), &state)
+            .unwrap();
+        validate(&scene);
+        let blocks = notes_blocks(&scene);
+        assert_eq!(blocks.len(), 1, "{blocks:?}");
+        let block = blocks.values().next().unwrap();
+        assert_eq!(block["id"], "generated:general-notes");
+        let text = block["text"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(text.contains("GENERAL TOLERANCES ISO 2768-m"), "{text}");
+        assert!(text.contains("SURFACE FINISH Ra 3.2"), "{text}");
+        assert!(text.contains(edge), "{text}");
+        assert!(text.contains("MATERIAL: Alu_G6061_T6"), "{text}");
+        assert!(!text.contains("Break sharp edges 0.2 max"));
+        assert!(text.find("TOLERANCES").unwrap() < text.find("SURFACE FINISH").unwrap());
+        assert!(text.find("SURFACE FINISH").unwrap() < text.find(edge).unwrap());
+        assert!(text.find(edge).unwrap() < text.find("MATERIAL:").unwrap());
+        assert_eq!(
+            scene["presentation"]["items"]["part.material"][0]["id"],
+            block["id"]
+        );
+        let notes = scene["pmi"]["pmi"]["notes"].as_array().unwrap();
+        let edge_row = notes.iter().find(|r| r["value"]["text"] == edge).unwrap();
+        let edge_id = edge_row["id"].as_str().unwrap();
+        assert_eq!(scene["specify"][edge_id]["status"], "existing");
+        assert_eq!(
+            scene["presentation"]["items"][edge_id][0]["id"],
+            block["id"]
+        );
+        let feature_note = notes.iter().find(|r| r["value"]["text"] == mask).unwrap();
+        assert!(!feature_note["value"]["on"].is_null());
+        let graphic = &scene["presentation"]["items"][feature_note["id"].as_str().unwrap()][0];
+        assert!(
+            graphic["text"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|t| t.as_str().unwrap().contains(mask))
+        );
+        assert_notes_clear(&scene);
+        assert!(
+            !scene["presentation"]["items"]
+                .as_object()
+                .unwrap()
+                .values()
+                .filter_map(Value::as_array)
+                .flatten()
+                .any(|g| g["id"] == "step:726")
+        );
+    }
+    assert_eq!(
+        file,
+        cache.scene(&loaded, Some(&analysis), None).unwrap(),
+        "the combined scene must not replace the cached file's step:726 ink"
+    );
+    assert_eq!(file, pmi_scene::pmi_scene(&loaded.bytes, None).unwrap());
+    // Scene projection must not mutate the source bytes or change a subsequent write.
+    let intent = api::preview(&analysis, &answers).unwrap();
+    let first = writer::write_bytes(&loaded, &intent, Some(&answers))
+        .unwrap()
+        .0;
+    cache
+        .scene(&loaded, Some(&analysis), Some(&answers))
+        .unwrap();
+    assert_eq!(
+        first,
+        writer::write_bytes(&loaded, &intent, Some(&answers))
+            .unwrap()
+            .0
+    );
+    let before = haecceity::p21::Document::parse(loaded.bytes.to_vec()).unwrap();
+    let after = haecceity::p21::Document::parse(first).unwrap();
+    for id in before.ids() {
+        assert_eq!(
+            before.bytes()[before.span(id).unwrap()],
+            after.bytes()[after.span(id).unwrap()],
+            "#{id}"
+        );
+    }
+    let reopened = pmi_scene::pmi_scene(after.bytes(), None).unwrap();
+    validate(&reopened);
+    let blocks = notes_blocks(&reopened);
+    assert_eq!(
+        blocks.len(),
+        1,
+        "append must not redraw both physical blocks"
+    );
+    let block = blocks.values().next().unwrap();
+    let text = block["text"].to_string();
+    assert!(text.contains(edge));
+    assert!(text.contains("MATERIAL: Alu_G6061_T6"));
+    assert!(!text.contains("Break sharp edges 0.2 max"));
+    assert_eq!(reopened["specify"]["part.material"]["status"], "existing");
+}
+
+#[test]
+fn spindle_ctc_and_both_plates_have_one_live_notes_block() {
+    for name in [
+        "revisions/spindle-q137.step.gz",
+        "nist/nist_ctc_01_asme1_ap242.stp.gz",
+        "revisions/presentation_plate.step.gz",
+        "revisions/cadgen_notes_plate.step.gz",
+    ] {
+        let loaded = part::load(&common::fixtures().join(name), None).unwrap();
+        let analysis = api::analyse(&loaded).unwrap();
+        let answers = specify_core::rules::with_all_defaults(&analysis, &Map::new()).unwrap();
+        let scene = Scene::new(&loaded)
+            .unwrap()
+            .scene_with_state(
+                &loaded,
+                Some(&analysis),
+                &specify_core::tolerancing::State {
+                    auto: Some(answers.keys().cloned().collect()),
+                    answers,
+                    gdt: None,
+                },
+            )
+            .unwrap();
+        validate(&scene);
+        assert_eq!(notes_blocks(&scene).len(), 1, "{name}");
+    }
+}
+
+// #171's ink-box check projects into the callout plane, rather than model Z.
+fn assert_notes_clear(scene: &Value) -> f64 {
+    use haecceity::geom;
+    let blocks = notes_blocks(scene);
+    assert_eq!(blocks.len(), 1);
+    let block = blocks.values().next().unwrap();
+    let note = scene["pmi"]["pmi"]["notes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|n| n["value"]["text"] == "Mask these features before coating with primer")
+        .unwrap();
+    let feature = &scene["presentation"]["items"][note["id"].as_str().unwrap()][0];
+    let plane = |g: &Value| {
+        scene["presentation"]["planes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["id"] == g["plane_id"])
+            .unwrap()
+    };
+    let vector = |p: &Value| std::array::from_fn(|i| p[i].as_f64().unwrap());
+    let normal = vector(&plane(block)["normal"]);
+    let along = vector(&plane(block)["x_axis"]);
+    let up = geom::cross(normal, along);
+    // The regression deliberately uses a Y-normal notes plane, not a Z-normal one.
+    assert!(geom::dot(normal, [0., 0., 1.]).abs() < 1e-9);
+    assert!(geom::dot(normal, vector(&plane(feature)["normal"])).abs() > 1. - 1e-8);
+    let bounds = |g: &Value| {
+        let mut b = geom::Bounds::empty();
+        for point in g["polylines"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|l| l.as_array().unwrap())
+        {
+            let p = vector(point);
+            b.add([geom::dot(p, along), geom::dot(p, up), 0.]);
+        }
+        b
+    };
+    let a = bounds(block);
+    let b = bounds(feature);
+    let gap = (0..2)
+        .map(|k| (a.min[k] - b.max[k]).max(b.min[k] - a.max[k]))
+        .fold(f64::NEG_INFINITY, f64::max);
+    assert!(
+        gap >= -2e-6,
+        "#171: notes ink overlaps in its plane: {a:?} / {b:?}"
+    );
+    let required = 2. * feature["text_placements"][0]["height"].as_f64().unwrap();
+    let vertical_gap = a.min[1] - b.max[1];
+    assert!(
+        vertical_gap >= required - 2e-6,
+        "notes gap {vertical_gap} < {required}"
+    );
+    println!("notes plane {normal:?}: clearance={vertical_gap:.6} mm, required={required:.6} mm");
+    vertical_gap / required
+}
+
+#[test]
+fn rotated_xcaf_plate_notes_are_placed_together_in_their_plane() {
+    let original = part::load(
+        &common::fixtures().join("revisions/xcaf_pmi_plate.step.gz"),
+        None,
+    )
+    .unwrap();
+    // Rigidly turn the STEP geometry 90 degrees about X, including its original ink.
+    // This is input transformation only; Specify never edits scene coordinates.
+    let rotation =
+        regex::Regex::new(r"((?:CARTESIAN_POINT|DIRECTION)\('[^']*',\()([^()]+)(\)\))").unwrap();
+    let text = std::str::from_utf8(&original.bytes).unwrap();
+    let turned = rotation.replace_all(text, |c: &regex::Captures<'_>| {
+        let xyz: Vec<f64> = c[2].split(',').map(|v| v.trim().parse().unwrap()).collect();
+        if xyz.len() == 3 {
+            format!("{}{:?},{:?},{:?}{}", &c[1], xyz[0], -xyz[2], xyz[1], &c[3])
+        } else {
+            c[0].to_owned()
+        }
+    });
+    assert_ne!(turned, text);
+    let rotated = part::load_bytes("rotated-xcaf.step", turned.as_bytes().to_vec()).unwrap();
+    let mut margins = vec![];
+    for loaded in [&original, &rotated] {
+        let analysis = api::analyse(loaded).unwrap();
+        let answers = specify_core::rules::with_all_defaults(&analysis, &Map::new()).unwrap();
+        let scene = Scene::new(loaded)
+            .unwrap()
+            .scene_with_state(
+                loaded,
+                Some(&analysis),
+                &specify_core::tolerancing::State {
+                    auto: Some(answers.keys().cloned().collect()),
+                    answers,
+                    gdt: None,
+                },
+            )
+            .unwrap();
+        validate(&scene);
+        margins.push(assert_notes_clear(&scene));
+    }
+    assert!(
+        margins[1] >= margins[0] - 1e-6,
+        "rotated margin {margins:?}"
+    );
 }
 
 #[test]

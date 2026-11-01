@@ -10,6 +10,12 @@ All notable changes to specify-core-rust. The format follows
 
 ### Added
 
+- Diff reports optionally include the exact compared `pmi.scenes` through Rust,
+  CLI `--pmi-scenes`, WASM and Python. Requirement items add differing `old_id`
+  and per-side mesh face anchors, including semantic-only requirements. Revision
+  PNGs draw changed/added presentation callouts and translucent removed ghosts,
+  framing their supplied geometry alongside existing geometry change colours.
+
 - For #79: opt-in assembly BOM writes via explicit `bom.*` answers or `--bom` / API
   acceptance. Optional questions expose suggestions, never ordinary defaults. Assembly
   analysis adds a sourced `bom` row using its existing parse. Separate occurrence UDAs
@@ -18,7 +24,34 @@ All notable changes to specify-core-rust. The format follows
   and stable duplicate ordering; removed numbers are retired. Read through Rust, CLI,
   Python and WASM. See [BOM storage and numbering](docs/bom.md).
 
+- Regression coverage for #89 using FreeCAD's attributed CC-BY-3.0 hex standoff:
+  AP214 `PRODUCT_TYPE` upgrades to `PRODUCT_RELATED_PRODUCT_CATEGORY`, preserving
+  every other original entity byte, and written PMI/answers read back. Add the
+  attributed LM10UU fixture to cover independent size supports and unchanged resaves.
+
 ### Changed
+
+- Move quiddity/haecceity (native, WASM and the Python binding) to v0.4.3
+  (`56a4cbc0`). The pin checker requires the same release. Reader binding advances
+  to `haecceity-pmi-read/14` for datum-constituent identity (#173); the packaged
+  `haecceity.pmi/1` schema is byte-identical to upstream and remains unchanged.
+  Upstream #171 improves callout/frame placement and label packing; #172 bounds
+  generated STEP string literals and chunks long descriptive values. Recognition /6
+  and fingerprints /3 are unchanged.
+- Read haecceity #172's marked ordered text chunks when recovering saved answers
+  and carried application payloads. Previously a long saved answer failed write
+  verification after the kernel bounded its strings; legacy single strings remain
+  readable. Regression coverage checks long-answer resume/resave and rejects
+  unmarked, unordered or cyclic compounds.
+
+- For #163: live PMI scenes combine accepted part settings, imported semantic notes and
+  material in one GENERAL NOTES block, replacing the file block in the scene while
+  lossless writes keep its records. Reopened appended files also draw one block.
+  Part-level edge-break prose answers `part.edges`
+  as written. Feature notes retain their owner; haecceity generates their fallback ink
+  together with the combined block and owns all placement. Rotated-part regression
+  checks use the notes plane. File callouts
+  report file source and material DMIAs link through `part.material`.
 
 - For #75, written hole sizes, pattern
   origins/pitches and prismatic plane levels/extents follow the shared planner.
@@ -49,9 +82,56 @@ All notable changes to specify-core-rust. The format follows
 - For #79: preserve opt-in BOM alongside shared planner dimensions; ordinary writes
   are checked byte for byte against main 8d5a040 through the CLI and API.
 
+- Earlier v0.4.2 upgrade (`d7112fd`), retained as recognition evidence:
+  Recognition /6 and fingerprints /3 stay unchanged; turned steps with spanner
+  flats, grouped interrupted torus fillets and unproved corners follow upstream #167.
+  PMI now repairs reversed bounds and datum-feature child aspects (#168), and
+  duplicate source identifiers and incomplete non-runout zones (#170).
+- Refresh the packaged PMI schema for optional per-item `identifier` values.
+  The documented reader binding moves from `haecceity-pmi-read/11` to `/13`
+  because #168/#170 change readings and findings; Specify always rereads STEP.
+- Rejudge the frozen-Python recognition ledger for v0.4.2's grouped interrupted
+  fillets and omitted unproved bevel corners. Retain 192 retired paths as resolved
+  assertions and add 266 exact case/path judgments, with a native torus audit of
+  all 44 changed groups (220 patches); do not regenerate the Python captures.
+  Inventory tests count torus patches, retaining their original coverage thresholds.
+- Revalidate v0.4.2 after merging #91's planner dimensions and #94's opt-in BOM.
+  Regenerated cross-engine byte goldens and independently recaptured Python readings
+  remain unchanged from main, including both refusals. The pin checker now requires
+  v0.4.2 as well as matching native/WASM manifests.
+
+### Fixed
+
+- For #96: give characteristic-history schema 2 an explicit text vocabulary, independent
+  of Rust Debug and generated planner IDs. Keep fit classes, modifiers and values out of
+  identity; compare temporary matching hints as typed values. Pin readable keys and
+  preserve all six numbers when upgrading a file written by the v0.1.6 engine.
+
+- For #95: keep characteristic numbers through tolerance value and material-modifier edits,
+  so diff reports one changed requirement without a spurious renumbering. History schema 2
+  uses structural requirement identity; schema-1 files retain their numbers and high-water
+  marks on migration. Removed numbers stay retired.
+
+- The step-diff Action's "answers carried" block hides Specify's own `_specify*`
+  records (such as `_specify_characteristic_numbers`) at any depth. They stay in the
+  committed answers file.
+
+- Remove the temporary LM10UU writer adjustment: haecceity #173 now preserves
+  separately sized datum constituents itself. Replace the retirement guard with a
+  direct upstream write/read regression for the three Ø19 lands and the whole
+  datum A. A structural v0.4.2 workaround baseline checks all dimensions, tolerances,
+  datums and the characteristic count, independently of STEP IDs and presentation.
+
 ### WASM API
 
 - Add optional `polyline_roles` and text-placement `cell_box` declarations for host-font presentation rendering; pass through when supplied by haecceity.
+- `diff` accepts an optional seventh `scenes` boolean. `DiffPmi.scenes` contains
+  `{old: PmiScene, new: PmiScene}` when requested; `PmiItemChange` adds optional
+  `old_id` and `faces: {old: {face: number}[], new: {face: number}[]}`.
+
+- `pmiScene` exposes the scalar material through the `part.material` companion alias
+  in `presentation.items`, `semantic_ids` and `specify`; the upstream semantic material
+  field is unchanged. Reviewed scenes alias every part note to one shared graphic.
 
 - For #75: live analysis snapshots carry optional shared-planner input and stored
   dimension contracts. Planned scene dimension IDs include stable face-derived
@@ -60,6 +140,10 @@ All notable changes to specify-core-rust. The format follows
 - For #79: add static `IntentEngine.bom(bytes)` returning sourced assembly BOM JSON;
   optional fourth `writePmi` argument explicitly accepts BOM suggestions. Omitted/false
   preserves the ordinary PMI write. BOM analysis questions are optional suggestions.
+
+- Add optional `PmiSceneItem.identifier` for the source characteristic number;
+  references continue to use the unique `id`, including when identifiers repeat.
+
 
 ## 0.1.6 (2026-11-01)
 

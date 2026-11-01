@@ -134,6 +134,30 @@ fn a_note_change_and_material_modifier_change_are_visible() {
         "{:?}",
         report.pmi.items
     );
+    let controls: Vec<_> = report
+        .pmi
+        .items
+        .iter()
+        .filter(|c| c.kind == "geometric_tolerance")
+        .collect();
+    assert_eq!(controls.len(), 2, "{controls:?}");
+    assert!(
+        controls
+            .iter()
+            .all(|c| c.class == "changed" && c.number.is_some())
+    );
+    assert!(!report.pmi.items.iter().any(|c| c.class == "renumbered"));
+    assert_eq!(
+        specify_core::characteristics::read(&old).unwrap(),
+        specify_core::characteristics::read(&new).unwrap()
+    );
+    let old_scene = pmi_scene::pmi_scene(&old.bytes, None).unwrap();
+    for control in controls {
+        assert_eq!(
+            old_scene["specify"][&control.id]["number"].as_u64(),
+            control.number
+        );
+    }
     let note = report
         .pmi
         .items
@@ -428,5 +452,400 @@ fn moving_a_hole_recomputes_default_basic_locations() {
             .any(|c| c.class == "changed" && basic.contains(&c.id.as_str()) && c.number.is_some()),
         "{:?}",
         report.pmi.items
+    );
+}
+
+// Captured from unmodified main d6f65a8, with schema-1 value-sensitive signatures.
+// Do not regenerate with this branch: it exercises reopening real pre-fix history.
+#[test]
+fn main_history_survives_direct_modifier_and_value_edits() {
+    let old = load("characteristic-numbers-main.step.gz");
+    let mut supplied = api::analyse(&old).unwrap()["resume"]["answers"]
+        .as_object()
+        .unwrap()
+        .clone();
+    // Force a rewrite. #75 retires old generated member dimensions; every retained
+    // requirement must still keep its number while history migrates.
+    supplied.insert("part.notes".into(), json!(["Keep dry", "Migration test"]));
+    let migrated = write(&old, &supplied);
+    let numbers = |p: &part::LoadedPart| {
+        specify_core::characteristics::read(p)
+            .unwrap()
+            .into_iter()
+            .map(|c| (c.number, c.kind, c.r#type, c.faces, c.reference))
+            .collect::<Vec<_>>()
+    };
+    let prior = numbers(&old);
+    let current = numbers(&migrated);
+    let mut retained = 0;
+    for (number, kind, ty, faces, reference) in &prior {
+        if let Some(now) = current
+            .iter()
+            .find(|(_, k, t, f, r)| k == kind && t == ty && f == faces && r == reference)
+        {
+            assert_eq!(*number, now.0);
+            retained += 1;
+        }
+    }
+    assert!(
+        retained >= 12,
+        "real retained main requirements: {retained}"
+    );
+    let doc = haecceity::p21::Document::parse(migrated.bytes.to_vec()).unwrap();
+    let defs = haecceity::step::read_part_definitions(&migrated.bytes).unwrap();
+    let read = haecceity::pmi::read(&doc, &defs).unwrap();
+    let history = read.parts[0]
+        .attributes
+        .iter()
+        .find(|a| a.name == specify_core::characteristics::PROPERTY)
+        .unwrap();
+    let haecceity::pmi::AttributeValue::Text(text) = &history.items[0].1 else {
+        panic!("history text")
+    };
+    let history: Value = serde_json::from_str(text).unwrap();
+    assert_eq!(history["schema"], 2);
+    assert!(
+        history["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|e| e["key"].get("specification").is_none() && e["key"]["role"].is_string())
+    );
+    for old in [&old, &migrated] {
+        let text = String::from_utf8(old.bytes.to_vec()).unwrap();
+        for (from, to, count) in [
+            (
+                ".MAXIMUM_MATERIAL_REQUIREMENT.",
+                ".LEAST_MATERIAL_REQUIREMENT.",
+                2,
+            ),
+            ("LENGTH_MEASURE(0.2)", "LENGTH_MEASURE(0.3)", 1),
+        ] {
+            assert_eq!(text.matches(from).count(), count);
+            let new = part::load_bytes("edited.step", text.replace(from, to).into_bytes()).unwrap();
+            let report = revision::diff(old, &new, &Map::new()).unwrap();
+            assert_scene_ids(&report, &new);
+            assert_eq!(report.pmi.items.len(), count, "{:?}", report.pmi.items);
+            let old_scene = pmi_scene::pmi_scene(&old.bytes, None).unwrap();
+            for item in &report.pmi.items {
+                assert_eq!(item.class, "changed");
+                assert!(item.number.is_some());
+                assert_eq!(
+                    old_scene["specify"][&item.id]["number"].as_u64(),
+                    item.number
+                );
+            }
+            assert_eq!(
+                specify_core::characteristics::read(old).unwrap(),
+                specify_core::characteristics::read(&new).unwrap()
+            );
+        }
+    }
+}
+
+#[test]
+fn lm10uu_independent_lands_keep_numbers_through_compositions_resaves_and_a_value_edit() {
+    use specify_core::characteristics;
+    use std::collections::{BTreeMap, BTreeSet};
+    let bare = load("freecad/bearing-lm10uu.step.gz");
+    let supplied = specify_core::rules::with_all_defaults(
+        &api::analyse(&bare).unwrap(),
+        &answers(json!({"part.material":"6061-T6"})),
+    )
+    .unwrap();
+    let old = write(&bare, &supplied);
+    let lands = |p: &part::LoadedPart| -> BTreeMap<usize, u64> {
+        let numbers = characteristics::read(p).unwrap();
+        let datum = numbers
+            .iter()
+            .find(|c| c.kind == "datum" && c.r#type == "A")
+            .unwrap();
+        assert_eq!(datum.faces, [0, 4, 8]);
+        assert_eq!(datum.number, 1);
+        let result: BTreeMap<_, _> = numbers
+            .iter()
+            .filter(|c| {
+                c.kind == "dimension"
+                    && c.r#type == "Size_Diameter"
+                    && [vec![0], vec![4], vec![8]].contains(&c.faces)
+            })
+            .map(|c| (c.faces[0], c.number))
+            .collect();
+        assert_eq!(result.len(), 3);
+        assert_eq!(result.values().copied().collect::<BTreeSet<_>>().len(), 3);
+        assert!(result.values().all(|n| *n != datum.number));
+        let scene = pmi_scene::pmi_scene(&p.bytes, None).unwrap();
+        for number in result.values() {
+            assert_eq!(
+                scene["specify"]
+                    .as_object()
+                    .unwrap()
+                    .values()
+                    .filter(|m| m["number"].as_u64() == Some(*number))
+                    .count(),
+                1
+            );
+        }
+        result
+    };
+    let before = lands(&old);
+    assert_eq!(before, BTreeMap::from([(0, 8), (4, 6), (8, 4)]));
+    let repeated = write(&bare, &supplied);
+    let rewritten = write(&old, &supplied);
+    assert_eq!(lands(&repeated), before);
+    assert_eq!(lands(&rewritten), before);
+    assert_eq!(old.bytes, repeated.bytes);
+    assert_eq!(old.bytes, rewritten.bytes);
+
+    let doc = haecceity::p21::Document::parse(old.bytes.to_vec()).unwrap();
+    let defs = haecceity::step::read_part_definitions(&old.bytes).unwrap();
+    let read = haecceity::pmi::read(&doc, &defs).unwrap();
+    let pmi = &read.parts[0];
+    let history = pmi
+        .attributes
+        .iter()
+        .find(|a| a.name == characteristics::PROPERTY)
+        .unwrap();
+    let haecceity::pmi::AttributeValue::Text(text) = &history.items[0].1 else {
+        panic!("history text")
+    };
+    let history: Value = serde_json::from_str(text).unwrap();
+    assert_eq!(history["schema"], 2);
+    for (face, number) in &before {
+        let entry = history["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|e| e["number"] == *number)
+            .unwrap();
+        let characteristic = characteristics::read(&old)
+            .unwrap()
+            .into_iter()
+            .find(|c| c.number == *number)
+            .unwrap();
+        let dimension = read.provenance.parts[0]
+            .dimensions
+            .iter()
+            .position(|ids| ids.contains(&characteristic.entity))
+            .unwrap();
+        assert!(
+            matches!(&pmi.dimensions[dimension].nominal.as_ref().unwrap().quantity,
+            haecceity::pmi::Quantity::Length(length) if length.mm() == 19.0)
+        );
+        // This is also the 0.4.3 removal contract: native compositions must read to
+        // the same leaf faces/role. Shape-aspect ids and wrapper depth are not identity.
+        assert_eq!(
+            entry["key"],
+            json!({"kind":"dimension", "type":"Size_Diameter",
+            "role":"size", "faces":[face], "reference":[]})
+        );
+    }
+    let first = characteristics::read(&old)
+        .unwrap()
+        .into_iter()
+        .find(|c| c.number == before[&8])
+        .unwrap();
+    let index = read.provenance.parts[0]
+        .dimensions
+        .iter()
+        .position(|ids| ids.contains(&first.entity))
+        .unwrap();
+    assert!(
+        matches!(&pmi.dimensions[index].nominal.as_ref().unwrap().quantity,
+        haecceity::pmi::Quantity::Length(length) if length.mm() == 19.0)
+    );
+    let nominal = regex::Regex::new(r"LENGTH_MEASURE\(19(?:\.0*)?\)").unwrap();
+    let measures: Vec<_> = read.provenance.parts[0].dimensions[index]
+        .iter()
+        .filter_map(|id| {
+            let span = doc.span(*id).unwrap();
+            let text = std::str::from_utf8(&doc.bytes()[span.clone()]).unwrap();
+            nominal.is_match(text).then_some((*id, span, text))
+        })
+        .collect();
+    assert_eq!(measures.len(), 1);
+    let (id, span, text) = &measures[0];
+    assert!(
+        read.provenance.parts[0]
+            .dimensions
+            .iter()
+            .enumerate()
+            .all(|(i, ids)| i == index || !ids.contains(id)),
+        "edit exactly one size"
+    );
+    let mut bytes = old.bytes.to_vec();
+    bytes.splice(
+        span.clone(),
+        nominal.replace(text, "LENGTH_MEASURE(19.1)").bytes(),
+    );
+    let edited = part::load_bytes("edited-lm10uu.step", bytes).unwrap();
+    assert_eq!(lands(&edited), before);
+    let report = revision::diff(&old, &edited, &Map::new()).unwrap();
+    assert_scene_ids(&report, &edited);
+    assert_eq!(report.pmi.items.len(), 1, "{:?}", report.pmi.items);
+    let change = &report.pmi.items[0];
+    assert_eq!(change.class, "changed");
+    assert_eq!(change.kind, "dimension");
+    assert_eq!(change.number, Some(before[&8]));
+    assert_eq!(
+        characteristics::read(&old).unwrap(),
+        characteristics::read(&edited).unwrap()
+    );
+    println!(
+        "LM10UU: before={before:?}; rerun={:?}; rewrite={:?}; 19→19.1={:?}; changed={}",
+        lands(&repeated),
+        lands(&rewritten),
+        lands(&edited),
+        change.number.unwrap()
+    );
+}
+
+#[test]
+fn compared_scenes_are_opt_in_and_equal_the_answer_based_scene_api() {
+    let old = load("revisions/hole_moved.old.step.gz");
+    let new = load("revisions/hole_moved.new.step.gz");
+    let given = answers(json!({"part.notes":["Keep dry"]}));
+    let default = revision::diff(&old, &new, &given).unwrap();
+    let included =
+        revision::diff_with_options(&old, &new, &given, revision::DiffOptions { scenes: true })
+            .unwrap();
+    let scenes = included.pmi.scenes.as_ref().unwrap();
+    for (part, answers, actual) in [
+        (&old, &given, &scenes.old),
+        (&new, &included.answers, &scenes.new),
+    ] {
+        let expected = pmi_scene::Scene::new(part)
+            .unwrap()
+            .scene(part, None, Some(answers))
+            .unwrap();
+        assert_eq!(*actual, expected);
+    }
+    let mut value = serde_json::to_value(&included).unwrap();
+    value["pmi"].as_object_mut().unwrap().remove("scenes");
+    assert_eq!(
+        serde_json::to_vec(&default).unwrap(),
+        serde_json::to_vec(&value).unwrap(),
+        "opting in changes only scenes"
+    );
+    assert_eq!(
+        revision::picture(&old, &new, &default, 300),
+        revision::picture(&old, &new, &included, 300)
+    );
+
+    // A Specify-written destination is authoritative even with different given answers.
+    let stored = write(&new, &answers(json!({"part.notes":["Keep clean"]})));
+    let included = revision::diff_with_options(
+        &old,
+        &stored,
+        &given,
+        revision::DiffOptions { scenes: true },
+    )
+    .unwrap();
+    let scenes = included.pmi.scenes.unwrap();
+    assert_eq!(
+        scenes.new["specify"]["part.notes:1"]["notation"],
+        "Keep clean"
+    );
+    assert_eq!(
+        scenes.old["specify"]["part.notes:1"]["notation"],
+        "Keep dry"
+    );
+}
+
+#[test]
+fn semantic_only_attributes_have_both_sides_mesh_face_anchors() {
+    use haecceity::pmi::*;
+    let bare = load("parts/plate.step");
+    let model = |text: &str| PartPmi {
+        features: vec![Feature::Items(vec![Anchor::Face(FaceIndex(9))])],
+        attributes: vec![AttributeSet {
+            name: "inspection method".into(),
+            on: Some(NoteOwner::Feature(FeatureId(0))),
+            items: vec![("method".into(), AttributeValue::Text(text.into()))],
+            description: None,
+            general_property: None,
+        }],
+        ..PartPmi::default()
+    };
+    let old = foreign_model(&bare, model("CMM"));
+    let new = foreign_model(&bare, model("gauge"));
+    let report = revision::diff_with_options(
+        &old,
+        &new,
+        &Map::new(),
+        revision::DiffOptions { scenes: true },
+    )
+    .unwrap();
+    let change = report
+        .pmi
+        .items
+        .iter()
+        .find(|c| c.class == "changed")
+        .unwrap();
+    let scenes = report.pmi.scenes.as_ref().unwrap();
+    assert!(
+        scenes.new["presentation"]["items"]
+            .get(&change.id)
+            .is_none()
+    );
+    assert_eq!(
+        serde_json::to_value(&change.faces).unwrap(),
+        json!({"old":[{"face":9}],"new":[{"face":9}]})
+    );
+}
+
+#[test]
+fn picture_draws_changed_added_and_removed_presentation_inside_the_frame() {
+    let bare = load("parts/plate.step");
+    let old = write(
+        &bare,
+        &answers(json!({
+            "extra.1":{"kind":"flatness","faces":[4],"value":"0.05"},
+            "extra.2":{"kind":"flatness","faces":[5],"value":"0.02"}
+        })),
+    );
+    let new = write(
+        &old,
+        &answers(json!({
+            "extra.1":{"kind":"flatness","faces":[4],"value":"0.1"},
+            "extra.3":{"kind":"flatness","faces":[0],"value":"0.03"}
+        })),
+    );
+    let report = revision::diff(&old, &new, &Map::new()).unwrap();
+    for class in ["changed", "added", "removed"] {
+        assert!(report.pmi.items.iter().any(|c| c.class == class), "{class}");
+    }
+    assert!(report.faces.is_empty() && report.gone.is_empty());
+    let png = revision::picture(&old, &new, &report, 900);
+    let mut reader = png::Decoder::new(std::io::Cursor::new(png))
+        .read_info()
+        .unwrap();
+    let mut pixels = vec![0; reader.output_buffer_size().unwrap()];
+    let info = reader.next_frame(&mut pixels).unwrap();
+    let (mut orange, mut green, mut red) = (0, 0, 0);
+    for (i, pixel) in pixels[..info.buffer_size()]
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .enumerate()
+    {
+        let (r, g, b) = (pixel[0] as i32, pixel[1] as i32, pixel[2] as i32);
+        let is_orange = r > g + 30 && g > b + 30;
+        let is_green = g > r + 30 && g > b + 30;
+        let is_red = r > g + 30 && (g - b).abs() < 15;
+        orange += usize::from(is_orange);
+        green += usize::from(is_green);
+        red += usize::from(is_red);
+        if is_orange || is_green || is_red {
+            let (x, y) = (i % info.width as usize, i / info.width as usize);
+            assert!(
+                x > 1 && y > 1 && x + 2 < info.width as usize && y + 2 < info.height as usize,
+                "clipped at {x},{y}"
+            );
+        }
+    }
+    assert!(
+        orange > 20 && green > 20 && red > 20,
+        "orange={orange}, green={green}, red={red}"
     );
 }
