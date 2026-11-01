@@ -70,17 +70,17 @@ With quiddity-rust v0.2.6 (#137), written notes appear in the `General notes` ca
 Blank and whitespace-only rows display `(blank)` to avoid an empty tessellated curve;
 their semantic strings, note indices and saved answers retain the exact original text.
 
-
 Specify's live `pmiScene` composes imported part notes and accepted settings into one
 GENERAL NOTES graphic in #163 order. It replaces their file graphic only in the scene;
-lossless append keeps all original STEP records. A file-only scene retains its original
-callout geometry and `step:` identity, reports `source: "file"` even when the producer
-marked it `haecceity.generated/1`, and resolves its material DMIA through part provenance.
+lossless append keeps all original STEP records. A file-only scene with one block retains
+its original callout geometry and `step:` identity. Several file blocks, including those
+from an appended write, become one scene block. File graphics report `source: "file"`
+even when the producer marked them `haecceity.generated/1`; material DMIAs resolve through
+part provenance.
 Material is a scalar in `haecceity.pmi/1`, so Specify adds `part.material` as a companion
 alias in `presentation.items`, `presentation.semantic_ids` and `specify`, without adding
 or changing a semantic PMI row. Feature-owned notes keep separate feature callouts;
 unpresented feature notes get the upstream generated fallback and stack below the combined
-block with a gap of two text heights. Imported manufacturing
-requirements of kind `semantic text` are rendered as free part notes. Explicit part-level
+block with a gap of two text heights. Imported manufacturing requirements of kind `semantic text` are rendered as free part notes. Explicit part-level
 phrases such as “break sharp edges” answer `part.edges` using the original text; feature
 notes and unrelated manufacturing prose never supply that part default.

@@ -12,6 +12,21 @@ fn block(graphic: &Value) -> bool {
         .is_some_and(|name| name.eq_ignore_ascii_case("general notes"))
 }
 
+pub(super) fn multiple_blocks(scene: &Value) -> bool {
+    scene["presentation"]["items"]
+        .as_object()
+        .unwrap()
+        .values()
+        .filter_map(Value::as_array)
+        .flatten()
+        .chain(scene["presentation"]["unlinked"].as_array().unwrap())
+        .filter(|g| block(g))
+        .filter_map(|g| g["id"].as_str())
+        .collect::<BTreeSet<_>>()
+        .len()
+        > 1
+}
+
 // Material is a scalar in haecceity.pmi/1, without a PartIdentifiers slot. Specify's
 // companion uses its interview key as an alias for that scalar (never a new PMI row).
 pub(super) fn material(

@@ -1147,6 +1147,20 @@ fn xcaf_plate_combines_imported_and_accepted_notes_without_another_edge_requirem
             "#{id}"
         );
     }
+    let reopened = pmi_scene::pmi_scene(after.bytes(), None).unwrap();
+    validate(&reopened);
+    let blocks = notes_blocks(&reopened);
+    assert_eq!(
+        blocks.len(),
+        1,
+        "append must not redraw both physical blocks"
+    );
+    let block = blocks.values().next().unwrap();
+    let text = block["text"].to_string();
+    assert!(text.contains(edge));
+    assert!(text.contains("MATERIAL: Alu_G6061_T6"));
+    assert!(!text.contains("Break sharp edges 0.2 max"));
+    assert_eq!(reopened["specify"]["part.material"]["status"], "existing");
 }
 
 #[test]

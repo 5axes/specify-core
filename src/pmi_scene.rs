@@ -456,6 +456,11 @@ impl Scene {
             )?;
         }
         let mut result = encode(&semantic, graphics, metadata)?;
+        // Append keeps the original callout records. Reopening must still draw
+        // just one block, including the requirements from both generations.
+        if notes::multiple_blocks(&result) {
+            notes::combined(&mut result, &semantic, None, loaded)?;
+        }
         notes::material(&mut result, &semantic, self.stored.as_ref());
         Ok(result)
     }

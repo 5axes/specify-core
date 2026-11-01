@@ -20,10 +20,10 @@ All notable changes to specify-core-rust. The format follows
 
 - For #163: live PMI scenes combine accepted part settings, imported semantic notes and
   material in one GENERAL NOTES block, replacing the file block in the scene while
-  lossless writes keep its records. Part-level edge-break prose answers `part.edges`
+  lossless writes keep its records. Reopened appended files also draw one block.
+  Part-level edge-break prose answers `part.edges`
   as written. Feature notes retain their owner and clear the combined block. File callouts
-  report file source and
-  material DMIAs link through `part.material`.
+  report file source and material DMIAs link through `part.material`.
 
 - For #75, written hole sizes, pattern
   origins/pitches and prismatic plane levels/extents follow the shared planner.
