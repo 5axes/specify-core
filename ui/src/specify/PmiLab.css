@@ -78,7 +78,9 @@
 /* Opens up and to the left, inside the view: the menu sits at its bottom right. */
 .pmi-lab-pad details.pmi-lab-show > div { position: absolute; bottom: calc(100% + 4px); right: 0; display: grid; gap: 4px;
   min-width: 170px; padding: 8px 10px; background: #fff; border: 1px solid #d9dee4; border-radius: 6px;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12); white-space: nowrap; }
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12); white-space: nowrap;
+  /* A long list (many planes or saved views) scrolls inside the menu rather than running off the view. */
+  max-height: min(60vh, 520px); overflow-y: auto; overscroll-behavior: contain; }
 .pmi-lab-showing { display: grid; gap: 4px; padding-bottom: 6px; margin-bottom: 2px; border-bottom: 1px solid #e3e7ec; }
 /* Turning square to an annotation plane or saved view: one button a plane, named by its callouts. */
 .pmi-lab-squares { display: grid; gap: 3px; padding-bottom: 6px; margin-bottom: 2px; border-bottom: 1px solid #e3e7ec; }

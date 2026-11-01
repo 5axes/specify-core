@@ -210,6 +210,8 @@ export function createReviewView(
   let drawnShowing = false;
   // The part, and the file's callouts when they are drawn: a notes block off the part is in view.
   const drawnBounds = () => (drawnShowing ? drawnLayer.bounds() : null);
+  // The orientation cube frames them too, as home and fit do.
+  cad.alsoFrame(drawnBounds);
   const drawnLabel = (item: string): PmiLabel => {
     const link = drawnPmi?.links[item];
     return {

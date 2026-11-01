@@ -9,6 +9,8 @@ import 'three-cad-viewer/css';
 
 import type { PmiMesh, PmiVec } from '../types/pmi';
 
+import { createOrientationCube } from './orientation-cube';
+
 /** A leaf of the tree: some faces of a mesh, in one colour. */
 export interface CadLeaf {
   /** Unique among its siblings. */
@@ -66,12 +68,21 @@ export interface CadView {
   dolly(factor: number): void;
   /** Whether the person has moved the view since it opened. */
   moved(): boolean;
+  /** What the orientation cube frames besides the part when it turns the view: the drawn
+   * callouts, say. */
+  alsoFrame(also: () => THREE.Box3 | null): void;
   /** The tree opened one level again, its nodes closed. */
   collapse(): void;
   dispose(): void;
 }
 
 const ROOT = 'Part';
+/** The orientation cube's side in CSS pixels, on a wide view and a narrow one, and its place:
+ * at the canvas's top right, below the viewer's toolbar and its tree's filter. */
+const CUBE_PX = 84;
+const CUBE_PX_NARROW = 64;
+const CUBE_RIGHT = 10;
+const CUBE_TOP = 64;
 /** A node's path: the viewer's tree finds what to show, hide or light by names. */
 export const pathOf = (...names: string[]) => `/${[ROOT, ...names].join('/')}`;
 const isGroup = (node: CadNode): node is CadGroup => 'leaves' in node;
@@ -199,6 +210,11 @@ export function createCadView(
     ambientIntensity: 0.55, directIntensity: 0.7, metalness: 0.04, roughness: 0.6,
     edgeColor: 0x4a5058, defaultOpacity: 0.5, normalLen: 0,
   }, options);
+  // The orientation cube says which way the view faces; the viewer's XYZ marker in the corner
+  // is off by default (the toolbar's axes button still shows the axes on the part).
+  // The viewer builds its marker as it renders, so it is hidden each frame, not once.
+  const hideMarker = () => { try { viewer.orientationMarker.setVisible(false); } catch { /* not rendered yet */ } };
+  hideMarker();
   // The tree opened one level, its nodes closed. Set once the caller has set up what is shown:
   // the viewer's tree closes again as nodes are first shown or hidden.
   // On a narrow view (a phone), its tools and tree start folded too: they would cover half the
@@ -238,8 +254,71 @@ export function createCadView(
   canvas.addEventListener('wheel', press, { passive: true });
   const frames: (() => void)[] = [];
   let ticking = 0;
-  const tick = () => { for (const f of frames) f(); ticking = requestAnimationFrame(tick); };
+  const tick = () => { hideMarker(); for (const f of frames) f(); ticking = requestAnimationFrame(tick); };
   const vector = (v: readonly number[]) => new THREE.Vector3(v[0], v[1], v[2]);
+
+  // The orientation cube, on a small canvas of its own at the canvas's top right, turned with the
+  // viewer's camera each frame. A face, edge or corner clicked (or tapped) turns the view to look
+  // from there; the rest of the viewer's canvas is left to the viewer.
+  const cube = createOrientationCube();
+  const cubeInk = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+  cubeInk.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  const cubeCanvas = cubeInk.domElement;
+  cubeCanvas.className = 'cad-view-cube';
+  cubeCanvas.title = 'Click a face, edge or corner to look from there';
+  cubeCanvas.style.cssText = 'position:absolute;z-index:5;touch-action:none';
+  overlayHost.append(cubeCanvas);
+  let cubeSide = 0;
+  let alsoFramed: () => THREE.Box3 | null = () => null;
+  const cubeAt = (event: PointerEvent) => {
+    const r = cubeCanvas.getBoundingClientRect();
+    return cube.at(event.clientX - r.left, event.clientY - r.top, r.width);
+  };
+  let cubePress: { x: number; y: number } | null = null;
+  const onCubeDown = (event: PointerEvent) => {
+    if (!event.isPrimary || event.button !== 0) return;
+    cubePress = { x: event.clientX, y: event.clientY };
+  };
+  const onCubeUp = (event: PointerEvent) => {
+    const p = cubePress;
+    cubePress = null;
+    if (!p || Math.hypot(event.clientX - p.x, event.clientY - p.y) > 4) return;
+    const direction = cubeAt(event);
+    if (!direction) return;
+    moved = true;
+    // Z up, unless looking along it; then the back of the part is at the top.
+    const up: PmiVec = Math.abs(direction[2]) / Math.hypot(...direction) > 0.9 ? [0, 1, 0] : [0, 0, 1];
+    const also = alsoFramed();
+    view.lookFrom(direction, also ? box.clone().union(also) : undefined, up);
+  };
+  const onCubeMove = (event: PointerEvent) => {
+    const direction = event.pointerType === 'touch' ? null : cubeAt(event);
+    cube.mark(direction);
+    cubeCanvas.style.cursor = direction ? 'pointer' : '';
+    // Where the pointer is, for a test to find a face by.
+    cubeCanvas.dataset['direction'] = direction?.join(',') ?? '';
+  };
+  const onCubeLeave = () => { cubePress = null; cube.mark(null); };
+  cubeCanvas.addEventListener('pointerdown', onCubeDown);
+  cubeCanvas.addEventListener('pointerup', onCubeUp);
+  cubeCanvas.addEventListener('pointermove', onCubeMove);
+  cubeCanvas.addEventListener('pointerleave', onCubeLeave);
+  cubeCanvas.addEventListener('pointercancel', onCubeLeave);
+  const cubeQuaternion = new THREE.Quaternion();
+  frames.push(() => {
+    const r = canvas.getBoundingClientRect();
+    if (!r.width || !r.height) return;
+    const side = r.width < 500 ? CUBE_PX_NARROW : CUBE_PX;
+    if (side !== cubeSide) {
+      cubeSide = side;
+      cubeInk.setSize(side, side);
+    }
+    cubeCanvas.style.left = `${canvas.offsetLeft + r.width - side - CUBE_RIGHT}px`;
+    cubeCanvas.style.top = `${canvas.offsetTop + CUBE_TOP}px`;
+    cube.follow(cubeQuaternion.fromArray(viewer.getCameraQuaternion()));
+    cubeInk.render(cube.scene, cube.camera);
+  });
+  ticking = requestAnimationFrame(tick);
   const heading = () => vector(viewer.getCameraPosition()).sub(vector(viewer.getCameraTarget())).normalize();
   // The node in hand stays lit: the viewer's own pointer hover, on its canvas or leaving a row
   // of its tree, clears the same highlight, so it is put back after each move. Over the tree,
@@ -253,7 +332,7 @@ export function createCadView(
   };
   for (const type of ['pointermove', 'pointerleave', 'pointerup']) container.addEventListener(type, relight, true);
 
-  return {
+  const view: CadView = {
     viewer,
     canvas,
     get camera() { return viewer.camera.getCamera() as unknown as THREE.Camera; },
@@ -288,7 +367,7 @@ export function createCadView(
       if (Math.abs(up.dot(along)) > 0.999) up = new THREE.Vector3(0, 0, 1);
       const aim = new THREE.Matrix4().lookAt(eye, target, up);
       viewer.setCameraQuaternion(new THREE.Quaternion().setFromRotationMatrix(aim).toArray() as [number, number, number, number], false);
-      viewer.setCameraZoom(Math.min(8, Math.max(0.5, box.getSize(new THREE.Vector3()).length() / Math.max(span, 1e-6))), false);
+      viewer.setCameraZoom(Math.min(8, Math.max(0.2, box.getSize(new THREE.Vector3()).length() / Math.max(span, 1e-6))), false);
     },
     show(path, visible) {
       if (visible) hidden.delete(path); else hidden.add(path);
@@ -297,7 +376,7 @@ export function createCadView(
     transparent(on) { viewer.setTransparent(on); },
     size() { const r = canvas.getBoundingClientRect(); return [r.width, r.height]; },
     overlayHost,
-    onFrame(listener) { frames.push(listener); if (!ticking) ticking = requestAnimationFrame(tick); },
+    onFrame(listener) { frames.push(listener); },
     home(direction, also) { this.lookFrom(direction, also ? box.clone().union(also) : undefined); },
     fit(also) { this.lookFrom(heading().toArray() as unknown as PmiVec, also ? box.clone().union(also) : undefined); },
     roll(quarters) {
@@ -307,6 +386,7 @@ export function createCadView(
     },
     dolly(factor) { viewer.setCameraZoom(Math.min(40, Math.max(0.05, viewer.getCameraZoom() / factor)), false); },
     moved: () => moved,
+    alsoFrame(also) { alsoFramed = also; },
     collapse() { viewer.collapseNodes(CollapseState.ROOT, false); },
     replace(group, ...leaves) {
       const names = group === null ? [] : [group];
@@ -336,6 +416,13 @@ export function createCadView(
       frames.length = 0;
       canvas.removeEventListener('pointerdown', press);
       canvas.removeEventListener('wheel', press);
+      cubeCanvas.removeEventListener('pointerdown', onCubeDown);
+      cubeCanvas.removeEventListener('pointerup', onCubeUp);
+      cubeCanvas.removeEventListener('pointermove', onCubeMove);
+      cubeCanvas.removeEventListener('pointerleave', onCubeLeave);
+      cubeCanvas.removeEventListener('pointercancel', onCubeLeave);
+      cube.dispose();
+      cubeInk.dispose();
       clearTimeout(opened);
       cancelAnimationFrame(frame);
       for (const type of ['pointermove', 'pointerleave', 'pointerup']) container.removeEventListener(type, relight, true);
@@ -345,4 +432,5 @@ export function createCadView(
       container.replaceChildren();
     },
   };
+  return view;
 }

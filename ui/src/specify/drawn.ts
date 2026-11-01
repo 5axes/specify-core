@@ -426,7 +426,9 @@ export function drawnViews(
     if (!eye) continue;
     const members = view.graphics.flatMap((id) => { const g = byId.get(id); return g ? [g] : []; });
     // The file's saved views only: Specify generates a view for each graphic it draws (0.1.6),
-    // which the planes below already offer, grouped.
+    // which the planes below already offer, grouped. A view whose graphics are all hidden (by
+    // the Show menu, or facing away) has nothing to look square at, so it is not offered either.
+    if (view.graphics.length && !members.length) continue;
     if (members.length && members.every((g) => g.source === 'generated')) continue;
     const b = box(members.length ? members : graphics);
     if (!b) continue;
