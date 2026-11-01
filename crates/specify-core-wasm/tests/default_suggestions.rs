@@ -307,10 +307,16 @@ fn check_bulk_acceptance(path: &std::path::Path, given: Map<String, Value>) {
     actual.as_object_mut().unwrap().remove("anchors");
     for key in ["datums", "requirements"] {
         for item in actual[key].as_array_mut().unwrap() {
-            assert_eq!(
-                item.as_object_mut().unwrap().remove("default"),
-                Some(json!(false))
-            );
+            if item.get("not_written_reason").is_some() {
+                // Rejected planner proposals have no interview/default status.
+                assert!(item.get("question").is_none());
+                assert!(item.get("default").is_none());
+            } else {
+                assert_eq!(
+                    item.as_object_mut().unwrap().remove("default"),
+                    Some(json!(false))
+                );
+            }
         }
     }
     assert_eq!(actual, expected.to_dict());

@@ -119,9 +119,12 @@ fn requirement_ids_are_stable_and_statuses_use_review_and_stored_origin() {
         .unwrap();
     validate(&first);
     let metadata = first["specify"].as_object().unwrap();
-    assert_eq!(metadata["size:holes:9"]["status"], "answered");
     assert_eq!(
-        metadata["size:holes:9"]["question"],
+        metadata["planner:specified:dim:hole:9/bore.diameter"]["status"],
+        "answered"
+    );
+    assert_eq!(
+        metadata["planner:specified:dim:hole:9/bore.diameter"]["question"],
         "hole.function:holes:9"
     );
     assert!(metadata.values().any(|m| m["status"] == "general"));
@@ -178,10 +181,13 @@ fn requirement_ids_are_stable_and_statuses_use_review_and_stored_origin() {
     let stored = pmi_scene::pmi_scene(&bytes, None).unwrap();
     validate(&stored);
     assert_eq!(
-        stored["specify"]["size:holes:9"]["number"],
-        metadata["size:holes:9"]["number"]
+        stored["specify"]["planner:specified:dim:hole:9/bore.diameter"]["number"],
+        metadata["planner:specified:dim:hole:9/bore.diameter"]["number"]
     );
-    assert_eq!(stored["specify"]["size:holes:9"]["origin"], "requirement");
+    assert_eq!(
+        stored["specify"]["planner:specified:dim:hole:9/bore.diameter"]["origin"],
+        "requirement"
+    );
     let general: Vec<_> = stored["specify"]
         .as_object()
         .unwrap()
@@ -204,7 +210,7 @@ fn scene_face_anchors_are_snapshot_mesh_indices_even_when_step_faces_have_names(
         .as_array()
         .unwrap()
         .iter()
-        .find(|v| v["id"] == "size:holes:9")
+        .find(|v| v["id"] == "planner:specified:dim:hole:9/bore.diameter")
         .unwrap();
     let fid = &size["value"]["kind"]["size"]["feature"];
     let feature = features.iter().find(|f| f["id"] == *fid).unwrap();
@@ -329,7 +335,11 @@ fn patterned_requirements_put_the_count_in_notation_and_first_cell() {
     assert!(!ids.is_empty());
     for id in ids {
         for graphic in scene["presentation"]["items"][id].as_array().unwrap() {
-            assert!(graphic["name"].as_str().unwrap().starts_with("6×"));
+            assert!(
+                graphic["name"].as_str().unwrap().starts_with("6×"),
+                "{}",
+                graphic["name"]
+            );
             assert!(graphic["text"][0].as_str().unwrap().starts_with("6×"));
         }
     }
@@ -650,6 +660,7 @@ fn patterned_datums_have_no_count_but_sizes_and_tolerances_do() {
                 .all(|cell| !cell.as_str().unwrap().contains("×"))
         );
     }
+    // The selected datum member leaves the group; both size and FCF cover five holes (#75).
     for collection in ["dimensions", "tolerances"] {
         let expected_question = if collection == "dimensions" {
             question.clone()
@@ -671,8 +682,12 @@ fn patterned_datums_have_no_count_but_sizes_and_tolerances_do() {
             .collect();
         assert!(!graphics.is_empty(), "{collection}");
         for graphic in graphics {
-            assert!(graphic["name"].as_str().unwrap().starts_with("6×"));
-            assert!(graphic["text"][0].as_str().unwrap().starts_with("6×"));
+            assert!(
+                graphic["name"].as_str().unwrap().starts_with("5×"),
+                "{}",
+                graphic["name"]
+            );
+            assert!(graphic["text"][0].as_str().unwrap().starts_with("5×"));
         }
     }
 }

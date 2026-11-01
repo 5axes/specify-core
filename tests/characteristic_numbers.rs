@@ -272,7 +272,17 @@ fn legacy_numberless_files_have_byte_identical_analysis_and_pmi_serialization() 
     };
     for (name, baseline) in legacy_cases() {
         let p = load(&name);
-        let a = api::analyse(&p).unwrap();
+        let mut a = api::analyse(&p).unwrap();
+        // #75 adds typed planner input; the pre-existing analysis fields still match exactly.
+        let input = a
+            .as_object_mut()
+            .unwrap()
+            .shift_remove("dimensioning")
+            .unwrap();
+        serde_json::from_value::<quiddity::dimensioning::Input>(input).unwrap();
+        a.as_object_mut()
+            .unwrap()
+            .shift_remove("dimensioning_stated");
         let pmi = existing::read_existing(&p).unwrap();
         assert_eq!(
             hash(serde_json::to_vec(&a).unwrap()),
@@ -396,30 +406,48 @@ fn older_quiddity_written_pmi_keeps_numbers_on_upgrade_to_024() {
             .0,
     );
     let now = numbers(&written);
+    let old_max = old_numbers.iter().map(|n| n.number).max().unwrap();
+    let old_ids: BTreeSet<_> = old_numbers.iter().map(|n| n.number).collect();
+    let now_ids: BTreeSet<_> = now.iter().map(|n| n.number).collect();
+    let retired: BTreeSet<_> = old_ids.difference(&now_ids).copied().collect();
     let mut retained = 0;
     for n in old_numbers {
-        let candidates: Vec<_> = now
-            .iter()
-            .filter(|c| {
-                c.kind == n.kind
-                    && c.r#type == n.r#type
-                    && n.faces.iter().all(|f| c.faces.contains(f))
-                    && n.reference.iter().all(|f| c.reference.contains(f))
-            })
-            .collect();
-        // Current rules deliberately no longer write some old default-only rows.
-        if candidates.is_empty() {
-            continue;
+        if let Some(c) = now.iter().find(|c| c.number == n.number) {
+            assert_eq!(c.kind, n.kind);
+            assert_eq!(c.r#type, n.r#type);
+            assert!(n.faces.iter().all(|f| c.faces.contains(f)));
+            assert!(n.reference.iter().all(|f| c.reference.contains(f)));
+            retained += 1;
+        } else {
+            // Complete coincident groups and aligned pattern witnesses supersede
+            // these old individual location rows; no surviving number is reused.
+            if [103, 106, 108, 153, 155].contains(&n.number) {
+                eprintln!("replaced old member location: {n:?}");
+            }
+            assert_eq!(
+                n.r#type, "Location_LinearDistance",
+                "unexpected retirement: {n:?}"
+            );
         }
-        retained += 1;
-        assert!(
-            candidates.iter().any(|c| c.number == n.number),
-            "{n:?}: {candidates:?}"
-        );
     }
     assert!(
-        retained > 20,
-        "a real old-engine PMI population survives: {retained}"
+        now.iter()
+            .filter(|c| !old_ids.contains(&c.number))
+            .all(|c| c.number > old_max)
+    );
+    // Coincident basics now carry their complete semantic feature groups, and
+    // pitches use aligned member witnesses. Superseded per-member rows retire.
+    eprintln!("retired old-kernel location numbers: {retired:?}");
+    assert_eq!(retained, 15);
+    assert_eq!(
+        retired,
+        [
+            103, 106, 108, 110, 111, 112, 113, 114, 115, 117, 118, 119, 120, 121, 122, 123, 124,
+            125, 126, 127, 128, 129, 130, 131, 132, 134, 135, 136, 137, 138, 141, 142, 143, 144,
+            145, 149, 150, 151, 152, 153, 155, 157, 158, 159, 160
+        ]
+        .into_iter()
+        .collect()
     );
 }
 
@@ -940,25 +968,40 @@ fn first_shaft_walk_uses_front_shoulders_then_end_on_holes_and_side_width() {
     let a = api::analyse(&p).unwrap();
     let answers = rules::with_all_defaults(&a, &Map::new()).unwrap();
     let i = api::preview(&a, &answers).unwrap();
+    // The axis-based position requirements cannot be replaced by an unrelated
+    // General offset from the flats; report that proposal instead (#75).
+    let rejected: Vec<_> = i
+        .requirements
+        .iter()
+        .filter_map(|r| r.get("not_written_reason"))
+        .collect();
+    assert_eq!(rejected.len(), 1);
+    assert!(
+        rejected[0]
+            .as_str()
+            .unwrap()
+            .contains("General contract conflicts with an answered requirement")
+    );
     let written = back(writer::write_bytes(&p, &i, Some(&answers)).unwrap().0);
     assert_walk(
         &written,
         &[
-            ("datum", "A", &[0], &[]),                                 // 1: X-axis OD
-            ("datum", "B", &[7, 11], &[]),                             // 2: split end plane
-            ("dimension", "Location_LinearDistance", &[5], &[7, 11]),  // 3: front Z=.3, X=27.2
-            ("dimension", "Location_LinearDistance", &[3], &[7, 11]),  // 4: same row, X=33.6
-            ("dimension", "Location_LinearDistance", &[9], &[7, 11]),  // 5: front Z=0, X=1.5
-            ("dimension", "Location_LinearDistance", &[16], &[7, 11]), // 6: X=5 end of M2 bore
-            ("dimension", "Location_LinearDistance", &[13], &[7, 11]), // 7: X=37.6 far end
-            ("dimension", "Location_LinearDistance", &[8], &[10]),     // 8: front lower row Z=-1.5
-            ("dimension", "Location_LinearDistance", &[2, 6], &[10]),  // 9: front flats Z=-3.4
-            ("dimension", "Size_Diameter", &[14], &[]), // 10: right, X-axis hole, (Y,Z)=(0,0)
-            ("geometric_tolerance", "Position", &[15], &[]), // 11: same site, control model order
-            ("geometric_tolerance", "Position", &[14], &[]), // 12: second control
-            ("thread", "Internal", &[15], &[]),         // 13: M2 at the same end-on position
-            ("dimension", "Location_LinearDistance", &[12], &[4]), // 14: right, Y=2.375 side flat
-            ("surface_texture", "Ra", &[], &[]),        // 15: default finish has no position
+            // A thread carries its drill. Locations require real face supports;
+            // the drill floor is not an independent part length (#75).
+            ("datum", "A", &[0], &[]),
+            ("datum", "B", &[7, 11], &[]),
+            ("dimension", "Location_LinearDistance", &[5], &[7, 11]),
+            ("dimension", "Location_LinearDistance", &[3], &[7, 11]),
+            ("dimension", "Location_LinearDistance", &[9], &[7, 11]),
+            ("dimension", "Location_LinearDistance", &[13], &[7, 11]),
+            ("dimension", "Location_LinearDistance", &[8], &[10]),
+            ("dimension", "Location_LinearDistance", &[2, 6], &[10]),
+            ("dimension", "Size_Diameter", &[14], &[]),
+            ("geometric_tolerance", "Position", &[15], &[]),
+            ("geometric_tolerance", "Position", &[14], &[]),
+            ("thread", "Internal", &[15], &[]),
+            ("dimension", "Location_LinearDistance", &[12], &[4]),
+            ("surface_texture", "Ra", &[], &[]),
         ],
     );
     assert_eq!(

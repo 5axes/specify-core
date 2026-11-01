@@ -154,8 +154,8 @@ def test_pmi_scene_and_packaged_schemas(plate):
     })
     assert scene["pmi"]["schema"] == "haecceity.pmi/1"
     assert scene["presentation"]["schema"] == "haecceity.presentation/1"
-    assert scene["specify"]["size:holes:9"]["status"] == "answered"
-    assert scene["specify"]["size:holes:9"]["question"] == "hole.function:holes:9"
+    assert scene["specify"]["planner:specified:dim:hole:9/bore.diameter"]["status"] == "answered"
+    assert scene["specify"]["planner:specified:dim:hole:9/bore.diameter"]["question"] == "hole.function:holes:9"
     assert scene["specify"]["part.surface_finish"]["number"] > 0
     empty = api.pmi_scene(plate.read_bytes())
     assert empty["pmi"]["pmi"]["dimensions"] == []

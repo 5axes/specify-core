@@ -16,6 +16,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SIBLING = "pzfreo/draftwright-rust"
 KERNEL = "pzfreo/quiddity-rust"
+REQUIRED_TAG = "v0.4.1"
 
 
 def api(path):
@@ -114,6 +115,8 @@ def main():
     args = parser.parse_args()
     try:
         local = pins(tomllib.loads(args.manifest.read_text()))
+        if any(pin != ("tag", REQUIRED_TAG) for pin in local.values()):
+            warning(f"Expected both kernel crates pinned to {REQUIRED_TAG}: {describe(local)}")
         if args.manifest.resolve() == (ROOT / "Cargo.toml").resolve():
             check_wasm_pin(local)
         tag = latest_release(SIBLING)

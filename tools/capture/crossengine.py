@@ -156,7 +156,7 @@ def _readback_with_evidence(step: Path, evidence: bool = True) -> tuple[Any, Any
         shutil.rmtree(scratch, ignore_errors=True)
 
 
-def capture(root: Path) -> list[str]:
+def capture(root: Path, *, python_written: bool = True) -> list[str]:
     """Every ``rust.step.gz`` under ``root`` read back by Python, and the resume evidence of
     every file Python wrote for the oracle (``written.step.gz``); returns a line per case."""
     lines = []
@@ -169,7 +169,7 @@ def capture(root: Path) -> list[str]:
             "case": case,
             "rust_step_sha256": sha256(data),
             **provenance(),
-            "command": f"tools/capture.py cross-engine {_display(root)}",
+            "command": f"tools/capture.py cross-engine {_display(root)}" + (" --rust-only" if not python_written else ""),
             "captured": today(),
             "read": "per part: existing.read_existing, existing.part_settings and "
             "resume.answers_for on load.load(step, part=k), each part in a child process",
@@ -199,7 +199,7 @@ def capture(root: Path) -> list[str]:
         lines.append(f"{case}: {_summary(value)}")
     # The files Python wrote: the oracle has their read-back; what Python fingerprints in them
     # is captured here, so the Rust engine's failure to resume them can be explained.
-    for gz in sorted(ORACLE.rglob("written.step.gz")):
+    for gz in (sorted(ORACLE.rglob("written.step.gz")) if python_written else []):
         case = str(gz.parent.relative_to(ORACLE))
         data = gzip.decompress(gz.read_bytes())
         _, evidence = _read(data)
@@ -207,7 +207,7 @@ def capture(root: Path) -> list[str]:
             "case": case,
             "written_step_sha256": sha256(data),
             **provenance(),
-            "command": f"tools/capture.py cross-engine {_display(root)}",
+            "command": f"tools/capture.py cross-engine {_display(root)}" + (" --rust-only" if not python_written else ""),
             "captured": today(),
             "resume_evidence": evidence,
         }

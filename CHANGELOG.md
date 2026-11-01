@@ -6,6 +6,35 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+### Changed
+
+- For #75, written hole sizes, pattern
+  origins/pitches and prismatic plane levels/extents follow the shared planner.
+  Inspection plans contain fewer rows: the default cross-engine plate changes from
+  21 dimensions / 28 characteristics to 12 / 19. The raw all-General planner has
+  11 quantities; Specify adds two offsets with distinct Basic/General contracts
+  and omits the drill already carried by the thread.
+  Existing numbers win; removed rows retire permanently and the write report
+  lists their numbers. On the frozen pre-planner
+  plate, numbers **6–11 and 21–26** retire. New requirements allocate above the
+  previous high-water mark. Deferred feature owners retain their existing path.
+  Locations require real face supports; thread drills and duplicate legacy spans
+  are stated once. Answered fits and Basic locations retain their contracts, including the radial
+  bolt-circle diameter belonging to a position frame.
+  Determined enlargement depths are reference dimensions. Unknown-bottom depths
+  and bounded shoulder stations that lack unambiguous semantic supports are
+  reported instead of adding inspection constraints; physical-plane witnesses
+  keep their legacy path.
+  General-tolerance range selection uses the same six-decimal nominal as the
+  written dimension, keeping boundary values stable under rigid moves. Source
+  metadata for newly shared dimensions names their complete measured target.
+
+### WASM API
+
+- For #75: live analysis snapshots carry optional shared-planner input and stored
+  dimension contracts. Planned scene dimension IDs include stable face-derived
+  roles; pitch callouts use interval counts and datum members leave group counts.
+
 ## 0.1.6 (2026-11-01)
 
 On quiddity/haecceity 0.4.1. Adds answers keyed by authored STEP face names (#87, cadgen's `f:` names), adopts 0.4.1's presentation (callouts by their features, one numbered GENERAL NOTES block, plane views, `stroked` text), adds `PmiScene` TypeScript types, and builds the Linux command line against glibc 2.28 so it runs on Amazon Linux 2023 and other older distributions. Feature-on scenes and written STEP layouts change with the new presentation. Named parts store answers schema 3; unnamed parts are unchanged.

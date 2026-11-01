@@ -56,6 +56,25 @@ fn point(value: &Value) -> [f64; 3] {
     std::array::from_fn(|i| value[i].as_f64().unwrap())
 }
 
+// #75 represents shared sizes by real pattern/multiple-element groups. Resolve
+// every member and retain the same per-face radius, mesh and leader checks.
+fn feature_faces(features: &[Value], id: &Value) -> Vec<usize> {
+    let feature = features.iter().find(|f| f["id"] == *id).unwrap();
+    if let Some(items) = feature["value"]["items"].as_array() {
+        items
+            .iter()
+            .map(|a| a["face"].as_u64().unwrap() as usize)
+            .collect()
+    } else {
+        feature["value"]["group"]["members"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|id| feature_faces(features, id))
+            .collect()
+    }
+}
+
 // Verify actual recognised diameter items, without supplying any face picks. Each
 // item's referenced mesh faces must have its nominal radius and its callout leader
 // must reach their bounds in the part's own frame.
@@ -84,13 +103,8 @@ fn check_diameters(scene: &Value, snapshot: &Value) -> usize {
             .unwrap()
             .parse::<f64>()
             .unwrap();
-        let feature = features
-            .iter()
-            .find(|f| f["id"] == size["feature"])
-            .unwrap();
         let mut bounds = Vec::new();
-        for anchor in feature["value"]["items"].as_array().unwrap() {
-            let face = anchor["face"].as_u64().unwrap() as usize;
+        for face in feature_faces(features, &size["feature"]) {
             let analysis = &snapshot["analysis"]["faces"][face];
             assert_eq!(analysis["id"], face);
             assert_eq!(analysis["kind"], "cylinder");

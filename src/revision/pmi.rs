@@ -157,6 +157,7 @@ fn items(scene: &Value) -> Vec<Item> {
             && [
                 crate::pmi_origin::PROPERTY,
                 crate::characteristics::PROPERTY,
+                "specify dimension plan",
             ]
             .contains(&value["name"].as_str().unwrap_or_default())
         {

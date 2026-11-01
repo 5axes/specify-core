@@ -1196,6 +1196,17 @@ fn intent(
         };
         intent.general = general::dimensions(ctx, &datums, &intent.requirements, tolerance)?;
     }
+    if let Some(input) = ctx.analysis.get("dimensioning") {
+        let input = serde_json::from_value(input.clone())
+            .map_err(|e| Error::Invalid(format!("dimensioning input: {e}")))?;
+        if let Some(stated) = ctx.analysis.get("dimensioning_stated") {
+            intent.requirements.extend(
+                serde_json::from_value::<Vec<Map<String, Value>>>(stated.clone())
+                    .map_err(|e| Error::Invalid(format!("stored dimensions: {e}")))?,
+            );
+        }
+        crate::dimensioning::apply(input, &mut intent).map_err(Error::Invalid)?;
+    }
     Ok(intent)
 }
 

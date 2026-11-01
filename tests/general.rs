@@ -4,8 +4,6 @@
 //! `test_listed_but_not_written`'s write is the writer's (stage 3); its rules side (listed in
 //! the intent, not among the requirements, kept by an intent's JSON round trip) is here.
 
-mod common;
-
 use std::collections::HashSet;
 
 use serde_json::{Map, Value, json};
@@ -13,9 +11,10 @@ use specify_core::general::deviation;
 use specify_core::rules::{Intent, apply_with_defaults};
 
 fn analysis(case: &str) -> Value {
-    common::case(case)
-        .artifact("analysis")
-        .expect("a captured analysis")
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures")
+        .join(format!("{case}.step"));
+    specify_core::api::analyse(&specify_core::part::load(&path, None).unwrap()).unwrap()
 }
 
 /// `_general`: the part applied with a material and every default.

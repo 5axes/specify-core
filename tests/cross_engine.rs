@@ -778,5 +778,18 @@ fn the_engines_read_each_others_files() {
     differences.extend(schema_two_fingerprints().faces_differ);
     println!("Python resuming Rust-written parts: {python_resumed:?}");
     println!("Rust resuming Python-written parts: {rust_resumed:?}");
+    if let Some(dir) = std::env::var_os("SPECIFY_DUMP") {
+        let dir = PathBuf::from(dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let rows: Vec<_> = differences
+            .iter()
+            .map(|d| json!({"case":d.case,"path":d.path,"python":d.python,"rust":d.rust}))
+            .collect();
+        std::fs::write(
+            dir.join("cross_engine.json"),
+            serde_json::to_vec_pretty(&rows).unwrap(),
+        )
+        .unwrap();
+    }
     check_known("cross_engine", &differences);
 }

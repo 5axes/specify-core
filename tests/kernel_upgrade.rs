@@ -277,9 +277,25 @@ fn named_parts_keep_questions_defaults_locations_and_written_pmi_under_rigid_mot
         let mut ib = rules::apply(&ab, &answers).unwrap();
         ia.binding = json!(null);
         ib.binding = json!(null);
+        // Planner quantities/supports are in the part frame; its world placement
+        // must follow the known motion rather than compare byte-identically (#75).
+        let mut expected_intent = ia.to_dict();
+        for collection in ["requirements", "general"] {
+            for row in expected_intent[collection].as_array_mut().unwrap() {
+                if let Some(frame) = row.get_mut("planner").and_then(|p| p.get_mut("frame")) {
+                    let point: [f64; 3] = serde_json::from_value(frame["origin"].clone()).unwrap();
+                    frame["origin"] = json!(motion.point(point));
+                    for axis in ["x", "y", "z"] {
+                        let direction: [f64; 3] =
+                            serde_json::from_value(frame[axis].clone()).unwrap();
+                        frame[axis] = json!(motion.direction(direction));
+                    }
+                }
+            }
+        }
         let differences = common::compare(
             name,
-            &ia.to_dict(),
+            &expected_intent,
             &ib.to_dict(),
             &common::Tolerances::default().with("*", 1e-5, 1e-8),
         );
@@ -306,7 +322,12 @@ fn named_parts_keep_questions_defaults_locations_and_written_pmi_under_rigid_mot
             } else {
                 assert_eq!(
                     existing.len(),
-                    intent.requirements.len() + intent.datums.len(),
+                    intent
+                        .requirements
+                        .iter()
+                        .filter(|r| !r.contains_key("not_written_reason"))
+                        .count()
+                        + intent.datums.len(),
                     "{name}"
                 );
             }
@@ -352,7 +373,8 @@ fn named_parts_keep_questions_defaults_locations_and_written_pmi_under_rigid_mot
         }
         if name == "GRM-02_shaft" {
             // For #65: these are independent FIRST writes of two numberless poses.
-            // Stored-frame view/position order can change under rotation. Pin both
+            // #75 omits the unsupported blind-depth row, shifting fresh allocations
+            // down by one. Stored-frame view/position order can change under rotation. Pin both
             // allocations explicitly; every other PMI field still compares below.
             let numbers: Vec<_> = readbacks[0]
                 .as_array()
@@ -360,16 +382,25 @@ fn named_parts_keep_questions_defaults_locations_and_written_pmi_under_rigid_mot
                 .iter()
                 .map(|r| r["number"].clone())
                 .collect();
-            assert_eq!(json!(numbers), json!([10, 11, 12, 1, 2, 13]));
+            assert_eq!(json!(numbers), json!([9, 10, 11, 1, 2, 12]));
             // Rotated Z coordinates separate the end-on holes and side flat that
             // coincide in the original right view. Datums A/B remain first.
             for (row, number) in expected_readback
                 .as_array_mut()
                 .unwrap()
                 .iter_mut()
-                .zip([13, 10, 14, 1, 2, 11])
+                .zip([12, 9, 13, 1, 2, 10])
             {
                 row["number"] = json!(number);
+            }
+        }
+        if name == "corpus/mfcadpp/10224" {
+            // Independent first writes: the recovered #75 hole dimensions enter
+            // different stored-frame view positions after the move. Pin just
+            // these four changed allocations; all other fields/numbers compare.
+            for (index, before, after) in [(3, 19, 20), (5, 20, 21), (8, 18, 19), (10, 21, 22)] {
+                assert_eq!(expected_readback[index]["number"], before);
+                expected_readback[index]["number"] = json!(after);
             }
         }
         let differences = common::compare(

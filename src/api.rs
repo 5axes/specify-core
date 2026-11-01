@@ -263,6 +263,12 @@ fn analyse_with(
         }
     }
     analysis.insert("features".into(), described);
+    if let Ok(input) = crate::dimensioning::input(&loaded.part) {
+        analysis.insert(
+            "dimensioning".into(),
+            serde_json::to_value(input).map_err(|e| refused(&e))?,
+        );
+    }
     if let Some(mated) = mated {
         analysis.insert("mates".into(), Value::Object(mated));
     }
@@ -306,6 +312,10 @@ fn analyse_with(
                 existing::read_parsed(loaded, doc, definitions).map_err(|e| refused(&e))?;
             let existing = reading.existing(loaded).map_err(|e| refused(&e))?;
             let settings = reading.settings(loaded);
+            let stated = crate::dimensioning::stated(reading.model());
+            if !stated.is_empty() {
+                analysis.insert("dimensioning_stated".into(), json!(stated));
+            }
             analysis.insert(
                 "existing".into(),
                 serde_json::to_value(existing).map_err(|e| refused(&e))?,
