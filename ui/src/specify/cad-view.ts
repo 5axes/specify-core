@@ -44,7 +44,8 @@ export interface CadView {
   light(path: string | null): void;
   /** The faces under a point of the canvas, nearest first, of the leaves shown. */
   facesAt(x: number, y: number): CadHit[];
-  /** Look along ``direction`` at ``around``, or at the whole part; ``up``, or the way up it had. */
+  /** Look along ``direction`` at ``around``, or at the whole part; ``up``, or the way up it had.
+   * ``up`` holds only with the trackball: an orbit control keeps +Z up, whatever is asked. */
   lookFrom(direction: PmiVec, around?: THREE.Box3, up?: PmiVec): void;
   /** Show or hide the node at a path. */
   show(path: string, visible: boolean): void;
