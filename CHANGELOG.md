@@ -16,6 +16,11 @@ All notable changes to specify-core-rust. The format follows
 - Refresh the packaged PMI schema for optional per-item `identifier` values.
   The documented reader binding moves from `haecceity-pmi-read/11` to `/13`
   because #168/#170 change readings and findings; Specify always rereads STEP.
+- Rejudge the frozen-Python recognition ledger for v0.4.2's grouped interrupted
+  fillets and omitted unproved bevel corners. Retain 192 retired paths as resolved
+  assertions and add 266 exact case/path judgments, with a native torus audit of
+  all 44 changed groups (220 patches); do not regenerate the Python captures.
+  Inventory tests count torus patches, retaining their original coverage thresholds.
 
 ### Fixed
 
