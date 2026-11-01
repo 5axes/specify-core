@@ -95,3 +95,14 @@ reports them. Their three stale per-item cross-engine ledger entries are removed
 New shared source UDAs name the complete measured target; retained thread drilling
 attributes also prevent duplicate drill rows in Add mode. These are integration
 fixes, rather than changes to v0.4.1's shared planner or the 42-part count table.
+
+For v0.4.2 (`d7112fd`), after merging main `3936c84` (#91 planner dimensions and
+#94 opt-in BOM), rerun `cargo run --release --locked --example write_fixtures`
+and `SPECIFY_CORE=/tmp/specify-python-oracle75
+/Users/paul/repos/specify-core/.venv/bin/python tools/capture.py cross-engine
+tests/fixtures/cross_engine --rust-only` (one command). The reference remains the
+clean reconstruction `7e2125d` above. All fourteen successful STEP byte goldens,
+independent Python readbacks and capture metadata remain byte-identical to main;
+both recorded refusals also remain unchanged. No capture or cross-engine ledger
+change is needed. These cases do not exercise the temporary #168 datum-constituent
+adjustment. Keep historical inputs and Python-written evidence frozen.

@@ -65,6 +65,10 @@ All notable changes to specify-core-rust. The format follows
   assertions and add 266 exact case/path judgments, with a native torus audit of
   all 44 changed groups (220 patches); do not regenerate the Python captures.
   Inventory tests count torus patches, retaining their original coverage thresholds.
+- Revalidate v0.4.2 after merging #91's planner dimensions and #94's opt-in BOM.
+  Regenerated cross-engine byte goldens and independently recaptured Python readings
+  remain unchanged from main, including both refusals. The pin checker now requires
+  v0.4.2 as well as matching native/WASM manifests.
 
 ### Fixed
 

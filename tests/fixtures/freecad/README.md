@@ -45,6 +45,15 @@ adds the independent size compositions described above. Existing warnings match.
 All twelve main outputs, new outputs and resaved main outputs read with v0.4.2
 and validate against the packaged PMI/presentation schemas (42 part scenes).
 
+Repeated after merging main `3936c84` (#91/#94): all six #89 inputs still write
+and recover their PMI/material/answers. The same eleven of twelve outputs remain
+byte-identical to the new main, with matching warnings; LM10UU alone adds its
+independent size compositions. All twelve new-main outputs also read and resave
+successfully with v0.4.2, and the 42 scenes still validate. The adjustment is
+temporary pending haecceity 0.4.3's constituent-identity fix. A raw-reader unit
+test fails with removal instructions when the three Ø19 lands stop aliasing to
+their multi-face datum.
+
 Specify does not expose upstream `edition_rewrites` in its own write report;
 the existing report shape is retained. These checks compare the actual keyword
 rewrites and every original entity, rather than inferring conversion from success.
