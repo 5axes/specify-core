@@ -16,6 +16,11 @@ All notable changes to specify-core-rust. The format follows
   and stable duplicate ordering; removed numbers are retired. Read through Rust, CLI,
   Python and WASM. See [BOM storage and numbering](docs/bom.md).
 
+- Regression coverage for #89 using FreeCAD's attributed CC-BY-3.0 hex standoff:
+  AP214 `PRODUCT_TYPE` upgrades to `PRODUCT_RELATED_PRODUCT_CATEGORY`, preserving
+  every other original entity byte, and written PMI/answers read back. Add the
+  attributed LM10UU fixture to cover independent size supports and unchanged resaves.
+
 ### Changed
 
 - For #75, written hole sizes, pattern
@@ -47,6 +52,33 @@ All notable changes to specify-core-rust. The format follows
 - For #79: preserve opt-in BOM alongside shared planner dimensions; ordinary writes
   are checked byte for byte against main 8d5a040 through the CLI and API.
 
+- Pin quiddity and haecceity (native, WASM and Python) to v0.4.2 (`d7112fd`).
+  Recognition /6 and fingerprints /3 stay unchanged; turned steps with spanner
+  flats, grouped interrupted torus fillets and unproved corners follow upstream #167.
+  PMI now repairs reversed bounds and datum-feature child aspects (#168), and
+  duplicate source identifiers and incomplete non-runout zones (#170).
+- Refresh the packaged PMI schema for optional per-item `identifier` values.
+  The documented reader binding moves from `haecceity-pmi-read/11` to `/13`
+  because #168/#170 change readings and findings; Specify always rereads STEP.
+- Rejudge the frozen-Python recognition ledger for v0.4.2's grouped interrupted
+  fillets and omitted unproved bevel corners. Retain 192 retired paths as resolved
+  assertions and add 266 exact case/path judgments, with a native torus audit of
+  all 44 changed groups (220 patches); do not regenerate the Python captures.
+  Inventory tests count torus patches, retaining their original coverage thresholds.
+- Revalidate v0.4.2 after merging #91's planner dimensions and #94's opt-in BOM.
+  Regenerated cross-engine byte goldens and independently recaptured Python readings
+  remain unchanged from main, including both refusals. The pin checker now requires
+  v0.4.2 as well as matching native/WASM manifests.
+
+### Fixed
+
+- Preserve separately sized lands that also compose a multi-face datum with the
+  v0.4.2 reader. Give their new requirements independent shape-aspect compositions
+  sharing the original face usages (no duplicate GISUs), so LM10UU's three Ø19
+  sizes retain their supports and characteristic numbers instead of refusing.
+  This is temporary compensation for haecceity #168, to be removed with the planned
+  0.4.3 constituent-identity fix. A raw-reader regression guard signals its removal.
+
 ### WASM API
 
 - For #75: live analysis snapshots carry optional shared-planner input and stored
@@ -56,6 +88,10 @@ All notable changes to specify-core-rust. The format follows
 - For #79: add static `IntentEngine.bom(bytes)` returning sourced assembly BOM JSON;
   optional fourth `writePmi` argument explicitly accepts BOM suggestions. Omitted/false
   preserves the ordinary PMI write. BOM analysis questions are optional suggestions.
+
+- Add optional `PmiSceneItem.identifier` for the source characteristic number;
+  references continue to use the unique `id`, including when identifiers repeat.
+
 
 ## 0.1.6 (2026-11-01)
 

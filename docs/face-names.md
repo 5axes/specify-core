@@ -2,7 +2,7 @@
 
 Code-first CAD authors can give faces persistent names in their source model.
 Specify reads only the names actually carried by STEP representation items,
-through haecceity v0.4.1's `json::Anchors::read(doc, definition).names`. That API
+through haecceity v0.4.2's `json::Anchors::read(doc, definition).names`. That API
 returns one optional string per definition face, in Specify's face index order.
 Empty STEP names become `None`. Specify never derives names. For newly saved
 identities it accepts only a name in cadgen's explicit `f:` namespace (with a
