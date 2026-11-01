@@ -8,17 +8,6 @@ All notable changes to specify-core-rust. The format follows
 
 ### Changed
 
-- Fix #92: compare and label each part note by its semantic wording, so a change
-  within the shared GENERAL NOTES graphic leaves other note requirements unchanged.
-- Pin quiddity and haecceity to v0.4.1. Recognition `/6` and fingerprints `/3`
-  stay unchanged. Adopt regenerated ladders/callouts, one numbered GENERAL NOTES
-  block, generated plane views, AP214 PRODUCT_TYPE upgrades, panic isolation and
-  graphical callout reading; feature-on scenes and written STEP layouts change.
-- Build the Linux CLI against glibc 2.28 using pinned Zig/cargo-zigbuild tools;
-  check its symbols and revision smoke on Amazon Linux 2023 and AlmaLinux 8.
-  Release asset names and archive layout stay the same.
-- Preserve optional text-placement `stroked` flags in PMI scenes; prune saved-view
-  references when graphics are filtered or replaced, removing empty views.
 - For #75, written hole sizes, pattern
   origins/pitches and prismatic plane levels/extents follow the shared planner.
   Inspection plans contain fewer rows: the default cross-engine plate changes from
@@ -40,7 +29,30 @@ All notable changes to specify-core-rust. The format follows
   written dimension, keeping boundary values stable under rigid moves. Source
   metadata for newly shared dimensions names their complete measured target.
 
-- For #87 fix round 1: only unique names in the authored `f:` namespace become
+### WASM API
+
+- For #75: live analysis snapshots carry optional shared-planner input and stored
+  dimension contracts. Planned scene dimension IDs include stable face-derived
+  roles; pitch callouts use interval counts and datum members leave group counts.
+
+## 0.1.6 (2026-11-01)
+
+On quiddity/haecceity 0.4.1. Adds answers keyed by authored STEP face names (#87, cadgen's `f:` names), adopts 0.4.1's presentation (callouts by their features, one numbered GENERAL NOTES block, plane views, `stroked` text), adds `PmiScene` TypeScript types, and builds the Linux command line against glibc 2.28 so it runs on Amazon Linux 2023 and other older distributions. Feature-on scenes and written STEP layouts change with the new presentation. Named parts store answers schema 3; unnamed parts are unchanged.
+
+### Changed
+
+- Compare and label each part note by its semantic wording, so a change
+  within the shared GENERAL NOTES graphic leaves other note requirements unchanged.
+- Pin quiddity and haecceity to v0.4.1. Recognition `/6` and fingerprints `/3`
+  stay unchanged. Adopt regenerated ladders/callouts, one numbered GENERAL NOTES
+  block, generated plane views, AP214 PRODUCT_TYPE upgrades, panic isolation and
+  graphical callout reading; feature-on scenes and written STEP layouts change.
+- Build the Linux CLI against glibc 2.28 using pinned Zig/cargo-zigbuild tools;
+  check its symbols and revision smoke on Amazon Linux 2023 and AlmaLinux 8.
+  Release asset names and archive layout stay the same.
+- Preserve optional text-placement `stroked` flags in PMI scenes; prune saved-view
+  references when graphics are filtered or replaced, removing empty views.
+- For #87: only unique names in the authored `f:` namespace become
   face identities. Shared names and generic/class labels (including singletons)
   retain geometric evidence and schema 2 when no usable identities remain. Omit
   unusable labels from analysis; retain the full oracle comparison unchanged.
@@ -59,10 +71,6 @@ All notable changes to specify-core-rust. The format follows
 - Add `PmiScene` JSON result interfaces for both `pmiScene` entry points, including
   semantic rows/ids, graphics, optional `stroked` text placements, planes, views and
   Specify statuses. Document parsing and rendering; the wire return remains a string.
-- For #75: live analysis snapshots carry optional shared-planner input and stored
-  dimension contracts. Planned scene dimension IDs include stable face-derived
-  roles; pitch callouts use interval counts and datum members leave group counts.
-
 - For #87: snapshot faces add optional `name`; evidence adds schema 3 `face_names`
   and optional mixed-part `geometry`. Add descriptive `AnalysisFace` and
   `AnswerEvidence` JSON types; existing methods and answer shapes are retained.

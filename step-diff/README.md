@@ -115,7 +115,7 @@ A part with no answers still gets the comment: what changed, the picture and the
 ```yaml
       - uses: pzfreo/specify-core/step-diff@main
         with:
-          version: v0.1.5         # the specify-core release to run
+          version: v0.1.6         # the specify-core release to run
           token: ${{ secrets.MY_TOKEN }}
 ```
 
