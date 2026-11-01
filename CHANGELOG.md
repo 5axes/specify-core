@@ -6,9 +6,13 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+## 0.1.6 (2026-11-01)
+
+On quiddity/haecceity 0.4.1. Adds answers keyed by authored STEP face names (#87, cadgen's `f:` names), adopts 0.4.1's presentation (callouts by their features, one numbered GENERAL NOTES block, plane views, `stroked` text), adds `PmiScene` TypeScript types, and builds the Linux command line against glibc 2.28 so it runs on Amazon Linux 2023 and other older distributions. Feature-on scenes and written STEP layouts change with the new presentation. Named parts store answers schema 3; unnamed parts are unchanged.
+
 ### Changed
 
-- Fix #92: compare and label each part note by its semantic wording, so a change
+- Compare and label each part note by its semantic wording, so a change
   within the shared GENERAL NOTES graphic leaves other note requirements unchanged.
 - Pin quiddity and haecceity to v0.4.1. Recognition `/6` and fingerprints `/3`
   stay unchanged. Adopt regenerated ladders/callouts, one numbered GENERAL NOTES
@@ -19,7 +23,7 @@ All notable changes to specify-core-rust. The format follows
   Release asset names and archive layout stay the same.
 - Preserve optional text-placement `stroked` flags in PMI scenes; prune saved-view
   references when graphics are filtered or replaced, removing empty views.
-- For #87 fix round 1: only unique names in the authored `f:` namespace become
+- For #87: only unique names in the authored `f:` namespace become
   face identities. Shared names and generic/class labels (including singletons)
   retain geometric evidence and schema 2 when no usable identities remain. Omit
   unusable labels from analysis; retain the full oracle comparison unchanged.
