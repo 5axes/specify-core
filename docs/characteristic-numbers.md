@@ -41,13 +41,13 @@ It uses the existing CAx-IF UDA `AttributeSet` route, on that part's product def
 one text item named **`history`**. Its compact JSON is:
 
 ```json
-{"schema":1,"faces":"<resume schema-2 face fingerprint>","high_water":7,"entries":[{"key":{"specification":"<opaque disambiguator>","kind":"dimension","type":"Size_Diameter","faces":[9],"reference":[]},"number":3}]}
+{"schema":2,"faces":"<resume schema-2 face fingerprint>","high_water":7,"entries":[{"key":{"role":"size","kind":"dimension","type":"Size_Diameter","faces":[9],"reference":[]},"number":3}]}
 ```
 
 `high_water` is the greatest number ever allocated, including retired requirements. Entries
-are the current requirements, not a list of reusable numbers. The key's specification is an
-internal disambiguator for coexisting requirements; readers use `ID_ATTRIBUTE` instead of
-interpreting it. A replace carries the history even when all requirements are removed.
+are the current requirements, not a list of reusable numbers. The key describes requirement
+kind/type, target role and face support; readers use `ID_ATTRIBUTE` instead of interpreting it. Values, modifiers, zones and notation are not
+identity. A replace carries the history even when all requirements are removed.
 An additive write retains earlier snapshots; the last snapshot is current and its counter
 must be at least every preceding snapshot's counter. The property name is reserved from
 caller attributes. A corrupt history or exhausted counter refuses the write, without output.
@@ -113,10 +113,11 @@ sheet layout never changes those file numbers.
 
 Numbers are read from the actual STEP entities before planning a rewrite. Identity uses
 requirement kind/type and geometric face support (including the reference support of a
-location), never recognition feature IDs or entity IDs. Existing exact requirements match
-first, including their specifications so an added control on the same face cannot steal an
-existing control's number. A uniquely matched requirement can change its value and retain
-its number. Unique support growth follows the same conservative geometric-support rule as
+location), never recognition feature IDs or entity IDs. Unchanged coexisting requirements match first using an in-memory value comparison,
+so an added control on the same face cannot steal an existing control's number. This is a
+tie breaker, never persisted identity. A uniquely matched requirement can change its value,
+material modifier, zone or notation and retain its number. File scenes validate each actual
+`ID_ATTRIBUTE` against its structural history key, so even direct STEP edits keep numbers. Unique support growth follows the same conservative geometric-support rule as
 answer resume: this accommodates quiddity adding defining faces after an upgrade. Ambiguous
 or missing correspondence is not guessed; those numbers are retired, while the high-water
 mark survives.
@@ -150,6 +151,13 @@ text notes and caller metadata are settings rather than individual inspection ch
   authoritative `characteristics` list even though it has no face-note row.
 - WASM `IntentEngine.snapshot().analysis` exposes the same list, and `writePmi` and `diff`
   use the same writer and carry path. JavaScript signatures are unchanged.
+
+For #95, history schema 2 replaces the value-sensitive `specification` field with a
+structural `role` (size/location, feature/dimension/relation/whole part, or datum). Schema 1
+is still read: its obsolete specification is discarded, and its absent role permits the
+existing kind/type/support match. Actual entity numbers and the high-water mark survive.
+The next rewrite or revision carry emits schema 2; a byte-preserving no-op may retain schema 1.
+Older engines that only accept schema 1 cannot rewrite schema-2 histories.
 
 Files without numeric characteristic ids have no extra analysis or PMI JSON fields. Their
 legacy serialization and note aggregation/order are unchanged. No write adds a history

@@ -316,7 +316,11 @@ impl Scene {
                 Some(&self.read.identifiers.parts[self.index]),
             )
             .map_err(|e| e.to_string())?;
-            let recorded = recorded_numbers(&original)?;
+            let recorded = recorded_numbers(
+                &original,
+                &self.read.provenance.parts[self.index],
+                &self.doc,
+            )?;
             for (i, datum) in semantic.pmi.datums.iter().enumerate() {
                 if let Some(old) = before
                     .datums
@@ -358,7 +362,11 @@ impl Scene {
         let mut semantic =
             wire::identify(p.clone(), Some(&self.read.identifiers.parts[self.index]))
                 .map_err(|e| e.to_string())?;
-        let recorded = recorded_numbers(&semantic)?;
+        let recorded = recorded_numbers(
+            &semantic,
+            &self.read.provenance.parts[self.index],
+            &self.doc,
+        )?;
         let mut metadata = Map::new();
         for (collection, ids) in &mut semantic.ids {
             for (i, id) in ids.iter_mut().enumerate() {
@@ -640,8 +648,12 @@ fn is_requirement(pmi: &PartPmi, collection: &str, index: usize) -> bool {
 
 // This walk returns numbers only from validated Specify history, never arbitrary
 // numeric ID_ATTRIBUTE values. The caller also checks the actual id on each item.
-fn recorded_numbers(semantic: &Semantic) -> Result<BTreeMap<(&'static str, usize), u64>, String> {
-    let mut numbers = characteristics::planned_numbers(&semantic.pmi)?.into_iter();
+fn recorded_numbers(
+    semantic: &Semantic,
+    prov: &pmi::PartProvenance,
+    doc: &haecceity::p21::Document,
+) -> Result<BTreeMap<(&'static str, usize), u64>, String> {
+    let mut numbers = characteristics::recorded_numbers(&semantic.pmi, prov, doc)?.into_iter();
     let mut result = BTreeMap::new();
     for collection in NUMBERED {
         for i in 0..semantic.ids[collection].len() {

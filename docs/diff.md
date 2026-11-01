@@ -110,8 +110,9 @@ Each item has `class` (`added`, `removed`, `changed`, or `renumbered`), optional
 `number`, `id`, `kind`, `status`, `on` (feature words), and optional `old`, `new`
 and `reason`. A numbered removal has `reason: "retired"`; numbers are never
 reused. Renumbering is reported if detected, though ordinary editing preserves
-numbers. Changes sort by characteristic number, then unnumbered id. Markdown
-prints one line per change, for example:
+numbers. Value and material-modifier edits keep the number and produce one `changed`
+item per edited requirement, including direct STEP edits (For #95). Changes sort by
+characteristic number, then unnumbered id. Markdown prints one line per change, for example:
 
 ```text
 #7 ⌀6.6 H7 → ⌀6.6 H8 (4× ⌀6.6 holes)

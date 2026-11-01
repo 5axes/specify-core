@@ -6,6 +6,13 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+### Fixed
+
+- For #95: keep characteristic numbers through tolerance value and material-modifier edits,
+  so diff reports one changed requirement without a spurious renumbering. History schema 2
+  uses structural requirement identity; schema-1 files retain their numbers and high-water
+  marks on migration. Removed numbers stay retired.
+
 ## 0.1.6 (2026-11-01)
 
 On quiddity/haecceity 0.4.1. Adds answers keyed by authored STEP face names (#87, cadgen's `f:` names), adopts 0.4.1's presentation (callouts by their features, one numbered GENERAL NOTES block, plane views, `stroked` text), adds `PmiScene` TypeScript types, and builds the Linux command line against glibc 2.28 so it runs on Amazon Linux 2023 and other older distributions. Feature-on scenes and written STEP layouts change with the new presentation. Named parts store answers schema 3; unnamed parts are unchanged.

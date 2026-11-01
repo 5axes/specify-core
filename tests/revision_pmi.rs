@@ -134,6 +134,30 @@ fn a_note_change_and_material_modifier_change_are_visible() {
         "{:?}",
         report.pmi.items
     );
+    let controls: Vec<_> = report
+        .pmi
+        .items
+        .iter()
+        .filter(|c| c.kind == "geometric_tolerance")
+        .collect();
+    assert_eq!(controls.len(), 2, "{controls:?}");
+    assert!(
+        controls
+            .iter()
+            .all(|c| c.class == "changed" && c.number.is_some())
+    );
+    assert!(!report.pmi.items.iter().any(|c| c.class == "renumbered"));
+    assert_eq!(
+        specify_core::characteristics::read(&old).unwrap(),
+        specify_core::characteristics::read(&new).unwrap()
+    );
+    let old_scene = pmi_scene::pmi_scene(&old.bytes, None).unwrap();
+    for control in controls {
+        assert_eq!(
+            old_scene["specify"][&control.id]["number"].as_u64(),
+            control.number
+        );
+    }
     let note = report
         .pmi
         .items
@@ -424,4 +448,76 @@ fn moving_a_hole_recomputes_default_basic_locations() {
         "{:?}",
         report.pmi.items
     );
+}
+
+// Captured from unmodified main d6f65a8, with schema-1 value-sensitive signatures.
+// Do not regenerate with this branch: it exercises reopening real pre-fix history.
+#[test]
+fn main_history_survives_direct_modifier_and_value_edits() {
+    let old = load("characteristic-numbers-main.step.gz");
+    let mut supplied = api::analyse(&old).unwrap()["resume"]["answers"]
+        .as_object()
+        .unwrap()
+        .clone();
+    // Force a normal rewrite, migrating history while preserving every inspection number.
+    supplied.insert("part.notes".into(), json!(["Keep dry", "Migration test"]));
+    let migrated = write(&old, &supplied);
+    let numbers = |p: &part::LoadedPart| {
+        specify_core::characteristics::read(p)
+            .unwrap()
+            .into_iter()
+            .map(|c| (c.number, c.kind, c.r#type, c.faces, c.reference))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(numbers(&old), numbers(&migrated));
+    let doc = haecceity::p21::Document::parse(migrated.bytes.to_vec()).unwrap();
+    let defs = haecceity::step::read_part_definitions(&migrated.bytes).unwrap();
+    let read = haecceity::pmi::read(&doc, &defs).unwrap();
+    let history = read.parts[0]
+        .attributes
+        .iter()
+        .find(|a| a.name == specify_core::characteristics::PROPERTY)
+        .unwrap();
+    let haecceity::pmi::AttributeValue::Text(text) = &history.items[0].1 else {
+        panic!("history text")
+    };
+    let history: Value = serde_json::from_str(text).unwrap();
+    assert_eq!(history["schema"], 2);
+    assert!(
+        history["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|e| e["key"].get("specification").is_none() && e["key"]["role"].is_string())
+    );
+    for old in [&old, &migrated] {
+        let text = String::from_utf8(old.bytes.to_vec()).unwrap();
+        for (from, to, count) in [
+            (
+                ".MAXIMUM_MATERIAL_REQUIREMENT.",
+                ".LEAST_MATERIAL_REQUIREMENT.",
+                2,
+            ),
+            ("LENGTH_MEASURE(0.2)", "LENGTH_MEASURE(0.3)", 1),
+        ] {
+            assert_eq!(text.matches(from).count(), count);
+            let new = part::load_bytes("edited.step", text.replace(from, to).into_bytes()).unwrap();
+            let report = revision::diff(old, &new, &Map::new()).unwrap();
+            assert_scene_ids(&report, &new);
+            assert_eq!(report.pmi.items.len(), count, "{:?}", report.pmi.items);
+            let old_scene = pmi_scene::pmi_scene(&old.bytes, None).unwrap();
+            for item in &report.pmi.items {
+                assert_eq!(item.class, "changed");
+                assert!(item.number.is_some());
+                assert_eq!(
+                    old_scene["specify"][&item.id]["number"].as_u64(),
+                    item.number
+                );
+            }
+            assert_eq!(
+                specify_core::characteristics::read(old).unwrap(),
+                specify_core::characteristics::read(&new).unwrap()
+            );
+        }
+    }
 }
