@@ -487,3 +487,14 @@ Scene export uses haecceity's serialise-only `json` feature in native, WASM and 
 `json-import` is not enabled. The Python package ships the v0.4.1 schemas as data; its
 smoke tests validate exports with Python's `jsonschema`, keeping schemas and import
 validation code out of the WASM binary.
+
+The next haecceity presentation adds optional `polyline_roles`, parallel to
+`polylines`: `text`, `frame`, `leader`, `extension` (witnesses), `symbol`, or
+`dimension` (dimension lines and arrows). Each generated text placement also has
+`cell_box: [[xmin,ymin],[xmax,ymax]]` in plane millimetres relative to its origin,
+with x along `x_axis` and y along `normal × x_axis`. Hosts can fit and centre their
+own font in that box. File graphics omit roles/boxes unless known. These additive
+fields keep schema `/1`; strict `deny_unknown_fields` consumers must update their
+types. Specify passes both through unchanged. The released dependency tag remains
+pinned; tests of these additions use a local Cargo path patch until that kernel
+is released.

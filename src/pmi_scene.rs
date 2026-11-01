@@ -869,30 +869,59 @@ pub fn pmi_scene(bytes: &[u8], part: Option<usize>) -> Result<Value, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use presentation::{Graphic, Source, TextPlacement, View};
+    use presentation::{Graphic, Source, View};
 
     fn graphic(id: &str, stroked: Option<bool>) -> Graphic {
-        Graphic {
-            id: Some(id.into()),
-            plane_id: None,
-            source: Source::File,
-            name: "Text".into(),
-            text: vec!["Text".into()],
-            polylines: vec![],
-            triangles: vec![],
-            step_ids: vec![],
-            unsupported: vec![],
-            text_placements: vec![TextPlacement {
-                text_index: Some(0),
-                stroked,
-                origin: [0.; 3],
-                x_axis: [1., 0., 0.],
-                normal: [0., 0., 1.],
-                height: Some(2.),
-                line_spacing: None,
-                alignment: None,
-            }],
-        }
+        // Obtain extensible presentation structs through the kernel API so these
+        // pass-through tests work with the released pin and additive future fields.
+        static TEMPLATE: std::sync::OnceLock<Graphic> = std::sync::OnceLock::new();
+        let mut g = TEMPLATE
+            .get_or_init(|| {
+                let loaded = crate::part::load_bytes(
+                    "spindle.step",
+                    include_bytes!("../tests/fixtures/spindle.step").to_vec(),
+                )
+                .unwrap();
+                let semantic = wire::identify(
+                    PartPmi {
+                        notes: vec![pmi::Note {
+                            kind: "semantic text".into(),
+                            text: "Text".into(),
+                            on: None,
+                            callouts: vec![],
+                        }],
+                        ..PartPmi::default()
+                    },
+                    None,
+                )
+                .unwrap();
+                let scene = presentation::generated(&semantic, &loaded.part).unwrap();
+                scene
+                    .items
+                    .values()
+                    .flatten()
+                    .chain(&scene.unlinked)
+                    .next()
+                    .unwrap()
+                    .clone()
+            })
+            .clone();
+        g.id = Some(id.into());
+        g.plane_id = None;
+        g.source = Source::File;
+        g.name = "Text".into();
+        g.text = vec!["Text".into()];
+        g.text_placements.truncate(1);
+        let text = &mut g.text_placements[0];
+        text.text_index = Some(0);
+        text.stroked = stroked;
+        text.origin = [0.; 3];
+        text.x_axis = [1., 0., 0.];
+        text.normal = [0., 0., 1.];
+        text.height = Some(2.);
+        text.line_spacing = None;
+        text.alignment = None;
+        g
     }
 
     fn encoded(graphics: presentation::Presentation) -> Value {

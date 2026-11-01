@@ -6,6 +6,8 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+- Prefer an exact tap-drill match over an ambiguous smaller clearance screw when suggesting a hole function; accepted tapped holes carry thread semantics without a tap-drill fit. Document and type additive haecceity polyline roles and text cell boxes (pass-through; released kernel pin retained).
+
 ### Added
 
 - For #79: opt-in assembly BOM writes via explicit `bom.*` answers or `--bom` / API
@@ -48,6 +50,8 @@ All notable changes to specify-core-rust. The format follows
   are checked byte for byte against main 8d5a040 through the CLI and API.
 
 ### WASM API
+
+- Add optional `polyline_roles` and text-placement `cell_box` declarations for host-font presentation rendering; pass through when supplied by haecceity.
 
 - For #75: live analysis snapshots carry optional shared-planner input and stored
   dimension contracts. Planned scene dimension IDs include stable face-derived

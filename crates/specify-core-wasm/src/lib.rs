@@ -141,6 +141,8 @@ export interface PmiSceneItems {
 /** Placement in model-space millimetres. A placeholder can omit text_index. */
 export interface PmiSceneTextPlacement {
   text_index?: number;
+  /** Lower-left / upper-right in plane mm relative to origin. */
+  cell_box?: [[number, number], [number, number]];
   /** True when this run's glyphs are already drawn by the graphic's polylines.
    * Absent or false means the host may render the text literal. */
   stroked?: boolean;
@@ -159,6 +161,7 @@ export interface PmiSceneGraphic {
   name: string;
   text: string[];
   polylines: PmiSceneVector[][];
+  polyline_roles?: ("text" | "frame" | "leader" | "extension" | "symbol" | "dimension")[];
   triangles: [PmiSceneVector, PmiSceneVector, PmiSceneVector][];
   step_ids: number[];
   unsupported: string[];
