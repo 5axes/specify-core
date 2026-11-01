@@ -250,7 +250,14 @@ fn check_accepted_defaults(path: &std::path::Path, given: Map<String, Value>) {
         .iter_mut()
         .chain(preview.requirements.iter_mut())
     {
-        assert_eq!(item.remove("default"), Some(json!(false)));
+        if item.contains_key("not_written_reason") {
+            // Planner diagnostics are reported proposals, not accepted interview
+            // requirements. They have no question/default status (#75).
+            assert!(!item.contains_key("question"));
+            assert!(!item.contains_key("default"));
+        } else {
+            assert_eq!(item.remove("default"), Some(json!(false)));
+        }
     }
     assert_eq!(preview.to_dict(), expected.to_dict());
     assert!(!expected.datums.is_empty());

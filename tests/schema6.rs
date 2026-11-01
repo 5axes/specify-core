@@ -245,14 +245,34 @@ fn corrected_round_inventory_agrees_with_material_side() {
         let loaded = part::load(&path, None).unwrap();
         let features = specify_core::features::recognise(&loaded).unwrap();
         let fillets: Vec<_> = features.iter().filter(|f| f.family == "fillets").collect();
+        // v0.4.2 (#167/#159) groups interrupted torus patches into one fillet.
+        // Keep the historical geometric coverage thresholds: count each native torus
+        // patch, while a cylindrical round with spherical caps still counts once.
+        let patches = |f: &specify_core::features::Feature| {
+            f.faces
+                .iter()
+                .filter(|&&face| {
+                    matches!(
+                        loaded.part.faces[face].surface,
+                        quiddity::kernel::geom::Surface::Torus { .. }
+                    )
+                })
+                .count()
+                .max(1)
+        };
         // quiddity #120 recognises tangent convex cylinders at any wall angle/run
         // direction. #91's roll no longer changes these fillets into generic blends.
-        assert_eq!(fillets.len(), convex_count + inside_count, "{name}");
+        assert_eq!(
+            fillets.iter().map(|f| patches(f)).sum::<usize>(),
+            convex_count + inside_count,
+            "{name}"
+        );
         assert_eq!(
             fillets
                 .iter()
                 .filter(|f| f.record["side"] == "convex")
-                .count(),
+                .map(|f| patches(f))
+                .sum::<usize>(),
             convex_count,
             "{name}"
         );
@@ -260,7 +280,8 @@ fn corrected_round_inventory_agrees_with_material_side() {
             fillets
                 .iter()
                 .filter(|f| f.record["side"] == "concave")
-                .count(),
+                .map(|f| patches(f))
+                .sum::<usize>(),
             inside_count,
             "{name}"
         );
@@ -268,7 +289,8 @@ fn corrected_round_inventory_agrees_with_material_side() {
             fillets
                 .iter()
                 .filter(|f| f.record["side"] == "concave" && f.record["turned"] == true)
-                .count(),
+                .map(|f| patches(f))
+                .sum::<usize>(),
             turned_inside,
             "{name}: quiddity-rust#134 turned inside fillets"
         );

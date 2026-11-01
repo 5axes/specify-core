@@ -141,9 +141,10 @@ def test_cli_main_returns_the_exit_code(capsys):
     assert "error:" in capsys.readouterr().err
 
 
-def test_pmi_scene_and_packaged_schemas(plate):
+def test_pmi_scene_and_packaged_schemas(plate, tmp_path):
     import importlib.resources
     import json
+    import re
     import specify_core
     from specify_core import api
 
@@ -154,11 +155,28 @@ def test_pmi_scene_and_packaged_schemas(plate):
     })
     assert scene["pmi"]["schema"] == "haecceity.pmi/1"
     assert scene["presentation"]["schema"] == "haecceity.presentation/1"
-    assert scene["specify"]["size:holes:9"]["status"] == "answered"
-    assert scene["specify"]["size:holes:9"]["question"] == "hole.function:holes:9"
+    assert scene["specify"]["planner:specified:dim:hole:9/bore.diameter"]["status"] == "answered"
+    assert scene["specify"]["planner:specified:dim:hole:9/bore.diameter"]["question"] == "hole.function:holes:9"
     assert scene["specify"]["part.surface_finish"]["number"] > 0
     empty = api.pmi_scene(plate.read_bytes())
     assert empty["pmi"]["pmi"]["dimensions"] == []
+    answers = {"part.material": "6061-T6"}
+    written = tmp_path / "numbered.step"
+    api.write(plate, api.apply(api.analyse(plate), answers, accept_defaults=True),
+              written, answers=answers)
+    readback = api.pmi_scene(written.read_bytes())
+    dimensions = readback["pmi"]["pmi"]["dimensions"]
+    assert dimensions and all(isinstance(row["identifier"], str) for row in dimensions)
+    readbacks = [readback]
+    for identifier in ("repeated", ""):
+        data, changed = re.subn(rb"ID_ATTRIBUTE\('[^']*',",
+                                f"ID_ATTRIBUTE('{identifier}',".encode(), written.read_bytes())
+        assert changed > 1
+        recovered = api.pmi_scene(data)
+        dimensions = recovered["pmi"]["pmi"]["dimensions"]
+        assert dimensions and all(row["identifier"] == identifier for row in dimensions)
+        assert len({row["id"] for row in dimensions}) == len(dimensions)
+        readbacks.append(recovered)
     root = importlib.resources.files("specify_core").joinpath("schema")
     for name in ("pmi", "presentation"):
         schema = json.loads(root.joinpath(f"haecceity.{name}-1.json").read_text())
@@ -167,6 +185,8 @@ def test_pmi_scene_and_packaged_schemas(plate):
         Draft202012Validator.check_schema(schema)
         Draft202012Validator(schema).validate(scene[name])
         Draft202012Validator(schema).validate(empty[name])
+        for readback in readbacks:
+            Draft202012Validator(schema).validate(readback[name])
 
 
 def test_foreign_pmi_scene_schema_and_as_drawn_metadata():
@@ -232,3 +252,30 @@ def test_diff_exposes_numbered_pmi_with_scene_identities(plate, tmp_path):
     for item in changed:
         assert scene["specify"][item["id"]]["number"] == item["number"]
     assert "→" in result["markdown"]
+
+
+def test_bom_read_api_and_cli_agree_on_file_sources(assembly):
+    from specify_core import bom
+    from specify_core import _native
+    import json
+
+    rows = bom(assembly)
+    assert len(rows) == 2
+    assert rows[1]["quantity"] == {"value": 2, "source": "file"}
+    assert rows[0]["item_number"] == {"value": None, "source": "default"}
+    assert json.loads(_native.bom(assembly)) == rows
+
+
+def test_bom_write_requires_explicit_acceptance(assembly, tmp_path):
+    from specify_core import bom
+    analysis = api.analyse(assembly, part=0)
+    questions = [q for q in api.questions(analysis, {}) if q.id.startswith("bom.")]
+    assert questions and all(q.optional and q.default is None and q.suggestions for q in questions)
+    assert "bom" not in api.apply(analysis, STEEL, accept_defaults=True).part
+    intent = api.apply(analysis, STEEL, accept_defaults=True, bom=True)
+    out = tmp_path / "bom.step"
+    api.write(assembly, intent, out, answers=STEEL)
+    rows = bom(out)
+    assert rows[0]["item_number"]["value"] == 1
+    assert rows[0]["description"]["source"] == "default"
+    assert api.analyse(out, part=0)["resume"]["answers"] == STEEL

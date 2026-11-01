@@ -49,7 +49,7 @@ class Question:
     #: Each still gets its own requirements.
     parts: tuple[tuple[str, tuple[int, ...]], ...] = ()
     #: For a text question: common answers to offer as it is typed; any text is accepted.
-    suggestions: tuple[dict[str, Any], ...] = ()
+    suggestions: tuple[Any, ...] = ()
     #: For a hole or turned diameter: each option's purpose, label, code and callout.
     choices: tuple[dict[str, Any], ...] = ()
     #: The feature's diameter, against which a typed spec is checked.
@@ -61,6 +61,7 @@ class Question:
     basis: str = ""
     #: When the default comes from how the part fits another in its assembly: why.
     mate: str = ""
+    optional: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         out = {
@@ -71,6 +72,8 @@ class Question:
             "default": list(self.default) if isinstance(self.default, tuple) else self.default,
             "why": self.why,
         }
+        if self.optional:
+            out["optional"] = True
         if self.options:
             out["options"] = list(self.options)
         if self.feature:
@@ -114,6 +117,7 @@ class Question:
             depth=record["depth"],
             basis=record["basis"],
             mate=record["mate"],
+            optional=record.get("optional", False),
         )
 
 

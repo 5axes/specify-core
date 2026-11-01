@@ -14,7 +14,7 @@ whose every part has Python's accept-defaults intent:
 | `python_written_evidence.json.gz` | the same | The same resume evidence for the file Python wrote for the oracle (`../oracle/<case>/written.step.gz`). |
 
 Regenerate in this order, in one commit: the example, then the capture (each `.gz` is written
-reproducibly; only `captured` dates change on a rerun). The committed capture is from
+reproducibly; only `captured` dates change on a rerun). The initial capture was from
 specify-core 2cb6499 (cc341dd with its branches `iso286-3150` and `fingerprint-v2` cherry-picked,
 loaded with `SPECIFY_CORE=<that checkout>`; docs/questions.md, "Recapture source"), which writes
 and reads stored-answer schema 2.
@@ -71,9 +71,38 @@ For v0.4.1 (`a2195eed`), regenerate the fourteen successful outputs for the
 regenerated ladders/callouts, one numbered GENERAL NOTES block and generated plane
 views; AP214 PRODUCT_TYPE entities upgrade when written as AP242. The two refusals
 stay unchanged. Recapture Python readbacks and hashes with the same `cc341dd` +
-`63e67bd` + `d97d030` source (locally reconstructed as `43ffe35`). All fourteen Python
-semantic readbacks are identical to the previous capture. Keep Python-written
+`63e67bd` + `d97d030` source. The main-only recapture preserved all fourteen
+Python semantic readbacks; the combined planner recapture is checked separately.
+Keep Python-written
 inputs/evidence and historical upgrade specimens unchanged. The three macOS
 settings-only hashes, the unnamed face-name STEP hash and the current numbered
 M2 tap golden change for the new presentation; stored-answer, analysis and semantic
 readback assertions remain unchanged.
+
+For the shared planner (#75), regenerate Rust outputs with v0.4.1 and recapture
+with `tools/capture.py cross-engine tests/fixtures/cross_engine --rust-only`.
+This option retains the independent, unchanged Python-written specimens and their
+original resume evidence. Use the same `cc341dd` + `iso286-3150` + `fingerprint-v2`
+reference described above (this combined recapture uses the clean reconstruction
+`7e2125d`, recorded by the capture tool in every `python_meta.json.gz`).
+Planner counts/roles now have dimension-owned metadata;
+synthetic support points use the source context's length unit, including inches.
+
+The combined v0.4.1 integration recapture preserves thirteen semantic readbacks.
+CTC-05 additionally omits three unreconciled General offsets (171.45, 206.375 and
+241.3 from face 8) that conflict with existing position requirements; the writer
+reports them. Their three stale per-item cross-engine ledger entries are removed.
+New shared source UDAs name the complete measured target; retained thread drilling
+attributes also prevent duplicate drill rows in Add mode. These are integration
+fixes, rather than changes to v0.4.1's shared planner or the 42-part count table.
+
+For v0.4.2 (`d7112fd`), after merging main `3936c84` (#91 planner dimensions and
+#94 opt-in BOM), rerun `cargo run --release --locked --example write_fixtures`
+and `SPECIFY_CORE=/tmp/specify-python-oracle75
+/Users/paul/repos/specify-core/.venv/bin/python tools/capture.py cross-engine
+tests/fixtures/cross_engine --rust-only` (one command). The reference remains the
+clean reconstruction `7e2125d` above. All fourteen successful STEP byte goldens,
+independent Python readbacks and capture metadata remain byte-identical to main;
+both recorded refusals also remain unchanged. No capture or cross-engine ledger
+change is needed. These cases do not exercise the temporary #168 datum-constituent
+adjustment. Keep historical inputs and Python-written evidence frozen.

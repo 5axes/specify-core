@@ -159,6 +159,20 @@ existing kind/type/support match. Actual entity numbers and the high-water mark 
 The next rewrite or revision carry emits schema 2; a byte-preserving no-op may retain schema 1.
 Older engines that only accept schema 1 cannot rewrite schema-2 histories.
 
+Planner dimensions retain their structural planner id in `role` after `|planner:`.
+It distinguishes coincident measurements without storing their value or tolerance. Older
+schema-2 roles without this suffix still use the conservative unique-support fallback;
+linear locations also retain main's reversed-support matching during planner upgrades.
+
+For #96, the LM10UU regression pins the three independently sized Ø19 datum constituents.
+Their identities use leaf face supports `[0]`, `[4]`, `[8]`, `Size_Diameter` and role `size`;
+no shape-aspect entity id or composition depth enters the key. Removing
+`writer::datum_supports` with haecceity 0.4.3 therefore needs no history migration when its
+native reader returns those same leaf supports. Remove the raw-reader guard with the
+adjustment, and retain the number/resave/edit regression. If the native lowering changes
+supports or measurement roles instead, preserve or explicitly migrate those keys before
+removing the adjustment; never map an individual land to the whole datum.
+
 Files without numeric characteristic ids have no extra analysis or PMI JSON fields. Their
 legacy serialization and note aggregation/order are unchanged. No write adds a history
 property to a part that has never allocated a characteristic number. No-op resumed writes

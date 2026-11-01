@@ -1,4 +1,9 @@
-//! Dimensions under the general tolerance (port of `general.py`).
+//! ISO 2768 deviations and the legacy dimensions retained for later-slice feature owners.
+//!
+//! Live analyses and writes pass these provisional rows through `crate::dimensioning`:
+//! quiddity selects holes, patterns and prismatic plane levels/extents; only explicitly
+//! deferred owners retain the baseline path below. Old JSON snapshots use this provisional
+//! format too, and the writer upgrades them against the loaded geometry (#75).
 //!
 //! A part's PMI otherwise states only what was specified: fits, threads, positions. What the
 //! general tolerance covers (every other diameter, length and hole location) is left to

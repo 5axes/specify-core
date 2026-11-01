@@ -222,19 +222,33 @@ fn modelled_thread_parts_still_analyse_interview_and_write() {
         .join("specify-core-modelled-threads")
         .join(std::process::id().to_string());
     std::fs::create_dir_all(&dir).unwrap();
-    // Counts below are from origin/main's alpha.4 build. Before/after CLI comparisons
-    // also give identical questions, intent, reports and STEP bytes on both inputs. #21 adds
-    // cgb243's one question: the full-thread depth of its blind tapped hole pattern.
-    for (file, count, freeforms, question_count, requirements, general, datums, written) in [
+    // #75 replaces cgb243's member offsets with shared pattern origins/pitches
+    // and Basic bolt circles, and consolidates General rows. Recognition and
+    // interview counts remain unchanged. Exact unsupported proposals stay visible.
+    for (
+        file,
+        count,
+        freeforms,
+        question_count,
+        requirements,
+        general,
+        datums,
+        written,
+        not_written,
+    ) in [
         (
             "cadgenbench_inputs/cgb243.step.gz",
             4,
             66,
             39,
-            110,
             57,
+            48,
             3,
-            117,
+            62,
+            &[
+                "shared planner dim:multiple[hole:101.102.283.284,hole:87.88.297.298,hole:89.90.295.296,hole:91.92.293.294,hole:93.94.291.292,hole:95.96.289.290,hole:97.98.287.288,hole:99.100.285.286]/bore.diameter: General contract conflicts with an answered requirement; retained answered intent instead",
+                "shared planner dim:hole:128.220/bore.depth: bottom is unknown; bore extent is not an established blind drilling depth",
+            ][..],
         ),
         (
             "cadgenbench/threaded_connector_109.step",
@@ -245,6 +259,7 @@ fn modelled_thread_parts_still_analyse_interview_and_write() {
             17,
             2,
             6,
+            &[][..],
         ),
     ] {
         let path = corpus.join(file);
@@ -323,10 +338,9 @@ fn modelled_thread_parts_still_analyse_interview_and_write() {
             .filter(|l| !l.ends_with("under the general tolerance"))
             .count();
         assert_eq!(lines, written, "{file}");
-        assert!(
-            report.not_written.is_empty(),
-            "{file}: {:?}",
-            report.not_written
+        assert_eq!(
+            report.not_written, not_written,
+            "{file}: exact unresolved proposals"
         );
         let resumed = specify_core::part::load(&output, None).unwrap();
         assert_eq!(

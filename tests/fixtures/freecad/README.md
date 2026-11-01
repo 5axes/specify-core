@@ -1,0 +1,59 @@
+# FreeCAD AP214 PRODUCT_TYPE regression (#89)
+
+`hex-standoff-m3.step.gz` is a reproducible gzip of the unmodified M3 × 12 mm
+male/female hex standoff by **nicoguaro**, licensed under **CC-BY-3.0** (see
+`LICENSE-CC-BY-3.0.txt`). No geometry or STEP records have been changed.
+
+Source: [FreeCAD parts library, commit f5ca01c](https://github.com/FreeCAD/FreeCAD-library/blob/f5ca01cdcaa2f69b9295a6382719c2d90628780c/Mechanical%20Parts/Fasteners/Standoff/Hex-Standoff-M3-12mm-Male-Female.step),
+originally added in `01b153366d` (2015-09-23). Copied from dw-examples'
+`steps/freecad/hex-standoff-m3.step`, whose README records that provenance.
+Uncompressed SHA-256: `2cab3c2ecf765ccbebd64363e76dd80420043d9887483e8db494c10ad1f731bd`.
+
+This small real FreeCAD export contains `#769 = PRODUCT_TYPE('part',$,(#7));`.
+The CLI regression checks analysis, accepted-default writing, AP242 conversion,
+unchanged bytes of every original entity except the keyword, and PMI/answer readback.
+
+`bearing-lm10uu.step.gz` is the unmodified LM10UU linear bearing by **Francisco**,
+also CC-BY-3.0, from [the same library revision](https://github.com/FreeCAD/FreeCAD-library/blob/f5ca01cdcaa2f69b9295a6382719c2d90628780c/Mechanical%20Parts/Bearings/linear_bearings/LM10uu.step).
+Added in `7f6c942480` (2015-03-19); copied from dw-examples `steps/freecad/`.
+Uncompressed SHA-256: `e37e54ea1d82012caf60b181a140e8ae30be707473f438b937729d9edd2f536d`.
+Its three separate Ø19 lands share datum A. The regression checks that the
+0.4.2 datum-constituent reader does not merge their independent size supports.
+
+## Local acceptance check, 2026-11-01
+
+Read-only inputs from dw-examples `steps/freecad/`, with scratch outputs, answers
+`{"part.material":"6061-T6"}`, and `--accept-defaults`. Each file passed CLI
+analysis, write, PMI/answer readback and resave. GT2 is an assembly: analyse each
+of its three parts with `--part`, then supply all three analysis/answer pairs to
+one write.
+
+| Input | PRODUCT_TYPE instance ids rewritten |
+| --- | --- |
+| hex-standoff-m3.step | 769 |
+| nema17-mount-bracket.step | 24, 3381 |
+| bearing-608zz.step | 684 |
+| bearing-lm10uu.step | 922 |
+| gt2-pulley.stp | 702, 1398, 6389 |
+| retaining-ring-din471-m10.step | 1014 |
+
+Every other original entity record stayed byte-identical. Also checked FreeCAD's
+corner-bracket-2020, sk08 and l-plate-5-holes, plus text-to-cad's angle-bracket,
+stepped-shaft-keyway and circular-flange. Eleven of these twelve files have
+byte-identical output against `origin/main` (`d6f65a8`, kernel v0.4.1); LM10UU
+adds the independent size compositions described above. Existing warnings match.
+All twelve main outputs, new outputs and resaved main outputs read with v0.4.2
+and validate against the packaged PMI/presentation schemas (42 part scenes).
+
+Repeated after merging main `3936c84` (#91/#94): all six #89 inputs still write
+and recover their PMI/material/answers. The same eleven of twelve outputs remain
+byte-identical to the new main, with matching warnings; LM10UU alone adds its
+independent size compositions. All twelve new-main outputs also read and resave
+successfully with v0.4.2, and the 42 scenes still validate. The adjustment is
+temporary pending haecceity 0.4.3's constituent-identity fix. A raw-reader unit
+test fails with removal instructions when the three Ø19 lands stop aliasing to
+their multi-face datum.
+
+Specify does not expose upstream `edition_rewrites` in its own write report;
+the existing report shape is retained. These checks compare the actual keyword
+rewrites and every original entity, rather than inferring conversion from success.

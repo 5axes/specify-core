@@ -115,6 +115,7 @@ export type PmiSceneStatus = "answered" | "default" | "general" | "existing";
 /** A lossless semantic/unit row. Values follow the packaged haecceity.pmi/1 schema;
  * decimal quantities are strings and semantic references use PmiSceneId. */
 export interface PmiSceneItem {
+  identifier?: string;
   id: PmiSceneId;
   value: unknown;
 }
@@ -233,6 +234,13 @@ export interface PmiScene {
                 .map(|value| value.to_string())
                 .map_err(|error| JsValue::from_str(&error))
         }
+        /// Assembly BOM JSON; each field has value and file/answered/default source.
+        pub fn bom(bytes: &[u8]) -> Result<String, JsValue> {
+            input::size("STEP", bytes.len(), input::STEP_LIMIT).map_err(js_error)?;
+            specify_core::bom::read_bytes(bytes.to_vec())
+                .and_then(|rows| serde_json::to_string(&rows).map_err(|e| e.to_string()))
+                .map_err(js_error)
+        }
         /// `PmiScene` JSON for current answers or `{answers, auto?, gdt?}` review state.
         /// Parse with `JSON.parse`; ids join semantic rows, graphics and Specify statuses.
         #[wasm_bindgen(js_name = pmiScene)]
@@ -259,6 +267,7 @@ export interface PmiScene {
             answers: &str,
             project: Option<String>,
             payload: Option<String>,
+            bom: Option<bool>,
         ) -> Result<String, JsValue> {
             let answers = self::answers(answers)?;
             let payload = payload
@@ -266,7 +275,12 @@ export interface PmiScene {
                 .map(|text| json("Payload", text))
                 .transpose()?;
             self.0
-                .write_pmi(&answers, project.as_deref(), payload.as_ref())
+                .write_pmi_with_bom(
+                    &answers,
+                    project.as_deref(),
+                    payload.as_ref(),
+                    bom.unwrap_or(false),
+                )
                 .map(|value| value.to_string())
                 .map_err(|error| JsValue::from_str(&error))
         }

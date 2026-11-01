@@ -147,6 +147,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("out", type=Path)
     p = sub.add_parser("cross-engine")
     p.add_argument("root", type=Path)
+    p.add_argument("--rust-only", action="store_true", help="recapture Rust outputs; retain unchanged Python-written evidence")
     # Internal: one isolated read of ``cross-engine`` and ``readback`` (crossengine.child).
     p = sub.add_parser("readback-child")
     p.add_argument("step", type=Path)
@@ -187,7 +188,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "cross-engine":
         from capture import crossengine
 
-        for line in crossengine.capture(args.root):
+        for line in crossengine.capture(args.root, python_written=not args.rust_only):
             print(line, file=sys.stderr)
         return 0
     if args.command == "readback-child":

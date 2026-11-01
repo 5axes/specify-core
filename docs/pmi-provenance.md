@@ -104,3 +104,12 @@ Foreign annotations retain the planner's normal refusal behaviour. All other par
 unchanged. Unchanged resumed output retains its bytes only after its semantic requirements
 carry the markers; legacy unmarked output gains provenance on its next write, and the next
 unchanged write is byte-identical. Empty additive edits retain every original byte.
+
+For the shared dimension planner (#75), `COMPOSITE_SHAPE_ASPECT.description`
+uses the same marker as an ordinary feature. A `COMPOSITE_GROUP_SHAPE_ASPECT`
+keeps its semantic description (`pattern of features` or `multiple elements`);
+its otherwise empty **name** carries `specify-core:written:v1`. This lets the
+no-op resume check recognize the writer's group without changing its meaning.
+Planner-created supplemental `CARTESIAN_POINT`s carry the marker in their own
+name. The no-op check requires that marker on every supplemental point; unrelated
+unmarked geometry does not acquire authorship from a linked dimension.

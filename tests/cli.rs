@@ -108,6 +108,137 @@ fn object(value: &Value) -> Map<String, Value> {
 }
 
 #[test]
+fn freecad_product_type_upgrades_and_written_pmi_reads_back() {
+    freecad_write_roundtrip("hex-standoff-m3");
+}
+
+#[test]
+fn freecad_independent_diameters_on_a_composite_datum_keep_their_supports() {
+    freecad_write_roundtrip("bearing-lm10uu");
+}
+
+fn freecad_write_roundtrip(name: &str) {
+    use haecceity::{p21::Document, pmi, step::read_part_definitions};
+
+    let dir = scratch(&format!("freecad-product-type-{name}"));
+    let fixture = common::fixtures().join(format!("freecad/{name}.step.gz"));
+    let loaded = specify_core::part::load(&fixture, None).unwrap();
+    let input = dir.join(format!("{name}.step"));
+    std::fs::write(&input, loaded.bytes.as_slice()).unwrap();
+    let analysis = dir.join("a.json");
+    let answers = dir.join("answers.json");
+    let output = dir.join("out.step");
+    save(&answers, &json!({"part.material":"6061-T6"}));
+    let analysed = run(&["analyse", "-o", &s(&analysis), &s(&input)]);
+    assert_eq!(analysed.code, 0, "{}", analysed.stderr);
+    let written = run(&[
+        "write",
+        "-o",
+        &s(&output),
+        "--accept-defaults",
+        &s(&input),
+        &s(&analysis),
+        &s(&answers),
+    ]);
+    assert_eq!(written.code, 0, "{}", written.stderr);
+    let report: Value = serde_json::from_str(&written.stdout).unwrap();
+    assert!(
+        report["written"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("material 6061-T6"))
+    );
+
+    let bytes = std::fs::read(&output).unwrap();
+    let before = Document::parse(loaded.bytes.as_ref().clone()).unwrap();
+    let after = Document::parse(bytes.clone()).unwrap();
+    assert!(before.file_schema().unwrap()[0].contains("AUTOMOTIVE_DESIGN"));
+    assert!(after.file_schema().unwrap()[0].contains("AP242"));
+    let mut rewritten = 0;
+    for id in before.ids() {
+        let original = &before.bytes()[before.span(id).unwrap()];
+        let actual = &after.bytes()[after.span(id).unwrap()];
+        let original = std::str::from_utf8(original).unwrap();
+        if original.contains("PRODUCT_TYPE(") {
+            rewritten += 1;
+            assert_eq!(
+                actual,
+                original
+                    .replace("PRODUCT_TYPE(", "PRODUCT_RELATED_PRODUCT_CATEGORY(")
+                    .as_bytes()
+            );
+        } else {
+            assert_eq!(actual, original.as_bytes(), "original entity #{id}");
+        }
+    }
+    assert_eq!(rewritten, 1);
+    assert_eq!(std::fs::read(&input).unwrap(), loaded.bytes.as_slice());
+    let violations = haecceity::express::validate_document(after.graph());
+    assert!(violations.is_empty(), "{violations:?}");
+    let violations = haecceity::express_rules::check_all(&after);
+    assert!(violations.is_empty(), "{violations:?}");
+    let defs = read_part_definitions(&bytes).unwrap();
+    let read = pmi::read(&after, &defs).unwrap();
+    assert_eq!(read.parts[0].material.as_ref().unwrap().id, "6061-T6");
+    assert!(!read.parts[0].dimensions.is_empty());
+    assert!(!read.parts[0].datums.is_empty());
+    if name == "bearing-lm10uu" {
+        let lands: Vec<_> = read.parts[0]
+            .dimensions
+            .iter()
+            .filter(|d| {
+                matches!(
+                    d.kind,
+                    pmi::DimensionKind::Size {
+                        kind: pmi::SizeKind::Diameter,
+                        ..
+                    }
+                ) && d.nominal.as_ref().is_some_and(
+                    |v| matches!(&v.quantity, pmi::Quantity::Length(l) if l.mm() == 19.0),
+                )
+            })
+            .map(|d| {
+                let pmi::DimensionKind::Size { feature, .. } = d.kind else {
+                    unreachable!()
+                };
+                let pmi::Feature::Items(items) = &read.parts[0].features[feature.0] else {
+                    panic!("expected a face-supported land");
+                };
+                items
+                    .iter()
+                    .map(|a| match a {
+                        pmi::Anchor::Face(face) => face.0,
+                        _ => panic!("expected a face anchor"),
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        assert_eq!(
+            lands,
+            [vec![8], vec![4], vec![0]],
+            "three independently sized lands"
+        );
+    }
+    let reopened = api::analyse_file(&output, None).unwrap();
+    assert_eq!(reopened["resume"]["answers"]["part.material"], "6061-T6");
+    let rewritten = dir.join("rewritten.step");
+    let back = dir.join("back.json");
+    save(&back, &reopened);
+    let resaved = run(&[
+        "write",
+        "-o",
+        &s(&rewritten),
+        "--accept-defaults",
+        &s(&output),
+        &s(&back),
+        &s(&answers),
+    ]);
+    assert_eq!(resaved.code, 0, "{}", resaved.stderr);
+    assert_eq!(std::fs::read(rewritten).unwrap(), bytes, "unchanged resave");
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
 fn full_thread_depth_uses_the_existing_questions_and_answers_cli() {
     let dir = scratch("full-thread");
     let a = api::analyse_file(&part("GRM-02_shaft"), None).unwrap();
@@ -1187,6 +1318,33 @@ fn command_lines(dir: &Path) -> Vec<Difference> {
         let ran = run(&args);
         let scrub = |t: &str| t.replace(&tmp_s, "{tmp}");
         let (stdout, stderr) = (scrub(&ran.stdout), scrub(&ran.stderr));
+        // For #79: these three exact Python usage captures differ only by the
+        // documented opt-in flag and the PMI-only default wording. Keep every
+        // other byte (including argument errors) under an exact assertion.
+        let bom_usage = |python: &str| {
+            assert!(python.contains("[--accept-defaults] [--intent INTENT]"));
+            python.replace("[--accept-defaults] [--intent INTENT]", "[--accept-defaults] [--bom] [--intent INTENT]")
+                .replace("  --accept-defaults    take defaults for the rest\n", "  --accept-defaults    take PMI defaults for the rest\n  --bom                explicitly accept optional BOM suggestions\n")
+        };
+        match name.as_str() {
+            "cli/usage/09 write tests/fixtures/parts/plate.step"
+            | "cli/usage/15 write tests/fixtures/parts/plate.step a b -o {tmp}/o.step --intent" => {
+                assert_eq!(
+                    stderr,
+                    bom_usage(r["stderr"].as_str().unwrap()),
+                    "{name}: only BOM usage may differ"
+                );
+            }
+            "cli/usage/21 write -h" => {
+                assert_eq!(
+                    stdout,
+                    bom_usage(r["stdout"].as_str().unwrap()),
+                    "{name}: only BOM help may differ"
+                );
+            }
+            _ => {}
+        }
+
         out.extend(same_text(
             &name,
             "exit",
@@ -1474,15 +1632,17 @@ fn without_reviewed_rule_departures(differences: Vec<Difference>) -> Vec<Differe
         .collect()
 }
 
-/// Keep CLI/serve envelopes of measurement origins and ordered part notes under the same
-/// exact before/after guard as the library rules. The snapshot retains its original datum-
+/// Keep CLI/serve envelopes of measurement origins, ordered part notes and shared-planner
+/// report items under the same exact before/after guard as the library rules. The snapshot retains its original datum-
 /// origin filename. Older reviewed CLI differences retain
 /// their existing verdicts; composition never enters this snapshot.
 fn check_datum_origin_departures(differences: &[Difference]) {
     const PATTERN: &str = "measurement datum defaults in CLI and serve envelopes";
     let prior: Vec<_> = load_known(&common::known_differences_file("cli"))
         .into_iter()
-        .filter(|e| e.pattern != PATTERN)
+        .filter(|e| {
+            e.pattern != PATTERN && e.pattern != "Shared planner report item in serve (#75)"
+        })
         .collect();
     let ties: Vec<_> = load_known(&common::known_differences_file("cli"))
         .into_iter()
@@ -1579,6 +1739,19 @@ fn the_command_line_matches_the_oracle() {
     );
     differences.extend(command_lines(&dir));
     let _ = std::fs::remove_dir_all(&dir);
+    if let Some(dir) = std::env::var_os("SPECIFY_DUMP") {
+        let dir = PathBuf::from(dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let rows: Vec<_> = differences
+            .iter()
+            .map(|d| json!({"case":d.case,"path":d.path,"python":d.python,"rust":d.rust}))
+            .collect();
+        std::fs::write(
+            dir.join("cli.json"),
+            serde_json::to_vec_pretty(&rows).unwrap(),
+        )
+        .unwrap();
+    }
     check_datum_origin_departures(&differences);
     check_area(&differences);
 }
