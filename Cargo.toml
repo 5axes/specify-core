@@ -17,10 +17,10 @@ path = "src/main.rs"
 
 [dependencies]
 # quiddity-rust: feature recognition (quiddity) and the geometry kernel with STEP import and
-# AP242 semantic PMI (haecceity). Both use tagged v0.4.1.
+# AP242 semantic PMI (haecceity). Both use tagged v0.4.2.
 # See docs/design.md, "Dependency plan".
-quiddity = { git = "https://github.com/pzfreo/quiddity-rust", tag = "v0.4.1" }
-haecceity = { git = "https://github.com/pzfreo/quiddity-rust", tag = "v0.4.1", features = ["json"] }
+quiddity = { git = "https://github.com/pzfreo/quiddity-rust", tag = "v0.4.2" }
+haecceity = { git = "https://github.com/pzfreo/quiddity-rust", tag = "v0.4.2", features = ["json"] }
 base64 = "0.22.1"
 # Gzipped STEP input is decompressed in memory, and a `.gz` destination written gzipped.
 flate2 = "1.1.10"

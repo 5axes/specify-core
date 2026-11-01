@@ -88,7 +88,7 @@ the resume correspondence rule below handles feature-ID changes.
 ## Dependency plan
 
 - `quiddity` and `haecceity` by git from `https://github.com/pzfreo/quiddity-rust`,
-  pinned to tag `v0.2.3` (`ced75a5`) in both manifests and Cargo.lock.
+  pinned to tag `v0.4.2` (`d7112fd`) in both manifests and Cargo.lock.
   Update only these packages with `cargo update -p quiddity -p haecceity`, then run
   the named local profile below and the full suite in CI, and rejudge any departures from the frozen Python captures with
   independent evidence. `correspondence::recognise` returns published file-coordinate records (#92);
@@ -100,7 +100,7 @@ the resume correspondence rule below handles feature-ID changes.
   Specify keeps its own analysis schema and binding because face numbering
   is unchanged. Derived PMI geometry is followed through its deriving faces by
   `existing::faces_of`; Specify reads PMI anew from STEP, never persists the upstream
-  PMI JSON (version 2, now reader binding `haecceity-pmi-read/11`; older readings must be reread).
+  PMI JSON (version 2, now reader binding `haecceity-pmi-read/13`; older readings must be reread).
   It builds its own write report, so upstream parts/write-report version 2 and the
   graphic-only `Accounting::presentation` do not change that report's shape.
 - **Cargo.toml and Cargo.lock across parallel streams.** A stream that adds a crate adds its

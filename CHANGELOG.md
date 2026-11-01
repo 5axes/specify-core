@@ -6,6 +6,28 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+### Changed
+
+- Pin quiddity and haecceity (native, WASM and Python) to v0.4.2 (`d7112fd`).
+  Recognition /6 and fingerprints /3 stay unchanged; turned steps with spanner
+  flats, grouped interrupted torus fillets and unproved corners follow upstream #167.
+  PMI now repairs reversed bounds and datum-feature child aspects (#168), and
+  duplicate source identifiers and incomplete non-runout zones (#170).
+- Refresh the packaged PMI schema for optional per-item `identifier` values.
+  The documented reader binding moves from `haecceity-pmi-read/11` to `/13`
+  because #168/#170 change readings and findings; Specify always rereads STEP.
+
+### Added
+
+- Regression coverage for #89 using FreeCAD's attributed CC-BY-3.0 hex standoff:
+  AP214 `PRODUCT_TYPE` upgrades to `PRODUCT_RELATED_PRODUCT_CATEGORY`, preserving
+  every other original entity byte, and written PMI/answers read back.
+
+### WASM API
+
+- Add optional `PmiSceneItem.identifier` for the source characteristic number;
+  references continue to use the unique `id`, including when identifiers repeat.
+
 ## 0.1.6 (2026-11-01)
 
 On quiddity/haecceity 0.4.1. Adds answers keyed by authored STEP face names (#87, cadgen's `f:` names), adopts 0.4.1's presentation (callouts by their features, one numbered GENERAL NOTES block, plane views, `stroked` text), adds `PmiScene` TypeScript types, and builds the Linux command line against glibc 2.28 so it runs on Amazon Linux 2023 and other older distributions. Feature-on scenes and written STEP layouts change with the new presentation. Named parts store answers schema 3; unnamed parts are unchanged.

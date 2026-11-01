@@ -115,6 +115,7 @@ export type PmiSceneStatus = "answered" | "default" | "general" | "existing";
 /** A lossless semantic/unit row. Values follow the packaged haecceity.pmi/1 schema;
  * decimal quantities are strings and semantic references use PmiSceneId. */
 export interface PmiSceneItem {
+  identifier?: string;
   id: PmiSceneId;
   value: unknown;
 }
