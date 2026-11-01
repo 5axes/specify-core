@@ -61,3 +61,12 @@ NIST CTC-01 with its tessellated (filled) graphical PMI, plus one authored text 
 adds (that directory's README records how). It is the foreign-PMI part: its callouts are the
 file's (`source: file`, status `existing`). `scripts/pmi-scene-wasm.test.mjs` and
 `scripts/specify-only-browser.mjs` use it.
+
+`spindle_pmi_before.step.gz` and `spindle_pmi_after.step.gz` are the spindle above written by
+Specify v0.1.6's WASM (`IntentEngine.writePmi`, defaults accepted, as the editor writes) with two
+sets of answers: before, `part.material` "Aluminium 6082-T6" and the defaults; after, the same
+with `hole.position:holes:14` 0.2 (was 0.3), `hole.position:holes:15` none (was 0.2),
+`part.edges` "Break sharp edges 0.5 max" and `datum.B.control` 0.05. Specify's diff of them
+reports six PMI changes: #12 ⌖ ⌀0.2 A removed, #13 ⌖ ⌀0.3Ⓜ A → ⌖ ⌀0.2Ⓜ A, #16 and #17 (the
+tapped hole's location dimensions) and #18 ⟂ 0.05 A added, and the edges note reworded.
+`scripts/diff-browser.mjs` compares them on /diff with their PMI drawn.

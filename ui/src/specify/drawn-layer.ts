@@ -12,6 +12,9 @@
 // The Show menu's kinds hide graphics as they hide labels, by their item's status (drawnShown);
 // with the far side hidden, a callout whose annotation plane faces away from the camera is
 // hidden too, looked at again as the camera moves.
+//
+// The /diff page draws a revision's PMI with it too, each item in its change's colour
+// (``colourOf``), and the old revision's removed items as a translucent ghost (``alpha``).
 import * as THREE from 'three';
 import { CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
@@ -28,6 +31,8 @@ const LINE_PX = 1.5;
 const HIT_PX = 6;
 // Text set by its stated height, but never smaller than this to be read.
 const MIN_TEXT_PX = 7;
+// An item lit: a strong blue, read on the part and on white.
+const LIT_INK = '#0b62c4';
 
 interface Drawn {
   /** The semantic item, or null for an unlinked graphic. */
@@ -35,6 +40,7 @@ interface Drawn {
   name: string;
   source: DrawnGraphic['source'];
   status: DrawnStatus | undefined;
+  colour: string;
   /** The side it is read from, when that can be told. */
   normal: DrawnPoint | null;
   /** Whether the Show menu shows its kind. */
@@ -51,8 +57,13 @@ export interface DrawnLayer {
   /** The file's own graphics (``source: "file"``) of ``pmi``, or none. */
   set(pmi: DrawnPmi | null): void;
   setVisible(on: boolean): void;
-  /** The kinds the Show menu shows, and whether callouts facing away are hidden. */
-  filter(show: DrawnShow, farSide: boolean): void;
+  /**
+   * The kinds the Show menu shows, and whether callouts facing away are hidden; items in
+   * ``reveal`` are drawn whatever their kind and whichever way they face, as a label chosen is.
+   */
+  filter(show: DrawnShow, farSide: boolean, reveal?: ReadonlySet<string>): void;
+  /** Draws an item's graphics in the highlight colour, or none. */
+  light(item: string | null): void;
   /** The linked item drawn within a few pixels of (x, y) in the view, if any. */
   hit(x: number, y: number): string | null;
   /** Where the graphics now shown are, for a view that frames them with the part; null if none. */
@@ -63,7 +74,16 @@ export interface DrawnLayer {
 export function createDrawnLayer(
   nav: AnnotationHost,
   container: HTMLElement,
-  { onClick, centre }: { onClick: (item: string) => void; centre?: DrawnPoint },
+  { onClick, centre, colourOf, rank, alpha = 1 }: {
+    onClick: (item: string) => void;
+    centre?: DrawnPoint;
+    /** An item's colour (an unlinked graphic's is asked with null), or null to leave it out; by default its status's. */
+    colourOf?: (item: string | null, status: DrawnStatus | undefined) => string | null;
+    /** Which of several items sharing a graphic it is drawn as: the lowest rank, before the item Specify knows. */
+    rank?: (item: string) => number;
+    /** Below 1, everything is drawn see-through. */
+    alpha?: number;
+  },
 ): DrawnLayer {
   const { scene } = nav;
   // One line and one fill material per colour: a status's, as its semantic labels have it.
@@ -74,9 +94,13 @@ export function createDrawnLayer(
       made = {
         line: new LineMaterial({
           color: new THREE.Color(colour).getHex(), linewidth: LINE_PX, worldUnits: false,
-          depthTest: false, depthWrite: false, alphaToCoverage: true,
+          depthTest: false, depthWrite: false, alphaToCoverage: alpha >= 1,
+          ...(alpha < 1 ? { transparent: true, opacity: alpha } : {}),
         }),
-        fill: new THREE.MeshBasicMaterial({ color: colour, side: THREE.DoubleSide, depthTest: false, depthWrite: false }),
+        fill: new THREE.MeshBasicMaterial({
+          color: colour, side: THREE.DoubleSide, depthTest: false, depthWrite: false,
+          ...(alpha < 1 ? { transparent: true, opacity: alpha } : {}),
+        }),
       };
       inks.set(colour, made);
     }
@@ -88,8 +112,13 @@ export function createDrawnLayer(
   let visible = false;
   let show: DrawnShow = { default: true, existing: true, general: true };
   let farSide = false;
+  let reveal: ReadonlySet<string> = new Set();
+  let lit: string | null = null;
   let pmiNow: DrawnPmi | null = null;
-  const on = (d: Drawn) => visible && d.shown && !(farSide && d.away);
+  const revealed = (d: { item: string | null }) => d.item !== null && reveal.has(d.item);
+  const shownBy = (d: { item: string | null; source: Drawn['source']; status: DrawnStatus | undefined }) =>
+    revealed(d) || drawnShown(d.source, d.status, show);
+  const on = (d: Drawn) => visible && d.shown && !(farSide && d.away && !revealed(d));
 
   function counts() {
     // What is drawn, for a test to compare with the JSON: nothing while hidden.
@@ -105,6 +134,20 @@ export function createDrawnLayer(
     container.dataset['drawnGeneral'] = by((d) => d.status === 'general');
     container.dataset['drawnDefault'] = by((d) => d.status === 'default');
     container.dataset['drawnFile'] = by((d) => d.source === 'file' || d.status === 'existing');
+    // Each linked item shown, and its colour as drawn, one a line: `item colour`.
+    container.dataset['drawnItems'] = [...new Set(shownNow.filter((d) => d.item !== null)
+      .map((d) => `${d.item} ${d.item === lit ? LIT_INK : d.colour}`))].join('\n');
+  }
+
+  // An item's graphics in its own colour, or lit.
+  function paint(d: Drawn) {
+    const colour = d.item !== null && d.item === lit ? LIT_INK : d.colour;
+    const { line, fill } = ink(colour);
+    for (const o of d.objects) {
+      if (o instanceof LineSegments2) o.material = line;
+      else if (o instanceof THREE.Mesh) o.material = fill;
+      else if (o instanceof CSS2DObject) (o.element.firstElementChild as HTMLElement | null)?.style.setProperty('color', colour);
+    }
   }
 
   // Each graphic shown or not, as the menu and the camera say.
@@ -170,6 +213,7 @@ export function createDrawnLayer(
       const inner = document.createElement('span');
       inner.textContent = text;
       inner.style.color = colour;
+      if (alpha < 1) inner.style.opacity = String(alpha);
       // Unplaced, a graphic's texts one under another.
       if (!at && i) inner.style.transform = `translateY(${1.2 * i}em)`;
       if (item !== null) {
@@ -189,9 +233,9 @@ export function createDrawnLayer(
     }
     scene.add(...objects);
     return {
-      item, name: graphic.name, source: graphic.source, status,
+      item, name: graphic.name, source: graphic.source, status, colour,
       normal: graphicNormal(graphic, pmiNow?.presentation.planes ?? [], centre),
-      shown: drawnShown(graphic.source, status, show), away: false,
+      shown: shownBy({ item, source: graphic.source, status }), away: false,
       polylines: graphic.polylines.filter((l) => l.length > 1).length, segments, triangles, objects,
     };
   }
@@ -273,7 +317,9 @@ export function createDrawnLayer(
       if (pmi) {
         // Items Specify knows first, so a graphic under several is drawn as the one it knows.
         const known = (item: string) => (pmi.links[item]?.status ? 0 : 1);
-        const items = Object.entries(pmi.presentation.items).sort(([a], [b]) => known(a) - known(b));
+        const ranked = (item: string) => rank?.(item) ?? 0;
+        const items = Object.entries(pmi.presentation.items)
+          .sort(([a], [b]) => ranked(a) - ranked(b) || known(a) - known(b));
         const seen = new Set<string>();
         const once = (g: DrawnGraphic) => {
           if (g.id === undefined) return true;
@@ -281,12 +327,17 @@ export function createDrawnLayer(
           seen.add(g.id);
           return true;
         };
+        const colourFor = (item: string | null, status: DrawnStatus | undefined) =>
+          (colourOf ? colourOf(item, status) : GROUP_COLOUR[status ?? 'existing']);
         for (const [item, graphics] of items) {
           const status = pmi.links[item]?.status;
-          const colour = GROUP_COLOUR[status ?? 'existing'];
-          for (const g of graphics) if (once(g)) drawn.push(place(g, item, status, colour));
+          const colour = colourFor(item, status);
+          // A graphic left out here is still seen, so another item sharing it is not drawn with it.
+          for (const g of graphics) if (once(g) && colour !== null) drawn.push(place(g, item, status, colour));
         }
-        for (const g of pmi.presentation.unlinked) if (once(g)) drawn.push(place(g, null, undefined, GROUP_COLOUR.existing));
+        const loose = colourFor(null, undefined);
+        for (const g of pmi.presentation.unlinked) if (once(g) && loose !== null) drawn.push(place(g, null, undefined, loose));
+        for (const d of drawn) paint(d);
       }
       turn();
       apply();
@@ -296,12 +347,20 @@ export function createDrawnLayer(
       if (next) { turn(); orient(); }
       apply();
     },
-    filter(next, hideFar) {
+    filter(next, hideFar, chosen = new Set()) {
       show = next;
       farSide = hideFar;
-      for (const d of drawn) d.shown = drawnShown(d.source, d.status, show);
+      reveal = chosen;
+      for (const d of drawn) d.shown = shownBy(d);
       turn();
       apply();
+    },
+    light(item) {
+      if (item === lit) return;
+      const was = lit;
+      lit = item;
+      for (const d of drawn) if (d.item !== null && (d.item === was || d.item === item)) paint(d);
+      counts();
     },
     bounds() {
       const box = new THREE.Box3();
