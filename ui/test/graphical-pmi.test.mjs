@@ -80,6 +80,33 @@ test('text placements read as stated, and a malformed one is refused with where'
   assert.match(readPresentation(doc({ items: { 1: [{ ...graphic, id: 3 }] } })).reason, /items\["1"\]\[0\]\.id is not a string/);
 });
 
+test('haecceity 0.4.4: polyline roles, a text\'s cell and whether it is stroked read as stated; malformed, refused with where', () => {
+  const at = { text_index: 0, origin: [1, 2, 3], x_axis: [1, 0, 0], normal: [0, -1, 0], height: 1.2, alignment: 'centre', cell_box: [[-1.5, -1.2], [1.5, 1.2]], stroked: true };
+  const g = { ...graphic, source: 'generated', polylines: [[[0, 0, 0], [1, 0, 0]], [[0, 1, 0], [1, 1, 0]]], polyline_roles: ['frame', 'text'], text_placements: [at] };
+  const read = readPresentation(doc({ items: { 1: [g] } }));
+  assert.ok(read.ok, read.reason);
+  assert.deepEqual(read.value.items['1'][0].polylineRoles, ['frame', 'text']);
+  assert.deepEqual(read.value.items['1'][0].textPlacements[0].cellBox, [[-1.5, -1.2], [1.5, 1.2]]);
+  assert.equal(read.value.items['1'][0].textPlacements[0].stroked, true);
+  const bad = (over, t = {}) => readPresentation(doc({ items: { 1: [{ ...g, ...over, text_placements: [{ ...at, ...t }] }] } })).reason;
+  assert.match(bad({ polyline_roles: ['frame'] }), /polyline_roles has 1 roles for 2 polylines/);
+  assert.match(bad({ polyline_roles: ['frame', 2] }), /polyline_roles\[1\] is not a string/);
+  assert.match(bad({}, { cell_box: [[0, 0]] }), /cell_box does not have 2 corners/);
+  assert.match(bad({}, { cell_box: [[0, 0], [1]] }), /cell_box\[1\] is not a point \[x, y\]/);
+  assert.match(bad({}, { stroked: 'yes' }), /stroked is not a boolean/);
+});
+
+test('links: a stated material is the item the presentation presents as part.material (specify-core after 0.1.6)', () => {
+  const pmi = { schema: 'haecceity.pmi/1', pmi: { material: { id: 'steel', name: null, density: null } } };
+  const presented = readPresentation(doc({ items: { 'part.material': [graphic] }, semantic_ids: ['part.material'] })).value;
+  const links = linksFromPmi(pmi, presented);
+  assert.ok(links.ok, links.reason);
+  assert.deepEqual(links.value['part.material'], { faces: [] });
+  // 0.1.6 does not present it: the material is not an item there.
+  const unpresented = readPresentation(doc({ items: {}, semantic_ids: [] })).value;
+  assert.ok(linksFromPmi(pmi, unpresented).ok);
+});
+
 // A pmiScene in small: a datum whose symbol is listed under the datum and its feature, as
 // specify-core 0.1.5 lists it, with Specify's overlay for the datum only.
 const scene = () => ({
