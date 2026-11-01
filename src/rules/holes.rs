@@ -167,11 +167,14 @@ pub(crate) fn hole_questions(
         options.push("clearance".to_string());
     }
     options.extend(HOLE_FITS.iter().map(|fit| format!("fit:{fit}")));
-    let chosen = if let Some(size) = tapped {
+    let exact_tap = tapped.filter(|size| {
+        standards::lookup(&TAP_DRILL, size).is_some_and(|drill| (diameter - drill).abs() < 1e-6)
+    });
+    let chosen = if let Some(size) = exact_tap {
         // Exact tap-drill evidence wins over a smaller screw which also fits
         // through the bore. Explicit clearance answers remain available.
         format!("tapped:{size}")
-    } else if !bolts.is_empty() {
+    } else if !bolts.is_empty() || tapped.is_some() {
         // A bolt or tap was appended to the initial general option in this branch.
         options[1].clone()
     } else {

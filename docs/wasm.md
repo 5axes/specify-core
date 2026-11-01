@@ -498,3 +498,7 @@ fields keep schema `/1`; strict `deny_unknown_fields` consumers must update thei
 types. Specify passes both through unchanged. The released dependency tag remains
 pinned; tests of these additions use a local Cargo path patch until that kernel
 is released.
+
+In the role array, `text` includes explicit ISO glyph strokes already represented
+in cell strings (⌖, ⌀, Ⓜ). Remove those when replacing whole cells with host-font
+text. Standalone finish marks and leader scope rings remain `symbol` geometry.

@@ -176,7 +176,11 @@ fn alpha7_tap_survives_cli_resave_without_a_depth_answer() {
     let defs = read_part_definitions(&bytes).unwrap();
     let doc = Document::parse(bytes).unwrap();
     let read = pmi::read(&doc, &defs).unwrap();
-    assert_eq!(read.parts[0].threads.len(), 1);
+    assert_eq!(
+        read.parts[0].threads.len(),
+        2,
+        "accepted defaults also tap the exact Ø2.5 drill"
+    );
     assert!(read.parts[0].attributes.iter().flat_map(|a| &a.items).any(|(n,v)| n == "minimum full thread" && matches!(v, pmi::AttributeValue::Measure(m) if matches!(&m.quantity, pmi::Quantity::Length(l) if l.mm() == 2.0))));
 }
 
