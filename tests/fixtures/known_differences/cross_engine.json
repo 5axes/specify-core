@@ -498,27 +498,6 @@
   },
   {
     "case": "nist/nist_ctc_05_asme1_ap242",
-    "path": "python_readback.existing[key=dimension|Location_LinearDistance|[8]|[78,79,84,85]#1]",
-    "pattern": "Exact shared-planner General dimension read only by Python (#63, #75)",
-    "verdict": "rust-correct",
-    "evidence": "Shared planner, #75: independent fresh STEP readback states Location_LinearDistance 171.45 mm on [8] to [78, 79, 84, 85]. The exact nominal-only dimension is retained as physical PMI but read_existing intentionally excludes authored untoleranced dimensions (#63); the independent Python reader includes it. Its complete semantic target includes every coincident hole or pattern origin, rather than silently dropping covered members. The corpus physical-support/duplicate/chain checks pass, and cross_engine verifies current writer bytes and reader evidence hashes. Only this exact item is covered."
-  },
-  {
-    "case": "nist/nist_ctc_05_asme1_ap242",
-    "path": "python_readback.existing[key=dimension|Location_LinearDistance|[8]|[80,81,86,87]#1]",
-    "pattern": "Exact shared-planner General dimension read only by Python (#63, #75)",
-    "verdict": "rust-correct",
-    "evidence": "Shared planner, #75: independent fresh STEP readback states Location_LinearDistance 206.375 mm on [8] to [80, 81, 86, 87]. The exact nominal-only dimension is retained as physical PMI but read_existing intentionally excludes authored untoleranced dimensions (#63); the independent Python reader includes it. Its complete semantic target includes every coincident hole or pattern origin, rather than silently dropping covered members. The corpus physical-support/duplicate/chain checks pass, and cross_engine verifies current writer bytes and reader evidence hashes. Only this exact item is covered."
-  },
-  {
-    "case": "nist/nist_ctc_05_asme1_ap242",
-    "path": "python_readback.existing[key=dimension|Location_LinearDistance|[8]|[82,83,88,89]#1]",
-    "pattern": "Exact shared-planner General dimension read only by Python (#63, #75)",
-    "verdict": "rust-correct",
-    "evidence": "Shared planner, #75: independent fresh STEP readback states Location_LinearDistance 241.3 mm on [8] to [82, 83, 88, 89]. The exact nominal-only dimension is retained as physical PMI but read_existing intentionally excludes authored untoleranced dimensions (#63); the independent Python reader includes it. Its complete semantic target includes every coincident hole or pattern origin, rather than silently dropping covered members. The corpus physical-support/duplicate/chain checks pass, and cross_engine verifies current writer bytes and reader evidence hashes. Only this exact item is covered."
-  },
-  {
-    "case": "nist/nist_ctc_05_asme1_ap242",
     "path": "python_readback.existing[key=dimension|Location_LinearDistance|[9]|[37,51,53,54,56]#1]",
     "pattern": "Exact shared-planner General dimension read only by Python (#63, #75)",
     "verdict": "rust-correct",

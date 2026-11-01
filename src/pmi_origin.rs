@@ -1,6 +1,8 @@
 //! Stored dimension intent, independent of authorship and recognition IDs (#77).
 //! Producer/reader contract: `docs/pmi-origin.md`.
-use haecceity::pmi::{AttributeSet, AttributeValue, DimensionId, NoteOwner, PartPmi};
+use haecceity::pmi::{
+    AttributeSet, AttributeValue, DimensionId, DimensionKind, NoteOwner, PartPmi,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
@@ -90,7 +92,13 @@ impl Planner {
         })
     }
 
-    pub fn dimension(&self, pmi: &mut PartPmi, req: &Map<String, Value>, general: bool) {
+    pub fn dimension(
+        &self,
+        pmi: &mut PartPmi,
+        req: &Map<String, Value>,
+        general: bool,
+        features: &[haecceity::pmi::Feature],
+    ) {
         let owner = NoteOwner::Dimension(DimensionId(pmi.dimensions.len() - 1));
         let mut support: Vec<usize> = req
             .get("faces")
@@ -101,6 +109,16 @@ impl Planner {
             .collect();
         support.sort_unstable();
         support.dedup();
+        if req.contains_key("planner") {
+            // A shared survivor can target a complete coincident group rather than
+            // the representative source row. Store the measured target, as #77
+            // requires; inspection allocation and carried sources are unchanged.
+            let target = match pmi.dimensions.last().expect("dimension just appended").kind {
+                DimensionKind::Size { feature, .. } => feature,
+                DimensionKind::Location { to, .. } => to,
+            };
+            support = crate::existing::faces_in_arena(features, &[target]);
+        }
         let size = req.get("kind").and_then(Value::as_str) == Some("size");
         // Aggregate bodies, risers and plane-level features can contain a support without
         // being the feature this measurement states. Only match families whose parameter

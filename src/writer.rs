@@ -1338,6 +1338,37 @@ pub(crate) fn scene_model(
     part_pmi_observed(loaded, intent, before, mode, observe).map(|(p, _)| p)
 }
 
+// Add mode retains imported thread manufacturing attributes. They already carry
+// their exact drill requirements even when the interview emits no new thread row.
+fn thread_carries_planned(before: &PartPmi, planned: &crate::dimensioning::Planned) -> bool {
+    let quiddity::dimensioning::Kind::Size { role, .. } = &planned.required.kind else {
+        return false;
+    };
+    let parameter = match role.as_str() {
+        "bore.diameter" => "tapping drill diameter",
+        "bore.depth" => "tapping drill depth",
+        _ => return false,
+    };
+    !planned.required.covers.is_empty() && planned.required.covers.iter().all(|id| {
+        let Some(support) = planned.supports.iter().find(|s| &s.feature == id) else {
+            return false;
+        };
+        before.threads.iter().any(|thread| {
+            thread.side == ThreadSide::Internal
+                && crate::existing::faces_of(before, &[thread.feature])
+                    .iter().any(|f| support.faces.contains(f))
+                && before.attributes.iter().any(|a| {
+                    a.name == "thread manufacturing"
+                        && matches!(a.on, Some(NoteOwner::Feature(f)) if before.same_target(&ToleranceTarget::Feature(f), &ToleranceTarget::Feature(thread.feature)))
+                        && a.items.iter().any(|(name, value)| name == parameter
+                            && matches!(value, AttributeValue::Measure(v)
+                                if matches!(v.quantity, pmi::Quantity::Length(_))
+                                && (crate::existing::value(v) - planned.required.nominal).abs() < 1e-4))
+                })
+        })
+    })
+}
+
 fn part_pmi_observed(
     loaded: &LoadedPart,
     intent: &Intent,
@@ -1551,6 +1582,9 @@ fn part_pmi_observed(
                 ));
                 continue;
             }
+            if mode == Mode::Add && thread_carries_planned(before, &planned) {
+                continue;
+            }
             let dimension_kind = planned_kind(&planned, &mut f, &mut p.geometry, &point_unit)?;
             // Keep generated measurements at Specify's established six decimal places in mm;
             // sub-nanometre frame-inference noise must not create inspection revisions.
@@ -1617,7 +1651,7 @@ fn part_pmi_observed(
                 },
                 principle: None,
             });
-            origins.dimension(&mut p, req, under_general);
+            origins.dimension(&mut p, req, under_general, f.0);
             p.attributes.push(AttributeSet {
                 name: "specify dimension plan".into(),
                 on: Some(NoteOwner::Dimension(pmi::DimensionId(
@@ -1711,7 +1745,7 @@ fn part_pmi_observed(
                     modifiers: Vec::new(),
                     principle: None,
                 });
-                origins.dimension(&mut p, req, under_general);
+                origins.dimension(&mut p, req, under_general, f.0);
                 if under_general {
                     general += 1;
                 } else {
@@ -1764,7 +1798,7 @@ fn part_pmi_observed(
                     modifiers: Vec::new(),
                     principle: None,
                 });
-                origins.dimension(&mut p, req, under_general);
+                origins.dimension(&mut p, req, under_general, f.0);
                 if under_general {
                     general += 1;
                 } else {

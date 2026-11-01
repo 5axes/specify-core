@@ -74,23 +74,121 @@ fn v024_boss_answers_and_pmi_resume_after_chamfer_and_round_height_corrections()
             base["existing"]
         );
         let intent = rules::apply(&a, answers).unwrap();
-        // Sizes, limits, datums and explicit face references are unchanged. No height
-        // nominal was derived from the formerly shortened recognition record.
-        let mut current = intent.to_dict();
+        // Preserve the complete historical comparison on the legacy path. #75's
+        // live path adds planner metadata and removes generated drill-floor rows;
+        // it must still preserve every answered requirement and physical span.
+        let mut legacy_analysis = a.clone();
+        legacy_analysis
+            .as_object_mut()
+            .unwrap()
+            .shift_remove("dimensioning");
+        legacy_analysis
+            .as_object_mut()
+            .unwrap()
+            .shift_remove("dimensioning_stated");
+        let mut legacy = rules::apply(&legacy_analysis, answers).unwrap().to_dict();
         let mut prior = base["intent"].clone();
-        current.as_object_mut().unwrap().shift_remove("binding");
+        legacy.as_object_mut().unwrap().shift_remove("binding");
         prior.as_object_mut().unwrap().shift_remove("binding");
-        assert_eq!(current, prior, "{name}");
+        assert_eq!(legacy, prior, "{name}: complete legacy intent");
+        assert_eq!(json!(intent.part), prior["part"]);
+        assert_eq!(json!(intent.datums), prior["datums"]);
+        let rows = |rs: &[Value], general: bool| {
+            let mut rows: Vec<_> = rs
+                .iter()
+                .filter(|r| r.get("not_written_reason").is_none())
+                .map(|r| {
+                    let mut r = r.clone();
+                    let map = r.as_object_mut().unwrap();
+                    map.shift_remove("planner");
+                    if general {
+                        // Anonymous plane rows can acquire the shared support's name;
+                        // physical endpoints, nominal and tolerance remain authoritative.
+                        map.shift_remove("feature");
+                        if r["kind"] == "location"
+                            && r["faces"]
+                                .as_array()
+                                .unwrap()
+                                .iter()
+                                .map(|v| v.as_u64().unwrap())
+                                .cmp(
+                                    r["reference"]
+                                        .as_array()
+                                        .unwrap()
+                                        .iter()
+                                        .map(|v| v.as_u64().unwrap()),
+                                )
+                                .is_lt()
+                        {
+                            let faces = r["faces"].clone();
+                            r["faces"] = r["reference"].clone();
+                            r["reference"] = faces;
+                        }
+                    }
+                    r
+                })
+                .collect();
+            rows.sort_by_key(|r| {
+                (
+                    r["question"].to_string(),
+                    r["kind"].to_string(),
+                    r["faces"].to_string(),
+                    r["reference"].to_string(),
+                )
+            });
+            rows
+        };
+        let current = intent.to_dict();
+        assert_eq!(
+            rows(current["requirements"].as_array().unwrap(), false),
+            rows(prior["requirements"].as_array().unwrap(), false),
+            "{name}: all answered contracts"
+        );
+        let mut expected_general = prior["general"].as_array().unwrap().clone();
+        if name == "chamfer" {
+            // Face 16 is the M2 drill floor, not a part length (#75); the thread
+            // carries its drilling depth. Keep every other historical span.
+            let removed: Vec<_> = expected_general
+                .iter()
+                .filter(|r| r["faces"] == json!([16]))
+                .collect();
+            assert_eq!(removed.len(), 1);
+            assert_eq!(removed[0]["distance"], 5.0);
+            expected_general.retain(|r| r["faces"] != json!([16]));
+            let unresolved: Vec<_> = intent
+                .requirements
+                .iter()
+                .chain(&intent.general)
+                .filter_map(|r| r.get("not_written_reason"))
+                .collect();
+            assert_eq!(unresolved.len(), 1);
+            assert!(
+                unresolved[0]
+                    .as_str()
+                    .unwrap()
+                    .contains("General contract conflicts with an answered requirement")
+            );
+        }
+        let written_general: Vec<_> = current["general"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|r| r.get("not_written_reason").is_none())
+            .cloned()
+            .collect();
+        assert_eq!(
+            rows(&written_general, true),
+            rows(&expected_general, true),
+            "{name}: all independent physical spans"
+        );
         let (bytes, _) = writer::write_bytes(&loaded, &intent, Some(answers)).unwrap();
         let back = part::load_bytes("rewritten.step", bytes).unwrap();
         assert_eq!(resume::answers_for(&back).unwrap().as_ref(), Some(answers));
-        let mut expected = existing::read_existing(&loaded).unwrap();
+        let expected = existing::read_existing(&loaded).unwrap();
         if name == "chamfer" {
-            // quiddity-rust#137: the datum's size is now a separate DIMENSIONAL_SIZE,
-            // emitted after the bore size, rather than on its earlier datum aspect.
-            // Pin the new order while comparing every field to the untouched old input.
+            // #75 emits the retained boss fit before the shared hole fit again,
+            // matching the old file's order; both original numbers must survive.
             assert_eq!((expected[0].number, expected[1].number), (Some(4), Some(3)));
-            expected.swap(0, 1);
         }
         let rows = existing::read_existing(&back).unwrap();
         for row in rows.iter().filter(|r| r.kind == "dimension") {

@@ -1474,15 +1474,17 @@ fn without_reviewed_rule_departures(differences: Vec<Difference>) -> Vec<Differe
         .collect()
 }
 
-/// Keep CLI/serve envelopes of measurement origins and ordered part notes under the same
-/// exact before/after guard as the library rules. The snapshot retains its original datum-
+/// Keep CLI/serve envelopes of measurement origins, ordered part notes and shared-planner
+/// report items under the same exact before/after guard as the library rules. The snapshot retains its original datum-
 /// origin filename. Older reviewed CLI differences retain
 /// their existing verdicts; composition never enters this snapshot.
 fn check_datum_origin_departures(differences: &[Difference]) {
     const PATTERN: &str = "measurement datum defaults in CLI and serve envelopes";
     let prior: Vec<_> = load_known(&common::known_differences_file("cli"))
         .into_iter()
-        .filter(|e| e.pattern != PATTERN)
+        .filter(|e| {
+            e.pattern != PATTERN && e.pattern != "Shared planner report item in serve (#75)"
+        })
         .collect();
     let ties: Vec<_> = load_known(&common::known_differences_file("cli"))
         .into_iter()
@@ -1579,6 +1581,19 @@ fn the_command_line_matches_the_oracle() {
     );
     differences.extend(command_lines(&dir));
     let _ = std::fs::remove_dir_all(&dir);
+    if let Some(dir) = std::env::var_os("SPECIFY_DUMP") {
+        let dir = PathBuf::from(dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let rows: Vec<_> = differences
+            .iter()
+            .map(|d| json!({"case":d.case,"path":d.path,"python":d.python,"rust":d.rust}))
+            .collect();
+        std::fs::write(
+            dir.join("cli.json"),
+            serde_json::to_vec_pretty(&rows).unwrap(),
+        )
+        .unwrap();
+    }
     check_datum_origin_departures(&differences);
     check_area(&differences);
 }

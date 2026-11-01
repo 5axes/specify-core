@@ -690,7 +690,11 @@ pub(crate) fn apply(mut input: Input, intent: &mut Intent) -> Result<(), String>
             _ => return true,
         };
         let conflict = intent.requirements.iter().any(|row| {
-            if row.get("kind").and_then(Value::as_str) != Some(requested)
+            let kind = row.get("kind").and_then(Value::as_str);
+            let position = requested == "location" && kind == Some("position")
+                && matches!(&r.kind, Kind::Location { from, to, .. }
+                    if !from.faces.is_empty() && !to.faces.is_empty());
+            if (kind != Some(requested) && !position)
                 || row.get("general") == Some(&json!(true)) { return false; }
             if requested == "size" && row.get("size_kind").and_then(Value::as_str)
                 .is_some_and(|kind| kind != "diameter") { return false; }
@@ -1037,7 +1041,11 @@ pub(crate) fn apply(mut input: Input, intent: &mut Intent) -> Result<(), String>
                             }
                         )
                     })
-                    .and_then(|g| crate::general::deviation(g, required.nominal))
+                    .and_then(|g| {
+                        // Match the six-decimal nominal written to STEP; rigid-frame
+                        // noise at an ISO range boundary must not widen the tolerance.
+                        crate::general::deviation(g, crate::rules::round(required.nominal, 6))
+                    })
                 {
                     row.insert("upper".into(), json!(t));
                     row.insert("lower".into(), json!(-t));

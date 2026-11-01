@@ -87,3 +87,11 @@ reference described above (this combined recapture uses the clean reconstruction
 `7e2125d`, recorded by the capture tool in every `python_meta.json.gz`).
 Planner counts/roles now have dimension-owned metadata;
 synthetic support points use the source context's length unit, including inches.
+
+The combined v0.4.1 integration recapture preserves thirteen semantic readbacks.
+CTC-05 additionally omits three unreconciled General offsets (171.45, 206.375 and
+241.3 from face 8) that conflict with existing position requirements; the writer
+reports them. Their three stale per-item cross-engine ledger entries are removed.
+New shared source UDAs name the complete measured target; retained thread drilling
+attributes also prevent duplicate drill rows in Add mode. These are integration
+fixes, rather than changes to v0.4.1's shared planner or the 42-part count table.

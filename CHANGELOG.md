@@ -36,6 +36,9 @@ All notable changes to specify-core-rust. The format follows
   and bounded shoulder stations that lack unambiguous semantic supports are
   reported instead of adding inspection constraints; physical-plane witnesses
   keep their legacy path.
+  General-tolerance range selection uses the same six-decimal nominal as the
+  written dimension, keeping boundary values stable under rigid moves. Source
+  metadata for newly shared dimensions names their complete measured target.
 
 - For #87 fix round 1: only unique names in the authored `f:` namespace become
   face identities. Shared names and generic/class labels (including singletons)

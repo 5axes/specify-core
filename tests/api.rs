@@ -121,7 +121,8 @@ fn an_assembly_is_analysed_a_part_at_a_time() {
     assert_eq!(mesh["faces"].as_array().unwrap().len(), 7);
 }
 
-/// The analysis's keys in Python's order on every synthetic part: `mates` and contacts only
+/// The analysis retains Python key order, with the shared planner input after features (#75).
+/// `mates` and contacts appear only
 /// for a part of an assembly, `existing` and `part` for a file specify-core did not write.
 #[test]
 fn analyses_have_python_layout() {
@@ -135,10 +136,24 @@ fn analyses_have_python_layout() {
         let keys: Vec<&String> = a.as_object().unwrap().keys().collect();
         assert_eq!(
             keys,
-            ["schema", "binding", "faces", "features", "existing", "part"],
+            [
+                "schema",
+                "binding",
+                "faces",
+                "features",
+                "dimensioning",
+                "existing",
+                "part"
+            ],
             "{stem}"
         );
         assert_eq!(a["schema"], json!(api::ANALYSIS_SCHEMA));
+        let input: quiddity::dimensioning::Input =
+            serde_json::from_value(a["dimensioning"].clone()).unwrap();
+        assert!(
+            input.specified.is_empty(),
+            "unwritten input has no stored contracts"
+        );
     }
     for k in 0..3 {
         let a = api::analyse_file(&part("stack"), Some(k)).unwrap();
@@ -146,7 +161,14 @@ fn analyses_have_python_layout() {
         assert_eq!(
             keys,
             [
-                "schema", "binding", "faces", "features", "mates", "existing", "part"
+                "schema",
+                "binding",
+                "faces",
+                "features",
+                "dimensioning",
+                "mates",
+                "existing",
+                "part"
             ],
             "stack#{k}"
         );
