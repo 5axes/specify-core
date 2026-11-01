@@ -22,7 +22,9 @@ All notable changes to specify-core-rust. The format follows
   material in one GENERAL NOTES block, replacing the file block in the scene while
   lossless writes keep its records. Reopened appended files also draw one block.
   Part-level edge-break prose answers `part.edges`
-  as written. Feature notes retain their owner and clear the combined block. File callouts
+  as written. Feature notes retain their owner; haecceity generates their fallback ink
+  together with the combined block and owns all placement. Rotated-part regression
+  checks use the notes plane. File callouts
   report file source and material DMIAs link through `part.material`.
 
 - For #75, written hole sizes, pattern

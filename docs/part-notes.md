@@ -80,7 +80,13 @@ part provenance.
 Material is a scalar in `haecceity.pmi/1`, so Specify adds `part.material` as a companion
 alias in `presentation.items`, `presentation.semantic_ids` and `specify`, without adding
 or changing a semantic PMI row. Feature-owned notes keep separate feature callouts;
-unpresented feature notes get the upstream generated fallback and stack below the combined
-block with a gap of two text heights. Imported manufacturing requirements of kind `semantic text` are rendered as free part notes. Explicit part-level
+unpresented feature notes and the combined block are generated in one haecceity call,
+using the file's semantic support graph to retain each note owner. Haecceity reserves the
+block's ink and places feature notes below it with a gap of two text heights. Specify
+filters and aliases graphics without editing coordinates. The Rust `Scene::scene` with
+`answers: None` and the standalone Rust/WASM `pmi_scene`/`pmiScene(stepBytes, part?)`
+expose the original single-block file view, including `step:726` with `source: "file"`.
+Imported manufacturing requirements of kind `semantic text` are rendered as free part
+notes. Explicit part-level
 phrases such as “break sharp edges” answer `part.edges` using the original text; feature
 notes and unrelated manufacturing prose never supply that part default.

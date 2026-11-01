@@ -140,10 +140,20 @@ pub(super) fn file(
     Ok(())
 }
 
-/// Extract only part settings, preserving each semantic identity. Normalization is
-/// for display ordering only; the exported semantic text/kind stays as the file wrote it.
-fn settings(sources: &[&Semantic]) -> Result<Semantic, String> {
-    let mut display = wire::identify(PartPmi::default(), None).map_err(|e| e.to_string())?;
+/// Retain the file's support graph so feature-note owners keep their identities.
+/// Specify authors part settings only; the last source owns the file's feature notes.
+/// Normalization affects display ordering, never the exported semantic text/kind.
+fn settings(sources: &[&Semantic], feature_notes: &BTreeSet<String>) -> Semantic {
+    let owner = sources.last().unwrap();
+    let mut display = (*owner).clone();
+    display.pmi.material = None;
+    display.pmi.general.clear();
+    display.pmi.surface_textures.clear();
+    display.pmi.attributes.clear();
+    display.pmi.notes.clear();
+    for collection in ["general", "surface_textures", "attributes", "notes"] {
+        display.ids.get_mut(collection).unwrap().clear();
+    }
     for source in sources {
         if display.pmi.material.is_none() {
             display.pmi.material = source.pmi.material.clone();
@@ -205,7 +215,14 @@ fn settings(sources: &[&Semantic]) -> Result<Semantic, String> {
                 .push(source.ids["notes"][i].clone());
         }
     }
-    Ok(display)
+    for (i, row) in owner.pmi.notes.iter().enumerate() {
+        let id = &owner.ids["notes"][i];
+        if row.on.is_some() && feature_notes.contains(id) {
+            display.pmi.notes.push(row.clone());
+            display.ids.get_mut("notes").unwrap().push(id.clone());
+        }
+    }
+    display
 }
 
 pub(super) fn combined(
@@ -215,9 +232,25 @@ pub(super) fn combined(
     loaded: &LoadedPart,
 ) -> Result<(), String> {
     let sources: Vec<_> = std::iter::once(current).chain(original).collect();
-    let display = settings(&sources)?;
-    let generated = presentation::generated(&display, &loaded.part).map_err(|e| e.to_string())?;
-    let mut notes = serde_json::to_value(generated).map_err(|e| e.to_string())?;
+    let owner = sources.last().unwrap();
+    // Preserve file ink. Missing feature-note ink (including the file-view fallback)
+    // must be generated together with the combined block, in haecceity's layout.
+    let feature_notes: BTreeSet<String> = owner
+        .pmi
+        .notes
+        .iter()
+        .enumerate()
+        .filter(|(_, note)| note.on.is_some())
+        .map(|(i, _)| owner.ids["notes"][i].clone())
+        .filter(|id| {
+            !scene["presentation"]["items"][id]
+                .as_array()
+                .is_some_and(|rows| rows.iter().any(|g| g["source"] == "file"))
+        })
+        .collect();
+    let display = settings(&sources, &feature_notes);
+    let mut generated =
+        presentation::generated(&display, &loaded.part).map_err(|e| e.to_string())?;
     let part_ids: BTreeSet<_> = haecceity::presentation::notes::general_notes(&display.pmi)
         .iter()
         .filter_map(|row| {
@@ -232,13 +265,40 @@ pub(super) fn combined(
             Some(display.ids[collection][index].as_str())
         })
         .collect();
+    // The support graph also carries drawable requirements. Keep their existing
+    // graphics; this projection replaces only the part block and missing notes.
+    generated
+        .items
+        .retain(|id, _| part_ids.contains(id.as_str()) || feature_notes.contains(id));
+    generated
+        .unlinked
+        .retain(|g| g.name.eq_ignore_ascii_case("general notes"));
+    let planes: BTreeSet<_> = generated
+        .items
+        .values()
+        .flatten()
+        .chain(&generated.unlinked)
+        .filter_map(|g| g.plane_id.clone())
+        .collect();
+    generated.planes.retain(|p| planes.contains(&p.id));
+    generated.views.retain(|v| {
+        generated
+            .planes
+            .iter()
+            .any(|p| v.id == format!("{}/view", p.id))
+    });
+    let mut notes = serde_json::to_value(generated).map_err(|e| e.to_string())?;
     let mut replaced = BTreeSet::new();
     for (id, graphics) in scene["presentation"]["items"]
         .as_object()
         .ok_or("invalid graphics")?
     {
         for graphic in graphics.as_array().ok_or("invalid graphic list")? {
-            if block(graphic) || part_ids.contains(id.as_str()) || id == MATERIAL {
+            if block(graphic)
+                || part_ids.contains(id.as_str())
+                || feature_notes.contains(id)
+                || id == MATERIAL
+            {
                 replaced.insert(graphic["id"].to_string());
             }
         }
@@ -307,8 +367,11 @@ pub(super) fn combined(
             .as_array_mut()
             .unwrap()
             .retain(|row| {
-                row["id"].as_str() != Some("generated:general-notes/plane")
-                    && row["id"].as_str() != Some("generated:general-notes/plane/view")
+                !notes[field]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .any(|new| new["id"] == row["id"])
             });
         scene["presentation"][field]
             .as_array_mut()
@@ -317,95 +380,6 @@ pub(super) fn combined(
     }
     // Use the same per-requirement labels for imported and new rows.
     note_notation(&display, scene["specify"].as_object_mut().unwrap());
-    stack_feature_notes(&mut scene["presentation"]);
     prune_views(&mut scene["presentation"]);
     Ok(())
-}
-
-// Imported feature notes without file ink were laid out against the file's shorter
-// block. Reserve the combined block's ink before their generated notes column.
-fn stack_feature_notes(presentation: &mut Value) {
-    let graphics: Vec<_> = presentation["items"]
-        .as_object()
-        .unwrap()
-        .values()
-        .filter_map(Value::as_array)
-        .flatten()
-        .collect();
-    let feature = |g: &Value| {
-        g["source"] == "generated"
-            && g["id"]
-                .as_str()
-                .is_some_and(|id| id.starts_with("generated:notes:"))
-    };
-    let z = |g: &Value| {
-        g["polylines"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(Value::as_array)
-            .flatten()
-            .filter_map(|p| p[2].as_f64())
-            .collect::<Vec<_>>()
-    };
-    let bottom = graphics
-        .iter()
-        .filter(|g| block(g))
-        .flat_map(|g| z(g))
-        .reduce(f64::min);
-    let top = graphics
-        .iter()
-        .filter(|g| feature(g))
-        .flat_map(|g| z(g))
-        .reduce(f64::max);
-    let (Some(bottom), Some(top)) = (bottom, top) else {
-        return;
-    };
-    let height = graphics
-        .iter()
-        .filter(|g| feature(g))
-        .flat_map(|g| g["text_placements"].as_array().into_iter().flatten())
-        .filter_map(|p| p["height"].as_f64())
-        .fold(0., f64::max);
-    let dz = (bottom - 2. * height - top).min(0.);
-    if dz == 0. {
-        return;
-    }
-    let planes: BTreeSet<_> = graphics
-        .iter()
-        .filter(|g| feature(g))
-        .filter_map(|g| g["plane_id"].as_str().map(str::to_owned))
-        .collect();
-    for graphic in presentation["items"]
-        .as_object_mut()
-        .unwrap()
-        .values_mut()
-        .filter_map(Value::as_array_mut)
-        .flatten()
-        .filter(|g| feature(g))
-    {
-        for field in ["polylines", "triangles"] {
-            for point in graphic[field]
-                .as_array_mut()
-                .into_iter()
-                .flatten()
-                .filter_map(Value::as_array_mut)
-                .flatten()
-            {
-                point[2] = json!(point[2].as_f64().unwrap() + dz);
-            }
-        }
-        for placement in graphic["text_placements"]
-            .as_array_mut()
-            .into_iter()
-            .flatten()
-        {
-            placement["origin"][2] = json!(placement["origin"][2].as_f64().unwrap() + dz);
-        }
-    }
-    for plane in presentation["planes"].as_array_mut().into_iter().flatten() {
-        if plane["id"].as_str().is_some_and(|id| planes.contains(id)) {
-            plane["origin"][2] = json!(plane["origin"][2].as_f64().unwrap() + dz);
-        }
-    }
 }

@@ -1098,22 +1098,7 @@ fn xcaf_plate_combines_imported_and_accepted_notes_without_another_edge_requirem
                 .iter()
                 .any(|t| t.as_str().unwrap().contains(mask))
         );
-        let z_bounds = |g: &Value| {
-            g["polylines"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .flat_map(|line| line.as_array().unwrap())
-                .map(|p| p[2].as_f64().unwrap())
-                .fold((f64::INFINITY, f64::NEG_INFINITY), |(low, high), z| {
-                    (low.min(z), high.max(z))
-                })
-        };
-        let height = graphic["text_placements"][0]["height"].as_f64().unwrap();
-        assert!(
-            z_bounds(graphic).1 <= z_bounds(block).0 - 2. * height + 1e-9,
-            "feature note must clear the combined block by two text heights"
-        );
+        assert_notes_clear(&scene);
         assert!(
             !scene["presentation"]["items"]
                 .as_object()
@@ -1124,6 +1109,12 @@ fn xcaf_plate_combines_imported_and_accepted_notes_without_another_edge_requirem
                 .any(|g| g["id"] == "step:726")
         );
     }
+    assert_eq!(
+        file,
+        cache.scene(&loaded, Some(&analysis), None).unwrap(),
+        "the combined scene must not replace the cached file's step:726 ink"
+    );
+    assert_eq!(file, pmi_scene::pmi_scene(&loaded.bytes, None).unwrap());
     // Scene projection must not mutate the source bytes or change a subsequent write.
     let intent = api::preview(&analysis, &answers).unwrap();
     let first = writer::write_bytes(&loaded, &intent, Some(&answers))
@@ -1189,4 +1180,111 @@ fn spindle_ctc_and_both_plates_have_one_live_notes_block() {
         validate(&scene);
         assert_eq!(notes_blocks(&scene).len(), 1, "{name}");
     }
+}
+
+// #171's ink-box check projects into the callout plane, rather than model Z.
+fn assert_notes_clear(scene: &Value) -> f64 {
+    use haecceity::geom;
+    let blocks = notes_blocks(scene);
+    assert_eq!(blocks.len(), 1);
+    let block = blocks.values().next().unwrap();
+    let note = scene["pmi"]["pmi"]["notes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|n| n["value"]["text"] == "Mask these features before coating with primer")
+        .unwrap();
+    let feature = &scene["presentation"]["items"][note["id"].as_str().unwrap()][0];
+    let plane = |g: &Value| {
+        scene["presentation"]["planes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["id"] == g["plane_id"])
+            .unwrap()
+    };
+    let vector = |p: &Value| std::array::from_fn(|i| p[i].as_f64().unwrap());
+    let normal = vector(&plane(block)["normal"]);
+    let along = vector(&plane(block)["x_axis"]);
+    let up = geom::cross(normal, along);
+    // The regression deliberately uses a Y-normal notes plane, not a Z-normal one.
+    assert!(geom::dot(normal, [0., 0., 1.]).abs() < 1e-9);
+    assert!(geom::dot(normal, vector(&plane(feature)["normal"])).abs() > 1. - 1e-8);
+    let bounds = |g: &Value| {
+        let mut b = geom::Bounds::empty();
+        for point in g["polylines"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .flat_map(|l| l.as_array().unwrap())
+        {
+            let p = vector(point);
+            b.add([geom::dot(p, along), geom::dot(p, up), 0.]);
+        }
+        b
+    };
+    let a = bounds(block);
+    let b = bounds(feature);
+    let gap = (0..2)
+        .map(|k| (a.min[k] - b.max[k]).max(b.min[k] - a.max[k]))
+        .fold(f64::NEG_INFINITY, f64::max);
+    assert!(
+        gap >= -2e-6,
+        "#171: notes ink overlaps in its plane: {a:?} / {b:?}"
+    );
+    let required = 2. * feature["text_placements"][0]["height"].as_f64().unwrap();
+    let vertical_gap = a.min[1] - b.max[1];
+    assert!(
+        vertical_gap >= required - 2e-6,
+        "notes gap {vertical_gap} < {required}"
+    );
+    println!("notes plane {normal:?}: clearance={vertical_gap:.6} mm, required={required:.6} mm");
+    vertical_gap / required
+}
+
+#[test]
+fn rotated_xcaf_plate_notes_are_placed_together_in_their_plane() {
+    let original = part::load(
+        &common::fixtures().join("revisions/xcaf_pmi_plate.step.gz"),
+        None,
+    )
+    .unwrap();
+    // Rigidly turn the STEP geometry 90 degrees about X, including its original ink.
+    // This is input transformation only; Specify never edits scene coordinates.
+    let rotation =
+        regex::Regex::new(r"((?:CARTESIAN_POINT|DIRECTION)\('[^']*',\()([^()]+)(\)\))").unwrap();
+    let text = std::str::from_utf8(&original.bytes).unwrap();
+    let turned = rotation.replace_all(text, |c: &regex::Captures<'_>| {
+        let xyz: Vec<f64> = c[2].split(',').map(|v| v.trim().parse().unwrap()).collect();
+        if xyz.len() == 3 {
+            format!("{}{:?},{:?},{:?}{}", &c[1], xyz[0], -xyz[2], xyz[1], &c[3])
+        } else {
+            c[0].to_owned()
+        }
+    });
+    assert_ne!(turned, text);
+    let rotated = part::load_bytes("rotated-xcaf.step", turned.as_bytes().to_vec()).unwrap();
+    let mut margins = vec![];
+    for loaded in [&original, &rotated] {
+        let analysis = api::analyse(loaded).unwrap();
+        let answers = specify_core::rules::with_all_defaults(&analysis, &Map::new()).unwrap();
+        let scene = Scene::new(loaded)
+            .unwrap()
+            .scene_with_state(
+                loaded,
+                Some(&analysis),
+                &specify_core::tolerancing::State {
+                    auto: Some(answers.keys().cloned().collect()),
+                    answers,
+                    gdt: None,
+                },
+            )
+            .unwrap();
+        validate(&scene);
+        margins.push(assert_notes_clear(&scene));
+    }
+    assert!(
+        margins[1] >= margins[0] - 1e-6,
+        "rotated margin {margins:?}"
+    );
 }
