@@ -210,8 +210,8 @@ fn general_dimensions_run_over_the_plates_plane_levels() {
     }
 }
 
-/// Alpha.8 publishes physical thread measurements without changing Specify's interview
-/// contract. Both thread-bearing corpus inputs must complete the existing writer path.
+/// Both modelled-thread corpus inputs retain recognition and complete the writer path.
+/// Exact tap-drill defaults also ask for full-thread depth on ambiguous small bores.
 #[test]
 fn modelled_thread_parts_still_analyse_interview_and_write() {
     let Some(corpus) = common::corpus_dir() else {
@@ -223,8 +223,10 @@ fn modelled_thread_parts_still_analyse_interview_and_write() {
         .join(std::process::id().to_string());
     std::fs::create_dir_all(&dir).unwrap();
     // #75 replaces cgb243's member offsets with shared pattern origins/pitches
-    // and Basic bolt circles, and consolidates General rows. Recognition and
-    // interview counts remain unchanged. Exact unsupported proposals stay visible.
+    // and Basic bolt circles, and consolidates General rows. Recognition
+    // remains unchanged. Exact tap defaults add three depth questions,
+    // replace the general bore-size rows, and resolve their conflicting proposal.
+    // Exact unsupported proposals stay visible.
     for (
         file,
         count,
@@ -240,13 +242,12 @@ fn modelled_thread_parts_still_analyse_interview_and_write() {
             "cadgenbench_inputs/cgb243.step.gz",
             4,
             66,
-            39,
-            57,
-            48,
+            42,
+            56,
+            44,
             3,
             62,
             &[
-                "shared planner dim:multiple[hole:101.102.283.284,hole:87.88.297.298,hole:89.90.295.296,hole:91.92.293.294,hole:93.94.291.292,hole:95.96.289.290,hole:97.98.287.288,hole:99.100.285.286]/bore.diameter: General contract conflicts with an answered requirement; retained answered intent instead",
                 "shared planner dim:hole:128.220/bore.depth: bottom is unknown; bore extent is not an established blind drilling depth",
             ][..],
         ),
