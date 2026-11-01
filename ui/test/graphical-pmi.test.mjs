@@ -210,4 +210,7 @@ test('views: a saved view with a camera, and one a way the shown graphics\' plan
     items: { ...pmi.presentation.items, c: [{ ...at('g3', '30', 'top', 9), source: 'generated' }] },
     views: [...pmi.presentation.views, { id: 'g3/plane/view', name: '30', direction: [0, 0, -1], up: [-1, 0, 0], graphics: ['g3'] }] } };
   assert.deepEqual(drawnViews(generated, shown({ default: true, existing: true, general: true })).map((v) => v.name), ['Saved', 'Plane 1: 10 · 20', 'Plane 2: 30']);
+  // A generated general dimension hidden by the Show menu: its view is not offered either (it
+  // would otherwise frame every graphic, as one with no graphics of its own does).
+  assert.deepEqual(drawnViews(generated, shown({ default: true, existing: true, general: false })).map((v) => v.name), ['Saved', 'Plane 1: 10 · 20']);
 });
