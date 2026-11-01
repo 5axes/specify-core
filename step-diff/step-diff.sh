@@ -166,15 +166,19 @@ body="$RUNNER_TEMP/comment.md"
           fi
         fi
         printf '%s\n' "$report"
-        what="the part" by=
-        if [ $assembly = yes ]; then what="the assembly" by=", by part"; fi
-        if [ -n "$viewer" ]; then printf '\n[Turn %s round in 3D](%s), compared live in the browser.\n' "$what" "$viewer"; fi
-        # Specify's own records (_specify*) stay in the committed file but aren't shown.
-        shown=$(jq 'walk(if type == "object" then with_entries(select(.key | startswith("_specify") | not)) else . end)' "$out/answers.json")
-        if [ "$shown" != "{}" ]; then
-          printf '\n<details><summary>The answers carried to the new revision%s (<code>%s.answers.json</code>)</summary>\n\n```json\n' "$by" "${new%.*}"
-          printf '%s\n' "$shown"
-          printf '\n```\n\n</details>\n'
+        what="the part"
+        if [ $assembly = yes ]; then what="the assembly"; fi
+        sidecar="${new%.*}.answers.json"
+        stale=no
+        if [ -f "$sidecar" ] && ! jq -e -s '.[0] == .[1]' "$out/answers.json" "$sidecar" > /dev/null; then
+          stale=yes
+        fi
+        if [ "$stale" = yes ]; then
+          printf '\n`%s` is stale: its requirements differ from this comparison.' "$sidecar"
+          if [ -n "$viewer" ]; then printf ' [Review in 3D](%s).' "$viewer"; fi
+          printf '\n'
+        elif [ -n "$viewer" ]; then
+          printf '\n[Turn %s round in 3D](%s), compared live in the browser.\n' "$what" "$viewer"
         fi
         echo
         ;;

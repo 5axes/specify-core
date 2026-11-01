@@ -29,6 +29,12 @@ All notable changes to specify-core-rust. The format follows
 
 ### Changed
 
+- Diff reports describe requirements in Markdown and JSON summary text, naming the
+  changed feature and its requirement notation when review is needed. STEP diff
+  comments omit the JSON payload and flag differing committed sidecars in one
+  line, with a 3D review link for public repositories. `answers.json`, JSON keys
+  and verdict meanings remain unchanged.
+
 - Move quiddity/haecceity (native, WASM and the Python binding) to v0.4.3
   (`56a4cbc0`). The pin checker requires the same release. Reader binding advances
   to `haecceity-pmi-read/14` for datum-constituent identity (#173); the packaged

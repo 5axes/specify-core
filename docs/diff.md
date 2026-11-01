@@ -7,7 +7,7 @@ specify-core diff old.step new.step [--answers old.answers.json] [--title TITLE]
 
 `diff` compares two revisions of a part, or of an assembly part by part (see
 [Assemblies](#assemblies)). It reports what changed in words a person can check
-against the model, draws the change, and carries the part's answers to the new revision.
+against the model, draws the change, and applies the part's requirements to the new revision.
 The [STEP diff action](../step-diff/README.md) runs it on pull requests.
 
 ## What it writes
@@ -16,10 +16,22 @@ The [STEP diff action](../step-diff/README.md) runs it on pull requests.
 | --- | --- |
 | `report.md` | The review in Markdown, headed `TITLE` (by default the new file's name), written to be posted as a pull request comment. |
 | `model.png` | The new part, drawn isometrically. |
-| `answers.json` | The answers carried to the new revision, to commit as its answers. |
-| `report.json` | All of it as data: the verdict, summary, carried answers, changed features, measures, PMI changes, unresolved answers, answers to check and new questions. |
+| `answers.json` | The requirements applied to the new revision, in the existing sidecar format for callers to commit. |
+| `report.json` | All of it as data: the verdict, summary, applied requirements, changed features, measures, PMI changes, unresolved requirements, requirements to check and requirements to specify. |
 
-It also prints `{"verdict", "summary"}` to stdout.
+It also prints `{"verdict", "summary"}` to stdout. The `summary` field is retained in
+both outputs, including each assembly part's report, with requirements wording:
+"All 17 requirements still apply to the changed part." Review summaries name the
+feature and its requirement notation, for example "1 requirement needs checking:
+Ø6 × 10 through hole moved X −15, so its ⌀6 requirement may no longer fit."
+The verdicts, JSON field names and machine-readable keys remain unchanged.
+
+The STEP diff action includes the prose report, never a JSON payload or a carried
+requirements `<details>` block. When a committed `<part>.answers.json` sidecar
+differs from the generated `answers.json` as JSON data (including Specify metadata),
+it adds one stale-sidecar line with a 3D link for public repositories; private
+repositories get the same notice without a link. Missing or equal sidecars get no
+notice. The generated `answers.json` remains available for other callers to commit.
 
 ## How the parts are matched
 
@@ -37,9 +49,8 @@ the old part (a hole, a pattern, a boss, a slot, a fillet) is then:
 ## What the report says
 
 - **The verdict:**
-  - ✅ `ok`: every answer carried and the new part asks nothing new.
-  - ⚠️ `decide`: an answer couldn't be carried, or the new part asks a question the old one
-    didn't.
+  - ✅ `ok`: every requirement applies and there are no new requirements to specify.
+  - ⚠️ `decide`: a requirement could not be applied, or there are new requirements to specify.
   - ❌ `problems`: Specify's review finds problems in the new part that it didn't find in the
     old one.
 - **The summary** counts the changes by family ("2 holes changed, 8 rounds and surfaces with
@@ -63,21 +74,21 @@ the old part (a hole, a pattern, a boss, a slot, a fillet) is then:
   - "are now one": several features merged into one;
   - "is now split in N": one feature split into several;
   - "still there, but alike…": the features remain, but which is which can't be told.
-- **Answers not carried** keep their value and give the reason:
+- **Requirements not applied** keep their value and give the reason:
   - **orphaned:** the feature was removed;
   - **ambiguous:** it now matches several features;
   - **unmatched:** its faces carried, but no single feature of its family holds them;
   - **stale:** the old part had no such feature either.
-- **Answers to check** were carried to a feature that changed. They're applied, but a fit or a
+- **Requirements to check** belong to a feature that changed. They're applied, but a fit or a
   clearance chosen for the old size may be wrong for the new one.
-- **New questions** are the questions the new part asks that the old one didn't.
+- **Requirements to specify** are decisions needed for new features.
 - **PMI** compares requirements from both revisions as `haecceity.pmi/1`, using
   the same ids, characteristic numbers and `answered` / `default` / `general` /
   `existing` statuses as `pmiScene`. This includes CAD PMI in Specify-written files,
   general-tolerance dimensions and geometry-derived basic locations.
-  A new file without saved answers shows what writing the carried answers would
-  produce alongside its own PMI; a new file with saved answers supplies its actual
-  requirements. The two carried-answer plans are also compared for geometry-derived
+  A new file without saved requirements shows what writing the applied requirements would
+  produce alongside its own PMI; a new file with saved requirements supplies its actual
+  requirements. The two requirement plans are also compared for geometry-derived
   requirements; actual file edits take precedence, and planned changes absent from
   that comparison carry a reason. Explicit `--answers` override the old interview.
 
@@ -141,8 +152,8 @@ Opt in to `report.pmi.scenes: {"old": PmiScene, "new": PmiScene}` using:
 
 Both documents have the `pmiScene` shape (`pmi`, `presentation`, `specify`). They
 are the exact primary scenes already built by the comparison: old with explicit
-given answers, or its actual file PMI with saved interview metadata when none
-are given; new with carried answers unless the new file has Specify PMI, when
+given requirements, or its actual file PMI with saved interview metadata when none
+are given; new with applied requirements unless the new file has Specify PMI, when
 its actual semantic requirements win. Comparison presentations use current
 semantic notation, not potentially stale saved As Drawn ink. Supplemental
 carried-plan differences retain their existing `reason`; the new scene remains
@@ -175,14 +186,14 @@ in `/diff`. The Python package exposes `specify_core.api.diff(old, new, answers=
 *, title="Revision", part=None, scenes=False)`, returning `{report, markdown}` for the selected
 part. It accepts paths or loaded part handles; paths accept a part index.
 
-## How answers carry
+## How requirements apply
 
-Each answer's faces are mapped to the new part, and the answer moves to the new feature of the
-same family that holds them. Its id is renamed when the faces renumbered. An answer is never
-guessed onto a feature: when there's no single place for it, it's left unresolved with its
+Each requirement's faces are mapped to the new part, and the requirement moves to the new
+feature of the same family that holds them. Its id is renamed when the faces renumbered.
+A requirement is never guessed onto a feature: when there's no single place for it, it's left unresolved with its
 value and reason, for a person to place.
 
-The answers carried are, in order of preference:
+The requirements used are, in order of preference:
 
 1. those given with `--answers`;
 2. without `--answers`, or with an empty file, those Specify stored in the old STEP file when it
@@ -222,10 +233,10 @@ A file of several parts, or of a part placed more than once, is compared as an a
   moved parts orange, added parts green, the rest grey, and in translucent red, where no part
   now lies over them, the removed parts and the placements that went (a moved part's old place,
   a re-counted part's missing copy).
-- **Answers are by part name**: `--answers` takes `{part name: {question id: value}}`, and
-  `answers.json` holds the answers carried, by part. A part with no entry carries the answers
-  Specify stored in it. When the old file is a single part, `{question id: value}` is taken as
-  that part's answers.
+- **Requirements are by part name**: `--answers` takes `{part name: {question id: value}}`, and
+  `answers.json` holds the requirements applied, by part. A part with no entry uses the
+  requirements Specify stored in it. When the old file is a single part, `{question id: value}` is taken as
+  that part's requirements.
 - **`report.json`** is `{verdict, summary, parts}`, each part `{name, status, old, new}` (which
   part of each file and how many times it is placed) and its `report` when it is in both.
 
