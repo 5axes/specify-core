@@ -41,16 +41,67 @@ It uses the existing CAx-IF UDA `AttributeSet` route, on that part's product def
 one text item named **`history`**. Its compact JSON is:
 
 ```json
-{"schema":1,"faces":"<resume schema-2 face fingerprint>","high_water":7,"entries":[{"key":{"specification":"<opaque disambiguator>","kind":"dimension","type":"Size_Diameter","faces":[9],"reference":[]},"number":3}]}
+{"schema":2,"faces":"<resume schema-2 face fingerprint>","high_water":7,"entries":[{"key":{"role":"size","kind":"dimension","type":"Size_Diameter","faces":[9],"reference":[]},"number":3}]}
 ```
 
 `high_water` is the greatest number ever allocated, including retired requirements. Entries
-are the current requirements, not a list of reusable numbers. The key's specification is an
-internal disambiguator for coexisting requirements; readers use `ID_ATTRIBUTE` instead of
-interpreting it. A replace carries the history even when all requirements are removed.
+are the current requirements, not a list of reusable numbers. The key describes requirement
+kind/type, target role and face support; readers use `ID_ATTRIBUTE` instead of interpreting it. Values, modifiers, zones and notation are not
+identity. A replace carries the history even when all requirements are removed.
 An additive write retains earlier snapshots; the last snapshot is current and its counter
 must be at least every preceding snapshot's counter. The property name is reserved from
 caller attributes. A corrupt history or exhausted counter refuses the write, without output.
+
+### Schema-2 key grammar (For #96)
+
+Keys are JSON objects with fields in the following writer order: `role`, `kind`, `type`,
+`faces`, `reference`. Face lists contain sorted, unique, zero-based face indices in the
+history's fingerprint namespace; an absent support is `[]`. Strings use ordinary JSON
+escaping. These spellings are a storage contract, independent of Rust enum names,
+Debug output and derived enum serialization.
+
+| `kind` | `type` | Base `role` |
+| --- | --- | --- |
+| `datum` | The stated datum label, e.g. `A` | `datum` |
+| `dimension` | Explicit size/location vocabulary below | `size` or `location` |
+| `geometric_tolerance` | Explicit tolerance vocabulary below | `feature`, `dimension`, `relation`, `whole_part` |
+| `surface_texture` | Stated ISO parameter names sorted and joined by `\|`, e.g. `Ra\|Rz` | `feature` or `whole_part` |
+| `thread` | `Internal` or `External` (explicit constants retained from schema 1) | `feature` |
+| `knurl` | `knurl` | `feature` |
+
+Size types are `Size_` followed by `CurveLength`, `Diameter`, `SphericalDiameter`,
+`Radius`, `SphericalRadius`, `ToroidalMinorDiameter`, `ToroidalMajorDiameter`,
+`ToroidalMinorRadius`, `ToroidalMajorRadius`, `ToroidalHighMajorDiameter`,
+`ToroidalLowMajorDiameter`, `ToroidalHighMajorRadius`, `ToroidalLowMajorRadius`,
+or `Thickness`. An angular size is `Size_Angular`; an otherwise unnamed size with
+a path is `Size_WithPath`, otherwise `Location_None` (the existing API convention).
+Location types are `Location_Angular`, `Location_CurvedDistance`,
+`Location_LinearDistance`, or `Location_LinearDistance_From<X>To<Y>` where X/Y are
+`Center`, `Inner`, `Outer`, excluding Center-to-Center. Unmapped location names use
+`Location_WithPath` when a path exists, otherwise `Location_None`.
+
+Tolerance types are `Angularity`, `CircularRunout`, `Coaxiality`, `Concentricity`,
+`Cylindricity`, `Flatness`, `ProfileOfLine`, `Parallelism`, `Perpendicularity`,
+`Position`, `CircularityOrRoundness`, `Straightness`, `ProfileOfSurface`, `Symmetry`,
+and `TotalRunout`. These are hand-written mappings in `existing.rs`, shared with
+the read API; changing an upstream variant's Rust spelling cannot change a key.
+
+A planned dimension appends `|planner:` to its base role, followed by
+`measure=<stated measurement role>` for a size (e.g. `measure=bore.depth`), or
+`axis=x`, `axis=y`, `axis=z` for a location. Measurement roles are literal planner
+measurement names, not its generated requirement IDs. An optional suffix describes
+the structural pattern role: `;pattern=first`, `;pattern=centre`, `;pattern=pitch`.
+Neither pattern counts nor pitch interval counts enter identity. An out-of-domain
+axis is spelled `unknown`; valid planner locations use axes 0–2.
+
+For example, an H7 hole fit and an h6 shaft fit both use `Size_Diameter`; `6H`/`6g`
+thread classes, `ISO 2768-m`, `qualifier=max`, `pattern=6x`, nominal/tolerance values,
+knurl patterns and GD&T modifiers are **values or notation, not key components**.
+They must not be added as ISO tokens to the key. The old
+`specification:"10.000000000|fit:Iso286Class { ... }"` becomes `role:"size"`;
+an old `specification:"0.200000000|[MaximumMaterialRequirement]|..."` becomes
+`role:"feature"`. A unique requirement keeps its number across either edit.
+Temporary matching hints compare typed values and are never serialized.
 
 ## Allocation and carry
 
@@ -113,10 +164,11 @@ sheet layout never changes those file numbers.
 
 Numbers are read from the actual STEP entities before planning a rewrite. Identity uses
 requirement kind/type and geometric face support (including the reference support of a
-location), never recognition feature IDs or entity IDs. Existing exact requirements match
-first, including their specifications so an added control on the same face cannot steal an
-existing control's number. A uniquely matched requirement can change its value and retain
-its number. Unique support growth follows the same conservative geometric-support rule as
+location), never recognition feature IDs or entity IDs. Unchanged coexisting requirements match first using an in-memory value comparison,
+so an added control on the same face cannot steal an existing control's number. This is a
+tie breaker, never persisted identity. A uniquely matched requirement can change its value,
+material modifier, zone or notation and retain its number. File scenes validate each actual
+`ID_ATTRIBUTE` against its structural history key, so even direct STEP edits keep numbers. Unique support growth follows the same conservative geometric-support rule as
 answer resume: this accommodates quiddity adding defining faces after an upgrade. Ambiguous
 or missing correspondence is not guessed; those numbers are retired, while the high-water
 mark survives.
@@ -150,6 +202,31 @@ text notes and caller metadata are settings rather than individual inspection ch
   authoritative `characteristics` list even though it has no face-note row.
 - WASM `IntentEngine.snapshot().analysis` exposes the same list, and `writePmi` and `diff`
   use the same writer and carry path. JavaScript signatures are unchanged.
+
+For #95, history schema 2 replaces the value-sensitive `specification` field with a
+structural `role` (size/location, feature/dimension/relation/whole part, or datum). Schema 1
+is still read: its obsolete specification is discarded, and its absent role permits the
+existing kind/type/support match. Actual entity numbers and the high-water mark survive.
+The next rewrite or revision carry emits schema 2; a byte-preserving no-op may retain schema 1.
+Older engines that only accept schema 1 cannot rewrite schema-2 histories.
+
+Planner dimensions retain only their measurement/axis and structural pattern role after
+`|planner:`. Upstream generated IDs are not a storage format: stored IDs can include
+nominals and Debug tolerance text. Earlier unreleased schema-2 roles containing those
+IDs, and roles without a suffix, still use the conservative unique-support fallback;
+linear locations also retain main's reversed-support matching during planner upgrades.
+The `v0.1.6` fixture `characteristic-numbers-016.step.gz` contains authentic schema-1
+Debug fit/qualifier/pattern signatures. Its upgrade test rewrites all six requirements,
+retains every number and the high-water mark, and checks a second write is unchanged.
+
+For #96, the LM10UU regression pins the three independently sized Ø19 datum constituents.
+Their identities use leaf face supports `[0]`, `[4]`, `[8]`, `Size_Diameter` and role `size`;
+no shape-aspect entity id or composition depth enters the key. Removing
+`writer::datum_supports` with haecceity 0.4.3 therefore needs no history migration when its
+native reader returns those same leaf supports. Remove the raw-reader guard with the
+adjustment, and retain the number/resave/edit regression. If the native lowering changes
+supports or measurement roles instead, preserve or explicitly migrate those keys before
+removing the adjustment; never map an individual land to the whole datum.
 
 Files without numeric characteristic ids have no extra analysis or PMI JSON fields. Their
 legacy serialization and note aggregation/order are unchanged. No write adds a history
@@ -204,7 +281,8 @@ The WASM M2 tap byte pin is `tests/fixtures/thread-depth-numbered.step.gz`. The 
 every byte of the numbered pin against the writer. For quiddity-rust#137 this pin was
 regenerated with presentation and new aspect shapes. Every legacy semantic readback field
 and part setting still matches alpha.7 after projecting out characteristic numbers; the
-original alpha.7 input is never regenerated.
+original alpha.7 input is never regenerated. For #95, only the numbered pin's history
+payload was migrated to schema 2; every other STEP byte was checked unchanged.
 
 No haecceity API change is required: Specify uses its existing PMI/AttributeSet writer and
 lossless `Document::apply`/`Edit` APIs. The v0.2.6 reader exposes identifiers alongside semantic roots (#135), including thread/knurl
