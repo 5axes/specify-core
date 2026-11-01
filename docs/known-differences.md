@@ -22,7 +22,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 0 | 40 |
 | [rules](#rules) | 89 | 0 | 615 | 0 | 0 | 0 | 704 |
 | [writer](#writer) | 1086 | 0 | 0 | 0 | 15 | 0 | 1101 |
-| **all** | 4937 | 1433 | 1221 | 2487 | 1101 | 1899 | 13078 |
+| **all** | 4950 | 1433 | 1221 | 2487 | 1101 | 1899 | 13091 |
 
 ## analysis
 

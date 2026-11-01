@@ -941,6 +941,24 @@ mod tests {
         }
     }
 
+    #[test]
+    fn geometry_roles_and_cell_boxes_survive_scene_encoding() {
+        let mut g = graphic("geometry", Some(true));
+        g.polylines = vec![vec![[0., 0., 0.], [1., 0., 0.]]];
+        g.polyline_roles = Some(vec![presentation::PolylineRole::Text]);
+        g.text_placements[0].cell_box = Some([[-2., -1.], [2., 1.]]);
+        let scene = encoded(presentation::Presentation {
+            unlinked: vec![g],
+            ..Default::default()
+        });
+        let g = &scene["presentation"]["unlinked"][0];
+        assert_eq!(g["polyline_roles"], json!(["text"]));
+        assert_eq!(
+            g["text_placements"][0]["cell_box"],
+            json!([[-2., -1.], [2., 1.]])
+        );
+    }
+
     fn encoded(graphics: presentation::Presentation) -> Value {
         let semantic = wire::identify(PartPmi::default(), None).unwrap();
         encode(&semantic, graphics, Map::new()).unwrap()

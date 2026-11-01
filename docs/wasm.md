@@ -516,20 +516,19 @@ packaged schemas are `specify_core/schema/haecceity.pmi-1.json` and
 `specify_core/schema/haecceity.presentation-1.json`.
 
 Scene export uses haecceity's serialise-only `json` feature in native, WASM and Python.
-`json-import` is not enabled. The Python package ships the v0.4.3 schemas as data; its
+`json-import` is not enabled. The Python package ships the v0.4.4 schemas as data; its
 smoke tests validate exports with Python's `jsonschema`, keeping schemas and import
 validation code out of the WASM binary.
 
-The next haecceity presentation adds optional `polyline_roles`, parallel to
+Haecceity v0.4.4 adds optional `polyline_roles`, parallel to
 `polylines`: `text`, `frame`, `leader`, `extension` (witnesses), `symbol`, or
 `dimension` (dimension lines and arrows). Each generated text placement also has
 `cell_box: [[xmin,ymin],[xmax,ymax]]` in plane millimetres relative to its origin,
 with x along `x_axis` and y along `normal × x_axis`. Hosts can fit and centre their
 own font in that box. File graphics omit roles/boxes unless known. These additive
 fields keep schema `/1`; strict `deny_unknown_fields` consumers must update their
-types. Specify passes both through unchanged. The released dependency tag remains
-pinned; tests of these additions use a local Cargo path patch until that kernel
-is released.
+types. Specify passes both through unchanged. Native, WASM and Python builds pin the released v0.4.4 tag; no local path
+patch is needed.
 
 In the role array, `text` includes explicit ISO glyph strokes already represented
 in cell strings (⌖, ⌀, Ⓜ). Remove those when replacing whole cells with host-font

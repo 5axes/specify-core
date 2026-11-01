@@ -1323,28 +1323,20 @@ fn an_exact_tap_drill_default_writes_thread_semantics_instead_of_a_clearance_fit
             .unwrap()
             .contains_key("size:holes:7")
     );
-    // The released pin predates thread graphics. Exercise the additive contract
-    // whenever a local/newer kernel advertises geometry roles, without vendoring it.
-    if scene["presentation"]["items"]
-        .as_object()
-        .unwrap()
-        .values()
-        .flat_map(|rows| rows.as_array().unwrap())
-        .any(|g| g.get("polyline_roles").is_some())
-    {
-        for (id, text) in [
-            ("thread:holes:7", "M3×0.5-6H THRU"),
-            ("thread:holes:20.25", "M6×1-6H THRU"),
-        ] {
-            let g = &scene["presentation"]["items"][id][0];
-            assert_eq!(g["text"][0], text);
-            assert_eq!(
-                g["polyline_roles"].as_array().unwrap().len(),
-                g["polylines"].as_array().unwrap().len()
-            );
-            assert!(g["text_placements"][0]["cell_box"].is_array());
-        }
+    for (id, text) in [
+        ("thread:holes:7", "M3×0.5-6H THRU"),
+        ("thread:holes:20.25", "M6×1-6H THRU"),
+    ] {
+        let g = &scene["presentation"]["items"][id][0];
+        assert_eq!(g["text"][0], text);
+        assert_eq!(
+            g["polyline_roles"].as_array().unwrap().len(),
+            g["polylines"].as_array().unwrap().len()
+        );
+        assert!(g["text_placements"][0]["cell_box"].is_array());
     }
+    assert_eq!(notes_blocks(&scene).len(), 1);
+    assert!(!scene["presentation"].to_string().contains("⌀2.5 H11"));
     // An explicit clearance decision is still honoured.
     let mut clearance = defaults;
     clearance.insert("hole.function:holes:7".into(), json!("clearance:M2"));

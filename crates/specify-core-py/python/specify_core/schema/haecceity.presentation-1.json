@@ -130,6 +130,20 @@
           "items": {
             "$ref": "#/$defs/TextPlacement"
           }
+        },
+        "polyline_roles": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "text",
+              "frame",
+              "leader",
+              "extension",
+              "symbol",
+              "dimension"
+            ]
+          },
+          "description": "Parallel to polylines when known. Dimension includes arrowheads; extension includes witnesses. Omitted for file graphics unless known."
         }
       },
       "required": [
@@ -181,6 +195,20 @@
         },
         "alignment": {
           "type": "string"
+        },
+        "cell_box": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "description": "Lower-left and upper-right in placement plane millimetres relative to origin; x along x_axis, y along normal cross x_axis."
         }
       },
       "required": [

@@ -88,7 +88,7 @@ the resume correspondence rule below handles feature-ID changes.
 ## Dependency plan
 
 - `quiddity` and `haecceity` by git from `https://github.com/pzfreo/quiddity-rust`,
-  pinned to tag `v0.4.3` (`56a4cbc`) in both manifests and Cargo.lock.
+  pinned to tag `v0.4.4` (`53cf3604`) in both manifests and Cargo.lock.
   Update only these packages with `cargo update -p quiddity -p haecceity`, then run
   the named local profile below and the full suite in CI, and rejudge any departures from the frozen Python captures with
   independent evidence. `correspondence::recognise` returns published file-coordinate records (#92);

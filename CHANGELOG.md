@@ -6,7 +6,7 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
-- Prefer an exact tap-drill match over an ambiguous smaller clearance screw when suggesting a hole function; accepted tapped holes carry thread semantics without a tap-drill fit. Document and type additive haecceity polyline roles and text cell boxes (pass-through; released kernel pin retained).
+- Prefer an exact tap-drill match over an ambiguous smaller clearance screw when suggesting a hole function; accepted tapped holes carry thread semantics without a tap-drill fit. Document and type additive haecceity polyline roles and text cell boxes (pass-through from v0.4.4).
 
 ### Added
 
@@ -31,8 +31,8 @@ All notable changes to specify-core-rust. The format follows
 
 ### Changed
 
-- Move quiddity/haecceity (native, WASM and the Python binding) to v0.4.3
-  (`56a4cbc0`). The pin checker requires the same release. Reader binding advances
+- Move quiddity/haecceity (native, WASM and the Python binding) to v0.4.4
+  (`53cf3604`), including thread callouts, polyline roles and text cell boxes. The pin checker requires the same release. Reader binding advances
   to `haecceity-pmi-read/14` for datum-constituent identity (#173); the packaged
   `haecceity.pmi/1` schema is byte-identical to upstream and remains unchanged.
   Upstream #171 improves callout/frame placement and label packing; #172 bounds
