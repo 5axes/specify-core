@@ -112,7 +112,7 @@ const escape = (text: string) => text.replace(/[&<>"']/g, c => `&#${c.charCodeAt
  * own heading and summary are left out: the page shows them above the part. Each "What changed"
  * line is numbered, `<li data-change="0">` and on, in the order of the view's `changes`.
  */
-export function reportHtml(markdown: string): string {
+export function reportHtml(markdown: string, { omit = [] }: { omit?: readonly string[] } = {}): string {
   const inline = (text: string) => escape(text)
     .replace(/`([^`]+)`/g, '<code>$1</code>')
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
@@ -124,8 +124,14 @@ export function reportHtml(markdown: string): string {
     lines.splice(first, summary - first + 1);
   }
   let changes = false;
+  // A section the page shows another way (e.g. its own PMI changes list): its bold heading and
+  // everything up to the next heading are left out.
+  const section = (line: string) => line.startsWith('#') || /^\*\*[^*]+\*\*$/.test(line.trim());
+  let omitting = false;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]!;
+    if (section(line)) omitting = omit.includes(line.trim().replace(/^#+\s*|\*\*/g, ''));
+    if (omitting) continue;
     if (!line.trim() || line.startsWith('![')) continue;
     const listed = changes;
     changes = line.trim() === '**What changed**';

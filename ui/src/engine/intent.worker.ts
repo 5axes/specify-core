@@ -6,6 +6,7 @@ interface IntentModule {
   tolerancingEdit(state: string, mode: string | undefined, answers: string): string;
   openedTolerancing(state: string, resume?: string): string;
   diff(oldName: string, old: Uint8Array, newName: string, next: Uint8Array, answers: string, title: string): string;
+  pmiScene(bytes: Uint8Array, part?: number | null): string;
   IntentEngine: {
     new (name: string, bytes: Uint8Array): IntentInstance;
     openPart(name: string, bytes: Uint8Array, part: number): IntentInstance;
@@ -101,6 +102,14 @@ self.onmessage = ({ data: { id, operation, args } }) => {
       } else if (operation === 'diff') {
         // Two revisions of a part compared, as `specify-core diff` compares them.
         result = JSON.parse(module.diff(args.oldName, args.old, args.newName, args.new, JSON.stringify(args.answers), args.title));
+      } else if (operation === 'pmi-scene') {
+        // A revision's PMI for /diff, on an engine of its own: as its file has it (view only,
+        // without an interview), or as Specify would write it with ``answers``.
+        if (args.answers) {
+          const one = args.part === undefined ? new module.IntentEngine(args.name, args.bytes)
+            : module.IntentEngine.openPart(args.name, args.bytes, args.part);
+          try { result = JSON.parse(one.pmiScene(JSON.stringify(args.answers))); } finally { one.free(); }
+        } else result = JSON.parse(module.pmiScene(args.bytes, args.part ?? null));
       } else if (operation === 'interpret') {
         result = JSON.parse(module.interpret(
           JSON.stringify(args.analysis), JSON.stringify(args.answers), args.question, args.text,
