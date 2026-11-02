@@ -121,3 +121,9 @@ no-op resume check recognize the writer's group without changing its meaning.
 Planner-created supplemental `CARTESIAN_POINT`s carry the marker in their own
 name. The no-op check requires that marker on every supplemental point; unrelated
 unmarked geometry does not acquire authorship from a linked dimension.
+
+Mixed-file rewrites require a writer implementing `pmi_scope`. Older writers, including
+0.1.7 and the archived Python engine, can read the saved answers without honoring that
+scope; their replacement rules do not guarantee preservation of foreign PMI. Use the
+scoped writer for these rewrites. Existing 0.1.7 Add-mode files without saved answers keep
+their existing-PMI opening behavior in this engine.

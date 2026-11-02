@@ -548,3 +548,9 @@ its questions answered. Writing edited answers replaces Specify's provenance-mar
 and preserves foreign entity bytes. Specify's characteristic numbers survive these edits.
 Mixed parts use Add after selective removal of Specify's items; older Add-mode files with
 no stored answers continue to open as existing PMI. See [writing modes](design.md).
+
+Mixed-file rewrites require a writer implementing `pmi_scope`. Older writers, including
+0.1.7 and the archived Python engine, can read the saved answers without honoring that
+scope; their replacement rules do not guarantee preservation of foreign PMI. Use the
+scoped writer for these rewrites. Existing 0.1.7 Add-mode files without saved answers keep
+their existing-PMI opening behavior in this engine.
