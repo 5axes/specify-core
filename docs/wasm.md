@@ -476,8 +476,8 @@ feature id use their face supports. Changing a value leaves
 the id intact. Foreign items retain haecceity's `ID_ATTRIBUTE` or content-derived id.
 The same ids key semantic references, presentation and the requirement overlay `specify`.
 Material is the scalar exception: Specify exposes `part.material` as a companion alias
-for `pmi.pmi.material`, including it in `semantic_ids`, `items` and `specify`. No semantic
-row is added. The live scene replaces part-note graphics from the file with one combined
+for `pmi.pmi.material` in `items` and `specify`. No semantic row is added, and
+`semantic_ids` lists only the PMI document's own ids, so it never contains `part.material`. The live scene replaces part-note graphics from the file with one combined
 block, retaining imported text and putting material last. A file-only scene with one block
 retains the file callout and its STEP identity; its source is `file`, including graphics previously
 written by haecceity. Material links follow the file's DMIA and part provenance. Reopening

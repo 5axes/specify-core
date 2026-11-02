@@ -45,9 +45,6 @@ fn validate(scene: &Value) {
             );
         }
     }
-    if !scene["pmi"]["pmi"]["material"].is_null() {
-        ids.insert("part.material");
-    }
     let listed: BTreeSet<_> = scene["presentation"]["semantic_ids"]
         .as_array()
         .unwrap()
@@ -55,6 +52,10 @@ fn validate(scene: &Value) {
         .map(|id| id.as_str().unwrap())
         .collect();
     assert_eq!(ids, listed);
+    // `part.material` aliases the scalar material in `items` and `specify` only.
+    if !scene["pmi"]["pmi"]["material"].is_null() {
+        ids.insert("part.material");
+    }
     let planes: BTreeSet<_> = scene["presentation"]["planes"]
         .as_array()
         .into_iter()
@@ -1360,4 +1361,49 @@ fn an_exact_tap_drill_default_writes_thread_semantics_instead_of_a_clearance_fit
             .iter()
             .any(|r| r["id"] == "thread:holes:7")
     );
+}
+
+// The editor's `linksFromPmi` rule: ids of the array collections under `pmi.pmi` and
+// `pmi.units` must equal `semantic_ids`. Material is an object, so neither its own id
+// nor the `part.material` alias counts.
+fn editor_ids(scene: &Value) -> BTreeSet<String> {
+    ["pmi", "units"]
+        .iter()
+        .flat_map(|key| scene["pmi"][key].as_object().unwrap().values())
+        .filter_map(Value::as_array)
+        .flatten()
+        .filter_map(|row| row["id"].as_str().map(str::to_owned))
+        .collect()
+}
+#[test]
+fn answered_material_keeps_semantic_ids_to_the_pmi_ids() {
+    let loaded = plate();
+    let analysis = api::analyse(&loaded).unwrap();
+    let cache = Scene::new(&loaded).unwrap();
+    let mut answers = given();
+    answers.insert("part.material".into(), json!("steel"));
+    let live = cache
+        .scene(&loaded, Some(&analysis), Some(&answers))
+        .unwrap();
+    let intent = api::preview(&analysis, &answers).unwrap();
+    let bytes = writer::write_bytes(&loaded, &intent, Some(&answers))
+        .unwrap()
+        .0;
+    let stored = pmi_scene::pmi_scene(&bytes, None).unwrap();
+    for scene in [&live, &stored] {
+        assert!(scene["pmi"]["pmi"]["material"].is_object());
+        let listed: BTreeSet<String> = scene["presentation"]["semantic_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|id| id.as_str().unwrap().to_owned())
+            .collect();
+        assert_eq!(editor_ids(scene), listed);
+        assert!(!listed.contains("part.material"));
+        assert!(!scene["presentation"]["items"]["part.material"].is_null());
+        assert_eq!(
+            scene["specify"]["part.material"]["notation"],
+            "MATERIAL: steel"
+        );
+    }
 }
