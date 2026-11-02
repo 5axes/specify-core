@@ -270,19 +270,24 @@ fn items(scene: &Value) -> Vec<Item> {
             id: id.clone(),
             number: meta["number"].as_u64(),
             kind: kind.into(),
-            match_kind: format!(
-                "{kind}:{}",
-                if collection == "dimensions" {
-                    value
-                        .pointer("/kind/size/kind")
-                        .or_else(|| value.pointer("/kind/location/kind"))
-                        .unwrap_or(&Value::Null)
-                } else if collection == "tolerances" {
-                    &value["kind"]
+            match_kind: if collection == "dimensions" {
+                // Size and location can both be linear distances.
+                let family = if value.pointer("/kind/size").is_some() {
+                    "size"
                 } else {
-                    &Value::Null
-                }
-            ),
+                    "location"
+                };
+                format!("{kind}:{family}:{}", value["kind"][family]["kind"])
+            } else {
+                format!(
+                    "{kind}:{}",
+                    if collection == "tolerances" {
+                        &value["kind"]
+                    } else {
+                        &Value::Null
+                    }
+                )
+            },
             dimension_role: (collection == "dimensions")
                 .then(|| meta["source"]["parameter"].as_str().map(str::to_owned))
                 .flatten(),
@@ -350,12 +355,46 @@ fn mapped(support: &[usize], faces: &BTreeMap<usize, Bind>) -> Option<Vec<usize>
     Some(result)
 }
 
+// Missing provenance in a CAD requirement is not evidence of a different role.
+// When both roles are stated, even numbers and ids must respect them.
+fn compatible(was: &Item, now: &Item) -> bool {
+    was.kind == now.kind
+        && was.match_kind == now.match_kind
+        && was
+            .dimension_role
+            .as_ref()
+            .zip(now.dimension_role.as_ref())
+            .is_none_or(|(a, b)| a == b)
+}
+
+// Source roles name axes in each part's local frame. Compare them in the new
+// frame, so rotating a part cannot turn an X location into a different requirement.
+fn rotate_roles(items: &mut [Item], rotation: &[[f64; 3]; 3]) {
+    for item in items {
+        let Some(role) = item.dimension_role.as_mut() else {
+            continue;
+        };
+        let Some(axis) = ["x", "y", "z"]
+            .iter()
+            .position(|axis| *role == format!("location.length.{axis}"))
+        else {
+            continue;
+        };
+        *role = (0..3)
+            .find(|&i| (rotation[i][axis].abs() - 1.).abs() < 1e-6)
+            .map_or_else(
+                || format!("location.length.rotated.{axis}"),
+                |i| format!("location.length.{}", ["x", "y", "z"][i]),
+            );
+    }
+}
+
 // A growth match is weaker than exact support. Keep location endpoints separate:
 // the same hole can support both a member pitch and a location to the whole pattern.
 // Stated measurement roles distinguish bore/counterbore sizes and location axes;
 // values, generated ids and fresh characteristic numbers are never growth evidence.
 fn support_growth(was: &Item, now: &Item, faces: &BTreeMap<usize, Bind>) -> bool {
-    if was.match_kind != now.match_kind
+    if !compatible(was, now)
         || was.dimension_role.is_none()
         || was.dimension_role != now.dimension_role
     {
@@ -402,6 +441,7 @@ fn compare(
                 .enumerate()
                 .filter(|(j, now)| {
                     !used.contains(j)
+                        && compatible(was, now)
                         && match pass {
                             0 => was.number.is_some() && was.number == now.number,
                             1 => {
@@ -444,20 +484,6 @@ fn compare(
                         }
                 })
                 .collect();
-            let candidates = if candidates.len() > 1 || pass == 2 {
-                candidates
-                    .into_iter()
-                    .filter(|(_, now)| {
-                        if pass == 2 {
-                            now.match_kind == was.match_kind
-                        } else {
-                            now.kind == was.kind
-                        }
-                    })
-                    .collect::<Vec<_>>()
-            } else {
-                candidates
-            };
             if let [(j, now)] = candidates.as_slice() {
                 // Require uniqueness in both directions, before consuming any
                 // growth candidate. Two old requirements may not claim one new row.
@@ -594,9 +620,17 @@ pub(super) fn diff(
     analyses: (&Value, &Value),
     given: Option<&Map<String, Value>>,
     carried: &Map<String, Value>,
-    faces: &BTreeMap<usize, Bind>,
+    correspondence: (&BTreeMap<usize, Bind>, Option<&[[f64; 3]; 3]>),
     features: (&[Feature], &[Feature]),
 ) -> api::Result<(Vec<PmiItemChange>, PmiScenes)> {
+    let (faces, rotation) = correspondence;
+    let old_items = |scene: &Value| {
+        let mut items = items(scene);
+        if let Some(rotation) = rotation {
+            rotate_roles(&mut items, rotation);
+        }
+        items
+    };
     let destination = Scene::new(new).map_err(api::Error::Analysis)?;
     let carried_numbers = destination
         .carries_numbers(carried)
@@ -611,7 +645,7 @@ pub(super) fn diff(
     };
     let (old_analysis, new_analysis) = analyses;
     let before = scene(old, old_analysis, given)?;
-    let before_items = items(&before);
+    let before_items = old_items(&before);
     let projected = scene(new, new_analysis, (!carried.is_empty()).then_some(carried))?;
     let (mut changes, after) = if new_analysis["resume"].is_object() {
         let actual = scene(new, new_analysis, None)?;
@@ -630,7 +664,7 @@ pub(super) fn diff(
         if let Some(source) = source {
             let old_plan = scene(old, old_analysis, Some(source))?;
             for mut change in compare(
-                &items(&old_plan),
+                &old_items(&old_plan),
                 &items(&projected),
                 faces,
                 features.0,
@@ -721,6 +755,103 @@ mod tests {
         item.on_faces = target;
         item.reference_faces = reference;
         item
+    }
+
+    #[test]
+    fn every_pass_respects_requirement_kinds_and_known_measurement_roles() {
+        let location = dimension("new", vec![10], vec![], "location.length.z", "1.5");
+        let mut thread = control("old", vec![0], "M4×0.7-6H THRU");
+        thread.kind = "thread".into();
+        thread.match_kind = "thread:null".into();
+        let bore = dimension("old", vec![0], vec![], "bore.diameter", "6");
+        let counterbore = dimension("new", vec![10], vec![], "counterbore.diameter", "8");
+        let x = dimension("old", vec![0], vec![1], "location.length.x", "5");
+        let y = dimension("new", vec![10], vec![11], "location.length.y", "5");
+        for (mut old, mut new) in [(thread, location), (bore, counterbore), (x, y)] {
+            // Same numbers (pass 0), same ids (pass 1), exact supports (pass 2),
+            // growing supports (pass 3), and unique kinds (pass 4) are evidence
+            // of identity only between compatible requirements.
+            for carried in [false, true] {
+                for same_id in [false, true] {
+                    for support in [None, Some(vec![10]), Some(vec![10, 11])] {
+                        old.number = Some(16);
+                        new.number = Some(16);
+                        new.id = if same_id { "old" } else { "new" }.into();
+                        new.faces = support.clone().unwrap_or_else(|| vec![20]);
+                        new.on_faces = new.faces.clone();
+                        let faces = BTreeMap::from([(0, Bind::To(10))]);
+                        let changes = compare(
+                            std::slice::from_ref(&old),
+                            std::slice::from_ref(&new),
+                            &faces,
+                            &[],
+                            &[],
+                            carried,
+                        );
+                        assert_eq!(changes.len(), 2);
+                        assert!(changes.iter().any(|c| c.class == "removed"));
+                        assert!(changes.iter().any(|c| c.class == "added"));
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn location_roles_follow_the_parts_rotation_before_pairing() {
+        let mut old = [dimension("old", vec![0], vec![1], "location.length.x", "5")];
+        let new = [dimension(
+            "new",
+            vec![10],
+            vec![11],
+            "location.length.y",
+            "5",
+        )];
+        let faces = BTreeMap::from([(0, Bind::To(10)), (1, Bind::To(11))]);
+        assert_eq!(compare(&old, &new, &faces, &[], &[], false).len(), 2);
+        rotate_roles(&mut old, &[[0., -1., 0.], [1., 0., 0.], [0., 0., 1.]]);
+        assert!(compare(&old, &new, &faces, &[], &[], false).is_empty());
+    }
+
+    #[test]
+    fn linear_size_and_location_do_not_pair_without_source_roles() {
+        let scene = |kind| {
+            json!({
+                "pmi":{"pmi":{"dimensions":[{"id":"same", "value":{"kind":kind}}]}, "units":{}},
+                "specify":{"same":{"status":"existing", "number":16}},
+                "presentation":{"items":{}}
+            })
+        };
+        let old = items(&scene(json!({"size":{"kind":"linear distance"}})));
+        let new = items(&scene(json!({"location":{"kind":"linear distance"}})));
+        for carried in [false, true] {
+            let changes = compare(&old, &new, &BTreeMap::new(), &[], &[], carried);
+            assert_eq!(changes.len(), 2);
+            assert!(changes.iter().any(|c| c.class == "removed"));
+            assert!(changes.iter().any(|c| c.class == "added"));
+        }
+    }
+
+    #[test]
+    fn role_checks_do_not_make_ambiguous_kind_fallback_unique() {
+        let old = [
+            dimension("old-bore", vec![0], vec![], "bore.diameter", "6"),
+            dimension("old-boss", vec![1], vec![], "boss.diameter", "20"),
+        ];
+        let new = [dimension(
+            "new-pattern",
+            vec![10, 11],
+            vec![],
+            "bore.diameter",
+            "8",
+        )];
+        let changes = compare(&old, &new, &BTreeMap::new(), &[], &[], false);
+        assert_eq!(changes.len(), 3);
+        assert!(
+            changes
+                .iter()
+                .all(|c| c.class == "removed" || c.class == "added")
+        );
     }
 
     #[test]

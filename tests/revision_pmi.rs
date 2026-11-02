@@ -1156,3 +1156,44 @@ fn counterbores_grow_the_existing_pattern_requirements_instead_of_replacing_them
         );
     }
 }
+
+#[test]
+fn spindle_thread_number_cannot_pair_with_a_new_location_dimension() {
+    let old = load("revisions/spindle_pmi.old.step.gz");
+    let new = load("revisions/spindle_pmi.new.step.gz");
+    let answers = specify_core::rules::with_all_defaults(
+        &api::analyse(&old).unwrap(),
+        &answers(json!({"part.material":"steel"})),
+    )
+    .unwrap();
+    let report = revision::diff(&old, &new, &answers).unwrap();
+    assert!(
+        report.pmi.items.iter().any(|item| {
+            item.class == "removed"
+                && item.kind == "thread"
+                && item.id == "thread:holes:14"
+                && item.old.as_deref() == Some("M4×0.7-6H THRU")
+                && item.new.is_none()
+        }),
+        "{:?}",
+        report.pmi.items
+    );
+    assert!(
+        report.pmi.items.iter().any(|item| {
+            item.class == "added"
+                && item.kind == "dimension"
+                && item.number == Some(16)
+                && item.new.as_deref() == Some("1.5")
+                && item.old.is_none()
+        }),
+        "{:?}",
+        report.pmi.items
+    );
+    assert!(!report.pmi.items.iter().any(|item| {
+        item.old.as_deref() == Some("M4×0.7-6H THRU")
+            && item
+                .new
+                .as_deref()
+                .is_some_and(|text| !text.starts_with("M4"))
+    }));
+}
