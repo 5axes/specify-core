@@ -1,6 +1,6 @@
 """Run from the pinned text-to-cad checkout with its cadgen venv Python.
 
-Usage: .venv/bin/python /path/to/generate_plate.py /path/to/fixture-directory
+Usage: .venv/bin/python /path/to/generate.py /path/to/fixture-directory
 No text-to-cad tooling is needed by Specify's tests. See PROVENANCE.md.
 """
 from pathlib import Path

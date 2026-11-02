@@ -6,6 +6,12 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+- Add the shared text-to-cad PMI plate from pinned cadgen 0.8.3 exports, with
+  regeneration source and MIT attribution. Tests cover Specify-authored PMI,
+  schema-3 face names, all 16 answers surviving thickness/bore edits, and the
+  current added-hole result: 12 attached, four explicitly unresolved after
+  cadgen renames supports. Verify written face names and AP242 PMI anchors.
+
 ## 0.1.7 (2026-11-02)
 
 - Diff retains uniquely matched planned dimensions when their target/reference
