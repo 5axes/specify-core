@@ -29,6 +29,9 @@ All notable changes to specify-core-rust. The format follows
 
 ### Fixed
 
+- Analysis `existing` records (and Python `ExistingPmi`) mark a basic dimension with
+  `basic: true`. Basic dimensions such as cadgen's "theoretical" 30 and 50 on the PMI plate
+  were read by haecceity as basic but reported as plain untoleranced dimensions.
 - An intent no longer lists the file's own stated dimensions as requirements. The shared
   planner still uses them, so General guesses stay off those features, but the file's PMI
   stays the characteristic: on NIST CTC-01 the editor showed every toleranced hole twice,

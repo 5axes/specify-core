@@ -330,6 +330,8 @@ fn legacy_numberless_files_have_byte_identical_analysis_and_pmi_serialization() 
     // v0.2.7 moves the General notes block; only settings-only writer hashes change.
     // v0.4.1 regenerates the numbered GENERAL NOTES block and its plane view;
     // only settings-only writer hashes change, never analysis or semantic-read hashes.
+    // Basic dimensions gain `"basic":true` in the existing read: only the alpha6 plate's
+    // PMI read hash changes (its 14 basics); stripped of that key it is the old hash.
     // Float serialization varies by platform; portable absence checks run separately above.
     if !cfg!(target_os = "macos") {
         return;

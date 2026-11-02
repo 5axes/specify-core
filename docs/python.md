@@ -24,6 +24,10 @@ Analysis `existing` dimension records and intent size/location rows add optional
 `limits: [lower, upper]` in mm (degrees for an imported angle). `upper` and `lower`
 remain deviations from nominal for tolerance checks and existing consumers. The
 `limits` field is absent for deviations and fits; no haecceity schema changes are needed.
+A basic (theoretically exact) dimension's `existing` record adds `basic: true`; the field
+is absent otherwise. A basic dimension has no `upper`/`lower` of its own.
+The Python `ExistingPmi.basic` field is `False` unless the dimension is basic;
+`to_dict()` emits `basic` only when it is `True`.
 The Python `ExistingPmi.limits` field is an optional `(lower, upper)` tuple;
 `to_dict()` emits it as a two-element list only for limits. Stored answer strings resume
 unchanged. Python and WASM expose the same answer grammar and combined class choices.
