@@ -539,3 +539,12 @@ Assembly `diff` answers use `{partName: answerMap}`. `acceptDefaults` returns th
 parts' maps). No `answers` or `parts` envelope is accepted. Validation follows assembly
 routing; an invalid nested answer reports both part name and question id. Single-part
 answer validation and JSON size limits remain in force. See [diff](diff.md#assemblies).
+
+## Resuming answers beside foreign PMI
+
+Writes store supplied answers even when the part already contains foreign PMI. Reopening
+returns them in `resume.answers`, while unmarked foreign PMI stays in `existing` and keeps
+its questions answered. Writing edited answers replaces Specify's provenance-marked items
+and preserves foreign entity bytes. Specify's characteristic numbers survive these edits.
+Mixed parts use Add after selective removal of Specify's items; older Add-mode files with
+no stored answers continue to open as existing PMI. See [writing modes](design.md).

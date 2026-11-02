@@ -1,8 +1,11 @@
 //! Answers stored in a written STEP and resumed from it (port of `resume.py`).
 //!
 //! Writing a part, specify-core also stores the answers it was given in the file, so that
-//! opening the file again resumes them: the analysis is of the geometry alone and carries the
-//! answers back, and writing it again replaces its PMI rather than adding to it. The payload is
+//! opening the file again resumes them. Replace-mode files analyse the geometry alone;
+//! scoped Add-mode files also retain foreign PMI as existing interview answers. A mixed
+//! rewrite removes only provenance-marked Specify requirements before adding replacements.
+//! Add payloads carry `pmi_scope: "specify-core:written:v1"`; legacy payloads without it
+//! retain their previous behavior. The payload is
 //! Python's: `{schema, answers, part, face_count, faces}` as compact JSON, base64-encoded (a
 //! Part 21 string then needs no escapes), `faces` being a [`fingerprint`] of the part's faces
 //! that is checked before unnamed face indices are trusted. Named parts write schema 3 with
@@ -48,6 +51,14 @@ pub const SCHEMAS: [i64; 3] = [1, 2, SCHEMA];
 /// The name of the stored item (and of the attribute set holding it): Python's, kept from
 /// before specify-core was renamed so that older files still resume.
 pub const NAME: &str = "pmi-assist answers";
+
+/// Add-mode payloads scope replacement to provenance-marked requirements. Absence keeps
+/// legacy resume semantics, including 0.1.7 Add-mode files with no stored answers.
+pub(crate) fn scoped(doc: &Document, part: usize) -> bool {
+    stored_with_form(doc).get(&part).is_some_and(|(p, _)| {
+        p.get("pmi_scope").and_then(Value::as_str) == Some(crate::provenance::MARKER)
+    })
+}
 
 /// The faces in order, by kind and centroid rounded to 3 decimals: what answers refer to, as
 /// schema 2 hashes them ([`fingerprint_of`]). The fingerprint written.

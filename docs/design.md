@@ -141,7 +141,7 @@ the resume correspondence rule below handles feature-ID changes.
 | `mates.py` | `mates.rs` | Cylinders and planes per instance, `mates`, `contacts`, `suggestion`. Overlap area of facing planes by a local polygon intersection of the faces' boundaries (stand-in for U5). |
 | `mesh.py` | `mesh.rs`, `triangulate.rs` | Mesh format `pmi-assist-mesh` v2 kept. Triangulation is a local stand-in (U4): each face triangulated in its parameter space from its boundary loops and refined to the deflection; a face it cannot do is listed in `missing`, as the format allows. Edges from the edges' samples, seams left out. |
 | `anchors.py`, `sightlines.py` | `anchors.rs`, `sightlines.rs` | Anchor point: `face_centre` checked to lie on the trimmed face (stand-in for quiddity's `inspect_face`, U6); sightlines by `Classifier`. The reach (0.12 of the diagonal) uses the exact bbox diagonal, where Python's `serve._diagonal` uses OCCT's loose `BRepBndLib` box: anchor points differ systematically by that ratio, recorded once as a `rust-correct` pattern. |
-| `writer.py`, `requirements.py` | `writer.rs` | Intent → one `PartPmi` per part → `pmi::write` (Add for a bare part or one with foreign PMI, Replace for a file specify-core wrote) → atomic replace of the output → read back and compare. Report format kept. |
+| `writer.py`, `requirements.py` | `writer.rs` | Intent → one `PartPmi` per part → `pmi::write` (Replace for a bare/legacy resumed part, Add for foreign or mixed PMI) → atomic replace of the output → read back and compare. Report format kept. |
 | `resume.py` | `resume.rs`, `pyjson.rs` | Stored answers as a CAx-IF user defined attribute on the part (`AttributeSet` 'pmi-assist answers'); Python-written files are read too. The fingerprint hashes Python's exact `json.dumps` text (`pyjson.rs`); schema 2 written, zeros unsigned (Q14), schema 1 read. |
 | `api.py` | `api.rs` | |
 | `cli.py` | `main.rs` | Same subcommands, arguments, exit codes (0 ok, 1 write failed, 2 refused/invalid), stdout summaries. |
@@ -398,16 +398,20 @@ NIST CTC-05, whose face integrals differ, U11).
 | Leaders for threads, knurls, finish | appended presentation | none (presentation is out of scope except datum symbols) |
 | Stored answers | `PROPERTY_DEFINITION('pmi-assist answers')` text | `AttributeSet` 'pmi-assist answers' on the part, one string item (base64 JSON, payload as Python's) |
 
-Write modes: a bare part is `Mode::Replace` (the same file as `Mode::Add` for a part with no
-PMI; it also drops Python-form stored answers that do not resume, as Python does; Q18); a part
-with PMI from elsewhere is `Mode::Add` (the original's bytes and PMI kept; no answers stored, as in Python, because its PMI cannot be told
-apart from what was added); a file specify-core wrote (stored answers that match its faces) is
-`Mode::Replace`. The mode is decided over the parts written: Replace when each is bare or resumes.
-One part of an assembly may be written alone, the others and their stored answers left byte for
-byte (decision D3, 2026-10-15; Python required every part with stored answers to be written
-again together). An
-assembly with foreign PMI, which Python refuses because of OpenCascade, is written by `Mode::Add`
-(a deliberate, recorded difference). An AP214/AP203 file gaining PMI becomes AP242 only if every
+Write modes are decided per part. A bare part uses `Mode::Replace` (also dropping stale
+Python-form answers, Q18). A part with foreign PMI uses `Mode::Add` and stores supplied
+answers and characteristic numbers. Its stored payload adds `pmi_scope` equal to the
+[PMI provenance token](pmi-provenance.md), without changing the answer schema. On resume,
+marked requirements belong to Specify; unmarked PMI remains in `existing`, answers its
+usual questions, and retains every entity byte. A mixed rewrite still uses Add: remove
+only marked Specify requirements through the kernel removal planner, then append the edited
+intent and saved answers. Foreign dependencies, including shared features and datums, are
+protected. Specify's numbers survive value edits; foreign numbers reserve their values.
+Legacy resumed payloads without `pmi_scope` still use Replace. Old Add-mode files without
+stored answers still open as existing PMI. A marker alone grants no deletion permission.
+One assembly part may be written alone, leaving the others byte for byte (D3); parts in a
+combined write may use different modes. Assemblies with foreign PMI are supported (Q6).
+An AP214/AP203 file gaining PMI becomes AP242 only if every
 instance validates (haecceity decision 1); otherwise the write is refused, naming the instances.
 
 Verification: the output is written beside the destination, read back with `pmi::read`, and

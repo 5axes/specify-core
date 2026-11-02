@@ -251,7 +251,7 @@ fn written_again_its_pmi_is_replaced() {
 // test_assembly.py::test_an_assembly_with_pmi_of_its_own_is_refused, re-expressed (question Q6,
 // a deliberate difference): Python refuses an assembly whose PMI is not known to be its own,
 // as OpenCascade cannot add to it; haecceity's add mode writes it, keeping every original byte
-// and storing no answers (its PMI cannot be told from what is added).
+// and storing provenance-scoped answers for the part being written.
 #[test]
 fn an_assembly_with_pmi_of_its_own_is_added_to() {
     let dir = temp("foreign");
@@ -262,7 +262,8 @@ fn an_assembly_with_pmi_of_its_own_is_added_to() {
         &foreign,
         std::fs::read_to_string(&out)
             .unwrap()
-            .replace("'pmi-assist answers'", "'other'"),
+            .replace("'pmi-assist answers'", "'other'")
+            .replace(specify_core::writer::PMI_PROVENANCE, "foreign author"),
     )
     .unwrap();
     assert!(stored(&std::fs::read(&foreign).unwrap()).is_empty());
@@ -290,7 +291,28 @@ fn an_assembly_with_pmi_of_its_own_is_added_to() {
     );
     let end = before.rfind("ENDSEC;").unwrap();
     assert!(after.starts_with(&before[..end]) && after.ends_with(&before[end..]));
-    assert!(stored(after.as_bytes()).is_empty());
+    let reopened = load(&x, Some(PIN)).unwrap();
+    assert_eq!(answers_for(&reopened).unwrap(), Some(given.clone()));
+    let analysis = specify_core::api::analyse(&reopened).unwrap();
+    assert!(!analysis["existing"].as_array().unwrap().is_empty());
+    given.insert("part.coating".into(), json!("Zinc plate revised"));
+    let intent = apply_with_defaults(&analysis, &given, true).unwrap();
+    let (edited, _) = specify_core::writer::write_bytes(&reopened, &intent, Some(&given)).unwrap();
+    let old = haecceity::p21::Document::parse(before.as_bytes().to_vec()).unwrap();
+    let new = haecceity::p21::Document::parse(edited.clone()).unwrap();
+    for id in old.ids() {
+        assert_eq!(
+            old.span(id).map(|s| &old.bytes()[s]),
+            new.span(id).map(|s| &new.bytes()[s]),
+            "foreign assembly entity #{id}"
+        );
+    }
+    let file =
+        specify_core::part::File::of_bytes(std::path::Path::new("edited.step"), edited).unwrap();
+    assert_eq!(
+        answers_for(&file.load(Some(PIN)).unwrap()).unwrap(),
+        Some(given)
+    );
 }
 
 // test_assembly.py::test_answers_stored_for_a_part_the_file_no_longer_has_are_refused

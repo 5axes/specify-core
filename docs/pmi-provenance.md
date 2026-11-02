@@ -94,16 +94,24 @@ is an array aligned with the ordered settings notes, with tokens for marked note
 for unmarked notes; the key is omitted if none is marked. Selection order and assembly
 settings restrictions match `part_settings`. Face textures are attributed in existing note
 rows. Stored answers remain available as UDAs through the raw readback contract above.
-The interview's resume path still uses answers and returns its usual empty `existing` list.
+The interview's scoped Add-mode resume path returns unmarked PMI in `existing` and its
+part settings, alongside the stored `resume.answers`. Those foreign requirements continue
+to answer questions. The payload's `pmi_scope` equals `specify-core:written:v1`; schemas,
+face matching and answer IDs are unchanged. Legacy payloads without this field retain their
+previous empty `existing` behavior; old Add-mode files without saved answers still open as
+existing PMI.
 
-Writing modes retain their contract: matching stored answers permit replacement; otherwise
-PMI is added alongside input PMI. The marker alone grants no deletion permission. Before a
-replace, Specify removes only its own description annotations of the selected parts'
-consumed records, because alpha.8's removal planner does not recognise those annotations.
-Foreign annotations retain the planner's normal refusal behaviour. All other parts remain
-unchanged. Unchanged resumed output retains its bytes only after its semantic requirements
-carry the markers; legacy unmarked output gains provenance on its next write, and the next
-unchanged write is byte-identical. Empty additive edits retain every original byte.
+A mixed rewrite uses Add after selectively removing marked Specify requirements. The
+kernel removal planner handles helpers/presentation; foreign requirements and their full
+forward dependencies are protected, including any shared features/datums. A removal or
+rewrite of protected records is refused. Only a verified resumed scoped payload permits
+this selective removal; a provenance marker alone grants no deletion permission. Bare and
+legacy resumed parts keep Replace. Other assembly parts remain untouched.
+
+Before Replace, Specify strips its inverse description annotations because the pinned
+reader does not consume them. Foreign annotations keep the kernel's normal refusal behavior.
+Unchanged Replace output retains its bytes after verification and the complete marker check;
+legacy unmarked output gains provenance on its next write.
 
 For the shared dimension planner (#75), `COMPOSITE_SHAPE_ASPECT.description`
 uses the same marker as an ordinary feature. A `COMPOSITE_GROUP_SHAPE_ASPECT`
