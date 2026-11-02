@@ -8,7 +8,8 @@ All notable changes to specify-core-rust. The format follows
 
 - Diff pairs fresh-numbered plans by requirement/geometry identity; only continued
   characteristic-number histories give numbers priority. Thread manufacturing notes
-  show drawing wording, and other semantic-only attribute notes show their values.
+  show drawing wording, and semantic-only attribute notes, knurls and finishes show
+  their values.
   WASM assembly diff accepts per-part `acceptDefaults` maps and names the part and
   question id when a nested answer is invalid.
 

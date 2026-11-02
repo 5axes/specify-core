@@ -742,17 +742,11 @@ fn recorded_numbers(
 
 // A graphic can render several semantic requirements once (GENERAL NOTES).
 // Labels and comparisons belong to each requirement, never to that shared block.
-fn note_notation(semantic: &Semantic, metadata: &mut Map<String, Value>) {
-    use haecceity::presentation::notes::{Source, general_notes};
-
-    for (id, note) in semantic.ids["notes"].iter().zip(&semantic.pmi.notes) {
-        if let Some(meta) = metadata.get_mut(id) {
-            meta["notation"] = json!(note.text);
-            if note.on.is_none() && crate::existing::edge_break_note(&note.text) {
-                meta["question"] = json!("part.edges");
-            }
-        }
-    }
+fn manufacturing_notation(
+    semantic: &Semantic,
+    metadata: &mut Map<String, Value>,
+    graphics: &presentation::Presentation,
+) {
     for (id, attribute) in semantic.ids["attributes"]
         .iter()
         .zip(&semantic.pmi.attributes)
@@ -776,6 +770,14 @@ fn note_notation(semantic: &Semantic, metadata: &mut Map<String, Value>) {
                     &pmi::ToleranceTarget::Feature(thread.feature)))
             }))
             .flatten();
+        if thread.is_none()
+            && graphics
+                .items
+                .get(id)
+                .is_some_and(|items| items.iter().any(|g| !g.name.is_empty()))
+        {
+            continue;
+        }
         let notation = if let Some(thread) = thread {
             haecceity::presentation::thread(thread, &semantic.pmi).notation()
         } else {
@@ -809,6 +811,56 @@ fn note_notation(semantic: &Semantic, metadata: &mut Map<String, Value>) {
         };
         meta["notation"] = json!(notation);
     }
+    // Manufacturing/finish requirements can exist without any presentation.
+    // Use their own semantics only where there is no drawing wording to retain.
+    for (id, knurl) in semantic.ids["knurls"].iter().zip(&semantic.pmi.knurls) {
+        if graphics
+            .items
+            .get(id)
+            .is_some_and(|items| items.iter().any(|g| !g.name.is_empty()))
+        {
+            continue;
+        }
+        let pattern = match knurl.pattern {
+            pmi::KnurlPattern::Straight => "straight",
+            pmi::KnurlPattern::Diamond => "diamond",
+            pmi::KnurlPattern::Diagonal => "diagonal",
+        };
+        if let Some(meta) = metadata.get_mut(id) {
+            meta["notation"] = json!(format!(
+                "{pattern} knurl, pitch {} mm, major ⌀{} mm",
+                knurl.diametral_pitch.mm(),
+                knurl.major_diameter.mm()
+            ));
+        }
+    }
+    for (id, texture) in semantic.ids["surface_textures"]
+        .iter()
+        .zip(&semantic.pmi.surface_textures)
+    {
+        if !graphics
+            .items
+            .get(id)
+            .is_some_and(|items| items.iter().any(|g| !g.name.is_empty()))
+            && let Some(meta) = metadata.get_mut(id)
+        {
+            meta["notation"] =
+                json!(haecceity::presentation::notes::texture_parameters(texture).join(", "));
+        }
+    }
+}
+
+fn note_notation(semantic: &Semantic, metadata: &mut Map<String, Value>) {
+    use haecceity::presentation::notes::{Source, general_notes};
+
+    for (id, note) in semantic.ids["notes"].iter().zip(&semantic.pmi.notes) {
+        if let Some(meta) = metadata.get_mut(id) {
+            meta["notation"] = json!(note.text);
+            if note.on.is_none() && crate::existing::edge_break_note(&note.text) {
+                meta["question"] = json!("part.edges");
+            }
+        }
+    }
     let mut texts: BTreeMap<&str, Vec<String>> = BTreeMap::new();
     for row in general_notes(&semantic.pmi) {
         let (collection, index) = match row.source {
@@ -834,6 +886,7 @@ fn encode(
     graphics: presentation::Presentation,
     mut metadata: Map<String, Value>,
 ) -> Result<Value, String> {
+    manufacturing_notation(semantic, &mut metadata, &graphics);
     note_notation(semantic, &mut metadata);
     // Serialize the upstream document directly, including optional stroked flags.
     let mut result = json!({"pmi": wire::to_value(semantic).map_err(|e|e.to_string())?, "presentation": graphics, "specify":metadata});

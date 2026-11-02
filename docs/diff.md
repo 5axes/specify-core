@@ -123,6 +123,8 @@ changing one note does not change the other requirements in that block. Thread m
 notes use the same designation, class and depth/THRU wording as their drawing callout
 (e.g. `M6×1-6H THRU`) on both sides. Other semantic-only attribute notes, including knurl
 manufacturing attributes, show their named values instead of the fallback `note`.
+Semantic-only knurls show their pattern and pitch; surface textures show their stated
+parameters. Existing drawing wording remains authoritative when a callout is present.
 
 `report.json` adds `pmi.items`, an ordered list of changes:
 

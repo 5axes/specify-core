@@ -1039,3 +1039,44 @@ fn fresh_revision_fixture_pairs_never_cross_requirement_types() {
         }
     }
 }
+
+#[test]
+fn a_semantic_only_knurl_change_has_its_own_wording() {
+    let bare = load("parts/pin.step");
+    let analysis = api::analyse(&bare).unwrap();
+    let question = api::questions(&analysis, &Map::new())
+        .unwrap()
+        .into_iter()
+        .find(|q| {
+            q.id.starts_with("diameter.fit:") && q.options.iter().any(|v| v.starts_with("knurl:"))
+        })
+        .unwrap();
+    let old = write(
+        &bare,
+        &answers(json!({question.id.clone():"knurl:straight"})),
+    );
+    let new = write(&old, &answers(json!({question.id:"knurl:diamond"})));
+    let report = revision::diff(&old, &new, &Map::new()).unwrap();
+    let knurl = report
+        .pmi
+        .items
+        .iter()
+        .find(|i| i.kind == "knurl" && i.class == "changed")
+        .unwrap();
+    assert!(
+        knurl
+            .old
+            .as_ref()
+            .unwrap()
+            .starts_with("straight knurl, pitch "),
+        "{knurl:?}"
+    );
+    assert!(
+        knurl
+            .new
+            .as_ref()
+            .unwrap()
+            .starts_with("diamond knurl, pitch "),
+        "{knurl:?}"
+    );
+}
