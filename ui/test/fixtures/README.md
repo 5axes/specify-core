@@ -58,6 +58,13 @@ After is gramil's defaults; before has `shaft.drive_plate_mount_depth` 4 (not 5)
 `drive_plate.mount_hole_diameter` 2.2 (not 2.4): GRM-02 shaft and GRM-04 drive plate change,
 the other 10 parts do not. `scripts/diff-browser.mjs` compares them as an assembly.
 
+`gramil_shaft_before.step.gz` and `gramil_shaft_after.step.gz` are gramil's production shaft
+(`pzfreo/gramil` at `9171ef6`, Open Community License v1), the same bytes as
+`tests/fixtures/revisions/gramil_shaft.old.step.gz` and `.new.step.gz` in `pzfreo/specify-core`
+at `3bb019e`, made there by `gramil_shaft.py`: after adds a 1.5 mm end chamfer. With the answers
+Specify defaults for before, the diff pairs location dimensions whose ids differ (`old_id`) and
+two thread notes with no callout, only faces; `scripts/diff-browser.mjs` uses them for both.
+
 `19-spindle-semantic-links-only.step.gz` is `19-spindle-semantic-links-only.step` from the
 2026-10-30 PMI comparison (#128), gzipped: a turned spindle Specify wrote, whose graphical PMI
 (the 37.6 / 33.6 / 27.2 / 5 / 1.5 ladder, ⌖⌀0.2 A and ⌖⌀0.3Ⓜ A, ⌀3.3 H11, datums A and B) is
