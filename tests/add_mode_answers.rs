@@ -461,3 +461,48 @@ fn removing_owned_control_keeps_its_carrier_when_foreign_control_uses_it() {
             .all(|e| e.provenance.as_deref() != Some(writer::PMI_PROVENANCE))
     );
 }
+
+#[test]
+fn ctc01_intent_leaves_the_files_stated_sizes_to_the_file() {
+    let case = common::case("nist/nist_ctc_01_asme1_ap242");
+    let loaded = part::load(&case.input().unwrap(), None).unwrap();
+    let analysis = api::analyse(&loaded).unwrap();
+    let answers = json!({"part.material":"steel"})
+        .as_object()
+        .unwrap()
+        .clone();
+    let intent = api::apply(&analysis, &answers, true).unwrap();
+    // The file states these diameters with their own tolerances; they are planner
+    // authorities, never extra Specify requirements beside the file's dimensions.
+    assert!(
+        !intent
+            .requirements
+            .iter()
+            .any(|r| r.get("stored") == Some(&json!(true))),
+        "stored dimensions leaked into the intent"
+    );
+    let stated: Vec<Vec<i64>> = analysis["existing"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|d| d["type"] == "Size_Diameter" && d["value"].is_number())
+        .map(|d| serde_json::from_value(d["faces"].clone()).unwrap())
+        .collect();
+    assert_eq!(stated.len(), 7);
+    for r in &intent.requirements {
+        if r.get("kind") != Some(&json!("size")) || r.contains_key("not_written_reason") {
+            continue;
+        }
+        let faces: Vec<i64> = serde_json::from_value(r["faces"].clone()).unwrap();
+        assert!(
+            !stated.iter().any(|s| s.iter().all(|f| faces.contains(f))),
+            "a size requirement repeats the file's diameter on {faces:?}"
+        );
+    }
+    // Planning still sees them: the file's sizes keep General guesses off these holes.
+    assert!(intent.requirements.iter().any(|r| {
+        r.get("not_written_reason")
+            .and_then(Value::as_str)
+            .is_some_and(|w| w.contains("conflicts with an answered requirement"))
+    }));
+}
