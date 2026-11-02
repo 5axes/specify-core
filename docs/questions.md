@@ -19,8 +19,8 @@ combinations of f/m/c/v with H/K/L, for example `"ISO 2768-mK"`. The default rem
 text and haecceity recognises its geometric class. Linear defaults still use the existing
 ISO 2768-1 table for the first letter. Specify has no ISO 2768-2 tables, so H/K/L adds
 no numeric geometric defaults; explicitly answered geometric tolerances keep their values.
-Imported foreign PMI continues to use Add mode, retaining original limit entities and storing
-no interview payload. Saved project answers can resume externally against that part. Bare or
+Imported foreign PMI uses Add mode, retaining original limit entities; the answers are stored
+beside it and resume on reopening, with the foreign limits still in `existing`. Bare or
 previously authored parts store and resume the exact limit answer strings in STEP as usual.
 
 ## Decision (2026-10-15): gzipped STEP

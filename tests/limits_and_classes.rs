@@ -304,19 +304,20 @@ fn nist_ctc01_imported_limits_survive_analysis_resume_and_rewrite() {
         .clone();
     let written = write(&p, &answers);
     check(&written);
-    // Foreign PMI continues to use Add mode, which deliberately stores no
-    // interview payload. Resume a saved project externally, retaining its PMI.
-    assert!(api::analyse(&written).unwrap().get("resume").is_none());
-    let resumed = specify_core::resume::rematch_answers(
-        &written,
-        &specify_core::features::recognise(&written).unwrap(),
-        &answers,
-        Some(&specify_core::resume::evidence(&p).unwrap()),
-        None,
-    )
-    .unwrap();
-    assert_eq!(resumed.answers, answers);
-    check(&write(&written, &resumed.answers));
+    // Add mode stores the answers beside the foreign PMI: both come back on reopening.
+    let reopened = api::analyse(&written).unwrap();
+    let resumed = reopened["resume"]["answers"].as_object().unwrap().clone();
+    assert_eq!(resumed, answers);
+    assert_eq!(
+        reopened["existing"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|d| d["limits"] == json!([34.8, 35.2]))
+            .count(),
+        2
+    );
+    check(&write(&written, &resumed));
 }
 
 #[test]
