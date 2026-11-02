@@ -127,3 +127,8 @@ Mixed-file rewrites require a writer implementing `pmi_scope`. Older writers, in
 scope; their replacement rules do not guarantee preservation of foreign PMI. Use the
 scoped writer for these rewrites. Existing 0.1.7 Add-mode files without saved answers keep
 their existing-PMI opening behavior in this engine.
+
+A newly saved scoped answer frame supersedes older frames for the same part in file order.
+This lets Add save usable answers even when an unmarked legacy frame has a stale face
+fingerprint. That older frame and its complete entity text are retained; files with only
+legacy frames keep their existing first-frame selection rule.

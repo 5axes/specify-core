@@ -21,8 +21,8 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | [mates](#mates) | 1 | 0 | 0 | 0 | 3 | 0 | 4 |
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 0 | 40 |
 | [rules](#rules) | 89 | 0 | 615 | 0 | 0 | 0 | 704 |
-| [writer](#writer) | 1086 | 0 | 0 | 0 | 15 | 0 | 1101 |
-| **all** | 4950 | 1434 | 1221 | 2487 | 1101 | 1899 | 13092 |
+| [writer](#writer) | 1088 | 0 | 0 | 0 | 15 | 0 | 1103 |
+| **all** | 4952 | 1434 | 1221 | 2487 | 1101 | 1899 | 13094 |
 
 ## analysis
 
@@ -1102,7 +1102,7 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 
 ## writer
 
-### writer: rust-correct (1086 entries)
+### writer: rust-correct (1088 entries)
 
 - **Specify-written requirements retain STEP-only authorship (issue #22)** (`*` at `existing[key=*].provenance`)
 
@@ -1187,6 +1187,10 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 - **Exact Basic bolt-circle location diameter and same-face occurrence pairing (#75)** (8 entries, 3 case globs)
 
   The evidence is stated per entry (3 distinct; all in `writer.json`). The first, for `corpus/cadgenbench/flanged_spool_132` at `existing[key=dimension|Size_Diameter|[0,16,17,18,20,21]|#2]*`: Shared planner, #75: fresh writer-oracle STEP metadata states answered:dim:pattern[hole:0,hole:16,hole:17,hole:18,hole:20,hole:21]/bolt_circle.diameter = Ø90 Basic on [0, 16, 17, 18, 20, 21]. This is radial location geometry belonging to the accepted position frame, distinct from the member bore diameter and its answered ISO 286 fit. Python omitted the bolt-circle quantity. The Basic diameter now precedes the bore in the reader's same-face Size_Diameter occurrence keys; those occurrence suffixes are comparison indices, not characteristic numbers. Both physical quantities remain, once, with distinct planner role IDs. tests/planner_dimensions.rs checks the actual standard Basic tolerance and complete Required/readback correspondence. The writer oracle's fit-limit projection now also requires the nominal to match, so a bolt circle cannot inherit the bore's fit limits. Only this exact item/report line is covered.
+
+- **Add-mode answers now resume beside preserved foreign PMI** (2 entries, 2 case globs)
+
+  The evidence is stated per entry (2 distinct; all in `writer.json`). The first, for `nist/nist_ctc_01_asme1_ap242` at `resume[python did not resume]`: For nist/nist_ctc_01_asme1_ap242, the archived Python writer deliberately stored no Add-mode answers, so its frozen readback is null. The requested provenance-scoped Add implementation now stores exactly meta.answers, {"part.material":"steel"}, and native answers_for resumes that map. The independently recaptured cross_engine Python 3.12.13 readback of this exact updated Rust byte golden also resumes the same answers using the frozen cc341dd + 63e67bd + d97d030 reference (2cb6499). Dedicated NIST CTC/FTC regressions in tests/add_mode_answers.rs compare every original foreign entity span at its original id across write/resume/edited write; the characteristic number remains stable and the changed control appears once. This entry covers only this case and the newly available answer map. All archived Python-written inputs, answer expectations, semantic comparisons and other ledger entries remain unchanged.
 
 ### writer: not-applicable (15 entries)
 

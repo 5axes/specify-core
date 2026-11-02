@@ -173,8 +173,9 @@ pub fn is_answers(set: &AttributeSet) -> bool {
 
 /// Every part's stored answers in the STEP text `bytes`, by part (Python's `stored`): each
 /// `DESCRIPTIVE_REPRESENTATION_ITEM('pmi-assist answers', ...)`, in file order, whose string
-/// is base64 of a JSON object of one of [`SCHEMAS`] with an `answers` object. The first for a
-/// part is kept; answers saved before parts were told apart are part 0's. Anything else (not
+/// is base64 of a JSON object of one of [`SCHEMAS`] with an `answers` object. The first legacy
+/// frame for a part is kept; a later provenance-scoped frame supersedes older frames without
+/// removing their entities. Answers saved before parts were told apart are part 0's. Anything else (not
 /// base64, not JSON, another schema, a part that is not an integer) is passed over, as Python
 /// passes it over. A file that does not parse as Part 21 stores nothing.
 pub fn stored(bytes: &[u8]) -> BTreeMap<usize, Map<String, Value>> {
@@ -212,8 +213,14 @@ fn stored_with_form(doc: &Document) -> BTreeMap<usize, (Map<String, Value>, bool
             Some(_) => None,
         };
         if let Some(part) = part {
-            out.entry(part)
-                .or_insert_with(|| (payload, is_attribute_item(doc, id)));
+            if payload.get("pmi_scope").and_then(Value::as_str) == Some(crate::provenance::MARKER) {
+                // Add must retain unmarked legacy frames, including stale fingerprints.
+                // Its newly saved frame is authoritative; legacy-only files keep first-wins.
+                out.insert(part, (payload, is_attribute_item(doc, id)));
+            } else {
+                out.entry(part)
+                    .or_insert_with(|| (payload, is_attribute_item(doc, id)));
+            }
         }
     }
     out

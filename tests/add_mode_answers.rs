@@ -219,3 +219,37 @@ fn coincident_numbered_foreign_control_cannot_lend_its_number_to_specify() {
         .into_bytes();
     round_trip(part::load_bytes("foreign-numbered.step", bytes).unwrap());
 }
+
+#[test]
+fn stale_unmarked_legacy_answers_cannot_mask_scoped_add_saves() {
+    let case = common::case("nist/nist_ctc_01_asme1_ap242");
+    let loaded = part::load(&case.input().unwrap(), None).unwrap();
+    let old_answers = json!({"part.material":"obsolete"})
+        .as_object()
+        .unwrap()
+        .clone();
+    let mut payload = resume::payload(&loaded, &old_answers).unwrap();
+    payload["schema"] = json!(2);
+    payload["face_count"] = json!(loaded.binding.face_count);
+    payload.as_object_mut().unwrap().remove("face_names");
+    payload["faces"] = json!("0".repeat(64));
+    let doc = Document::parse(loaded.bytes.to_vec()).unwrap();
+    let defs = haecceity::step::read_part_definitions(&loaded.bytes).unwrap();
+    // This unmarked UDA belongs to the input, so neither its payload nor its helpers may
+    // be rewritten or removed. The original foreign NIST PMI keeps this in Add mode.
+    let pmi = haecceity::pmi::PartPmi {
+        attributes: vec![resume::attribute_set(&payload)],
+        ..Default::default()
+    };
+    let (edit, _) = haecceity::pmi::write(
+        &doc,
+        &defs,
+        &[(haecceity::pmi::PartId(0), pmi)],
+        haecceity::pmi::write::Mode::Add,
+        haecceity::pmi::write::PresentationPolicy::RemovePresentation,
+    )
+    .unwrap();
+    let loaded = part::load_bytes("stale-legacy.step", doc.apply(&edit).unwrap().bytes).unwrap();
+    assert!(resume::answers_for(&loaded).unwrap().is_none());
+    round_trip(loaded);
+}
