@@ -28,6 +28,17 @@ Python. Feature recognition and the STEP/AP242 kernel come from
 
 ![The STEP diff action's comment on a pull request](step-diff/comment.png)
 
+## With AI and code-first CAD
+
+Text-to-CAD and code-first tools (build123d, cadgen) now let an AI produce a part's geometry. What they don't produce is the manufacturing intent a supplier needs: datums, fits, threads, tolerances and finish. Specify is the deterministic half of that loop:
+
+- **A question list an agent can work through.** `questions` returns each decision the part needs, with a proposed answer and its reason, as JSON. The agent (or a person) answers by question id. Nothing has to be written as free-form GD&T.
+- **Checked, standard output.** Specify, not the AI, writes the AP242 semantic PMI and reads it back to verify it, so a wrong answer is refused, never silently turned into bad PMI.
+- **Answers that survive regeneration.** Parts whose code names its faces keep their answers on the same faces when the model is rebuilt; Specify re-asks only about faces an edit touched ([docs/face-names.md](docs/face-names.md)).
+- **Changes a reviewer can trust.** `diff` explains what changed between two revisions in engineering terms, on every pull request with the GitHub action, so an agent's edits are reviewable.
+
+Call it from an agent through Python (`pip install specify-core`), the command line or the JSON-lines host process.
+
 ## Ways to use it
 
 One engine, one set of answers and files, whichever way you call it:
