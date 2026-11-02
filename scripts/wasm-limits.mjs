@@ -17,12 +17,12 @@ try {
   assert.equal(q.options.length, 16);
   assert.ok(q.options.includes('ISO 2768-mK'));
   const interpreted = JSON.parse(interpret(JSON.stringify(JSON.parse(engine.snapshot()).analysis), '{}', q.id, 'mk'));
-  assert.equal(interpreted, 'ISO 2768-mK');
+  assert.deepEqual(interpreted, { value: 'ISO 2768-mK', code: 'ISO 2768-mK' });
   const write = JSON.parse(engine.writePmi(JSON.stringify(answers)));
   const back = new IntentEngine('limits.step', Uint8Array.from(write.bytes));
   try {
     assert.deepEqual(JSON.parse(back.snapshot()).analysis.resume.answers, answers);
-    const scene = JSON.parse(back.pmiScene());
+    const scene = JSON.parse(back.pmiScene(JSON.stringify(answers)));
     const labels = Object.values(scene.specify).map(m => m.notation ?? '').join('; ');
     assert.ok(labels.includes('9.8 - 10.2') && labels.includes('⌀7.8 - ⌀8.2'), labels);
     assert.ok(labels.includes('GENERAL TOLERANCES ISO 2768-mK'), labels);

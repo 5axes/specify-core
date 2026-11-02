@@ -241,6 +241,25 @@ fn combined_classes_are_choices_and_round_trip_without_changing_defaults() {
             .contains("GENERAL TOLERANCES ISO 2768-mK")
     );
     assert_eq!(model(&write(&written, &answers)).general, read.general);
+    let plain_answers = json!({"part.general_tolerance":"ISO 2768-m"});
+    let before = write(&p, plain_answers.as_object().unwrap());
+    let report = revision::diff(&before, &written, &Map::new()).unwrap();
+    let changed: Vec<_> = report
+        .pmi
+        .items
+        .iter()
+        .filter(|c| c.class == "changed")
+        .collect();
+    assert_eq!(changed.len(), 1, "{changed:?}");
+    assert_eq!(changed[0].kind, "general_tolerance");
+    assert_eq!(
+        changed[0].old.as_deref(),
+        Some("GENERAL TOLERANCES ISO 2768-m")
+    );
+    assert_eq!(
+        changed[0].new.as_deref(),
+        Some("GENERAL TOLERANCES ISO 2768-mK")
+    );
 }
 
 #[test]
