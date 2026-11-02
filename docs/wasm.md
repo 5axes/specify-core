@@ -533,3 +533,9 @@ patch is needed.
 In the role array, `text` includes explicit ISO glyph strokes already represented
 in cell strings (⌖, ⌀, Ⓜ). Remove those when replacing whole cells with host-font
 text. Standalone finish marks and leader scope rings remain `symbol` geometry.
+
+Assembly `diff` answers use `{partName: answerMap}`. `acceptDefaults` returns the answer map as JSON; in JavaScript use
+`JSON.stringify({[partName]: JSON.parse(engine.acceptDefaults("{}"))})` (and add the other
+parts' maps). No `answers` or `parts` envelope is accepted. Validation follows assembly
+routing; an invalid nested answer reports both part name and question id. Single-part
+answer validation and JSON size limits remain in force. See [diff](diff.md#assemblies).

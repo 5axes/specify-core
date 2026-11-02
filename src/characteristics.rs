@@ -849,6 +849,38 @@ pub(crate) fn verify(doc: &Document, p: &PartPmi, prov: &PartProvenance) -> Resu
     Ok(())
 }
 
+/// Whether the destination allocation uses the source history. A destination's own
+/// history wins over transport; validate its whole structural snapshot, not item values
+/// or coincident numbers. Actual ID_ATTRIBUTE edits do not alter this provenance.
+pub(crate) fn carries_history(
+    destination: &PartPmi,
+    answers: &Map<String, Value>,
+) -> Result<bool, String> {
+    let Some(transport) = answers.get(CARRY) else {
+        return Ok(false);
+    };
+    let carried: History =
+        serde_json::from_value(transport.clone()).map_err(|e| format!("{CARRY}: {e}"))?;
+    validate(&carried)?;
+    let Some(saved) = history(destination)? else {
+        return Ok(true);
+    };
+    Ok(saved.high_water >= carried.high_water
+        && saved.entries.iter().all(|entry| {
+            entry.number > carried.high_water
+                || carried.entries.iter().any(|old| {
+                    old.number == entry.number
+                        && old.key.kind == entry.key.kind
+                        && old.key.r#type == entry.key.r#type
+                        && (old.key.role.is_empty()
+                            || entry.key.role.is_empty()
+                            || old.key.role == entry.key.role)
+                        && old.key.faces == entry.key.faces
+                        && old.key.reference == entry.key.reference
+                })
+        }))
+}
+
 /// Carry the history with the existing revision correspondence and returned answers. The
 /// transport is geometry-bound and is consumed by the ordinary writer (native and WASM).
 pub(crate) fn carry_revision(
@@ -927,4 +959,50 @@ pub(crate) fn retired(
         .filter_map(|i| number(doc, i.entity))
         .collect();
     Ok(old.difference(&live).copied().collect())
+}
+
+#[cfg(test)]
+mod history_tests {
+    use super::*;
+
+    #[test]
+    fn carry_policy_uses_the_whole_history_and_ignores_values() {
+        let entry = |number, face| Entry {
+            number,
+            key: Key {
+                role: "size".into(),
+                kind: "dimension".into(),
+                r#type: "Size_Diameter".into(),
+                faces: vec![face],
+                reference: vec![],
+            },
+        };
+        let h = History {
+            schema: 2,
+            faces: "target fingerprint".into(),
+            high_water: 6,
+            entries: vec![entry(5, 10), entry(6, 11)],
+        };
+        let transport = Map::from_iter([(CARRY.into(), serde_json::to_value(&h).unwrap())]);
+        let mut destination = PartPmi::default();
+        assert!(!carries_history(&destination, &Map::new()).unwrap());
+        assert!(carries_history(&destination, &transport).unwrap());
+        destination.attributes = vec![attribute(&h)];
+        assert!(carries_history(&destination, &transport).unwrap());
+        let mut independent = h.clone();
+        independent.entries.swap(0, 1);
+        independent.entries[0].number = 5;
+        independent.entries[1].number = 6;
+        destination.attributes = vec![attribute(&independent)];
+        assert!(!carries_history(&destination, &transport).unwrap());
+        let mut continued = h.clone();
+        continued.high_water = 7;
+        continued.entries.remove(0); // Retired #5 cannot be reused.
+        continued.entries.push(entry(7, 12));
+        destination.attributes = vec![attribute(&continued)];
+        assert!(carries_history(&destination, &transport).unwrap());
+        continued.entries.push(entry(5, 13));
+        destination.attributes = vec![attribute(&continued)];
+        assert!(!carries_history(&destination, &transport).unwrap());
+    }
 }

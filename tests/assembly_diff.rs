@@ -354,3 +354,28 @@ fn a_single_part_s_answers_are_its_part_s_when_it_becomes_an_assembly() {
         json!({"plate": {"part.material": "6061-T6"}})
     );
 }
+
+#[test]
+fn per_part_accepted_defaults_are_valid_and_errors_name_the_part_and_id() {
+    let old = load_all(&fixture("old")).unwrap();
+    let new = load_all(&fixture("new")).unwrap();
+    let mut given = Map::new();
+    for part in &old {
+        let analysis = specify_core::api::analyse(part).unwrap();
+        let defaults = specify_core::rules::with_all_defaults(&analysis, &Map::new()).unwrap();
+        given.insert(part.name.clone(), json!(defaults));
+    }
+    assert_eq!(assembly::diff(&old, &new, &given).unwrap().parts.len(), 12);
+    given["GRM-02 shaft"]
+        .as_object_mut()
+        .unwrap()
+        .insert("part.nope".into(), json!("bad"));
+    let error = assembly::diff(&old, &new, &given)
+        .err()
+        .unwrap()
+        .to_string();
+    assert!(
+        error.contains("GRM-02 shaft") && error.contains("part.nope"),
+        "{error}"
+    );
+}

@@ -208,6 +208,8 @@ pub fn diff_with_options(
                 "assembly requirements use {part name: {question id: value}}".into(),
             ));
         }
+        crate::input::answers_shape(answers.as_object().expect("checked above"))
+            .map_err(|e| invalid(format!("part {name:?}: {e}")))?;
         if !old_names.contains(name) {
             let path = old.first().map(|p| p.path.display().to_string());
             return Err(invalid(format!(
@@ -232,7 +234,15 @@ pub fn diff_with_options(
                     .and_then(Value::as_object)
                     .cloned()
                     .unwrap_or_default();
-                let r = super::diff_with_options(&old[i], &new[j], &answers, options)?;
+                let r =
+                    super::diff_with_options(&old[i], &new[j], &answers, options).map_err(|e| {
+                        match e {
+                            api::Error::Rules(rules::Error::Invalid(message)) => {
+                                invalid(format!("part {name:?}: {message}"))
+                            }
+                            other => other,
+                        }
+                    })?;
                 let (status, gone) = if unchanged(&r) {
                     placed(&old[i].placements, &placing_old(&new[j].placements, &r))
                 } else {

@@ -342,11 +342,12 @@ fn compare(
     faces: &BTreeMap<usize, Bind>,
     old_features: &[Feature],
     new_features: &[Feature],
+    carried_numbers: bool,
 ) -> Vec<PmiItemChange> {
     let mut pairs = BTreeMap::new();
     let mut used = BTreeSet::new();
     // Complete each stronger pass before any weaker match can consume its candidate.
-    for pass in 0..4 {
+    for pass in usize::from(!carried_numbers)..4 {
         for (i, was) in old
             .iter()
             .enumerate()
@@ -361,16 +362,24 @@ fn compare(
                     !used.contains(j)
                         && match pass {
                             0 => was.number.is_some() && was.number == now.number,
-                            1 => was.id == now.id,
+                            1 => {
+                                was.id == now.id
+                                    && ((carried_numbers
+                                        && was.number.is_some()
+                                        && now.number.is_some())
+                                        || mapped.as_ref().is_none_or(|f| *f == now.faces))
+                            }
                             2 => {
                                 mapped.as_ref().is_some_and(|f| *f == now.faces)
-                                    && !(was.number.is_some()
+                                    && !(carried_numbers
+                                        && was.number.is_some()
                                         && now.number.is_some()
                                         && was.number != now.number)
                             }
                             _ => {
                                 was.match_kind == now.match_kind
-                                    && !(was.number.is_some()
+                                    && !(carried_numbers
+                                        && was.number.is_some()
                                         && now.number.is_some()
                                         && was.number != now.number)
                                     && old
@@ -389,7 +398,13 @@ fn compare(
             let candidates = if candidates.len() > 1 || pass == 2 {
                 candidates
                     .into_iter()
-                    .filter(|(_, now)| now.kind == was.kind)
+                    .filter(|(_, now)| {
+                        if pass == 2 {
+                            now.match_kind == was.match_kind
+                        } else {
+                            now.kind == was.kind
+                        }
+                    })
                     .collect::<Vec<_>>()
             } else {
                 candidates
@@ -514,10 +529,17 @@ pub(super) fn diff(
     faces: &BTreeMap<usize, Bind>,
     features: (&[Feature], &[Feature]),
 ) -> api::Result<(Vec<PmiItemChange>, PmiScenes)> {
+    let destination = Scene::new(new).map_err(api::Error::Analysis)?;
+    let carried_numbers = destination
+        .carries_numbers(carried)
+        .map_err(api::Error::Analysis)?;
     let scene = |part: &LoadedPart, analysis: &Value, answers| {
-        Scene::new(part)
-            .and_then(|scene| scene.comparison(part, analysis, answers))
-            .map_err(api::Error::Analysis)
+        if std::ptr::eq(part, new) {
+            destination.comparison(part, analysis, answers)
+        } else {
+            Scene::new(part).and_then(|scene| scene.comparison(part, analysis, answers))
+        }
+        .map_err(api::Error::Analysis)
     };
     let (old_analysis, new_analysis) = analyses;
     let before = scene(old, old_analysis, given)?;
@@ -531,6 +553,7 @@ pub(super) fn diff(
             faces,
             features.0,
             features.1,
+            carried_numbers,
         );
         // Compare the two plans too: generated requirements can follow geometry
         // without any answer changing. File edits own the final requirement when
@@ -544,6 +567,7 @@ pub(super) fn diff(
                 faces,
                 features.0,
                 features.1,
+                carried_numbers,
             ) {
                 if !changes.iter().any(|actual| {
                     actual.id == change.id
@@ -563,6 +587,7 @@ pub(super) fn diff(
                 faces,
                 features.0,
                 features.1,
+                carried_numbers,
             ),
             projected,
         )
@@ -617,11 +642,66 @@ mod tests {
             (0, Bind::Ambiguous(vec![10, 11])),
             (1, Bind::Ambiguous(vec![20, 21])),
         ]);
-        let result = compare(&old, &new, &faces, &[], &[]);
+        let result = compare(&old, &new, &faces, &[], &[], true);
         assert_eq!(result.len(), 2);
         assert!(result.iter().all(|c| c.class == "changed"));
         assert_eq!(result[0].id, "new-a");
         assert_eq!(result[0].old.as_deref(), Some("⏥ 0.2"));
+    }
+
+    #[test]
+    fn fresh_numbers_cannot_swap_two_same_kind_dimensions() {
+        let mut old = [
+            control("length", vec![0], "37.6"),
+            control("shoulder", vec![1], "36.1"),
+        ];
+        old[0].number = Some(5);
+        old[1].number = Some(6);
+        let mut new = [
+            control("length", vec![10], "37.6"),
+            control("shoulder", vec![11], "36.1"),
+        ];
+        new[0].number = Some(6);
+        new[1].number = Some(5);
+        let faces = BTreeMap::from([(0, Bind::To(10)), (1, Bind::To(11))]);
+        for renamed in [false, true] {
+            if renamed {
+                new[0].id = "new-length".into();
+                new[1].id = "new-shoulder".into();
+            }
+            let changes = compare(&old, &new, &faces, &[], &[], false);
+            assert_eq!(changes.len(), 2);
+            assert!(
+                changes
+                    .iter()
+                    .all(|c| c.class == "renumbered" && c.old == c.new)
+            );
+            assert!(
+                changes
+                    .iter()
+                    .any(|c| c.reason.as_deref() == Some("characteristic number #5 → #6"))
+            );
+            assert!(
+                changes
+                    .iter()
+                    .any(|c| c.reason.as_deref() == Some("characteristic number #6 → #5"))
+            );
+        }
+    }
+
+    #[test]
+    fn a_diameter_cannot_consume_a_location_on_the_same_faces() {
+        let mut old = control("pitch", vec![0], "5");
+        old.kind = "dimension".into();
+        old.match_kind = "dimension:linear_distance".into();
+        let mut new = control("bore", vec![10], "⌀2.5");
+        new.kind = "dimension".into();
+        new.match_kind = "dimension:diameter".into();
+        let faces = BTreeMap::from([(0, Bind::To(10))]);
+        let changes = compare(&[old], &[new], &faces, &[], &[], false);
+        assert_eq!(changes.len(), 2);
+        assert!(changes.iter().any(|c| c.class == "added"));
+        assert!(changes.iter().any(|c| c.class == "removed"));
     }
 
     #[test]
@@ -636,13 +716,13 @@ mod tests {
             control("new-b", vec![3], "0.4"),
         ];
         new[0].number = Some(7);
-        let result = compare(&old, &new, &BTreeMap::new(), &[], &[]);
+        let result = compare(&old, &new, &BTreeMap::new(), &[], &[], true);
         let numbered = result.iter().find(|c| c.number == Some(7)).unwrap();
         assert_eq!(numbered.old.as_deref(), Some("0.3"));
         assert_eq!(numbered.new.as_deref(), Some("0.1"));
         let old = [control("a", vec![0], "0.2"), control("b", vec![1], "0.3")];
         let new = [control("c", vec![2], "0.1"), control("d", vec![3], "0.4")];
-        let result = compare(&old, &new, &BTreeMap::new(), &[], &[]);
+        let result = compare(&old, &new, &BTreeMap::new(), &[], &[], true);
         assert_eq!(result.iter().filter(|c| c.class == "removed").count(), 2);
         assert_eq!(result.iter().filter(|c| c.class == "added").count(), 2);
     }
@@ -653,7 +733,7 @@ mod tests {
         let mut new = [control("new", vec![0], "0.1")];
         new[0].number = Some(7);
         let faces = BTreeMap::from([(0, Bind::To(0))]);
-        let changes = compare(&old, &new, &faces, &[], &[]);
+        let changes = compare(&old, &new, &faces, &[], &[], true);
         assert_eq!(changes.len(), 2);
         for class in ["changed", "renumbered"] {
             let item = changes.iter().find(|c| c.class == class).unwrap();
@@ -661,7 +741,7 @@ mod tests {
             assert_eq!(item.id, "new");
         }
         new[0].id = "old".into();
-        for item in compare(&old, &new, &faces, &[], &[]) {
+        for item in compare(&old, &new, &faces, &[], &[], true) {
             assert!(serde_json::to_value(item).unwrap().get("old_id").is_none());
         }
     }

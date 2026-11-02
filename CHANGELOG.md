@@ -6,6 +6,12 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+- Diff pairs fresh-numbered plans by requirement/geometry identity; only continued
+  characteristic-number histories give numbers priority. Thread manufacturing notes
+  show drawing wording, and other semantic-only attribute notes show their values.
+  WASM assembly diff accepts per-part `acceptDefaults` maps and names the part and
+  question id when a nested answer is invalid.
+
 - Prefer an exact tap-drill match over an ambiguous smaller clearance screw when suggesting a hole function; accepted tapped holes carry thread semantics without a tap-drill fit. Document and type additive haecceity polyline roles and text cell boxes (pass-through from v0.4.4).
 
 ### Added

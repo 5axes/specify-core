@@ -94,11 +94,22 @@ the old part (a hole, a pattern, a boss, a slot, a fillet) is then:
 
 ### PMI requirements
 
-Items match by characteristic number, then stable requirement id (or haecceity id
-for foreign PMI), then corresponding faces, with kind resolving multiple items on
-one support, then a unique remaining item of the same kind. Numbered items with
-different numbers are kept distinct at the weaker matching stages. A split can map
-one old face to several new faces. Ambiguous item matches stay added/removed rather than choosing arbitrarily.
+Characteristic numbers drive pairing only when the destination uses the old revision's
+number history. Diff transports that schema-2 structural history before planning the new
+scene, just as the writer does. A destination's own history takes precedence; it must
+continue the source's mapped structural snapshot and high-water mark to use number identity.
+Values, thread classes and notation are outside that identity (For #96). Carried numbers
+match first, then ids, corresponding faces and unique remaining kind; differently numbered
+items stay distinct at the weaker stages, as before.
+
+With freshly allocated numbers (including two plans made from answers), items match by
+requirement id, then corresponding faces with kind resolving multiple items on one support,
+then unique remaining kind. A same-id match must not contradict known face correspondence:
+recognition can reuse a face-derived id for another feature. Fresh numbers neither reserve
+matches nor prevent face/kind matching. `renumbered` records the actual number difference
+on the resulting pair; equal wording may therefore have a renumbering line without a value
+change. A split can map one old face to several new faces. Ambiguous item matches stay
+added/removed rather than choosing arbitrarily.
 
 Comparison uses haecceity's full semantic notation and frame cells, including
 material and datum modifiers, diameter zones, fits, qualifiers and note text.
@@ -108,7 +119,10 @@ file-local support/unit identities are compared through their correspondence or
 resolved meaning rather than their JSON ids. A semantic-only change carries a
 `reason` even when its displayed text stays equal. Notes use their own semantic
 wording (`pmiScene.specify[id].notation`), not the shared GENERAL NOTES graphic;
-changing one note does not change the other requirements in that block.
+changing one note does not change the other requirements in that block. Thread manufacturing
+notes use the same designation, class and depth/THRU wording as their drawing callout
+(e.g. `M6×1-6H THRU`) on both sides. Other semantic-only attribute notes, including knurl
+manufacturing attributes, show their named values instead of the fallback `note`.
 
 `report.json` adds `pmi.items`, an ordered list of changes:
 
@@ -236,7 +250,11 @@ A file of several parts, or of a part placed more than once, is compared as an a
 - **Requirements are by part name**: `--answers` takes `{part name: {question id: value}}`, and
   `answers.json` holds the requirements applied, by part. A part with no entry uses the
   requirements Specify stored in it. When the old file is a single part, `{question id: value}` is taken as
-  that part's requirements.
+  that part's requirements. Each nested map may be the complete result of that part's
+  `acceptDefaults`; do not wrap it in an `answers` or `parts` object. For example:
+  `{"GRM-02 shaft":{"part.general_tolerance":"ISO 2768-m","hole.function:holes:14":"tapped:M2"}}`.
+  Invalid nested answers name both the part and question id in the error. WASM `diff`
+  accepts this same shape and validates after selecting the part.
 - **`report.json`** is `{verdict, summary, parts}`, each part `{name, status, old, new}` (which
   part of each file and how many times it is placed) and its `report` when it is in both.
 

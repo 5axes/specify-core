@@ -47,6 +47,10 @@ impl Scene {
         })
     }
 
+    pub(crate) fn carries_numbers(&self, answers: &Map<String, Value>) -> Result<bool, String> {
+        characteristics::carries_history(&self.read.parts[self.index], answers)
+    }
+
     /// `None` shows only the file; `Some` shows the current answers. Stored origin/source are authoritative when showing the file.
     pub fn scene(
         &self,
@@ -748,6 +752,62 @@ fn note_notation(semantic: &Semantic, metadata: &mut Map<String, Value>) {
                 meta["question"] = json!("part.edges");
             }
         }
+    }
+    for (id, attribute) in semantic.ids["attributes"]
+        .iter()
+        .zip(&semantic.pmi.attributes)
+    {
+        if [
+            characteristics::PROPERTY,
+            pmi_origin::PROPERTY,
+            "specify dimension plan",
+        ]
+        .contains(&attribute.name.as_str())
+        {
+            continue;
+        }
+        let Some(meta) = metadata.get_mut(id) else {
+            continue;
+        };
+        let thread = (attribute.name == "thread manufacturing")
+            .then(|| semantic.pmi.threads.iter().find(|thread| {
+                matches!(attribute.on, Some(NoteOwner::Feature(feature)) if semantic.pmi.same_target(
+                    &pmi::ToleranceTarget::Feature(feature),
+                    &pmi::ToleranceTarget::Feature(thread.feature)))
+            }))
+            .flatten();
+        let notation = if let Some(thread) = thread {
+            haecceity::presentation::thread(thread, &semantic.pmi).notation()
+        } else {
+            // Feature-owned attributes (knurl manufacturing, inspection methods,
+            // and other CAD notes) have no GENERAL NOTES row or callout name.
+            attribute
+                .items
+                .iter()
+                .map(|(key, value)| {
+                    use pmi::AttributeValue as A;
+                    let value = match value {
+                        A::Text(s) => s.clone(),
+                        A::Integer(n) => n.to_string(),
+                        A::Real(n) => n.to_string(),
+                        A::Boolean(b) => b.to_string(),
+                        A::Measure(v) => format!(
+                            "{} {}",
+                            crate::existing::value(v),
+                            if matches!(v.quantity, pmi::Quantity::Length(_)) {
+                                "mm"
+                            } else {
+                                "°"
+                            }
+                        ),
+                        A::OtherMeasure { value, unit, .. } => format!("{value} {unit}"),
+                    };
+                    format!("{key}: {value}")
+                })
+                .collect::<Vec<_>>()
+                .join("; ")
+        };
+        meta["notation"] = json!(notation);
     }
     let mut texts: BTreeMap<&str, Vec<String>> = BTreeMap::new();
     for row in general_notes(&semantic.pmi) {

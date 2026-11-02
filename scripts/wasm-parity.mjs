@@ -5,7 +5,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { brotliCompressSync, gzipSync, gunzipSync, constants } from 'node:zlib';
-import init, { IntentEngine, review, acceptDefaults, interpret, start } from '../crates/specify-core-wasm/pkg/specify_core_wasm.js';
+import init, { IntentEngine, review, acceptDefaults, interpret, start, diff } from '../crates/specify-core-wasm/pkg/specify_core_wasm.js';
 
 const root = new URL('../', import.meta.url);
 const wasm = readFileSync(new URL('crates/specify-core-wasm/pkg/specify_core_wasm_bg.wasm', root));
@@ -270,3 +270,19 @@ throwsString(() => new IntentEngine('twice.step', Buffer.from(twice)), /one inst
   } finally { placedTwice.free(); }
 }
 console.log('assemblies: parts listed, a part opened, written into the original file and reopened');
+
+// Diff must decode assembly answer maps before applying single-part validation.
+{
+  const bytes = readFileSync(new URL('tests/fixtures/parts/assembly.step', root));
+  const answers = {};
+  for (const part of JSON.parse(IntentEngine.parts('assembly.step', bytes))) {
+    const engine = IntentEngine.openPart('assembly.step', bytes, part.part);
+    try { answers[part.name] = JSON.parse(engine.acceptDefaults('{}')); }
+    finally { engine.free(); }
+  }
+  const result = JSON.parse(diff('old.step', bytes, 'new.step', bytes, JSON.stringify(answers), 'Assembly'));
+  assert.equal(result.report.parts.length, 2);
+  answers.plate['part.nope'] = 'bad';
+  throwsString(() => diff('old.step', bytes, 'new.step', bytes, JSON.stringify(answers), 'Assembly'), /part "plate".*part.nope.*unknown answer ID/);
+}
+console.log('assembly diff: per-part acceptDefaults JSON accepted; invalid id names its part');

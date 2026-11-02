@@ -853,6 +853,15 @@ fn feature_owned_manufacturing_attributes_inherit_the_thread_or_knurl_question()
                 let meta = &scene["specify"][attribute["id"].as_str().unwrap()];
                 assert_eq!(meta["question"], question.id);
                 assert_eq!(meta["status"], status);
+                assert!(
+                    meta["notation"]
+                        .as_str()
+                        .is_some_and(|s| !s.is_empty() && s != "note"),
+                    "{meta}"
+                );
+                if collection == "knurls" {
+                    assert_eq!(meta["notation"], "process: Controlled");
+                }
             }
         }
     }
