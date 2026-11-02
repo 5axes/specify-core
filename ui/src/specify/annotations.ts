@@ -45,6 +45,11 @@ interface Placed {
   buried: boolean;
   /** Centred on its point, as a dimension's value is; else beside it. */
   centred: boolean;
+  /** A leader's line and arrowhead, redrawn from where the label is moved to. */
+  leader?: { line: Line2; head: THREE.Mesh };
+  /** How far it is moved on screen, in pixels, to stand clear of the others. */
+  dx: number;
+  dy: number;
 }
 
 const UP = new THREE.Vector3(0, 1, 0);
@@ -78,6 +83,12 @@ export function createAnnotations(
   },
 ): Annotations {
   const { scene, diagonal: d } = nav;
+  // An arrowhead with its point at ``tip``, coming from ``from``.
+  const point = (head: THREE.Mesh, tip: THREE.Vector3, from: THREE.Vector3) => {
+    const along = tip.clone().sub(from).normalize();
+    head.quaternion.setFromUnitVectors(UP, along);
+    head.position.copy(tip).addScaledVector(along, -d * 0.011);
+  };
   const overlay = new CSS2DRenderer();
   overlay.domElement.style.cssText = 'position:absolute;inset:0;pointer-events:none';
   container.appendChild(overlay.domElement);
@@ -265,6 +276,9 @@ export function createAnnotations(
       });
       el.append(inner);
       const tag = new CSS2DObject(el);
+      // Its box's top left at the point, so the label's own transform alone sets where it stands
+      // (beside the point, or centred on it), as the declutter below reckons it.
+      tag.center.set(0, 0);
 
       // WebGL draws THREE.Line one pixel wide whatever linewidth says; Line2
       // gives a leader that reads at a glance.
@@ -290,12 +304,11 @@ export function createAnnotations(
           new THREE.ConeGeometry(d * 0.006, d * 0.022, 12),
           new THREE.MeshBasicMaterial({ color: colour }),
         );
-        const along = tip.clone().sub(from).normalize();
-        head.quaternion.setFromUnitVectors(UP, along);
-        head.position.copy(tip).addScaledVector(along, -d * 0.011);
+        point(head, tip, from);
         return head;
       };
       let ink: (Line2 | THREE.Mesh)[];
+      let leader: Placed['leader'];
       let near: THREE.Vector3;
       let tip: THREE.Vector3;
       if (span) {
@@ -315,7 +328,8 @@ export function createAnnotations(
       } else if (at) {
         near = at.tip.clone().addScaledVector(at.out, d * STANDOFF);
         tip = at.tip;
-        ink = [line(near, at.tip), arrow(at.tip, near)];
+        leader = { line: line(near, at.tip), head: arrow(at.tip, near) };
+        ink = [leader.line, leader.head];
       } else {
         continue;
       }
@@ -323,7 +337,8 @@ export function createAnnotations(
       scene.add(tag, ...ink);
       placed.push({
         el, inner, tag, ink, world: near, tip: tip.clone(),
-        at: placed.length, buried: false, centred: Boolean(span),
+        at: placed.length, buried: false, centred: Boolean(span), dx: 0, dy: 0,
+        ...(leader ? { leader } : {}),
       });
     }
     // Placed while the view is still: whether each is hidden is known now.
@@ -334,8 +349,11 @@ export function createAnnotations(
   // on -- step-pmi-viewer's occlusion test, which it applies on top of a facing
   // test. Facing alone hid a shaft seen edge-on, a feature down a bore in plain
   // sight, and anything whose leader happened to leave on the far side; so it
-  // is not used. The rest are pushed vertically off one another, the one
-  // nearest the camera keeping its place.
+  // is not used. The rest are moved off one another, the one nearest the camera
+  // keeping its place: each to the nearest free spot above, below or to either
+  // side, a dimension's value only along its line's normal on screen (up or
+  // down). A moved label's leader is redrawn from where it now stands, so it
+  // still points at its feature.
   const proj = new THREE.Vector3();
   function declutter() {
     const [w, h] = nav.size();
@@ -364,17 +382,33 @@ export function createAnnotations(
     rows.sort((a, b) => Math.round(a.depth * resolved) - Math.round(b.depth * resolved) || a.p.at - b.p.at);
     const taken: { x: number; bw: number; top: number; bot: number }[] = [];
     for (const r of rows) {
-      let dy = 0;
-      for (let step = 0; step < 40; step++) {
-        const top = r.y + dy - r.bh / 2;
-        const bot = top + r.bh;
-        const clash = taken.some((t) =>
-          !(left(r) + r.bw <= t.x || t.x + t.bw <= left(r) || bot <= t.top || t.bot <= top));
-        if (!clash) break;
-        dy = dy >= 0 ? -(dy + r.bh) : -dy;
+      const box = (dx: number, dy: number) => ({ x: left(r) + dx, bw: r.bw, top: r.y + dy - r.bh / 2, bot: r.y + dy + r.bh / 2 });
+      const clear = (b: { x: number; bw: number; top: number; bot: number }) =>
+        !taken.some((t) => !(b.x + b.bw <= t.x || t.x + t.bw <= b.x || b.bot <= t.top || t.bot <= b.top));
+      let [dx, dy] = [0, 0];
+      if (!clear(box(0, 0))) {
+        // Across to the point's other side, or a box's width further out.
+        const across = r.p.centred ? [0] : [0, -(r.bw + 18), r.bw + 9, -(2 * r.bw + 27)];
+        const spots = across.flatMap((x) => Array.from({ length: 41 }, (_, i) => [x, (i % 2 ? 1 : -1) * Math.ceil(i / 2) * r.bh]))
+          .sort((a, b) => Math.hypot(a[0] ?? 0, a[1] ?? 0) - Math.hypot(b[0] ?? 0, b[1] ?? 0));
+        const free = spots.find(([x, y]) => clear(box(x ?? 0, y ?? 0)));
+        if (free) [dx, dy] = [free[0] ?? 0, free[1] ?? 0];
       }
-      taken.push({ x: left(r), bw: r.bw, top: r.y + dy - r.bh / 2, bot: r.y + dy + r.bh / 2 });
-      r.p.inner.style.transform = `translate(${r.p.centred ? '-50%' : '9px'}, calc(-50% + ${dy.toFixed(1)}px))`;
+      taken.push(box(dx, dy));
+      const x = r.p.centred ? '-50%' : `${(9 + dx).toFixed(1)}px`;
+      r.p.inner.style.transform = `translate(${x}, calc(-50% + ${dy.toFixed(1)}px))`;
+      if (r.p.leader && (dx !== r.p.dx || dy !== r.p.dy || dx || dy)) {
+        // From the label's near edge, at the depth it stands at.
+        const edge = dx < 0 ? r.x + dx + 9 + r.bw : r.x + dx;
+        const from = dx || dy
+          ? new THREE.Vector3((edge / w) * 2 - 1, -((r.y + dy) / h) * 2 + 1, r.depth).unproject(nav.camera)
+          : r.p.world;
+        r.p.leader.line.geometry.setPositions([from.x, from.y, from.z, r.p.tip.x, r.p.tip.y, r.p.tip.z]);
+        r.p.leader.line.computeLineDistances();
+        point(r.p.leader.head, r.p.tip, from);
+      }
+      r.p.dx = dx;
+      r.p.dy = dy;
     }
   }
 
