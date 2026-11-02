@@ -1,5 +1,25 @@
 # Questions for the maintainer
 
+
+## Limit dimensions and combined ISO 2768 classes
+
+Size and distance answers (`extra.<id>` with `kind: "size"` or `"distance"`) accept
+absolute lower/upper limits: `"9.8/10.2"`. Bounds must be finite and strictly increasing.
+Unsigned slash pairs are limits; signed bounds use `"limits:-10.2/-9.8"` (the prefix
+also accepts positive bounds). Existing `±0.05`, `+-0.05`, `+/-0.05`, `0.05`, and signed
+deviation pairs such as `+0.1/-0`, `-0.05/-0.1` keep their meanings. Hyphen and en-dash
+ranges are refused to avoid ambiguity with signed deviations and negative bounds.
+Limits stay `DimTolerance::Limits` in STEP. Write reports use `9.8/10.2`; scene
+`specify[id].notation`, editor labels and diff/Markdown text use haecceity's drawn form
+`9.8 - 10.2` (diameters `⌀9.8 - ⌀10.2`). ± answers stay deviations.
+
+`part.general_tolerance` offers the four plain `ISO 2768-f/m/c/v` classes and all twelve
+combinations of f/m/c/v with H/K/L, for example `"ISO 2768-mK"`. The default remains
+`"ISO 2768-m"`. Typed `mK` is accepted as `ISO 2768-mK`. STEP stores the combined class
+text and haecceity recognises its geometric class. Linear defaults still use the existing
+ISO 2768-1 table for the first letter. Specify has no ISO 2768-2 tables, so H/K/L adds
+no numeric geometric defaults; explicitly answered geometric tolerances keep their values.
+
 ## Decision (2026-10-15): gzipped STEP
 
 - **Gzipped STEP input:** accepted everywhere a STEP file or its bytes are read, told by gzip's

@@ -82,6 +82,9 @@ pub struct ExistingPmi {
     /// Signed deviations from nominal, mm (degrees for an angle).
     pub upper: Option<f64>,
     pub lower: Option<f64>,
+    /// Absolute lower/upper bounds, only for a limit dimension. Deviations above
+    /// remain available to tolerance checks and older consumers.
+    pub limits: Option<[f64; 2]>,
     /// The datum letters a tolerance cites, primary first.
     pub datums: Vec<String>,
     /// STEP authorship token on this requirement; absent for unmarked input PMI.
@@ -102,6 +105,7 @@ impl ExistingPmi {
             value: None,
             upper: None,
             lower: None,
+            limits: None,
             datums: Vec::new(),
             provenance: None,
             number: None,
@@ -133,6 +137,9 @@ impl Serialize for ExistingPmi {
             if let Some(value) = value {
                 map.serialize_entry(key, &value)?;
             }
+        }
+        if let Some(limits) = self.limits {
+            map.serialize_entry("limits", &limits)?;
         }
         if !self.datums.is_empty() {
             map.serialize_entry("datums", &self.datums)?;
@@ -321,8 +328,10 @@ impl Reading {
             item.faces2 = second;
             let nominal = dimension.nominal.as_ref();
             item.value = nominal.map(value);
-            // Deviations as stated; limits (and a fit's stated limits) as their offsets from
-            // nominal, the form the analysis carries.
+            // Preserve absolute limits, and derive offsets for existing tolerance checks.
+            if let DimTolerance::Limits(b) = &dimension.tolerance {
+                item.limits = Some([value(b.lower()), value(b.upper())]);
+            }
             let offsets = |upper: &PmiValue, lower: &PmiValue| match nominal {
                 Some(n) => (
                     Some(round_half_even(value(upper) - value(n), 9)),

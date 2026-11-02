@@ -176,15 +176,16 @@ fn contract(r: &Map<String, Value>) -> Tolerance {
     } else if r.get("general") == Some(&json!(true)) {
         Tolerance::General
     } else {
-        Tolerance::Explicit(
-            json!([
-                r.get("fit"),
-                r.get("upper"),
-                r.get("lower"),
-                r.get("stored_tolerance")
-            ])
-            .to_string(),
-        )
+        let mut fields = vec![
+            r.get("fit"),
+            r.get("upper"),
+            r.get("lower"),
+            r.get("stored_tolerance"),
+        ];
+        if r.contains_key("limits") {
+            fields.push(r.get("limits"));
+        }
+        Tolerance::Explicit(json!(fields).to_string())
     }
 }
 // A position frame defines its pattern geometry with Basic dimensions, even

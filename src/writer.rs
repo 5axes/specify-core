@@ -3,7 +3,7 @@
 //!
 //! Each part's intent becomes one [`PartPmi`] (`part_pmi`): datums A–H on their datum
 //! features (coplanar faces, or a hole's cylinders for an axis datum), sizes (an ISO 286 fit as
-//! the fit, `±` and limits as deviations), locations (basic, or deviations) from the reference
+//! the fit, `±` as deviations and limits as limits), locations (basic, deviations or limits) from the reference
 //! faces to the feature, geometric tolerances with their zone, modifier and datum system,
 //! material, the general tolerance as a class, threads (with their manufacturing data as a
 //! user defined attribute set, upstream need U8), knurls, surface finish and the part's notes.
@@ -1347,6 +1347,31 @@ fn deviations(upper: f64, lower: f64, what: &str) -> Result<DimTolerance, WriteE
     Ok(DimTolerance::Deviations(bounds))
 }
 
+/// Keep the answer's absolute limits; deviations remain the legacy intent form.
+fn dimension_tolerance(req: &Map<String, Json>, what: &str) -> Result<DimTolerance, WriteError> {
+    if let Some(bounds) = req.get("limits") {
+        let [lower, upper]: [f64; 2] = serde_json::from_value(bounds.clone()).map_err(|e| {
+            WriteError::Invalid(format!("{what}: limits must be [lower, upper]: {e}"))
+        })?;
+        let bounds = Bounds::new(mm(upper)?, mm(lower)?)
+            .map_err(|e| WriteError::Invalid(format!("{what}: {}", e.0)))?;
+        return Ok(DimTolerance::Limits(bounds));
+    }
+    deviations(number(req, "upper")?, number(req, "lower")?, what)
+}
+
+fn limit_label(req: &Map<String, Json>) -> Option<String> {
+    let bounds = req.get("limits")?.as_array()?;
+    let [lower, upper] = bounds.as_slice() else {
+        return None;
+    };
+    Some(format!(
+        "{}/{}",
+        pyfmt::g(lower.as_f64()?),
+        pyfmt::g(upper.as_f64()?)
+    ))
+}
+
 /// The intent of one part as haecceity's model, and the report's lines for it. `before` is the
 /// part's PMI as read: in add mode a datum it already has is its own (no "datum" line).
 fn part_pmi(
@@ -1660,11 +1685,7 @@ fn part_pmi_observed(
                             limits: None,
                         }
                     } else {
-                        deviations(
-                            number(req, "upper")?,
-                            number(req, "lower")?,
-                            "planned dimension",
-                        )?
+                        dimension_tolerance(req, "planned dimension")?
                     }
                 }
             };
@@ -1702,12 +1723,14 @@ fn part_pmi_observed(
             } else if kind == "size" {
                 lines.written.push(format!(
                     "Ø{} {} on {}",
-                    pyfmt::g(planned.required.nominal),
+                    limit_label(req).unwrap_or_else(|| pyfmt::g(planned.required.nominal)),
                     req.get("fit").map_or(String::new(), py_str),
                     feature_name()
                 ));
             } else {
-                let how = if truthy(req.get("basic")) {
+                let how = if req.contains_key("limits") {
+                    String::new()
+                } else if truthy(req.get("basic")) {
                     "basic".into()
                 } else {
                     let (upper, lower) = (number(req, "upper")?, number(req, "lower")?);
@@ -1719,7 +1742,7 @@ fn part_pmi_observed(
                 };
                 lines.written.push(format!(
                     "location {} {how} to {} from faces {}",
-                    pyfmt::g(planned.required.nominal),
+                    limit_label(req).unwrap_or_else(|| pyfmt::g(planned.required.nominal)),
                     feature_name(),
                     face_list(req.get("reference"))
                 ));
@@ -1755,11 +1778,7 @@ fn part_pmi_observed(
                             limits: None,
                         }
                     }
-                    _ => deviations(
-                        number(req, "upper")?,
-                        number(req, "lower")?,
-                        &format!("size on {}", feature_name()),
-                    )?,
+                    _ => dimension_tolerance(req, &format!("size on {}", feature_name()))?,
                 };
                 observe("dimensions", p.dimensions.len(), req);
                 p.dimensions.push(Dimension {
@@ -1781,7 +1800,7 @@ fn part_pmi_observed(
                 } else {
                     lines.written.push(format!(
                         "Ø{} {} on {}",
-                        pyfmt::g(nominal),
+                        limit_label(req).unwrap_or_else(|| pyfmt::g(nominal)),
                         fit.map_or(String::new(), py_str),
                         feature_name()
                     ));
@@ -1804,13 +1823,15 @@ fn part_pmi_observed(
                     (DimTolerance::None, "general".to_string())
                 } else {
                     let (upper, lower) = (number(req, "upper")?, number(req, "lower")?);
-                    let how = if upper == -lower {
+                    let how = if req.contains_key("limits") {
+                        String::new()
+                    } else if upper == -lower {
                         format!("±{}", pyfmt::g(upper))
                     } else {
                         format!("+{}/{}", pyfmt::g(upper), pyfmt::signed_g(lower))
                     };
                     let what = format!("location to {}", feature_name());
-                    (deviations(upper, lower, &what)?, how)
+                    (dimension_tolerance(req, &what)?, how)
                 };
                 observe("dimensions", p.dimensions.len(), req);
                 p.dimensions.push(Dimension {
@@ -1834,7 +1855,7 @@ fn part_pmi_observed(
                 } else {
                     lines.written.push(format!(
                         "location {} {how} to {} from faces {}",
-                        pyfmt::g(distance),
+                        limit_label(req).unwrap_or_else(|| pyfmt::g(distance)),
                         feature_name(),
                         face_list(req.get("reference"))
                     ));

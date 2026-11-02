@@ -354,7 +354,24 @@ pub const PITCH: SizeTable = [
     ("M24", 3.0),
 ];
 
-pub const GENERAL_TOLERANCES: [&str; 4] = ["ISO 2768-f", "ISO 2768-m", "ISO 2768-c", "ISO 2768-v"];
+pub const GENERAL_TOLERANCES: [&str; 16] = [
+    "ISO 2768-f",
+    "ISO 2768-m",
+    "ISO 2768-c",
+    "ISO 2768-v",
+    "ISO 2768-fH",
+    "ISO 2768-fK",
+    "ISO 2768-fL",
+    "ISO 2768-mH",
+    "ISO 2768-mK",
+    "ISO 2768-mL",
+    "ISO 2768-cH",
+    "ISO 2768-cK",
+    "ISO 2768-cL",
+    "ISO 2768-vH",
+    "ISO 2768-vK",
+    "ISO 2768-vL",
+];
 
 /// How near a diameter must be to a tabulated one to be taken for it, mm (Python's default
 /// `tolerance`; no caller passes another).

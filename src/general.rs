@@ -97,7 +97,12 @@ pub fn deviation(general: &str, nominal: f64) -> Option<f64> {
     let text = pyfmt::strip(general);
     let class = text.rsplit('-').next().unwrap_or(text).to_lowercase();
     let mut chars = class.chars();
-    let (Some(letter), None) = (chars.next(), chars.next()) else {
+    let Some(letter) = chars.next() else {
+        return None;
+    };
+    // A combined designation keeps the same ISO 2768-1 linear table. Specify
+    // has no ISO 2768-2 tables, so the geometric class adds no invented defaults.
+    if !matches!(chars.next(), None | Some('h' | 'k' | 'l')) || chars.next().is_some() {
         return None;
     };
     let (_, row) = ISO_2768.iter().find(|(c, _)| *c == letter)?;

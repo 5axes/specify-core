@@ -6,6 +6,12 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+- Preserve answered and imported limit dimensions through STEP, resume, scene labels and
+  diff reports; size and distance answers accept lower/upper slash bounds. Analysis and
+  Python existing-PMI records expose optional absolute limits alongside derived deviations.
+- Offer ISO 2768 f/m/c/v × H/K/L combined general-tolerance classes and round-trip their
+  geometric class, retaining the ISO 2768-m default and existing linear tables.
+
 ## 0.1.7 (2026-11-02)
 
 - Diff retains uniquely matched planned dimensions when their target/reference

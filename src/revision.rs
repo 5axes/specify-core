@@ -277,7 +277,21 @@ fn pmi_words(p: &Value) -> String {
     };
     match kind {
         "dimension" => {
-            let value = n("value").map(num).unwrap_or_default();
+            let absolute =
+                p.get("limits")
+                    .and_then(Value::as_array)
+                    .and_then(|bounds| match bounds.as_slice() {
+                        [lower, upper] => {
+                            Some(format!("{}/{}", num(lower.as_f64()?), num(upper.as_f64()?)))
+                        }
+                        _ => None,
+                    });
+            let limits = if absolute.is_some() {
+                String::new()
+            } else {
+                limits
+            };
+            let value = absolute.unwrap_or_else(|| n("value").map(num).unwrap_or_default());
             let size = match ty {
                 "Size_Diameter" => format!("Ø{value}"),
                 "Size_Radius" => format!("R{value}"),
