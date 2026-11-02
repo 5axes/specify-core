@@ -3,6 +3,13 @@
 // part never hides a callout; text the strokes do not draw as DOM text, set as text, never HTML,
 // and never reformatted here. Each item is drawn in its Specify status's colour.
 //
+// What haecceity generates is drawn as an engineer reads it on a drawing, set in the semantic
+// labels' face: its text (``graphic.text[i]`` at ``text_placements[i]``) is set as DOM text, in
+// its plane and centred in its cell (a frame's compartment), no smaller than a label; its
+// frames, leaders, extension and dimension lines (``polyline_roles``) drawn a little heavier;
+// the strokes of its text, which the DOM text replaces, are not drawn. A file's own graphics are
+// drawn as the file draws them.
+//
 // Drawn in the labels' scene (annotations.ts's host), so the labels' renderers draw it and it
 // follows the camera as they do. A click on a linked graphic is reported by item id; graphics
 // linked to no semantic item are drawn but cannot be clicked. A graphic listed under several
@@ -28,9 +35,15 @@ import {
 } from './drawn';
 
 const LINE_PX = 1.5;
+// What haecceity generates: its lines a little heavier, as a label's leader is.
+const SET_LINE_PX = 2;
 const HIT_PX = 6;
 // Text set by its stated height, but never smaller than this to be read.
 const MIN_TEXT_PX = 7;
+// Generated text, set as a label is: never smaller than a label (PmiLab.css's .pmi), and its
+// capitals as tall as haecceity's strokes would be (a capital is about 0.7 of the font size).
+const SET_TEXT_PX = 11.5;
+const CAP_HEIGHT = 0.7;
 // An item lit: a strong blue, read on the part and on white.
 const LIT_INK = '#0b62c4';
 
@@ -41,6 +54,10 @@ interface Drawn {
   source: DrawnGraphic['source'];
   status: DrawnStatus | undefined;
   colour: string;
+  /** Its line weight: heavier when its text is set (what haecceity generates). */
+  width: number;
+  /** The text set for it in the labels' face, hit where it is seen. */
+  set: HTMLElement[];
   /** The side it is read from, when that can be told. */
   normal: DrawnPoint | null;
   /** Whether the Show menu shows its kind. */
@@ -48,7 +65,10 @@ interface Drawn {
   /** Whether its plane faces away from the camera. */
   away: boolean;
   polylines: number;
+  /** Its lines as drawn, in pairs: what a pointer hits. */
   segments: THREE.Vector3[];
+  /** Where all its strokes are, its text's too: what a view frames. */
+  extent: THREE.Box3;
   triangles: THREE.Vector3[];
   objects: THREE.Object3D[];
 }
@@ -86,14 +106,14 @@ export function createDrawnLayer(
   },
 ): DrawnLayer {
   const { scene } = nav;
-  // One line and one fill material per colour: a status's, as its semantic labels have it.
+  // One line and one fill material per colour (a status's, as its semantic labels have it) and weight.
   const inks = new Map<string, { line: LineMaterial; fill: THREE.MeshBasicMaterial }>();
-  const ink = (colour: string) => {
-    let made = inks.get(colour);
+  const ink = (colour: string, width = LINE_PX) => {
+    let made = inks.get(`${colour} ${width}`);
     if (!made) {
       made = {
         line: new LineMaterial({
-          color: new THREE.Color(colour).getHex(), linewidth: LINE_PX, worldUnits: false,
+          color: new THREE.Color(colour).getHex(), linewidth: width, worldUnits: false,
           depthTest: false, depthWrite: false, alphaToCoverage: alpha >= 1,
           ...(alpha < 1 ? { transparent: true, opacity: alpha } : {}),
         }),
@@ -102,13 +122,14 @@ export function createDrawnLayer(
           ...(alpha < 1 ? { transparent: true, opacity: alpha } : {}),
         }),
       };
-      inks.set(colour, made);
+      inks.set(`${colour} ${width}`, made);
     }
     return made;
   };
   let drawn: Drawn[] = [];
-  // Text set by a stated placement, re-oriented and re-sized as the camera moves.
-  let placed: { inner: HTMLElement; at: TextPlacement }[] = [];
+  // Text set by a stated placement, re-oriented and re-sized as the camera moves: a file's by its
+  // stated height, generated text (``set``) as a label, centred in its cell.
+  let placed: { inner: HTMLElement; at: TextPlacement; set: boolean }[] = [];
   let visible = false;
   let show: DrawnShow = { default: true, existing: true, general: true };
   let farSide = false;
@@ -142,7 +163,7 @@ export function createDrawnLayer(
   // An item's graphics in its own colour, or lit.
   function paint(d: Drawn) {
     const colour = d.item !== null && d.item === lit ? LIT_INK : d.colour;
-    const { line, fill } = ink(colour);
+    const { line, fill } = ink(colour, d.width);
     for (const o of d.objects) {
       if (o instanceof LineSegments2) o.material = line;
       else if (o instanceof THREE.Mesh) o.material = fill;
@@ -180,9 +201,14 @@ export function createDrawnLayer(
   }
 
   function place(graphic: DrawnGraphic, item: string | null, status: DrawnStatus | undefined, colour: string): Drawn {
-    const { line: material, fill } = ink(colour);
+    // What haecceity generates, with its polylines' roles: its text is set here, so its strokes are not drawn.
+    const roles = graphic.polylineRoles;
+    const setting = graphic.source === 'generated' && roles !== undefined;
+    const width = setting ? SET_LINE_PX : LINE_PX;
+    const { line: material, fill } = ink(colour, width);
+    const lines = graphic.polylines.filter((_, k) => !setting || roles[k] !== 'text');
     const segments: THREE.Vector3[] = [];
-    for (const line of graphic.polylines) {
+    for (const line of lines) {
       for (let k = 1; k < line.length; k++) segments.push(new THREE.Vector3(...line[k - 1]!), new THREE.Vector3(...line[k]!));
     }
     const triangles = graphic.triangles.flatMap((t) => t.map((p) => new THREE.Vector3(...p)));
@@ -190,9 +216,9 @@ export function createDrawnLayer(
     if (segments.length) {
       const geometry = new LineSegmentsGeometry();
       geometry.setPositions(segments.flatMap((p) => [p.x, p.y, p.z]));
-      const lines = new LineSegments2(geometry, material);
-      lines.renderOrder = 10;
-      objects.push(lines);
+      const strokes = new LineSegments2(geometry, material);
+      strokes.renderOrder = 10;
+      objects.push(strokes);
     }
     if (triangles.length) {
       const geometry = new THREE.BufferGeometry().setFromPoints(triangles);
@@ -200,23 +226,35 @@ export function createDrawnLayer(
       mesh.renderOrder = 10;
       objects.push(mesh);
     }
-    // haecceity strokes the text of what it generates into the polylines; a file's text strings
-    // (its text literals) have no strokes, so they are set here, where the file places them, or,
-    // with no stated placement, at the middle of the graphic's own lines and triangles.
-    const texts = graphic.source === 'file' ? graphic.text : [];
+    // A file's text strings (its text literals) have no strokes, so they are set here, where the
+    // file places them, or, with no stated placement, at the middle of the graphic's own lines and
+    // triangles. haecceity strokes the text of what it generates into the polylines; with their
+    // roles stated, that text is set here instead, each at its placement, and without them its
+    // strokes are drawn.
+    const texts = graphic.source === 'file' || setting ? graphic.text : [];
+    const block = setting && graphic.text.length > 1 && !roles.includes('frame');
     const box = new THREE.Box3().setFromPoints([...segments, ...triangles]);
+    const set: HTMLElement[] = [];
     for (const [i, text] of texts.entries()) {
       const at = graphic.textPlacements?.find((t) => t.textIndex === i);
+      if (setting && !at) continue;
       if (!at && box.isEmpty()) continue;
       const el = document.createElement('div');
-      el.className = at ? 'pmi-drawn pmi-drawn-placed' : 'pmi-drawn';
+      el.className = `pmi-drawn${at ? ' pmi-drawn-placed' : ''}${setting ? ' pmi-drawn-set' : ''}`;
       const inner = document.createElement('span');
       inner.textContent = text;
       inner.style.color = colour;
       if (alpha < 1) inner.style.opacity = String(alpha);
       // Unplaced, a graphic's texts one under another.
       if (!at && i) inner.style.transform = `translateY(${1.2 * i}em)`;
-      if (item !== null) {
+      if (setting) {
+        // As a semantic label is set (PmiLab.css's .pmi); clicked and pointed at through the
+        // canvas (``hit``), so a drag that starts on it still turns the view.
+        inner.style.fontFamily = 'ui-monospace, monospace';
+        inner.style.fontWeight = '600';
+        inner.style.fontVariantNumeric = 'tabular-nums';
+        set.push(inner);
+      } else if (item !== null) {
         const id = item;
         inner.style.pointerEvents = 'auto';
         inner.style.cursor = 'pointer';
@@ -225,18 +263,29 @@ export function createDrawnLayer(
       }
       el.append(inner);
       const tag = new CSS2DObject(el);
-      if (at) {
+      if (at && setting && at.cellBox) {
+        // In its cell, which haecceity gives in the plane's x and up from the origin: centred, as
+        // in a frame's compartment or on a dimension line; a block of lines (a notes block) from
+        // its cells' left, so its lines start together whatever the face's widths.
+        const [[x0, y0], [x1, y1]] = at.cellBox;
+        const x = new THREE.Vector3(...at.xAxis).normalize();
+        const y = new THREE.Vector3(...at.normal).cross(x).normalize();
+        const centre = new THREE.Vector3(...at.origin).addScaledVector(x, block ? x0 : (x0 + x1) / 2).addScaledVector(y, (y0 + y1) / 2);
+        tag.position.copy(centre);
+        placed.push({ inner, at: { ...at, origin: [centre.x, centre.y, centre.z], alignment: block ? 'middle left' : 'centre' }, set: true });
+      } else if (at) {
         tag.position.set(...at.origin);
-        placed.push({ inner, at });
+        placed.push({ inner, at, set: setting });
       } else tag.position.copy(box.getCenter(new THREE.Vector3()));
       objects.push(tag);
     }
     scene.add(...objects);
     return {
-      item, name: graphic.name, source: graphic.source, status, colour,
+      item, name: graphic.name, source: graphic.source, status, colour, width, set,
       normal: graphicNormal(graphic, pmiNow?.presentation.planes ?? [], centre),
       shown: shownBy({ item, source: graphic.source, status }), away: false,
-      polylines: graphic.polylines.filter((l) => l.length > 1).length, segments, triangles, objects,
+      polylines: lines.filter((l) => l.length > 1).length, segments, triangles, objects,
+      extent: new THREE.Box3().setFromPoints([...graphic.polylines.flat(), ...graphic.triangles.flat()].map((q) => new THREE.Vector3(...q))),
     };
   }
 
@@ -279,12 +328,28 @@ export function createDrawnLayer(
   const up = new THREE.Vector2();
   const along = new THREE.Vector3();
   function orient() {
-    for (const { inner, at } of placed) {
+    for (const { inner, at, set } of placed) {
       const origin = new THREE.Vector3(...at.origin);
       if (!screen(origin, o)) continue;
       const x = new THREE.Vector3(...at.xAxis).normalize();
       const y = new THREE.Vector3(...at.normal).cross(x).normalize();
       const size = at.height ?? 0;
+      if (set) {
+        // Generated text lies in its plane as its strokes would: the text's x and up are the
+        // plane's x and up as seen (a millimetre of each), so it shears with the plane and sits
+        // square in its cell; seen from behind, it reads forwards. Sized by its up: capitals as
+        // tall as the strokes', never smaller than a label.
+        screen(along.copy(origin).add(x), ex);
+        screen(along.copy(origin).add(y), up);
+        const [ax, ay, ux, uy] = [ex.x - o.x, ex.y - o.y, up.x - o.x, up.y - o.y];
+        const mm = Math.hypot(ux, uy);
+        if (mm < 1e-6) continue;
+        const flip = ax * -uy - ay * -ux < 0 ? -1 : 1;
+        const m = [flip * ax / mm, flip * ay / mm, -ux / mm, -uy / mm].map((n) => n.toFixed(4)).join(', ');
+        inner.style.fontSize = `${Math.max((mm * size) / CAP_HEIGHT, SET_TEXT_PX).toFixed(1)}px`;
+        inner.style.transform = `matrix(${m}, 0, 0) ${shift(at.alignment)}`;
+        continue;
+      }
       // A length on the page: the height, or a unit, along each axis.
       screen(along.copy(origin).addScaledVector(x, size || 1), ex);
       screen(along.copy(origin).addScaledVector(y, size || 1), up);
@@ -366,8 +431,7 @@ export function createDrawnLayer(
       const box = new THREE.Box3();
       for (const d of drawn) {
         if (!on(d)) continue;
-        for (const p of d.segments) box.expandByPoint(p);
-        for (const p of d.triangles) box.expandByPoint(p);
+        box.union(d.extent);
         for (const o of d.objects) if (o instanceof CSS2DObject) box.expandByPoint(o.position);
       }
       return box.isEmpty() ? null : box;
@@ -379,6 +443,13 @@ export function createDrawnLayer(
       let reach = HIT_PX;
       for (const d of drawn) {
         if (d.item === null || !on(d)) continue;
+        // Its set text, where it is seen: on the text renderer's overlay, which lies over the view.
+        for (const el of d.set) {
+          const r = el.getBoundingClientRect();
+          const view = el.parentElement?.parentElement?.getBoundingClientRect();
+          if (!r.width || !view) continue;
+          if (x >= r.left - view.left && x <= r.right - view.left && y >= r.top - view.top && y <= r.bottom - view.top) return d.item;
+        }
         for (let k = 0; k + 1 < d.segments.length; k += 2) {
           if (!screen(d.segments[k]!, a) || !screen(d.segments[k + 1]!, b)) continue;
           const dist = nearSegment();

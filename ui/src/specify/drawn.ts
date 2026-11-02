@@ -20,7 +20,17 @@ export interface TextPlacement {
   readonly height?: number;
   /** As stated, such as "baseline left" or "centre". */
   readonly alignment?: string;
+  /**
+   * The cell the text is set in, as haecceity lays it out (0.4.4): its corners [min, max] in the
+   * plane's x and up, in mm from ``origin``, such as a feature control frame's compartment.
+   */
+  readonly cellBox?: readonly [readonly [number, number], readonly [number, number]];
+  /** Whether haecceity also strokes this text into the graphic's polylines (0.4.4). */
+  readonly stroked?: boolean;
 }
+
+/** What a polyline draws, as haecceity says (0.4.4): "text" (its text's strokes), "frame", "leader", "extension", "dimension" or "symbol". */
+export type PolylineRole = string;
 
 /** One drawn graphic: model-space millimetres. */
 export interface DrawnGraphic {
@@ -29,6 +39,8 @@ export interface DrawnGraphic {
   readonly source: 'generated' | 'file';
   readonly name: string;
   readonly polylines: readonly (readonly DrawnPoint[])[];
+  /** Each polyline's role, parallel to ``polylines``, when haecceity states them (0.4.4). */
+  readonly polylineRoles?: readonly PolylineRole[];
   readonly triangles: readonly (readonly [DrawnPoint, DrawnPoint, DrawnPoint])[];
   readonly text: readonly string[];
   readonly textPlacements?: readonly TextPlacement[];
@@ -120,8 +132,12 @@ function graphic(v: unknown, at: string): DrawnGraphic {
     : list(v['text_placements'], `${at}.text_placements`).map((t, i) => placement(t, `${at}.text_placements[${i}]`));
   const planeId = v['plane_id'];
   if (planeId !== undefined && typeof planeId !== 'string') refuse(`${at}.plane_id is not a string`);
+  const rawRoles = v['polyline_roles'];
+  const roles = rawRoles === undefined ? undefined
+    : list(rawRoles, `${at}.polyline_roles`).map((r, i) => (typeof r === 'string' ? r : refuse(`${at}.polyline_roles[${i}] is not a string`)));
+  if (roles && roles.length !== polylines.length) refuse(`${at}.polyline_roles has ${roles.length} roles for ${polylines.length} polylines`);
   return {
-    ...(typeof id === 'string' ? { id } : {}), source, name, polylines, triangles, text,
+    ...(typeof id === 'string' ? { id } : {}), source, name, polylines, ...(roles ? { polylineRoles: roles } : {}), triangles, text,
     ...(placements ? { textPlacements: placements } : {}), ...(typeof planeId === 'string' ? { planeId } : {}),
   };
 }
@@ -154,11 +170,25 @@ function placement(v: unknown, at: string): TextPlacement {
   if (textIndex !== undefined && !(Number.isInteger(textIndex) && (textIndex as number) >= 0)) refuse(`${at}.text_index is not an index`);
   if (height !== undefined && !(typeof height === 'number' && Number.isFinite(height) && height >= 0)) refuse(`${at}.height is not a length`);
   if (alignment !== undefined && typeof alignment !== 'string') refuse(`${at}.alignment is not a string`);
+  const { cell_box: box, stroked } = v;
+  const pair = (c: unknown, where: string): [number, number] => {
+    const xy = list(c, where);
+    if (xy.length !== 2 || !xy.every((n) => typeof n === 'number' && Number.isFinite(n))) refuse(`${where} is not a point [x, y]`);
+    return [xy[0] as number, xy[1] as number];
+  };
+  let cellBox: TextPlacement['cellBox'];
+  if (box !== undefined && box !== null) {
+    const corners = list(box, `${at}.cell_box`);
+    if (corners.length !== 2) refuse(`${at}.cell_box does not have 2 corners`);
+    cellBox = [pair(corners[0], `${at}.cell_box[0]`), pair(corners[1], `${at}.cell_box[1]`)];
+  }
+  if (stroked !== undefined && typeof stroked !== 'boolean') refuse(`${at}.stroked is not a boolean`);
   return {
     ...(textIndex === undefined ? {} : { textIndex: textIndex as number }),
     origin: point(v['origin'], `${at}.origin`), xAxis: point(v['x_axis'], `${at}.x_axis`), normal: point(v['normal'], `${at}.normal`),
     ...(height === undefined ? {} : { height: height as number }),
     ...(alignment === undefined ? {} : { alignment: alignment as string }),
+    ...(cellBox ? { cellBox } : {}), ...(stroked === undefined ? {} : { stroked: stroked as boolean }),
   };
 }
 
@@ -189,10 +219,9 @@ export function readPresentation(json: unknown): Read<Presentation> {
 /**
  * Each presented item's faces, from the `haecceity.pmi/1` document the presentation was made with:
  * its features' (`features[].value.items[].face`, the session's numbering). Refused unless the
- * document's ids are the presentation's `semantic_ids`, with ``aliases``: ids a scene gives what
- * the document holds without one.
+ * document's ids are the presentation's `semantic_ids`.
  */
-export function linksFromPmi(json: unknown, presentation: Presentation, aliases: readonly string[] = []): Read<Record<string, DrawnLink>> {
+export function linksFromPmi(json: unknown, presentation: Presentation): Read<Record<string, DrawnLink>> {
   if (!isObject(json) || json['schema'] !== 'haecceity.pmi/1' || !isObject(json['pmi'])) {
     return { ok: false, reason: 'not a haecceity.pmi/1 document' };
   }
@@ -207,7 +236,7 @@ export function linksFromPmi(json: unknown, presentation: Presentation, aliases:
     faces.set(e.id, on.flatMap((x) => (isObject(x) && typeof x['face'] === 'number' ? [x['face']] : [])));
   }
   // The presentation's links hold only for the document it was made with: the same ids.
-  const ids = [...new Set([...entries.map((e) => e.id), ...aliases])].sort();
+  const ids = [...new Set(entries.map((e) => e.id))].sort();
   const expected = [...presentation.semanticIds].sort();
   if (ids.join('\n') !== expected.join('\n')) return { ok: false, reason: 'the PMI document is not the one the presentation was made with (semantic_ids differ)' };
   // An item's faces: those of every feature it names, however deep.
@@ -235,12 +264,9 @@ export function drawnFromScene(scene: unknown): Read<DrawnPmi> {
   if (!isObject(scene)) return { ok: false, reason: 'the PMI scene is not a JSON object' };
   const read = readPresentation(scene['presentation']);
   if (!read.ok) return read;
-  const overlay = isObject(scene['specify']) ? scene['specify'] : {};
-  // Specify names the document's material, a scalar with no id, by its question (specify-core 0.1.7).
-  const pmi = isObject(scene['pmi']) && isObject(scene['pmi']['pmi']) ? scene['pmi']['pmi'] : {};
-  const aliases = isObject(pmi['material']) && isObject(overlay['part.material']) && read.value.semanticIds.includes('part.material') ? ['part.material'] : [];
-  const links = linksFromPmi(scene['pmi'], read.value, aliases);
+  const links = linksFromPmi(scene['pmi'], read.value);
   if (!links.ok) return links;
+  const overlay = isObject(scene['specify']) ? scene['specify'] : {};
   const linked: Record<string, DrawnLink> = {};
   for (const [id, link] of Object.entries(links.value)) {
     const entry = overlay[id];
