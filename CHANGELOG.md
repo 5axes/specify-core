@@ -6,6 +6,8 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+## 0.1.8 (2026-11-02)
+
 ### Added
 
 - Preserve answered and imported limit dimensions through STEP, resume, scene labels and
