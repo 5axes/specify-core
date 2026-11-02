@@ -45,11 +45,8 @@ interface Placed {
   buried: boolean;
   /** Centred on its point, as a dimension's value is; else beside it. */
   centred: boolean;
-  /** A leader's line and arrowhead, redrawn from where the label is moved to. */
+  /** A leader's line and arrowhead, redrawn from where its label stands. */
   leader?: { line: Line2; head: THREE.Mesh };
-  /** How far it is moved on screen, in pixels, to stand clear of the others. */
-  dx: number;
-  dy: number;
 }
 
 const UP = new THREE.Vector3(0, 1, 0);
@@ -337,7 +334,7 @@ export function createAnnotations(
       scene.add(tag, ...ink);
       placed.push({
         el, inner, tag, ink, world: near, tip: tip.clone(),
-        at: placed.length, buried: false, centred: Boolean(span), dx: 0, dy: 0,
+        at: placed.length, buried: false, centred: Boolean(span),
         ...(leader ? { leader } : {}),
       });
     }
@@ -352,8 +349,8 @@ export function createAnnotations(
   // is not used. The rest are moved off one another, the one nearest the camera
   // keeping its place: each to the nearest free spot above, below or to either
   // side, a dimension's value only along its line's normal on screen (up or
-  // down). A moved label's leader is redrawn from where it now stands, so it
-  // still points at its feature.
+  // down). Each leader is drawn from its label's near edge, wherever the label
+  // stands, so it meets the label and points at its feature.
   const proj = new THREE.Vector3();
   function declutter() {
     const [w, h] = nav.size();
@@ -397,18 +394,14 @@ export function createAnnotations(
       taken.push(box(dx, dy));
       const x = r.p.centred ? '-50%' : `${(9 + dx).toFixed(1)}px`;
       r.p.inner.style.transform = `translate(${x}, calc(-50% + ${dy.toFixed(1)}px))`;
-      if (r.p.leader && (dx !== r.p.dx || dy !== r.p.dy || dx || dy)) {
-        // From the label's near edge, at the depth it stands at.
-        const edge = dx < 0 ? r.x + dx + 9 + r.bw : r.x + dx;
-        const from = dx || dy
-          ? new THREE.Vector3((edge / w) * 2 - 1, -((r.y + dy) / h) * 2 + 1, r.depth).unproject(nav.camera)
-          : r.p.world;
+      if (r.p.leader) {
+        // From the label's near edge, at the depth it stands at, so the leader meets the label.
+        const edge = dx < 0 ? left(r) + dx + r.bw : left(r) + dx;
+        const from = new THREE.Vector3((edge / w) * 2 - 1, -((r.y + dy) / h) * 2 + 1, r.depth).unproject(nav.camera);
         r.p.leader.line.geometry.setPositions([from.x, from.y, from.z, r.p.tip.x, r.p.tip.y, r.p.tip.z]);
         r.p.leader.line.computeLineDistances();
         point(r.p.leader.head, r.p.tip, from);
       }
-      r.p.dx = dx;
-      r.p.dy = dy;
     }
   }
 
