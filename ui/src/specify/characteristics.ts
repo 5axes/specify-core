@@ -9,8 +9,8 @@
 // match them until Draftwright numbers its own (draftwright#2164).
 import type { PmiAnalysis, PmiIntent, PmiIntentItem } from '../types/pmi';
 
-import { describeFaces } from './datums';
-import { CHARACTERISTIC, fmt } from './labels';
+import { describeFaces } from './datums.ts';
+import { CHARACTERISTIC, fmt } from './labels.ts';
 
 export interface Characteristic {
   /** Its balloon number, from 1: one per requirement. */
@@ -79,10 +79,26 @@ export function characteristics(
       parentOf.set(m, { id: f.id, index: i + 1, count: f.members?.length ?? 1 });
     });
   }
+  // A feature with no question's title is named by its faces, never by Specify's id: a pattern,
+  // or several features joined by commas, as "4× ⌀35 holes".
+  const described = (id: string, faces: readonly number[]): string => {
+    if (faces.length) return describeFaces(faces, analysis);
+    const own = features.get(id);
+    const parts = own?.members ?? (own ? [id] : id.split(','));
+    const found = parts.flatMap((p) => {
+      const f = features.get(p);
+      return f?.faces.length ? [f.faces] : [];
+    });
+    const [first] = found;
+    if (!first) return own?.faces.length ? describeFaces(own.faces, analysis) : id;
+    const one = describeFaces(first, analysis);
+    return found.length > 1 ? `${found.length}× ${one}s` : one;
+  };
+  const title = (id: string) => titles.get(id) ?? described(id, []);
   const name = (id: string, faces: readonly number[]): string => {
     const parent = parentOf.get(id);
-    if (parent) return `${titles.get(parent.id) ?? parent.id}, hole ${parent.index}`;
-    return titles.get(id) ?? (faces.length ? describeFaces(faces, analysis) : id);
+    if (parent) return `${title(parent.id)}, hole ${parent.index}`;
+    return titles.get(id) ?? described(id, faces);
   };
   // One requirement on a pattern is a characteristic of each of its holes.
   const instances = (item: PmiIntentItem): { feature: string; faces: readonly number[] }[] => {
@@ -97,6 +113,8 @@ export function characteristics(
 
   const rows: Row[] = [];
   (intent?.requirements ?? []).forEach((r, i) => {
+    // One Specify did not write (an answered requirement covers it) is not on the part.
+    if (r['not_written_reason']) return;
     const source = `req:${i}`;
     const base = { source, ...(r.question ? { question: r.question } : {}) };
     const zone = (symbol: string) => {
@@ -138,7 +156,7 @@ export function characteristics(
     // A hole's basic locations are balloned with its pattern's.
     const id = str(r, 'feature');
     const parent = r.kind === 'location' ? parentOf.get(id) : undefined;
-    const group = parent ? (titles.get(parent.id) ?? parent.id) : name(id, r.faces);
+    const group = parent ? title(parent.id) : name(id, r.faces);
     for (const at of instances(r)) rows.push({ ...base, ...what, ...at, group });
   });
 
