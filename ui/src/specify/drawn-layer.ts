@@ -44,6 +44,9 @@ const MIN_TEXT_PX = 7;
 // capitals as tall as haecceity's strokes would be (a capital is about 0.7 of the font size).
 const SET_TEXT_PX = 11.5;
 const CAP_HEIGHT = 0.7;
+// How far a plane's x or up may shrink as seen, against a millimetre across the view, before its
+// set text is hidden: near edge-on it cannot be read.
+const EDGE_ON = 0.25;
 // An item lit: a strong blue, read on the part and on white.
 const LIT_INK = '#0b62c4';
 
@@ -129,7 +132,8 @@ export function createDrawnLayer(
   let drawn: Drawn[] = [];
   // Text set by a stated placement, re-oriented and re-sized as the camera moves: a file's by its
   // stated height, generated text (``set``) as a label, centred in its cell.
-  let placed: { inner: HTMLElement; at: TextPlacement; set: boolean }[] = [];
+  // ``cell``: the height its set text may fill, in millimetres; a notes block's line pitch.
+  let placed: { inner: HTMLElement; at: TextPlacement; set: boolean; cell?: number }[] = [];
   let visible = false;
   let show: DrawnShow = { default: true, existing: true, general: true };
   let farSide = false;
@@ -235,6 +239,9 @@ export function createDrawnLayer(
     const block = setting && graphic.text.length > 1 && !roles.includes('frame');
     const box = new THREE.Box3().setFromPoints([...segments, ...triangles]);
     const set: HTMLElement[] = [];
+    // A block's lines share its smallest cell, so no line is set taller than the pitch.
+    const heights = (graphic.textPlacements ?? []).flatMap((t) => (t.cellBox ? [Math.abs(t.cellBox[1][1] - t.cellBox[0][1])] : []));
+    const pitch = block && heights.length ? Math.min(...heights) : undefined;
     for (const [i, text] of texts.entries()) {
       const at = graphic.textPlacements?.find((t) => t.textIndex === i);
       if (setting && !at) continue;
@@ -272,7 +279,7 @@ export function createDrawnLayer(
         const y = new THREE.Vector3(...at.normal).cross(x).normalize();
         const centre = new THREE.Vector3(...at.origin).addScaledVector(x, block ? x0 : (x0 + x1) / 2).addScaledVector(y, (y0 + y1) / 2);
         tag.position.copy(centre);
-        placed.push({ inner, at: { ...at, origin: [centre.x, centre.y, centre.z], alignment: block ? 'middle left' : 'centre' }, set: true });
+        placed.push({ inner, at: { ...at, origin: [centre.x, centre.y, centre.z], alignment: block ? 'middle left' : 'centre' }, set: true, cell: pitch ?? Math.abs(y1 - y0) });
       } else if (at) {
         tag.position.set(...at.origin);
         placed.push({ inner, at, set: setting });
@@ -327,8 +334,11 @@ export function createDrawnLayer(
   const ex = new THREE.Vector2();
   const up = new THREE.Vector2();
   const along = new THREE.Vector3();
+  const across = new THREE.Vector2();
+  const right = new THREE.Vector3();
   function orient() {
-    for (const { inner, at, set } of placed) {
+    right.set(1, 0, 0).applyQuaternion(nav.camera.quaternion);
+    for (const { inner, at, set, cell: height } of placed) {
       const origin = new THREE.Vector3(...at.origin);
       if (!screen(origin, o)) continue;
       const x = new THREE.Vector3(...at.xAxis).normalize();
@@ -336,17 +346,24 @@ export function createDrawnLayer(
       const size = at.height ?? 0;
       if (set) {
         // Generated text lies in its plane as its strokes would: the text's x and up are the
-        // plane's x and up as seen (a millimetre of each), so it shears with the plane and sits
-        // square in its cell; seen from behind, it reads forwards. Sized by its up: capitals as
-        // tall as the strokes', never smaller than a label.
+        // plane's x and up as seen, so it shears and foreshortens with the plane and sits square in
+        // its cell; seen from behind, it reads forwards. Sized by a millimetre across the view, so
+        // a plane seen at a slant squeezes its text rather than growing it: capitals as tall as the
+        // strokes', never smaller than a label but never taller than its cell, so a notes block's
+        // lines stay apart. Near edge-on it cannot be read, and is left to its plane's lines.
         screen(along.copy(origin).add(x), ex);
         screen(along.copy(origin).add(y), up);
+        screen(along.copy(origin).add(right), across);
         const [ax, ay, ux, uy] = [ex.x - o.x, ex.y - o.y, up.x - o.x, up.y - o.y];
-        const mm = Math.hypot(ux, uy);
-        if (mm < 1e-6) continue;
+        const mm = o.distanceTo(across);
+        const edgeOn = mm < 1e-6 || Math.min(Math.hypot(ax, ay), Math.hypot(ux, uy)) / mm < EDGE_ON;
+        inner.style.visibility = edgeOn ? 'hidden' : '';
+        if (edgeOn) continue;
         const flip = ax * -uy - ay * -ux < 0 ? -1 : 1;
         const m = [flip * ax / mm, flip * ay / mm, -ux / mm, -uy / mm].map((n) => n.toFixed(4)).join(', ');
-        inner.style.fontSize = `${Math.max((mm * size) / CAP_HEIGHT, SET_TEXT_PX).toFixed(1)}px`;
+        const own = (mm * size) / CAP_HEIGHT;
+        const cell = height === undefined ? Infinity : mm * height;
+        inner.style.fontSize = `${Math.max(own, Math.min(SET_TEXT_PX, cell)).toFixed(1)}px`;
         inner.style.transform = `matrix(${m}, 0, 0) ${shift(at.alignment)}`;
         continue;
       }
