@@ -29,6 +29,10 @@ All notable changes to specify-core-rust. The format follows
 
 ### Fixed
 
+- An intent no longer lists the file's own stated dimensions as requirements. The shared
+  planner still uses them, so General guesses stay off those features, but the file's PMI
+  stays the characteristic: on NIST CTC-01 the editor showed every toleranced hole twice,
+  once with Specify's bare nominal. Written STEP bytes are unchanged.
 - Answered diff scenes remove replaced file identities together with their PMI
   rows before merging retained CAD requirements, keeping semantic links and old
   callouts consistent with each scene's own document.

@@ -1226,6 +1226,11 @@ fn intent(
             );
         }
         crate::dimensioning::apply(input, &mut intent).map_err(Error::Invalid)?;
+        // The file's own dimensions were planner authorities, not requirements: the file's
+        // PMI stays the characteristic, so they leave the intent once planning is done.
+        intent
+            .requirements
+            .retain(|r| r.get("stored") != Some(&Value::Bool(true)));
     }
     Ok(intent)
 }
