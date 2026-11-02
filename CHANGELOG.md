@@ -6,6 +6,13 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+### Fixed
+
+- `presentation.semantic_ids` lists only the PMI document's own ids again. The
+  `part.material` alias stays in `items` and `specify`, but no longer appears in
+  `semantic_ids`, where consumers that cross-check it against the PMI refused the
+  whole drawn PMI whenever a material was answered.
+
 - Prefer an exact tap-drill match over an ambiguous smaller clearance screw when suggesting a hole function; accepted tapped holes carry thread semantics without a tap-drill fit. Document and type additive haecceity polyline roles and text cell boxes (pass-through from v0.4.4).
 
 ### Added

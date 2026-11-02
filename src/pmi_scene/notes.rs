@@ -28,7 +28,8 @@ pub(super) fn multiple_blocks(scene: &Value) -> bool {
 }
 
 // Material is a scalar in haecceity.pmi/1, without a PartIdentifiers slot. Specify's
-// companion uses its interview key as an alias for that scalar (never a new PMI row).
+// companion uses its interview key as an alias for that scalar (never a new PMI row),
+// so `semantic_ids` still lists only the PMI document's own ids.
 pub(super) fn material(
     scene: &mut Value,
     semantic: &Semantic,
@@ -40,13 +41,6 @@ pub(super) fn material(
             "question": MATERIAL,
             "notation": format!("MATERIAL: {}", material.id)
         });
-        let ids = scene["presentation"]["semantic_ids"]
-            .as_array_mut()
-            .unwrap();
-        if !ids.iter().any(|id| id == MATERIAL) {
-            ids.push(json!(MATERIAL));
-            ids.sort_by(|a, b| a.as_str().cmp(&b.as_str()));
-        }
     }
 }
 
