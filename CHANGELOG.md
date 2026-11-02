@@ -6,6 +6,8 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+## 0.1.7 (2026-11-02)
+
 - Diff retains uniquely matched planned dimensions when their target/reference
   supports grow, after exact-face matches and before kind fallback. Measurement
   roles distinguish existing bore/pitch/location requirements from new counterbores.
