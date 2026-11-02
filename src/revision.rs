@@ -1957,12 +1957,17 @@ pub fn diff_with_options(
     }
     let list = |a: &Value| a["existing"].as_array().cloned().unwrap_or_default();
     let (old_existing, new_existing) = (list(&old_analysis), list(&new_analysis));
+    // Plan scenes with the same geometry-bound history as the eventual write.
+    // Keep opaque transport out of legacy answer counts and stored-answer diffs.
+    let mut pmi_answers = carried.clone();
+    crate::characteristics::carry_revision(old, new, &corr, &mut pmi_answers)
+        .map_err(api::Error::Analysis)?;
     let (items, scenes) = pmi::diff(
         old,
         new,
         (&old_analysis, &new_analysis),
         (!given.is_empty()).then_some(given),
-        &carried,
+        &pmi_answers,
         &geometric_faces,
         (&old_features, &new_features),
     )?;
@@ -2109,8 +2114,7 @@ pub fn diff_with_options(
         ));
         summary.push('.');
     }
-    crate::characteristics::carry_revision(old, new, &corr, &mut carried)
-        .map_err(api::Error::Analysis)?;
+    carried = pmi_answers;
     crate::bom::carry(old, &mut carried).map_err(api::Error::Analysis)?;
     let alignment = corr.alignment.clone();
     let mut revised = Revised {

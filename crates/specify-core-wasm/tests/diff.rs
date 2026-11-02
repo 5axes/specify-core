@@ -208,3 +208,35 @@ fn optional_scenes_use_the_same_report_without_changing_defaults() {
     let old = session::Session::open("old.step", &old).unwrap();
     assert_eq!(scenes["old"], old.pmi_scene(&answers).unwrap());
 }
+
+#[test]
+fn assembly_diff_accepts_each_parts_accept_defaults_map_through_json() {
+    let old = bytes("gramil_assembly.old");
+    let new = bytes("gramil_assembly.new");
+    let parts = specify_core::part::File::of_bytes(Path::new("old.step"), old.clone())
+        .unwrap()
+        .load_all()
+        .unwrap();
+    let mut answers = Map::new();
+    for part in &parts {
+        let analysis = specify_core::api::analyse(part).unwrap();
+        let defaults = specify_core_wasm::accept_defaults(&analysis, &Map::new()).unwrap();
+        answers.insert(part.name.clone(), serde_json::json!(defaults));
+    }
+    let parsed =
+        specify_core_wasm::diff_answers(&serde_json::to_string(&answers).unwrap()).unwrap();
+    let report =
+        session::diff(("old.step", &old), ("new.step", &new), &parsed, "Assembly").unwrap();
+    assert_eq!(report["report"]["parts"].as_array().unwrap().len(), 12);
+    let mut invalid = parsed;
+    invalid["GRM-02 shaft"]
+        .as_object_mut()
+        .unwrap()
+        .insert("part.nope".into(), serde_json::json!("bad"));
+    let error =
+        session::diff(("old.step", &old), ("new.step", &new), &invalid, "Assembly").unwrap_err();
+    assert!(
+        error.contains("GRM-02 shaft") && error.contains("part.nope"),
+        "{error}"
+    );
+}

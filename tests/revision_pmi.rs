@@ -782,6 +782,8 @@ fn semantic_only_attributes_have_both_sides_mesh_face_anchors() {
         .iter()
         .find(|c| c.class == "changed")
         .unwrap();
+    assert_eq!(change.old.as_deref(), Some("method: CMM"));
+    assert_eq!(change.new.as_deref(), Some("method: gauge"));
     let scenes = report.pmi.scenes.as_ref().unwrap();
     assert!(
         scenes.new["presentation"]["items"]
@@ -848,4 +850,309 @@ fn picture_draws_changed_added_and_removed_presentation_inside_the_frame() {
         orange > 20 && green > 20 && red > 20,
         "orange={orange}, green={green}, red={red}"
     );
+}
+
+#[test]
+fn thread_manufacturing_changes_show_drawing_wording_on_both_sides() {
+    let bare = load("revisions/gramil_shaft.old.step.gz");
+    let supplied = answers(json!({"hole.function:holes:13":"tapped:M4"}));
+    let old = write(&bare, &supplied);
+    let text = String::from_utf8(old.bytes.to_vec()).unwrap();
+    assert!(text.contains("6H"));
+    let new = part::load_bytes("thread-class.step", text.replace("6H", "6G").into_bytes()).unwrap();
+    let report = revision::diff(&old, &new, &Map::new()).unwrap();
+    assert!(
+        report
+            .pmi
+            .items
+            .iter()
+            .any(|c| c.old.as_deref() == Some("M4×0.7-6H THRU")
+                && c.new.as_deref() == Some("M4×0.7-6G THRU")),
+        "{:?}",
+        report.pmi.items
+    );
+    let old = write(
+        &bare,
+        &answers(json!({"hole.function:holes:14":"tapped:M2", "hole.full_thread:holes:14":"2"})),
+    );
+    let new = write(
+        &old,
+        &answers(json!({"hole.function:holes:14":"tapped:M2", "hole.full_thread:holes:14":"1.8"})),
+    );
+    let report = revision::diff(&old, &new, &Map::new()).unwrap();
+    let note = report
+        .pmi
+        .items
+        .iter()
+        .find(|c| c.id.contains("thread manufacturing"))
+        .unwrap();
+    assert_eq!(note.old.as_deref(), Some("M2×0.4-6H ↧ 2"));
+    assert_eq!(note.new.as_deref(), Some("M2×0.4-6H ↧ 1.8"));
+}
+
+#[test]
+fn gramil_end_chamfer_does_not_swap_fresh_dimensions() {
+    let old = load("revisions/gramil_shaft.old.step.gz");
+    let new = load("revisions/gramil_shaft.new.step.gz");
+    let supplied =
+        specify_core::rules::with_all_defaults(&api::analyse(&old).unwrap(), &Map::new()).unwrap();
+    let report = revision::diff_with_options(
+        &old,
+        &new,
+        &supplied,
+        revision::DiffOptions { scenes: true },
+    )
+    .unwrap();
+    assert!(
+        !report
+            .pmi
+            .items
+            .iter()
+            .any(|c| c.class == "changed" && c.old != c.new),
+        "{:?}",
+        report.pmi.items
+    );
+    assert_eq!(report.pmi.items.len(), 2, "{:?}", report.pmi.items);
+    assert!(
+        report
+            .pmi
+            .items
+            .iter()
+            .all(|c| c.class == "renumbered" && c.old == c.new)
+    );
+    // Independently written destination histories must not masquerade as carry.
+    let written_old = write(&old, &supplied);
+    let written_new = write(&new, &report.answers);
+    let independent = revision::diff(&written_old, &written_new, &Map::new()).unwrap();
+    assert!(
+        independent
+            .pmi
+            .items
+            .iter()
+            .all(|c| c.class == "renumbered" && c.old == c.new),
+        "{:?}",
+        independent.pmi.items
+    );
+    // Carried lengths retain their numbers. An unmapped compound support can
+    // still retire its number; that remains a genuine #96 renumbering.
+    let carried = revision::diff(&written_old, &new, &Map::new()).unwrap();
+    assert!(
+        carried.pmi.items.iter().all(|c| c.class == "renumbered"
+            && c.old == c.new
+            && c.number != Some(5)
+            && c.number != Some(6)),
+        "{:?}",
+        carried.pmi.items
+    );
+    let scenes = report.pmi.scenes.as_ref().unwrap();
+    // Both the overall length and the shoulder location retain their own value.
+    for text in ["37.6", "36.1"] {
+        let notation = |scene: &Value| {
+            scene["presentation"]["items"]
+                .as_object()
+                .unwrap()
+                .values()
+                .flat_map(|g| g.as_array().unwrap())
+                .any(|g| g["name"] == text)
+        };
+        assert!(notation(&scenes.old) && notation(&scenes.new), "{text}");
+    }
+}
+
+#[test]
+fn fresh_revision_fixture_pairs_never_cross_requirement_types() {
+    // Audit of accepted-default plans: fresh inspection-order numbers shifted when
+    // geometry/planner rows changed. These counts retain every addition/removal and
+    // real renumbering rather than treating unrelated occupants of a number as edits.
+    // Tuple: changed, renumbered, added, removed.
+    let cases = [
+        ("complex_counterbore", [5, 6, 2, 0]), // Five surviving pattern requirements grow support; two counterbore sizes are new.
+        ("complex_fillet_all", [0, 10, 5, 6]), // Split supports and removed datum, not size edits.
+        ("complex_many", [3, 2, 5, 5]),        // Three genuine recess-location edits remain.
+        ("complex_moved", [1, 11, 0, 0]),      // Only the pattern's bore diameter changes.
+        ("complex_pattern", [0, 6, 2, 3]),     // Changed pattern structure replaces requirements.
+        ("complex_remodelled", [0, 2, 0, 0]),  // Same geometry; only fresh numbers differ.
+        ("gramil_shaft", [0, 2, 0, 0]),        // Same lengths and threads after the end chamfer.
+        ("hole_added", [0, 9, 3, 0]), // Three new dimensions; existing holes stay themselves.
+        ("hole_removed", [0, 9, 0, 4]), // Removed hole requirements retire.
+        ("named_plate", [1, 4, 0, 0]), // Thickness really changes 8 to 11.
+        ("plate_removed", [0, 4, 2, 5]), // Datum B retires; it does not become C.
+        ("plate_thickened", [2, 17, 3, 5]), // Thickness and location semantics change; no pitch→diameter.
+        ("pmi_split", [1, 7, 4, 7]), // Split supports alter planner semantics, not datum letters.
+    ];
+    let signature = |scene: &Value, id: &str| {
+        scene["pmi"]["pmi"]
+            .as_object()
+            .unwrap()
+            .iter()
+            .find_map(|(collection, rows)| {
+                rows.as_array()?
+                    .iter()
+                    .find(|row| row["id"] == id)
+                    .map(|row| {
+                        let subtype = if collection == "dimensions" {
+                            row.pointer("/value/kind/size/kind")
+                                .or_else(|| row.pointer("/value/kind/location/kind"))
+                                .cloned()
+                                .unwrap_or(Value::Null)
+                        } else {
+                            Value::Null
+                        };
+                        (collection.clone(), subtype)
+                    })
+            })
+            .unwrap()
+    };
+    for (case, expected) in cases {
+        let old = load(&format!("revisions/{case}.old.step.gz"));
+        let new = load(&format!("revisions/{case}.new.step.gz"));
+        let supplied =
+            specify_core::rules::with_all_defaults(&api::analyse(&old).unwrap(), &Map::new())
+                .unwrap();
+        let report = revision::diff_with_options(
+            &old,
+            &new,
+            &supplied,
+            revision::DiffOptions { scenes: true },
+        )
+        .unwrap();
+        let counts = ["changed", "renumbered", "added", "removed"]
+            .map(|class| report.pmi.items.iter().filter(|i| i.class == class).count());
+        assert_eq!(counts, expected, "{case}: {:?}", report.pmi.items);
+        let scenes = report.pmi.scenes.unwrap();
+        for item in report
+            .pmi
+            .items
+            .iter()
+            .filter(|i| i.class == "changed" || i.class == "renumbered")
+        {
+            let old_id = item.old_id.as_deref().unwrap_or(&item.id);
+            assert_eq!(
+                signature(&scenes.old, old_id),
+                signature(&scenes.new, &item.id),
+                "{case}: {old_id} → {}",
+                item.id
+            );
+            if item.kind == "datum" {
+                assert_eq!(old_id, item.id, "{case}");
+            }
+        }
+    }
+}
+
+#[test]
+fn a_semantic_only_knurl_change_has_its_own_wording() {
+    let bare = load("parts/pin.step");
+    let analysis = api::analyse(&bare).unwrap();
+    let question = api::questions(&analysis, &Map::new())
+        .unwrap()
+        .into_iter()
+        .find(|q| {
+            q.id.starts_with("diameter.fit:") && q.options.iter().any(|v| v.starts_with("knurl:"))
+        })
+        .unwrap();
+    let old = write(
+        &bare,
+        &answers(json!({question.id.clone():"knurl:straight"})),
+    );
+    let new = write(&old, &answers(json!({question.id:"knurl:diamond"})));
+    let report = revision::diff(&old, &new, &Map::new()).unwrap();
+    let knurl = report
+        .pmi
+        .items
+        .iter()
+        .find(|i| i.kind == "knurl" && i.class == "changed")
+        .unwrap();
+    assert!(
+        knurl
+            .old
+            .as_ref()
+            .unwrap()
+            .starts_with("straight knurl, pitch "),
+        "{knurl:?}"
+    );
+    assert!(
+        knurl
+            .new
+            .as_ref()
+            .unwrap()
+            .starts_with("diamond knurl, pitch "),
+        "{knurl:?}"
+    );
+}
+
+#[test]
+fn counterbores_grow_the_existing_pattern_requirements_instead_of_replacing_them() {
+    let old = load("revisions/complex_counterbore.old.step.gz");
+    let new = load("revisions/complex_counterbore.new.step.gz");
+    let supplied =
+        specify_core::rules::with_all_defaults(&api::analyse(&old).unwrap(), &Map::new()).unwrap();
+    let report = revision::diff(&old, &new, &supplied).unwrap();
+    let old_pattern = "pattern[hole:11,hole:12,hole:8,hole:9]";
+    let new_pattern = "pattern[hole:11.19,hole:12.20,hole:8.13,hole:9.14]";
+    for (old_id, new_id, text) in [
+        (
+            format!("planner:dim:{old_pattern}/pitch/0"),
+            format!("planner:dim:{new_pattern}/pitch/0"),
+            "42.426407",
+        ),
+        (
+            format!("planner:dim:{old_pattern}/pitch/1"),
+            format!("planner:dim:{new_pattern}/pitch/1"),
+            "42.426407",
+        ),
+        (
+            format!("planner:dim:{old_pattern}/bore.diameter"),
+            format!("planner:dim:{new_pattern}/bore.diameter"),
+            "⌀6",
+        ),
+        (
+            format!("planner:dim:plane:0/to/{old_pattern}/0"),
+            format!("planner:dim:plane:0/to/{new_pattern}/0"),
+            "50",
+        ),
+        (
+            format!("planner:dim:plane:1/to/{old_pattern}/1"),
+            format!("planner:dim:plane:1/to/{new_pattern}/1"),
+            "40",
+        ),
+    ] {
+        let paired = report
+            .pmi
+            .items
+            .iter()
+            .find(|item| {
+                item.class == "changed"
+                    && item.old_id.as_deref() == Some(&old_id)
+                    && item.id == new_id
+            })
+            .unwrap_or_else(|| panic!("missing {old_id} → {new_id}: {:?}", report.pmi.items));
+        assert_eq!(paired.old.as_deref(), Some(text));
+        assert_eq!(paired.new.as_deref(), Some(text));
+        assert_eq!(paired.reason.as_deref(), Some("support changed"));
+        assert!(
+            !report
+                .pmi
+                .items
+                .iter()
+                .any(|item| (item.class == "removed" && item.id == old_id)
+                    || (item.class == "added" && item.id == new_id))
+        );
+    }
+    let added: Vec<_> = report
+        .pmi
+        .items
+        .iter()
+        .filter(|item| item.class == "added")
+        .collect();
+    assert_eq!(added.len(), 2, "{added:?}");
+    for (role, text) in [("counterbore.diameter", "⌀12"), ("counterbore.depth", "3")] {
+        assert!(
+            added.iter().any(
+                |item| item.id == format!("planner:dim:{new_pattern}/{role}")
+                    && item.new.as_deref() == Some(text)
+            ),
+            "{added:?}"
+        );
+    }
 }

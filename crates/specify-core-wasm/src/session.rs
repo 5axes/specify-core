@@ -60,6 +60,7 @@ pub fn diff_with_options(
     if assembly::is_assembly(&old_file) || assembly::is_assembly(&new_file) {
         return diff_assembly(&old_file, &new_file, answers, title, options);
     }
+    input::answers_shape(answers).map_err(|e| e.to_string())?;
     let load = |file: &part::File, name: &str| -> Result<LoadedPart, String> {
         file.load(None).map_err(|error| format!("{name}: {error}"))
     };

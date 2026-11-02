@@ -6,14 +6,25 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+- Diff retains uniquely matched planned dimensions when their target/reference
+  supports grow, after exact-face matches and before kind fallback. Measurement
+  roles distinguish existing bore/pitch/location requirements from new counterbores.
+
+- Diff pairs fresh-numbered plans by requirement/geometry identity; only continued
+  characteristic-number histories give numbers priority. Thread manufacturing notes
+  show drawing wording, and semantic-only attribute notes, knurls and finishes show
+  their values.
+  WASM assembly diff accepts per-part `acceptDefaults` maps and names the part and
+  question id when a nested answer is invalid.
+
+- Prefer an exact tap-drill match over an ambiguous smaller clearance screw when suggesting a hole function; accepted tapped holes carry thread semantics without a tap-drill fit. Document and type additive haecceity polyline roles and text cell boxes (pass-through from v0.4.4).
+
 ### Fixed
 
 - `presentation.semantic_ids` lists only the PMI document's own ids again. The
   `part.material` alias stays in `items` and `specify`, but no longer appears in
   `semantic_ids`, where consumers that cross-check it against the PMI refused the
   whole drawn PMI whenever a material was answered.
-
-- Prefer an exact tap-drill match over an ambiguous smaller clearance screw when suggesting a hole function; accepted tapped holes carry thread semantics without a tap-drill fit. Document and type additive haecceity polyline roles and text cell boxes (pass-through from v0.4.4).
 
 ### Added
 

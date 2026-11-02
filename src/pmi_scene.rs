@@ -47,6 +47,10 @@ impl Scene {
         })
     }
 
+    pub(crate) fn carries_numbers(&self, answers: &Map<String, Value>) -> Result<bool, String> {
+        characteristics::carries_history(&self.read.parts[self.index], answers)
+    }
+
     /// `None` shows only the file; `Some` shows the current answers. Stored origin/source are authoritative when showing the file.
     pub fn scene(
         &self,
@@ -738,6 +742,114 @@ fn recorded_numbers(
 
 // A graphic can render several semantic requirements once (GENERAL NOTES).
 // Labels and comparisons belong to each requirement, never to that shared block.
+fn manufacturing_notation(
+    semantic: &Semantic,
+    metadata: &mut Map<String, Value>,
+    graphics: &presentation::Presentation,
+) {
+    for (id, attribute) in semantic.ids["attributes"]
+        .iter()
+        .zip(&semantic.pmi.attributes)
+    {
+        if [
+            characteristics::PROPERTY,
+            pmi_origin::PROPERTY,
+            "specify dimension plan",
+        ]
+        .contains(&attribute.name.as_str())
+        {
+            continue;
+        }
+        let Some(meta) = metadata.get_mut(id) else {
+            continue;
+        };
+        let thread = (attribute.name == "thread manufacturing")
+            .then(|| semantic.pmi.threads.iter().find(|thread| {
+                matches!(attribute.on, Some(NoteOwner::Feature(feature)) if semantic.pmi.same_target(
+                    &pmi::ToleranceTarget::Feature(feature),
+                    &pmi::ToleranceTarget::Feature(thread.feature)))
+            }))
+            .flatten();
+        if thread.is_none()
+            && graphics
+                .items
+                .get(id)
+                .is_some_and(|items| items.iter().any(|g| !g.name.is_empty()))
+        {
+            continue;
+        }
+        let notation = if let Some(thread) = thread {
+            haecceity::presentation::thread(thread, &semantic.pmi).notation()
+        } else {
+            // Feature-owned attributes (knurl manufacturing, inspection methods,
+            // and other CAD notes) have no GENERAL NOTES row or callout name.
+            attribute
+                .items
+                .iter()
+                .map(|(key, value)| {
+                    use pmi::AttributeValue as A;
+                    let value = match value {
+                        A::Text(s) => s.clone(),
+                        A::Integer(n) => n.to_string(),
+                        A::Real(n) => n.to_string(),
+                        A::Boolean(b) => b.to_string(),
+                        A::Measure(v) => format!(
+                            "{} {}",
+                            crate::existing::value(v),
+                            if matches!(v.quantity, pmi::Quantity::Length(_)) {
+                                "mm"
+                            } else {
+                                "°"
+                            }
+                        ),
+                        A::OtherMeasure { value, unit, .. } => format!("{value} {unit}"),
+                    };
+                    format!("{key}: {value}")
+                })
+                .collect::<Vec<_>>()
+                .join("; ")
+        };
+        meta["notation"] = json!(notation);
+    }
+    // Manufacturing/finish requirements can exist without any presentation.
+    // Use their own semantics only where there is no drawing wording to retain.
+    for (id, knurl) in semantic.ids["knurls"].iter().zip(&semantic.pmi.knurls) {
+        if graphics
+            .items
+            .get(id)
+            .is_some_and(|items| items.iter().any(|g| !g.name.is_empty()))
+        {
+            continue;
+        }
+        let pattern = match knurl.pattern {
+            pmi::KnurlPattern::Straight => "straight",
+            pmi::KnurlPattern::Diamond => "diamond",
+            pmi::KnurlPattern::Diagonal => "diagonal",
+        };
+        if let Some(meta) = metadata.get_mut(id) {
+            meta["notation"] = json!(format!(
+                "{pattern} knurl, pitch {} mm, major ⌀{} mm",
+                knurl.diametral_pitch.mm(),
+                knurl.major_diameter.mm()
+            ));
+        }
+    }
+    for (id, texture) in semantic.ids["surface_textures"]
+        .iter()
+        .zip(&semantic.pmi.surface_textures)
+    {
+        if !graphics
+            .items
+            .get(id)
+            .is_some_and(|items| items.iter().any(|g| !g.name.is_empty()))
+            && let Some(meta) = metadata.get_mut(id)
+        {
+            meta["notation"] =
+                json!(haecceity::presentation::notes::texture_parameters(texture).join(", "));
+        }
+    }
+}
+
 fn note_notation(semantic: &Semantic, metadata: &mut Map<String, Value>) {
     use haecceity::presentation::notes::{Source, general_notes};
 
@@ -774,6 +886,7 @@ fn encode(
     graphics: presentation::Presentation,
     mut metadata: Map<String, Value>,
 ) -> Result<Value, String> {
+    manufacturing_notation(semantic, &mut metadata, &graphics);
     note_notation(semantic, &mut metadata);
     // Serialize the upstream document directly, including optional stroked flags.
     let mut result = json!({"pmi": wire::to_value(semantic).map_err(|e|e.to_string())?, "presentation": graphics, "specify":metadata});

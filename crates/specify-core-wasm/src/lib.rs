@@ -5,6 +5,15 @@ use specify_core::input;
 use specify_core::{api, choices};
 pub mod session;
 
+/// Decode diff answers before dispatching a single part or an assembly.
+pub fn diff_answers(text: &str) -> Result<Map<String, Value>, String> {
+    input::size("Answers", text.len(), input::JSON_LIMIT).map_err(|e| e.to_string())?;
+    let answers = serde_json::from_str(text).map_err(|e| format!("Invalid answers: {e}"))?;
+    // Part names are valid keys here. Validate each answer map after dispatch,
+    // when the part owning an invalid question id is known.
+    Ok(answers)
+}
+
 /// Accept every unanswered default to the same fixed point as CLI/serve apply.
 pub fn accept_defaults(
     analysis: &Value,
@@ -394,7 +403,7 @@ export interface PmiScene {
         scenes: Option<bool>,
     ) -> Result<String, JsValue> {
         limit("Title", title, input::TEXT_LIMIT)?;
-        let answers = self::answers(answers)?;
+        let answers = crate::diff_answers(answers).map_err(js_error)?;
         session::diff_with_options(
             (old_name, old),
             (new_name, new),
