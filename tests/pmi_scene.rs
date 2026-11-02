@@ -1407,3 +1407,54 @@ fn answered_material_keeps_semantic_ids_to_the_pmi_ids() {
         );
     }
 }
+
+#[test]
+fn mixed_resume_preview_keeps_foreign_control_and_replaces_owned_control() {
+    let loaded = plate();
+    let analysis = api::analyse(&loaded).unwrap();
+    let face = analysis["faces"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["kind"] == "plane")
+        .unwrap()["id"]
+        .clone();
+    let mut answers = json!({"extra.1":{"kind":"flatness","faces":[face],"value":"0.011"}})
+        .as_object()
+        .unwrap()
+        .clone();
+    let intent = api::preview(&analysis, &answers).unwrap();
+    let bytes = writer::write_bytes(&loaded, &intent, None).unwrap().0;
+    let bytes = String::from_utf8(bytes)
+        .unwrap()
+        .replace(writer::PMI_PROVENANCE, "independent producer")
+        .into_bytes();
+    let foreign = part::load_bytes("foreign.step", bytes).unwrap();
+    answers["extra.1"]["value"] = json!("0.031");
+    let intent = api::preview(&api::analyse(&foreign).unwrap(), &answers).unwrap();
+    let bytes = writer::write_bytes(&foreign, &intent, Some(&answers))
+        .unwrap()
+        .0;
+    let loaded = part::load_bytes("mixed.step", bytes).unwrap();
+    let analysis = api::analyse(&loaded).unwrap();
+    let cache = Scene::new(&loaded).unwrap();
+    let before = cache
+        .scene(&loaded, Some(&analysis), Some(&answers))
+        .unwrap();
+    validate(&before);
+    answers["extra.1"]["value"] = json!("0.047");
+    let scene = cache
+        .scene(&loaded, Some(&analysis), Some(&answers))
+        .unwrap();
+    validate(&scene);
+    let tolerances = &scene["pmi"]["pmi"]["tolerances"];
+    assert_eq!(tolerances.as_array().unwrap().len(), 2);
+    assert!(tolerances.to_string().contains("0.011"));
+    assert!(tolerances.to_string().contains("0.047"));
+    assert!(!tolerances.to_string().contains("0.031"));
+    assert_eq!(
+        scene["specify"]["flatness:extra.1"]["number"],
+        before["specify"]["flatness:extra.1"]["number"]
+    );
+    assert_eq!(scene["specify"]["flatness:extra.1"]["status"], "answered");
+}

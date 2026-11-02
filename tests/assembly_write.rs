@@ -384,7 +384,7 @@ fn a_part_is_written_once_and_parts_are_of_one_file() {
 // pin carries PMI from elsewhere (the same PMI, its stored answers renamed so they are no longer
 // specify-core's). Both are written together, each part by its own mode: the plate by replace
 // (its PMI becomes the intent's again, not written twice, and its answers are stored), the pin
-// by add (everything it had is kept, no answers stored). Written by one add for both, as before,
+// by add (everything it had is kept and scoped answers are stored). Written by one add for both, as before,
 // the plate's PMI was written a second time beside the first and haecceity refused the edit
 // (item_identified_representation_usage.UR1 on the plate's faces).
 #[test]
@@ -458,12 +458,15 @@ fn a_mixed_write_replaces_the_resumed_part_and_adds_to_the_other() {
             "unexpected: {added}"
         );
     }
-    assert_eq!(answers_for(&load(&x, Some(PIN)).unwrap()).unwrap(), None);
+    assert_eq!(
+        answers_for(&load(&x, Some(PIN)).unwrap()).unwrap(),
+        Some(answers(PIN))
+    );
     assert_eq!(datum_count(&x), datum_count(&mixed));
     assert_eq!(
         stored(&std::fs::read(&x).unwrap())
             .keys()
             .collect::<Vec<_>>(),
-        [&PLATE]
+        [&PLATE, &PIN]
     );
 }

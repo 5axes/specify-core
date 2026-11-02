@@ -59,6 +59,7 @@ fn round_trip(loaded: part::LoadedPart) {
         .filter(|p| p.provenance.as_deref() == Some(writer::PMI_PROVENANCE))
         .collect::<Vec<_>>();
     assert_eq!(own.len(), 1);
+    assert!((own[0].value.unwrap() - 0.031).abs() < 1e-12);
     let number = own[0].number.expect("Specify characteristic numbered");
     let initial_numbers = characteristics::read(&loaded).unwrap();
     let numbers = characteristics::read(&reopened).unwrap();
@@ -98,7 +99,7 @@ fn round_trip(loaded: part::LoadedPart) {
         "edited requirement must replace its predecessor"
     );
     assert_eq!(changed[0].number, Some(number));
-    assert_ne!(changed[0].value, own[0].value);
+    assert!((changed[0].value.unwrap() - 0.047).abs() < 1e-12);
     assert_eq!(characteristics::read(&again).unwrap().len(), numbers.len());
 }
 

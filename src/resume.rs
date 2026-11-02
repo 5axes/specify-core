@@ -22,7 +22,8 @@
 //! reader looks for, so each engine resumes the other's files; [`stored`] reads both.
 //!
 //! In an assembly each part's answers are stored on that part and say which part they are for;
-//! a part with none stored has not been written by specify-core.
+//! a part with none stored has no resumable interview. Older Add-mode parts can carry
+//! Specify provenance without saved answers and still open as existing PMI.
 
 pub(crate) mod names;
 
