@@ -28,7 +28,7 @@ requires-python = ">=3.12"
 dependencies = []
 
 [project.urls]
-Homepage = "https://editor.draftwright.io/specify"
+Homepage = "https://draftwright.io/specify"
 Source = "https://github.com/pzfreo/specify-core"
 Issues = "https://github.com/pzfreo/specify-core/issues"
 Changelog = "https://github.com/pzfreo/specify-core/blob/main/CHANGELOG.md"

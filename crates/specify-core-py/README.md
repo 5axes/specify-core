@@ -17,7 +17,7 @@ too, so a later revision of the part can be opened and carried on with.
   CPython 3.12 and later.
 - Apache-2.0.
 
-It is the engine behind [Draftwright Specify](https://editor.draftwright.io/specify), which adds
+It is the engine behind [Draftwright Specify](https://draftwright.io/specify), which adds
 a 3D review of the same questions in the browser.
 
 ## Install
@@ -107,7 +107,7 @@ file is read back and checked before it is kept.
 - Source and issues: [github.com/pzfreo/specify-core](https://github.com/pzfreo/specify-core)
 - Changelog: [CHANGELOG.md](https://github.com/pzfreo/specify-core/blob/main/CHANGELOG.md)
 - Building and testing this package: [docs/python.md](https://github.com/pzfreo/specify-core/blob/main/docs/python.md#the-python-package)
-- Try it in the browser: [editor.draftwright.io/specify](https://editor.draftwright.io/specify)
+- Try it in the browser: [draftwright.io/specify](https://draftwright.io/specify)
 
 Status: early (0.x). The JSON formats may change between minor versions; changes are listed in
 the changelog. Draftwright® is a registered trade mark of Betwixt Ltd.
