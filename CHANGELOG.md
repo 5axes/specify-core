@@ -29,6 +29,10 @@ All notable changes to specify-core-rust. The format follows
   Reader /15 retains authored `haecceity.feature/1` composition members and reports
   lost datum supports as Unresolved; imported unresolved datums reach CLI warnings.
   Packaged schemas remain byte-identical to the locked dependency.
+- Refresh ten cross-engine STEP goldens for shared geometry carriers/direct datum
+  endpoints; four outputs and both refusals stay fixed. All fourteen independent
+  Python semantic readbacks remain unchanged; per-case reasons and the frozen
+  capture reference are recorded in the fixture README.
 - Surface optional `geometry_carrier_exemptions` in native/CLI, Python and WASM
   write reports, with the kernel's part, condition, aspect and feature ids.
 - Store supplied answers in Add mode beside foreign PMI. Resume keeps unmarked PMI in

@@ -15,6 +15,13 @@
 //! /Users/paul/repos/specify-core/.venv/bin/python tools/capture.py cross-engine tests/fixtures/cross_engine
 //! ```
 //!
+//! **For quiddity-rust 0.4.5.** Regenerate all sixteen cases and independently
+//! recapture with Python 3.12.13 and frozen reference 7e2125d (`--rust-only`). Ten
+//! successful byte goldens change for shared geometry carriers/direct datum
+//! endpoints; four outputs and both refusals stay unchanged. Specify preserves
+//! foreign legacy wrappers and stamps new complex carriers. Every per-case reason
+//! is in the fixture README; all fourteen Python semantic readbacks are unchanged.
+//!
 //! **For Add-mode answers.** CTC-01, CTC-03 and CTC-05 now store the supplied base answers
 //! with provenance scope. Only those three byte goldens and their independent Python
 //! readbacks/metadata are refreshed; see `tests/fixtures/cross_engine/README.md` for the

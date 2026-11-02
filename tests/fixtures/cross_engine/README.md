@@ -145,3 +145,32 @@ reconstruction `7e2125d`). CTC-05's semantic readback remains unchanged: its exi
 face-integral mismatch now also prevents Python from resuming the newly stored answers;
 the ledger keeps both consequences visible as `rust-wrong`. Historical Python-written
 oracle files and their evidence stay frozen.
+
+For v0.4.5 (`845a8919`), regenerate all sixteen cases and independently recapture
+all fourteen successful files with Python 3.12.13, the frozen `uv.lock` dependencies
+and clean reference `7e2125d` (`--rust-only`). This reference has the same Python
+source as the preceding `2cb6499` reconstruction. Preserve both part-index refusals
+and all Python-written specimens/evidence. The ten changed Rust outputs have these
+reviewed reasons; each still compares every decompressed STEP byte:
+
+| Case | Reason for changed STEP bytes in v0.4.5 |
+|---|---|
+| `nist/nist_ctc_01_asme1_ap242` | #181 reuses neutral per-face carriers and directly references datum features for new requirements; Specify retains the original foreign legacy endpoints verbatim. |
+| `nist/nist_ctc_03_asme1_ap242` | #181 removes new forwarding location endpoints in favour of direct datum/face carriers; original foreign wrappers remain byte-identical. |
+| `nist/nist_ctc_05_asme1_ap242` | #181 shares the new location/feature carriers and their GISUs instead of adding private dimension wrappers. |
+| `parts/a_hole_along_x_is_labelled_from_its_rim` | The new linear location directly references its existing datum/face endpoint instead of a DIMENSION wrapper. |
+| `parts/assembly` | New locations on both parts reuse their datum/face carriers; subsequent new entity ids move. |
+| `parts/four_corner_holes_are_quiddity_rectangle_with_members` | Locations reuse the pattern/datum support carriers and no longer own forwarding aspects. |
+| `parts/identical_holes_no_pattern_claims_form_a_set` | Locations reuse the set members' shared face/datum carriers. |
+| `parts/pin` | New locations directly reference datum features instead of forwarding DIMENSION aspects. |
+| `parts/plate` | New locations reuse the plate's shared datum/face carriers. |
+| `parts/stack` | Locations on all three parts reuse their datum/face carriers; subsequent new ids move. |
+
+New complex datum/composite carriers also receive Specify's inherited shape-aspect
+ownership stamp. Four byte goldens (`a_file_with_two_parts_must_say_which`,
+`a_placed_part_is_meshed_in_the_frame_the_analysis_uses`,
+`default_datum_a_takes_every_coplanar_face`, `wrapped`) remain unchanged.
+All fourteen decoded independent Python semantic readbacks remain identical;
+metadata records the actual written hashes and clean reference. No known-difference
+entry is removed or changed. Original input spans, foreign dependencies, shared
+carrier removal and stable characteristic numbers are checked in native tests.

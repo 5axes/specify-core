@@ -69,6 +69,13 @@ export interface DiffPmi {
   stored: unknown[];
 }
 
+export interface GeometryCarrierExemption {
+  aspect: number;
+  condition: "shared-carrier-controlled-pair" | "shared-carrier-datum-target-support";
+  feature: number;
+  part: number;
+}
+
 export interface InitOutput {
   readonly __externref_table_dealloc: (a: number) => void;
   readonly __wbg_intentengine_free: (a: number, b: number) => void;
@@ -199,6 +206,14 @@ export interface PmiSceneView {
   id: PmiSceneId;
   name: string;
   up?: PmiSceneVector;
+}
+
+export interface WriteReport {
+  geometry_carrier_exemptions?: GeometryCarrierExemption[];
+  not_written: string[];
+  output: string;
+  warnings: string[];
+  written: string[];
 }
 
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
