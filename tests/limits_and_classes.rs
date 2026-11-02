@@ -34,6 +34,15 @@ fn write(p: &part::LoadedPart, given: &Map<String, Value>) -> part::LoadedPart {
             "{report:?}"
         );
     }
+    if given
+        .get("extra.size")
+        .is_some_and(|v| v["value"] == "±0.2")
+    {
+        assert!(
+            report.written.iter().any(|line| line.contains("Ø8 ±0.2")),
+            "{report:?}"
+        );
+    }
     part::load_bytes("limits.step", bytes).unwrap()
 }
 fn given(size: &str, distance: &str) -> Map<String, Value> {

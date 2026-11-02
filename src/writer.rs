@@ -1372,6 +1372,29 @@ fn limit_label(req: &Map<String, Json>) -> Option<String> {
     ))
 }
 
+fn size_label(req: &Map<String, Json>, nominal: f64) -> Result<String, WriteError> {
+    if let Some(limits) = limit_label(req) {
+        return Ok(format!("Ø{limits}"));
+    }
+    let how = if truthy(req.get("basic")) {
+        "basic".into()
+    } else if let Some(fit) = req
+        .get("fit")
+        .and_then(Json::as_str)
+        .filter(|s| !s.is_empty())
+    {
+        fit.to_owned()
+    } else {
+        let (upper, lower) = (number(req, "upper")?, number(req, "lower")?);
+        if upper == -lower {
+            format!("±{}", pyfmt::g(upper))
+        } else {
+            format!("{}/{}", pyfmt::signed_g(upper), pyfmt::signed_g(lower))
+        }
+    };
+    Ok(format!("Ø{} {how}", pyfmt::g(nominal)))
+}
+
 /// The intent of one part as haecceity's model, and the report's lines for it. `before` is the
 /// part's PMI as read: in add mode a datum it already has is its own (no "datum" line).
 fn part_pmi(
@@ -1722,9 +1745,8 @@ fn part_pmi_observed(
                 general += 1;
             } else if kind == "size" {
                 lines.written.push(format!(
-                    "Ø{} {} on {}",
-                    limit_label(req).unwrap_or_else(|| pyfmt::g(planned.required.nominal)),
-                    req.get("fit").map_or(String::new(), py_str),
+                    "{} on {}",
+                    size_label(req, planned.required.nominal)?,
                     feature_name()
                 ));
             } else {
@@ -1799,9 +1821,8 @@ fn part_pmi_observed(
                     general += 1;
                 } else {
                     lines.written.push(format!(
-                        "Ø{} {} on {}",
-                        limit_label(req).unwrap_or_else(|| pyfmt::g(nominal)),
-                        fit.map_or(String::new(), py_str),
+                        "{} on {}",
+                        size_label(req, nominal)?,
                         feature_name()
                     ));
                 }
