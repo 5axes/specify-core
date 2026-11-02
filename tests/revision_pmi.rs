@@ -986,8 +986,7 @@ fn fresh_revision_fixture_pairs_never_cross_requirement_types() {
             .unwrap()
             .iter()
             .find_map(|(collection, rows)| {
-                rows.as_array()
-                    .unwrap()
+                rows.as_array()?
                     .iter()
                     .find(|row| row["id"] == id)
                     .map(|row| {
