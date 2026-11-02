@@ -41,6 +41,13 @@ pub fn dimension(doc: &Document, ids: &[u64]) -> bool {
 /// transfer authorship to a foreign requirement.
 pub fn marked(doc: &Document, ids: &[u64], kind: &str) -> bool {
     ids.iter().any(|&id| {
+        if kind == "feature"
+            && let Some(RawEntity::Complex { parts, .. }) = doc.get(id)
+        {
+            return parts
+                .iter()
+                .any(|p| p.name == "SHAPE_ASPECT" && string(p.attributes.get(1), MARKER));
+        }
         let Some(RawEntity::Simple {
             name, attributes, ..
         }) = doc.get(id)
@@ -96,6 +103,21 @@ pub fn mark_new(before: &Document, after: &Document) -> Edit {
     let mut edit = Edit::new();
     for (&id, entity) in &after.graph().entities {
         if before.get(id).is_some() {
+            continue;
+        }
+        if let RawEntity::Complex { parts, .. } = entity {
+            if parts
+                .iter()
+                .any(|p| p.name == "SHAPE_ASPECT" && string(p.attributes.get(1), ""))
+            {
+                let mut record = entity.clone();
+                if let RawEntity::Complex { parts, .. } = &mut record {
+                    for p in parts.iter_mut().filter(|p| p.name == "SHAPE_ASPECT") {
+                        p.attributes[1] = Attribute::String(MARKER.into());
+                    }
+                }
+                edit.replace(id, record);
+            }
             continue;
         }
         let RawEntity::Simple {
@@ -232,15 +254,50 @@ pub(crate) fn without_owned(
         }
     }
     let mut pending: Vec<_> = protected.iter().copied().collect();
-    while let Some(id) = pending.pop() {
-        if let Some(e) = doc.get(id) {
-            haecceity::p21::visit_attributes(e, &mut |a| {
-                if let Attribute::EntityRef(target) = a
-                    && protected.insert(*target)
-                {
-                    pending.push(*target);
+    loop {
+        while let Some(id) = pending.pop() {
+            if let Some(e) = doc.get(id) {
+                haecceity::p21::visit_attributes(e, &mut |a| {
+                    if let Attribute::EntityRef(target) = a
+                        && protected.insert(*target)
+                    {
+                        pending.push(*target);
+                    }
+                });
+            }
+        }
+        // A carrier's geometry is attached through inverse GISU/composition links.
+        // Forward references alone protect the aspect but would delete its face
+        // support when a foreign control uses a Specify-authored shared carrier.
+        for prov in &read.provenance.parts {
+            for ids in &prov.features {
+                let used = ids.iter().any(|id| {
+                    protected.contains(id)
+                        && match doc.get(*id) {
+                            Some(RawEntity::Simple { name, .. }) => matches!(
+                                name.as_str(),
+                                "SHAPE_ASPECT"
+                                    | "DATUM_FEATURE"
+                                    | "COMPOSITE_SHAPE_ASPECT"
+                                    | "COMPOSITE_GROUP_SHAPE_ASPECT"
+                            ),
+                            Some(RawEntity::Complex { parts, .. }) => {
+                                parts.iter().any(|p| p.name == "SHAPE_ASPECT")
+                            }
+                            _ => false,
+                        }
+                });
+                if used {
+                    for &id in ids {
+                        if protected.insert(id) {
+                            pending.push(id);
+                        }
+                    }
                 }
-            });
+            }
+        }
+        if pending.is_empty() {
+            break;
         }
     }
     seeds.retain(|id| !protected.contains(id));
@@ -302,4 +359,75 @@ pub(crate) fn without_owned(
     let mut edit = Edit::new();
     plan.into_edit(&mut edit);
     doc.apply(&edit).map(|w| w.bytes).map_err(|e| e.to_string())
+}
+
+/// 0.4.5 normalizes legacy DIMENSION endpoint wrappers even on Add. Keep those
+/// already-authored endpoints verbatim: their old composition remains valid and
+/// new requirements still use the kernel's shared face carriers. Other migrations
+/// (especially in-place datum specialization) cannot meet our lossless contract.
+pub(crate) fn preserve_add(
+    before: &Document,
+    bytes: Vec<u8>,
+    removed: &[u64],
+    rewritten: &[u64],
+) -> Result<Vec<u8>, String> {
+    if removed.is_empty() && rewritten.is_empty() {
+        return Ok(bytes);
+    }
+    let aliases: BTreeSet<_> = removed
+        .iter()
+        .copied()
+        .filter(|id| {
+            matches!(before.get(*id),
+        Some(RawEntity::Simple { name, attributes, .. })
+            if name == "SHAPE_ASPECT" && string(attributes.first(), "DIMENSION"))
+        })
+        .collect();
+    let safe_removed = |id: &u64| {
+        aliases.contains(id)
+            || matches!(before.get(*id),
+        Some(RawEntity::Simple { name, attributes, .. })
+            if name == "SHAPE_ASPECT_RELATIONSHIP"
+                && matches!(attributes.get(2), Some(Attribute::EntityRef(alias)) if aliases.contains(alias)))
+    };
+    let safe_rewritten = |id: &u64| {
+        matches!(before.get(*id),
+        Some(RawEntity::Simple { name, attributes, .. })
+            if name == "DIMENSIONAL_LOCATION" && attributes[2..4].iter().any(|a|
+                matches!(a, Attribute::EntityRef(alias) if aliases.contains(alias))))
+    };
+    if !removed.iter().all(safe_removed) || !rewritten.iter().all(safe_rewritten) {
+        return Err(format!(
+            "Add requires changing existing entities (removed {removed:?}, rewritten {rewritten:?}); datum carrier specialization and other foreign edits cannot preserve entity bytes"
+        ));
+    }
+    let after = Document::parse(bytes).map_err(|e| e.to_string())?;
+    let mut patches = Vec::new();
+    for &id in rewritten {
+        let span = after
+            .span(id)
+            .ok_or_else(|| format!("rewritten #{id} missing"))?;
+        patches.push((span, before.bytes()[before.span(id).unwrap()].to_vec()));
+    }
+    // Instance ordering has no STEP meaning. Restore retired records before the
+    // first DATA instance, keeping their original ids and complete original spans.
+    let at = after
+        .ids()
+        .filter_map(|id| after.span(id).map(|s| s.start))
+        .min()
+        .ok_or("Add produced no DATA instances")?;
+    let mut restored = Vec::new();
+    for &id in removed {
+        restored.extend_from_slice(&before.bytes()[before.span(id).unwrap()]);
+        restored.push(b'\n');
+    }
+    patches.push((at..at, restored));
+    patches.sort_by_key(|(span, _)| span.start);
+    let mut bytes = after.bytes().to_vec();
+    for (span, text) in patches.into_iter().rev() {
+        bytes.splice(span, text);
+    }
+    // Caller's read-back verification still checks every requested semantic value.
+    Document::parse(bytes.clone()).map_err(|e| e.to_string())?;
+    Ok(bytes)
 }

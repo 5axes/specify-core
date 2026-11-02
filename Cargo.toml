@@ -17,10 +17,10 @@ path = "src/main.rs"
 
 [dependencies]
 # quiddity-rust: feature recognition (quiddity) and the geometry kernel with STEP import and
-# AP242 semantic PMI (haecceity). Both use tagged v0.4.4.
+# AP242 semantic PMI (haecceity). Both use tagged v0.4.5.
 # See docs/design.md, "Dependency plan".
-quiddity = { git = "https://github.com/pzfreo/quiddity-rust", tag = "v0.4.4" }
-haecceity = { git = "https://github.com/pzfreo/quiddity-rust", tag = "v0.4.4", features = ["json"] }
+quiddity = { git = "https://github.com/pzfreo/quiddity-rust", tag = "v0.4.5" }
+haecceity = { git = "https://github.com/pzfreo/quiddity-rust", tag = "v0.4.5", features = ["json"] }
 # The kernel's own unit reader also converts planner supplemental points into file units.
 step-io = "0.3.0"
 base64 = "0.22.1"

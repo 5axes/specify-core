@@ -117,6 +117,15 @@ mod tests;
 /// Stable STEP authorship token. See `docs/pmi-provenance.md` for its AP242 fields.
 pub const PMI_PROVENANCE: &str = provenance::MARKER;
 
+/// A kernel compatibility exemption for a newly added private geometry endpoint.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct GeometryCarrierExemption {
+    pub part: usize,
+    pub condition: String,
+    pub aspect: u64,
+    pub feature: u64,
+}
+
 /// What a write did (Python's `WriteReport`; `to_dict`'s keys and order).
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct WriteReport {
@@ -128,17 +137,24 @@ pub struct WriteReport {
     /// drawing another way.
     pub not_written: Vec<String>,
     pub warnings: Vec<String>,
+    /// Actual private endpoint additions; omitted when none were needed.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub geometry_carrier_exemptions: Vec<GeometryCarrierExemption>,
 }
 
 impl WriteReport {
-    /// Python's `to_dict`: `{output, written, not_written, warnings}`.
+    /// Python's `to_dict`, with exemptions omitted when empty.
     pub fn to_dict(&self) -> Json {
-        json!({
+        let mut report = json!({
             "output": self.output.to_string_lossy(),
             "written": self.written,
             "not_written": self.not_written,
             "warnings": self.warnings,
-        })
+        });
+        if !self.geometry_carrier_exemptions.is_empty() {
+            report["geometry_carrier_exemptions"] = json!(self.geometry_carrier_exemptions);
+        }
+        report
     }
 }
 
@@ -721,7 +737,7 @@ fn write_verified(
         .iter()
         .map(|p| (PartId(p.loaded.binding.part), p.pmi.clone()))
         .collect();
-    let back = write_by_modes(source, &items, &modes)?;
+    let (back, geometry_carrier_exemptions) = write_by_modes(source, &items, &modes)?;
     verify(source, &items, &modes, &back)?;
     let stored = resume::stored(&back);
     for p in &planned {
@@ -774,6 +790,11 @@ fn write_verified(
         written: Vec::new(),
         not_written: Vec::new(),
         warnings: Vec::new(),
+        geometry_carrier_exemptions: if unchanged {
+            Vec::new()
+        } else {
+            geometry_carrier_exemptions
+        },
     };
     for p in planned {
         let prefix = if jobs.len() > 1 {
@@ -801,7 +822,7 @@ fn write_by_modes(
     source: &Source,
     items: &[(PartId, PartPmi)],
     modes: &[Mode],
-) -> Result<Vec<u8>, WriteError> {
+) -> Result<(Vec<u8>, Vec<GeometryCarrierExemption>), WriteError> {
     let policy = PresentationPolicy::RemovePresentation;
     let refused = |e: pmi::write::WriteError| match e {
         pmi::write::WriteError::Edition { .. } | pmi::write::WriteError::Refused(_) => {
@@ -813,6 +834,7 @@ fn write_by_modes(
     let defs = source.defs.as_slice();
     // The file written so far, when an edit has been applied.
     let mut written: Option<Vec<u8>> = None;
+    let mut exemptions = Vec::new();
     for mode in [Mode::Replace, Mode::Add] {
         let these: Vec<(PartId, PartPmi)> = items
             .iter()
@@ -884,7 +906,16 @@ fn write_by_modes(
             None
         };
         let current = upgraded.as_ref().unwrap_or(current);
-        let (mut edit, _) = pmi::write(current, defs, &these, mode, policy).map_err(refused)?;
+        let (mut edit, kernel_report) =
+            pmi::write(current, defs, &these, mode, policy).map_err(refused)?;
+        exemptions.extend(kernel_report.geometry_carrier_exemptions.iter().map(|e| {
+            GeometryCarrierExemption {
+                part: e.part.0,
+                condition: e.condition.into(),
+                aspect: e.aspect,
+                feature: e.feature,
+            }
+        }));
         if mode == Mode::Replace {
             // Python's own form of stored answers is not PMI haecceity reads (it reports it as
             // not modelled and keeps it), so a replace takes it out here: the answers stored
@@ -899,8 +930,18 @@ fn write_by_modes(
         let applied = current
             .apply(&edit)
             .map_err(|e| WriteError::Failed(format!("haecceity could not apply the edit: {e}")))?;
-        let after =
-            Document::parse(applied.bytes).map_err(|e| WriteError::Failed(e.to_string()))?;
+        let applied = if mode == Mode::Add {
+            provenance::preserve_add(
+                current,
+                applied.bytes,
+                &kernel_report.removed,
+                &kernel_report.rewritten,
+            )
+            .map_err(WriteError::Refused)?
+        } else {
+            applied.bytes
+        };
+        let after = Document::parse(applied).map_err(|e| WriteError::Failed(e.to_string()))?;
         let marker_edit = provenance::mark_new(current, &after);
         let marked = after
             .apply(&marker_edit)
@@ -917,7 +958,7 @@ fn write_by_modes(
         );
     }
     // jobs is checked nonempty and every edit group assigns written before reaching this return.
-    Ok(written.expect("at least one part is written"))
+    Ok((written.expect("at least one part is written"), exemptions))
 }
 
 /// The instances of Python's form of stored answers on `part` (`PROPERTY_DEFINITION('pmi-assist

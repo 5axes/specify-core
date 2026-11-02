@@ -1116,7 +1116,7 @@ fn bore_to_bore_location_uses_the_end_on_view_even_when_both_axes_are_parallel()
 #[test]
 fn presentation_shapes_keep_requirement_ids_history_and_face_supports() {
     // quiddity-rust#137: a sized datum is split, multi-face supports are composite and
-    // locations own non-datum aspects. #135 must report #65 ids on the semantic roots.
+    // v0.4.5 locations reference datum features directly. #135 reports #65 ids on the roots.
     let p = load("parts/GRM-02_shaft.step");
     let mut i = rules::Intent::new(serde_json::to_value(&p.binding).unwrap());
     for d in [
@@ -1144,6 +1144,7 @@ fn presentation_shapes_keep_requirement_ids_history_and_face_supports() {
             parts.iter().any(|p| p.name == "COMPOSITE_SHAPE_ASPECT"),
         None => false,
     }));
+    let mut datum_endpoints = 0;
     for id in doc.ids() {
         if let Some(RawEntity::Simple {
             name, attributes, ..
@@ -1154,17 +1155,41 @@ fn presentation_shapes_keep_requirement_ids_history_and_face_supports() {
                 let Attribute::EntityRef(target) = a else {
                     panic!("location aspect reference")
                 };
-                assert!(
-                    !matches!(doc.get(*target), Some(RawEntity::Simple { name, .. }) if name == "DATUM_FEATURE")
-                );
-                assert!(
-                    !matches!(doc.get(*target), Some(RawEntity::Complex { parts, .. }) if parts.iter().any(|p| p.name == "DATUM_FEATURE"))
-                );
+                match doc.get(*target).unwrap() {
+                    RawEntity::Simple { name, .. } => assert_eq!(name, "SHAPE_ASPECT"),
+                    RawEntity::Complex { parts, .. } => {
+                        assert!(parts.iter().any(|p| p.name == "DATUM_FEATURE"));
+                        assert!(parts.iter().any(|p| p.name == "COMPOSITE_SHAPE_ASPECT"));
+                        datum_endpoints += 1;
+                    }
+                }
             }
+        }
+    }
+    assert_eq!(
+        datum_endpoints, 1,
+        "the B endpoint must directly reuse its datum feature"
+    );
+    // Complex shared datum carriers need the same ownership stamp as simple ones.
+    for id in doc.ids() {
+        if let Some(RawEntity::Complex { parts, .. }) = doc.get(id)
+            && parts.iter().any(|p| p.name == "DATUM_FEATURE")
+        {
+            let shape = parts.iter().find(|p| p.name == "SHAPE_ASPECT").unwrap();
+            assert_eq!(
+                shape.attributes[1],
+                Attribute::String(writer::PMI_PROVENANCE.into())
+            );
         }
     }
     let defs = haecceity::step::read_part_definitions(doc.bytes()).unwrap();
     let read = haecceity::pmi::read(&doc, &defs).unwrap();
+    assert!(
+        !read
+            .findings
+            .iter()
+            .any(|f| f.kind == haecceity::pmi::FindingKind::Unresolved && f.entity == "datum")
+    );
     let ids = &read.identifiers.parts[0];
     let decoded: BTreeSet<_> = ids
         .datums

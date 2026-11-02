@@ -347,3 +347,11 @@ def test_spindle_diff_scenes_obey_editor_links():
         item.get("old") == "M4×0.7-6H THRU" and item.get("new") == "1.5"
         for item in report["pmi"]["items"]
     )
+
+
+def test_write_report_optional_geometry_carrier_exemptions():
+    original = {"output": "out.step", "written": [], "not_written": [], "warnings": []}
+    assert WriteReport.from_dict(original).to_dict() == original
+    additions = [{"part": 2, "condition": "shared-carrier-controlled-pair", "aspect": 123, "feature": 45}]
+    extended = {**original, "geometry_carrier_exemptions": additions}
+    assert WriteReport.from_dict(extended).to_dict() == extended

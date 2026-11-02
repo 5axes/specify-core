@@ -542,7 +542,7 @@ packaged schemas are `specify_core/schema/haecceity.pmi-1.json` and
 `specify_core/schema/haecceity.presentation-1.json`.
 
 Scene export uses haecceity's serialise-only `json` feature in native, WASM and Python.
-`json-import` is not enabled. The Python package ships the v0.4.4 schemas as data; its
+`json-import` is not enabled. The Python package ships the v0.4.5 schemas as data; its
 smoke tests validate exports with Python's `jsonschema`, keeping schemas and import
 validation code out of the WASM binary.
 
@@ -553,7 +553,7 @@ Haecceity v0.4.4 adds optional `polyline_roles`, parallel to
 with x along `x_axis` and y along `normal × x_axis`. Hosts can fit and centre their
 own font in that box. File graphics omit roles/boxes unless known. These additive
 fields keep schema `/1`; strict `deny_unknown_fields` consumers must update their
-types. Specify passes both through unchanged. Native, WASM and Python builds pin the released v0.4.4 tag; no local path
+types. Specify passes both through unchanged. Native, WASM and Python builds pin the released v0.4.5 tag; no local path
 patch is needed.
 
 In the role array, `text` includes explicit ISO glyph strokes already represented
@@ -580,3 +580,12 @@ Mixed-file rewrites require a writer implementing `pmi_scope`. Older writers, in
 scope; their replacement rules do not guarantee preservation of foreign PMI. Use the
 scoped writer for these rewrites. Existing 0.1.7 Add-mode files without saved answers keep
 their existing-PMI opening behavior in this engine.
+
+With v0.4.5, write reports optionally include `geometry_carrier_exemptions`, an array of
+`{part, condition, aspect, feature}` for actual private forwarding aspects added by the
+kernel. `condition` is `shared-carrier-controlled-pair` or
+`shared-carrier-datum-target-support`; the numeric ids refer to the written STEP.
+The field is absent when empty. The same optional field is available in native/CLI
+and Python reports. Add preserves original entity spans, including legacy dimension
+endpoints; adding a datum that would specialize a foreign carrier is refused with
+its entity ids because it cannot satisfy that byte-preservation contract.

@@ -132,3 +132,19 @@ A newly saved scoped answer frame supersedes older frames for the same part in f
 This lets Add save usable answers even when an unmarked legacy frame has a stale face
 fingerprint. That older frame and its complete entity text are retained; files with only
 legacy frames keep their existing first-frame selection rule.
+
+With v0.4.5, neutral per-face geometry carriers can be shared by foreign and
+Specify-owned requirements. `without_owned` protects the complete forward graph
+of each foreign root, even if a protected carrier itself has Specify's marker.
+Removing the owned control must retain that carrier at its original id and text;
+`removing_owned_control_keeps_its_carrier_when_foreign_control_uses_it` covers it.
+Complex datum/composite carriers use the same inherited `SHAPE_ASPECT.description`
+marker as simple carriers. Replace stamps new complex roots after the kernel edit.
+
+The kernel's Add normalizes legacy `SHAPE_ASPECT('DIMENSION')` endpoint wrappers.
+Specify preserves those original wrappers and their original location references,
+while new requirements use the new shared carriers. This retains valid legacy PMI
+and every foreign entity's original span. Add cannot add a datum to an ordinary
+foreign carrier: v0.4.5 must specialize that same carrier in place. Specify refuses
+that write before returning bytes and names the removed/rewritten ids; it never
+silently changes foreign PMI or emits a second geometric carrier for that face.

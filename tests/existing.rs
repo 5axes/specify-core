@@ -365,3 +365,38 @@ fn check_area(area: &str, differences: &[Difference]) {
     println!("no corpus: corpus entries of {area} not checked");
     common::check_known_with(&path.display().to_string(), &entries, differences);
 }
+
+#[test]
+fn solid_edge_lost_datum_is_unresolved_in_existing_and_cli_output() {
+    let path = common::fixtures().join("nist/solid-edge-ctc01.step.gz");
+    let loaded = part::load(&path, None).unwrap();
+    let reading = existing::read(&loaded).unwrap();
+    let labels: BTreeSet<_> = reading
+        .existing(&loaded)
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.kind == "datum")
+        .map(|e| e.r#type)
+        .collect();
+    assert_eq!(labels, BTreeSet::from(["A".into(), "C".into()]));
+    let unresolved: Vec<_> = reading
+        .findings()
+        .iter()
+        .filter(|f| f.entity == "datum" && f.kind == haecceity::pmi::FindingKind::Unresolved)
+        .collect();
+    assert_eq!(unresolved.len(), 1);
+    assert_eq!(
+        unresolved[0].detail,
+        "datum B is not read: what establishes it does not resolve"
+    );
+    let output = Command::new(env!("CARGO_BIN_EXE_specify-core"))
+        .arg("analyse")
+        .arg(&path)
+        .arg("-o")
+        .arg(std::env::temp_dir().join(format!("pin045-existing-{}.json", std::process::id())))
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let warnings = String::from_utf8(output.stderr).unwrap();
+    assert!(warnings.contains(&unresolved[0].detail), "{warnings}");
+}

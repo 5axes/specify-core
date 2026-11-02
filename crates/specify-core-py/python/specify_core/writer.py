@@ -17,17 +17,22 @@ class WriteReport:
     not_written: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
+    geometry_carrier_exemptions: list[dict[str, Any]] = field(default_factory=list)
+
     def to_dict(self) -> dict[str, Any]:
-        return {
+        result = {
             "output": str(self.output),
             "written": self.written,
             "not_written": self.not_written,
             "warnings": self.warnings,
         }
+        if self.geometry_carrier_exemptions:
+            result["geometry_carrier_exemptions"] = self.geometry_carrier_exemptions
+        return result
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> WriteReport:
-        return cls(Path(data["output"]), data["written"], data["not_written"], data["warnings"])
+        return cls(Path(data["output"]), data["written"], data["not_written"], data["warnings"], data.get("geometry_carrier_exemptions", []))
 
 
 class VerificationError(RuntimeError):

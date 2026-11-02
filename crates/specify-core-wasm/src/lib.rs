@@ -84,6 +84,20 @@ export interface AnalysisFace {
   contact?: unknown;
 }
 /** JSON returned by evidence(), also embedded alongside stored answers. */
+export interface GeometryCarrierExemption {
+  part: number;
+  condition: "shared-carrier-controlled-pair" | "shared-carrier-datum-target-support";
+  aspect: number;
+  feature: number;
+}
+/** Report in writePmi JSON. Exemptions are absent when no private endpoint was added. */
+export interface WriteReport {
+  output: string;
+  written: string[];
+  not_written: string[];
+  warnings: string[];
+  geometry_carrier_exemptions?: GeometryCarrierExemption[];
+}
 export interface AnswerEvidence {
   schema: 1 | 2 | 3;
   face_count: number;

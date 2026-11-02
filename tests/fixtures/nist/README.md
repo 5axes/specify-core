@@ -19,3 +19,9 @@ analysis binding's `source_sha256` is that of the decompressed bytes below.
 | `nist_ctc_04_asme1_ap242.stp.gz` | `dw-examples/steps/nist/` (dw-examples f1196bf) | 1287291 | `20b43b54ce25d4ed17cff794084c406e831c687f5b62471d3371eef33669e355` |
 | `nist_ctc_05_asme1_ap242.stp.gz` | `dw-examples/steps/nist/` (dw-examples f1196bf) | 878030 | `59bbc09a34621c03106e4c1b2a5bc909fdb67463117c16c4965ee7a6fe5c1521` |
 | `nist_ftc_09_asme1_ap242-e1.stp.gz` | `draftwright/tests/fixtures/` (draftwright c76c0c52) | 6109836 | `f1215fe15a78085a9fa78dd81714caf774b59071be92580b04ebfdc19f52a1bd` |
+
+`solid-edge-ctc01.step.gz` is the Solid Edge 2026 re-export of NIST CTC-01 from
+quiddity-rust v0.4.5 (`845a8919`), `tests/fixtures/ap242/reexport/09-NIST-reexported-by-SE.stp.gz`.
+It loses datum B's establishing feature. Reader /15 reports B as Unresolved and
+omits that datum, retaining A and C. This tests Specify's existing-PMI and CLI
+finding output, rather than inventing a valid support for the lost datum.

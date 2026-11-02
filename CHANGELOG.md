@@ -22,6 +22,15 @@ All notable changes to specify-core-rust. The format follows
 
 ### Changed
 
+- Pin native, WASM and Python builds to quiddity/haecceity v0.4.5 (`845a8919`).
+  New requirements share face carriers and reference datum features directly;
+  refresh the four no-BOM byte hashes for that intended linkage change while
+  retaining exact API/CLI equality and stable characteristic-number checks.
+  Reader /15 retains authored `haecceity.feature/1` composition members and reports
+  lost datum supports as Unresolved; imported unresolved datums reach CLI warnings.
+  Packaged schemas remain byte-identical to the locked dependency.
+- Surface optional `geometry_carrier_exemptions` in native/CLI, Python and WASM
+  write reports, with the kernel's part, condition, aspect and feature ids.
 - Store supplied answers in Add mode beside foreign PMI. Resume keeps unmarked PMI in
   `existing`; mixed rewrites replace only Specify's provenance-marked requirements and
   preserve their characteristic numbers while retaining foreign entity bytes. Scoped saves
@@ -29,12 +38,22 @@ All notable changes to specify-core-rust. The format follows
 
 ### Fixed
 
+- Preserve foreign legacy DIMENSION wrappers and location entity spans during Add
+  despite v0.4.5's automatic normalization. Refuse Add datum promotion or other
+  migrations that require changing foreign entities, naming the affected ids.
+  Stamp new complex datum/composite carriers and protect shared carriers used by
+  foreign controls when removing Specify-owned controls.
 - Answered diff scenes remove replaced file identities together with their PMI
   rows before merging retained CAD requirements, keeping semantic links and old
   callouts consistent with each scene's own document.
 - Every diff pairing pass checks requirement kinds and known measurement roles,
   including number and id matches. Thread callouts cannot pair with location
   dimensions; location roles follow the part's rotation during comparison.
+
+### WASM API
+
+- Add `WriteReport` and `GeometryCarrierExemption` JSON interfaces; write reports
+  optionally expose `geometry_carrier_exemptions` for actual kernel additions.
 
 ## 0.1.7 (2026-11-02)
 

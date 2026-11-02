@@ -253,3 +253,211 @@ fn stale_unmarked_legacy_answers_cannot_mask_scoped_add_saves() {
     assert!(resume::answers_for(&loaded).unwrap().is_none());
     round_trip(loaded);
 }
+
+#[test]
+fn datum_on_foreign_carrier_is_refused_before_specializing_it() {
+    let bare = part::load(&common::fixtures().join("parts/plate.step"), None).unwrap();
+    let analysis = api::analyse(&bare).unwrap();
+    let face = analysis["faces"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["kind"] == "plane")
+        .unwrap()["id"]
+        .as_u64()
+        .unwrap() as usize;
+    let mut intent = specify_core::rules::Intent::new(serde_json::to_value(&bare.binding).unwrap());
+    intent.requirements.push(
+        json!({"kind":"flatness", "faces":[face], "tolerance":0.031})
+            .as_object()
+            .unwrap()
+            .clone(),
+    );
+    let bytes = writer::write_bytes(&bare, &intent, None).unwrap().0;
+    let bytes = String::from_utf8(bytes)
+        .unwrap()
+        .replace(writer::PMI_PROVENANCE, "independent producer")
+        .into_bytes();
+    let foreign = part::load_bytes("foreign-carrier.step", bytes.clone()).unwrap();
+    let doc = Document::parse(bytes.clone()).unwrap();
+    let defs = haecceity::step::read_part_definitions(&bytes).unwrap();
+    let read = haecceity::pmi::read(&doc, &defs).unwrap();
+    let mut pmi = haecceity::pmi::PartPmi::default();
+    pmi.features.push(read.parts[0].features[0].clone());
+    pmi.datums.push(
+        haecceity::pmi::Datum::new(
+            haecceity::pmi::DatumLabel::new("A").unwrap(),
+            Some(haecceity::pmi::FeatureId(0)),
+            Vec::new(),
+        )
+        .unwrap(),
+    );
+    let (_, report) = haecceity::pmi::write(
+        &doc,
+        &defs,
+        &[(haecceity::pmi::PartId(0), pmi)],
+        haecceity::pmi::write::Mode::Add,
+        haecceity::pmi::write::PresentationPolicy::RemovePresentation,
+    )
+    .unwrap();
+    assert!(
+        !report.rewritten.is_empty(),
+        "0.4.5 specializes the kept carrier"
+    );
+    let mut intent =
+        specify_core::rules::Intent::new(serde_json::to_value(&foreign.binding).unwrap());
+    intent.datums.push(
+        json!({"letter":"A", "faces":[face]})
+            .as_object()
+            .unwrap()
+            .clone(),
+    );
+    let err = writer::write_bytes(&foreign, &intent, None)
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("cannot preserve entity bytes"), "{err}");
+    for id in report.rewritten {
+        assert!(err.contains(&id.to_string()), "{err}");
+    }
+    assert_eq!(foreign.bytes.as_slice(), bytes);
+}
+
+#[test]
+fn removing_owned_control_keeps_its_carrier_when_foreign_control_uses_it() {
+    use haecceity::pmi::{PartId, PartPmi};
+    let bare = part::load(&common::fixtures().join("parts/plate.step"), None).unwrap();
+    // Establish genuine Add-mode scope before authoring the shared carrier. Legacy
+    // Replace-mode saves intentionally replace the complete part's consumed PMI.
+    let mut seed = specify_core::rules::Intent::new(serde_json::to_value(&bare.binding).unwrap());
+    seed.requirements.push(
+        json!({"kind":"flatness", "faces":[1], "tolerance":0.021})
+            .as_object()
+            .unwrap()
+            .clone(),
+    );
+    let seed = writer::write_bytes(&bare, &seed, None).unwrap().0;
+    let seed = String::from_utf8(seed)
+        .unwrap()
+        .replace(writer::PMI_PROVENANCE, "foreign seed")
+        .into_bytes();
+    let bare = part::load_bytes("foreign-seed.step", seed).unwrap();
+    let analysis = api::analyse(&bare).unwrap();
+    let face = analysis["faces"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["kind"] == "plane" && f["id"] != 1)
+        .unwrap()["id"]
+        .clone();
+    let answers = json!({"extra.1":{"kind":"flatness","faces":[face],"value":"0.031"}})
+        .as_object()
+        .unwrap()
+        .clone();
+    let intent = api::preview(&analysis, &answers).unwrap();
+    let bytes = writer::write_bytes(&bare, &intent, Some(&answers))
+        .unwrap()
+        .0;
+    let doc = Document::parse(bytes).unwrap();
+    let defs = haecceity::step::read_part_definitions(doc.bytes()).unwrap();
+    let read = haecceity::pmi::read(&doc, &defs).unwrap();
+    assert!(
+        specify_core::resume::answers_for(
+            &part::load_bytes("scope.step", doc.bytes().to_vec()).unwrap()
+        )
+        .unwrap()
+        .is_some()
+    );
+    let mut tolerance = read.parts[0]
+        .tolerances
+        .iter()
+        .find(|t| t.description.as_deref() == Some(writer::PMI_PROVENANCE))
+        .unwrap()
+        .clone();
+    tolerance.description = Some("independent producer".into());
+    let pmi = PartPmi {
+        features: read.parts[0].features.clone(),
+        tolerances: vec![tolerance],
+        ..Default::default()
+    };
+    let (edit, _) = haecceity::pmi::write(
+        &doc,
+        &defs,
+        &[(PartId(0), pmi)],
+        haecceity::pmi::write::Mode::Add,
+        haecceity::pmi::write::PresentationPolicy::RemovePresentation,
+    )
+    .unwrap();
+    let mixed = doc.apply(&edit).unwrap().bytes;
+    let doc = Document::parse(mixed.clone()).unwrap();
+    let read = haecceity::pmi::read(&doc, &defs).unwrap();
+    let controls: Vec<_> = doc
+        .ids()
+        .filter_map(|id| match doc.get(id) {
+            Some(haecceity::p21::RawEntity::Simple {
+                name, attributes, ..
+            }) if name == "FLATNESS_TOLERANCE"
+                && attributes[1] != haecceity::p21::Attribute::String("foreign seed".into()) =>
+            {
+                Some((id, attributes[3].clone()))
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(controls.len(), 2);
+    assert_eq!(
+        controls[0].1, controls[1].1,
+        "both controls share the owned face carrier"
+    );
+    let haecceity::p21::Attribute::EntityRef(shared) = controls[0].1 else {
+        panic!("carrier")
+    };
+    assert!(
+        matches!(doc.get(shared), Some(haecceity::p21::RawEntity::Simple { attributes, .. })
+        if attributes[1] == haecceity::p21::Attribute::String(writer::PMI_PROVENANCE.into())),
+        "the carrier was authored by Specify"
+    );
+    let foreign = read.parts[0]
+        .tolerances
+        .iter()
+        .position(|t| t.description.as_deref() == Some("independent producer"))
+        .unwrap();
+    let protected = &read.provenance.parts[0].tolerances[foreign];
+    let loaded = part::load_bytes("shared-carrier.step", mixed).unwrap();
+    let analysis = api::analyse(&loaded).unwrap();
+    let empty = Map::new();
+    let intent = api::preview(&analysis, &empty).unwrap();
+    let bytes = writer::write_bytes(&loaded, &intent, Some(&empty))
+        .unwrap()
+        .0;
+    let after = Document::parse(bytes.clone()).unwrap();
+    for &id in protected {
+        assert_eq!(
+            &doc.bytes()[doc.span(id).unwrap()],
+            &after.bytes()[after
+                .span(id)
+                .unwrap_or_else(|| panic!("protected #{id} missing: {:?}", doc.get(id)))],
+            "protected #{id}"
+        );
+    }
+    let haecceity::p21::Attribute::EntityRef(carrier) = controls[0].1 else {
+        panic!("carrier")
+    };
+    assert_eq!(
+        &doc.bytes()[doc.span(carrier).unwrap()],
+        &after.bytes()[after.span(carrier).unwrap()]
+    );
+    let reopened = part::load_bytes("removed.step", bytes).unwrap();
+    let remaining = existing::read_existing(&reopened).unwrap();
+    assert_eq!(
+        remaining
+            .iter()
+            .filter(|e| e.kind == "geometric_tolerance")
+            .count(),
+        2
+    );
+    assert!(
+        remaining
+            .iter()
+            .all(|e| e.provenance.as_deref() != Some(writer::PMI_PROVENANCE))
+    );
+}
