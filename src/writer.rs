@@ -14,20 +14,20 @@
 //! standard AP242 fields or representation descriptions. Input PMI stays unmarked; see
 //! `docs/pmi-provenance.md` for the exact STEP-only reader contract.
 //!
-//! **Modes.** A part with no PMI, or one specify-core wrote (answers stored that match its
-//! faces, [`resume`]), is written by `Mode::Replace`: afterwards its PMI is exactly the
-//! intent's. A part with PMI from elsewhere is written by `Mode::Add`: every original byte is
-//! kept, the new items are written beside the file's own, a datum letter the file has is the
-//! file's datum, and no answers are stored (its PMI could not be told apart from what was
-//! added, as in Python). In an assembly each part written has its own mode by the same rule: a
-//! part that resumes its answers is replaced while another with PMI from elsewhere is added to
-//! in the same write (two haecceity edits, replace then add; one when the modes agree). An assembly
-//! follows Python's rule that each part is written with its answers, but not its rule that every
-//! part with answers stored is written again: one part may be written alone, and haecceity's
-//! per-part replace leaves the other parts, their PMI and their stored answers byte for byte as
-//! they were (decision D3, 2026-10-15; Python refused, as OpenCascade rewrote the whole file).
-//! An assembly with PMI from elsewhere, which Python refuses because of OpenCascade, is written
-//! by `Mode::Add` (question Q6, a deliberate difference).
+//! **Modes.** A bare part or a legacy resumed Specify part uses `Mode::Replace`.
+//! A part with foreign PMI uses `Mode::Add`, storing answers and characteristic numbers
+//! alongside Specify's provenance-marked requirements. Its payload carries `pmi_scope`
+//! equal to [`PMI_PROVENANCE`]. On resume, only marked requirements belong to those answers;
+//! unmarked PMI stays in `existing` and continues to answer the interview's questions.
+//! Rewriting a mixed part still uses Add: first remove only Specify's marked requirements
+//! with the kernel's removal planner, then append the edited intent and new saved answers.
+//! Foreign requirements and their forward dependencies (including shared features/datums)
+//! are protected against removal or rewriting. Characteristic numbers match Specify's
+//! previous items; foreign numbers are reserved, and reused foreign datums are not numbered.
+//! Payloads without the scope field retain legacy resume semantics. In particular, 0.1.7
+//! Add-mode files without answers still open as existing PMI; a marker alone does not
+//! authorize deletion. Each assembly part follows the same rule independently. Parts not
+//! selected for writing retain their PMI and answers byte for byte (decision D3).
 //!
 //! **Notes and finish** (question Q3, decided 2026-10-09). A surface finish (`Ra 3.2`, on faces
 //! or the part's default) is a surface texture in ISO 10303-1110's form, 'any process allowed'
@@ -75,8 +75,9 @@
 //! assembly with extras is refused. The stored-answers name ([`resume::NAME`])
 //! is reserved for both set and item names, since resume reads items by name. Extras follow
 //! the usual write mode: on a resumed part replace removes the previous attributes along with
-//! the previous PMI and answers, so supply every extra wanted in the new write; add leaves
-//! existing attributes alone. There is no separate merge or update by attribute name.
+//! the previous PMI and answers, so supply every extra wanted in the new write. Scoped Add
+//! rewrites replace Specify-authored extras and retain foreign attributes. There is no
+//! separate merge or update by attribute name.
 
 use std::collections::BTreeSet;
 use std::fmt;
@@ -194,8 +195,8 @@ fn invalid<T>(why: impl Into<String>) -> Result<T, WriteError> {
 pub type Job<'a> = (&'a LoadedPart, &'a Intent, Option<&'a Map<String, Json>>);
 
 /// Writes `loaded` with `intent` added as AP242 to `output`, and verifies it (Python's
-/// `write`). Given `answers`, a part written from a bare file or one specify-core wrote stores
-/// them, to be resumed; one with PMI from elsewhere does not.
+/// `write`). Given `answers`, stores them for resume in both Replace and Add modes.
+/// Add scopes subsequent replacement to Specify's provenance-marked requirements.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn write(
     loaded: &LoadedPart,
@@ -316,7 +317,8 @@ pub fn write_bytes(
 ///
 /// Extras follow the usual replace/add mode: replacing a resumed part removes its old extras,
 /// as it removes its old answers; pass every extra wanted in this write. Adding to foreign
-/// PMI leaves its existing attributes alone. No attribute is merged or updated by name.
+/// PMI leaves its foreign attributes alone; scoped rewrites replace Specify-authored extras.
+/// No attribute is merged or updated by name.
 /// An empty slice is byte-identical to [`write_bytes`]. For a part of an assembly the extras
 /// are written on that part's product definition, as its PMI is.
 pub fn write_bytes_with(
@@ -560,11 +562,30 @@ fn write_verified(
     // Every write_verified caller first rejects empty jobs; a session supplies exactly one job.
     let first = jobs[0].0;
     let bytes: &[u8] = &first.bytes;
-    let source = Source::of(bytes)?;
+    let original = Source::of(bytes)?;
+    let mut scoped = Vec::new();
+    for (loaded, _, _) in jobs {
+        if resume::scoped(&original.doc, loaded.binding.part)
+            && resume::answers_for(loaded)
+                .map_err(|e| WriteError::Failed(e.to_string()))?
+                .is_some()
+        {
+            scoped.push(loaded.binding.part);
+        }
+    }
+    let cleaned = if scoped.is_empty() {
+        None
+    } else {
+        Some(Source::of(
+            &provenance::without_owned(&original.doc, &original.read, &scoped)
+                .map_err(WriteError::Refused)?,
+        )?)
+    };
+    let source = cleaned.as_ref().unwrap_or(&original);
     let failed = |e: crate::features::FeatureError| WriteError::Failed(e.to_string());
 
     if first.part_count > 1 {
-        // Stored answers are how a later write knows the PMI is specify-core's.
+        // Assembly jobs retain their per-part interview state.
         if jobs.iter().any(|(_, _, answers)| answers.is_none()) {
             return invalid("a part of an assembly is written with the answers it came from");
         }
@@ -608,17 +629,14 @@ fn write_verified(
         // (haecceity's replace touches only the parts written), so it need not be written
         // again with these; Python's refusal ("write them again with these") is not kept.
     }
-    // Python writes a bare or resumed part from its geometry alone, and adds to any other
-    // (its `merge`). Replace is the former: the part's PMI becomes exactly the intent's. A bare
-    // part is Replace rather than design.md's Add so that Python-form answers that no longer
-    // resume (not PMI to haecceity) go, as from Python's rewrite; question Q18. Decided for each
-    // part written: Replace when it is bare or resumes, Add when it has PMI from elsewhere, so
-    // such PMI is never replaced and a resumed part's own PMI is never written twice; parts not
-    // written are left alone either way (D3).
+    // Bare/legacy resumed parts use Replace (Q18). Scoped resumed Add parts keep
+    // the foreign baseline above and use Add; only marked requirements were removed.
+    // Unselected assembly parts remain untouched (D3).
     let mut modes = Vec::new();
     for (loaded, _, _) in jobs {
         let foreign = source.has_pmi(loaded.binding.part)
-            && resume::answers_for(loaded).map_err(failed)?.is_none();
+            && (scoped.contains(&loaded.binding.part)
+                || resume::answers_for(loaded).map_err(failed)?.is_none());
         modes.push(if foreign { Mode::Add } else { Mode::Replace });
     }
 
@@ -633,12 +651,15 @@ fn write_verified(
             }
         }
         let payload = match answers {
-            Some(answers) if mode == Mode::Replace => {
+            Some(answers) => {
                 let mut saved = answers.clone();
                 saved.remove(crate::characteristics::CARRY);
                 saved.remove(crate::bom::CARRY);
                 saved.retain(|key, _| !key.starts_with("bom."));
-                let payload = resume::payload(loaded, &saved).map_err(failed)?;
+                let mut payload = resume::payload(loaded, &saved).map_err(failed)?;
+                if mode == Mode::Add || scoped.contains(&loaded.binding.part) {
+                    payload["pmi_scope"] = Json::String(PMI_PROVENANCE.into());
+                }
                 pmi.attributes.push(resume::attribute_set(&payload));
                 Some(payload)
             }
@@ -648,21 +669,35 @@ fn write_verified(
         crate::characteristics::allocate(
             loaded,
             &mut pmi,
-            before,
-            &source.read.provenance.parts[loaded.binding.part],
-            &source.doc,
+            &original.read.parts[loaded.binding.part],
+            &original.read.provenance.parts[loaded.binding.part],
+            &original.doc,
             answers,
-            mode == Mode::Replace,
+            if scoped.contains(&loaded.binding.part) {
+                crate::characteristics::Allocation::Scoped
+            } else if mode == Mode::Replace {
+                crate::characteristics::Allocation::Replace
+            } else {
+                crate::characteristics::Allocation::Add
+            },
         )
         .map_err(WriteError::Invalid)?;
-        if mode == Mode::Replace {
-            let retired = crate::characteristics::retired(
-                before,
-                &source.read.provenance.parts[loaded.binding.part],
-                &source.doc,
+        if mode == Mode::Replace || scoped.contains(&loaded.binding.part) {
+            let mut retired = crate::characteristics::retired(
+                &original.read.parts[loaded.binding.part],
+                &original.read.provenance.parts[loaded.binding.part],
+                &original.doc,
                 &pmi,
             )
             .map_err(WriteError::Invalid)?;
+            if scoped.contains(&loaded.binding.part) {
+                let foreign = crate::characteristics::read_parsed(
+                    &source.doc,
+                    before,
+                    &source.read.provenance.parts[loaded.binding.part],
+                );
+                retired.retain(|n| !foreign.iter().any(|c| c.number == *n));
+            }
             if !retired.is_empty() {
                 lines.warnings.push(format!(
                     "retired characteristic numbers: {}",
@@ -686,8 +721,8 @@ fn write_verified(
         .iter()
         .map(|p| (PartId(p.loaded.binding.part), p.pmi.clone()))
         .collect();
-    let back = write_by_modes(&source, &items, &modes)?;
-    verify(&source, &items, &modes, &back)?;
+    let back = write_by_modes(source, &items, &modes)?;
+    verify(source, &items, &modes, &back)?;
     let stored = resume::stored(&back);
     for p in &planned {
         let k = p.loaded.binding.part;
@@ -726,7 +761,7 @@ fn write_verified(
         // The append checks original candidate records, schema, fields and history.
         // A no-op has already verified its replacement candidate above.
         if !unchanged {
-            verify(&source, &items, &modes, &back)?;
+            verify(source, &items, &modes, &back)?;
         }
         back
     } else {

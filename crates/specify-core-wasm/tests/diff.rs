@@ -240,3 +240,42 @@ fn assembly_diff_accepts_each_parts_accept_defaults_map_through_json() {
         "{error}"
     );
 }
+
+#[test]
+fn spindle_diff_scenes_obey_the_editor_link_rule() {
+    let (old, new) = (bytes("spindle_pmi.old"), bytes("spindle_pmi.new"));
+    let engine = session::Session::open("old.step", &old).unwrap();
+    let answers = engine
+        .accept_defaults(
+            &serde_json::from_value(serde_json::json!({
+                "part.material":"steel"
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+    let result = session::diff_with_options(
+        ("old.step", &old),
+        ("new.step", &new),
+        &answers,
+        "Spindle",
+        revision::DiffOptions { scenes: true },
+    )
+    .unwrap();
+    for side in ["old", "new"] {
+        let scene = &result["report"]["pmi"]["scenes"][side];
+        let ids: std::collections::BTreeSet<_> = ["pmi", "units"]
+            .into_iter()
+            .flat_map(|section| scene["pmi"][section].as_object().unwrap().values())
+            .filter_map(serde_json::Value::as_array)
+            .flatten()
+            .filter_map(|row| row["id"].as_str())
+            .collect();
+        let listed = scene["presentation"]["semantic_ids"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|id| id.as_str().unwrap())
+            .collect();
+        assert_eq!(ids, listed, "{side}");
+    }
+}

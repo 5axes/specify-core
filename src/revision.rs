@@ -1982,7 +1982,10 @@ pub fn diff_with_options(
         (&old_analysis, &new_analysis),
         (!given.is_empty()).then_some(given),
         &pmi_answers,
-        &geometric_faces,
+        (
+            &geometric_faces,
+            corr.alignment.found.then_some(&corr.alignment.rotation),
+        ),
         (&old_features, &new_features),
     )?;
 

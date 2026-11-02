@@ -125,3 +125,23 @@ metadata records the actual new STEP hashes. The two refusals and all
 Python-written inputs/evidence remain frozen. No cross-engine verdict changes
 are needed. Both packaged Python schemas are copied byte for byte from the
 locked v0.4.4 dependency and checked by `python_schemas_match_the_pinned_kernel`.
+
+For Add-mode answer storage, only these byte goldens change:
+
+- `nist/nist_ctc_01_asme1_ap242`: persist the supplied base answers with
+  `pmi_scope = specify-core:written:v1` beside the original foreign PMI.
+- `nist/nist_ctc_03_asme1_ap242`: persist the supplied per-part base answers with the
+  same provenance scope; the previous Add writer omitted them.
+- `nist/nist_ctc_05_asme1_ap242`: persist the supplied base answers with that scope,
+  including the existing explicit deferrals; no deferred requirement gains PMI.
+
+The new answer UDA precedes number history, so subsequent newly authored entity ids move.
+Original foreign entity spans are independently checked byte for byte by
+`tests/add_mode_answers.rs`. All other byte goldens and both refusals stay unchanged.
+The three Python hash/resume metadata files and two changed semantic readbacks are
+independently recaptured with Python 3.12.13 and the reference's frozen `uv.lock`, using the
+documented clean reconstruction `2cb6499` (cc341dd + 63e67bd + d97d030; the source of the later
+reconstruction `7e2125d`). CTC-05's semantic readback remains unchanged: its existing U11
+face-integral mismatch now also prevents Python from resuming the newly stored answers;
+the ledger keeps both consequences visible as `rust-wrong`. Historical Python-written
+oracle files and their evidence stay frozen.

@@ -509,6 +509,13 @@ fn same_support(old: &Key, new: &Key) -> bool {
                 && grows(&old.reference, &new.faces)))
 }
 
+#[derive(Clone, Copy)]
+pub(crate) enum Allocation {
+    Add,
+    Replace,
+    Scoped,
+}
+
 /// First allocate in inspection order; later additions use stable model order after matching
 /// all existing requirements. Support growth is allowed only for a unique two-way match,
 /// following resume's conservative same-geometry support rule.
@@ -519,8 +526,10 @@ pub(crate) fn allocate(
     prov: &PartProvenance,
     doc: &Document,
     answers: Option<&Map<String, Value>>,
-    replace: bool,
+    mode: Allocation,
 ) -> Result<(), String> {
+    let replace = !matches!(mode, Allocation::Add);
+    let scoped = matches!(mode, Allocation::Scoped);
     let fingerprint = resume::fingerprint(loaded).map_err(|e| e.to_string())?;
     let saved = history(before)?;
     let carried = answers
@@ -570,6 +579,41 @@ pub(crate) fn allocate(
                 .max()
                 .unwrap_or(0),
         );
+    if scoped {
+        // Foreign numbers reserve the high-water mark but cannot be claimed by a new
+        // Specify requirement on the same support. Shared datums retain their numbers.
+        let owned: BTreeSet<_> = before_items
+            .iter()
+            .filter(|item| {
+                item.key.kind == "datum"
+                    || match item.key.kind.as_str() {
+                        "dimension" => prov.dimensions.iter().any(|ids| {
+                            ids.contains(&item.entity) && crate::provenance::dimension(doc, ids)
+                        }),
+                        "geometric_tolerance" => {
+                            prov.tolerances.iter().enumerate().any(|(i, ids)| {
+                                ids.contains(&item.entity)
+                                    && before.tolerances[i].description.as_deref()
+                                        == Some(crate::provenance::MARKER)
+                            })
+                        }
+                        kind => {
+                            let (items, marker) = match kind {
+                                "thread" => (&prov.threads, "thread"),
+                                "knurl" => (&prov.knurls, "knurl"),
+                                _ => (&prov.surface_textures, "surface texture"),
+                            };
+                            items.iter().any(|ids| {
+                                ids.contains(&item.entity)
+                                    && crate::provenance::marked(doc, ids, marker)
+                            })
+                        }
+                    }
+            })
+            .filter_map(|item| number(doc, item.entity))
+            .collect();
+        old.entries.retain(|e| owned.contains(&e.number));
+    }
     let new = items(p, None, None);
     if !replace && new.is_empty() {
         return Ok(());
@@ -663,7 +707,7 @@ pub(crate) fn allocate(
     for n in order {
         let item = &new[n];
         let matched = matched[n];
-        if !replace
+        if (!replace || scoped)
             && item.key.kind == "datum"
             && before_items
                 .iter()

@@ -838,7 +838,7 @@ fn ctc01() -> (common::Case, PathBuf) {
 }
 
 // test_merge.py::test_a_nist_part_keeps_all_its_pmi, test_a_files_own_datums_are_not_drawn_
-// again, test_a_file_with_pmi_from_elsewhere_stores_no_answers
+// again; Add now stores supplied answers (provenance-scoped resume).
 #[test]
 fn a_nist_part_keeps_all_its_pmi() {
     let dir = temp("ctc01");
@@ -898,7 +898,10 @@ fn a_nist_part_keeps_all_its_pmi() {
     ].into_iter().map(String::from).collect());
     let text = std::fs::read_to_string(&out).unwrap();
     assert!(!text.contains("DRAUGHTING_CALLOUT('Datum "));
-    assert!(stored(text.as_bytes()).is_empty());
+    assert_eq!(
+        answers_for(&load(&out, None).unwrap()).unwrap(),
+        given.as_object().cloned()
+    );
     // #75 adds dimension-owned origin/planner UDAs. As for #77, AP242 ed1 excludes
     // those owners, so the existing writer policy upgrades only FILE_SCHEMA to ed4.
     // Require that exact header change and every other original byte to survive.

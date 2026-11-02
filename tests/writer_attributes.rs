@@ -251,10 +251,8 @@ fn adding_to_foreign_pmi_keeps_existing_attributes_and_adds_extras() {
     let read = pmi_of(&bytes);
     assert_attribute(&read, &existing);
     assert_attribute(&read, &project(2));
-    assert!(
-        resume::stored(&bytes).is_empty(),
-        "add does not store answers"
-    );
+    let reopened = part::load_bytes("added.step", bytes).unwrap();
+    assert_eq!(resume::answers_for(&reopened).unwrap(), Some(answers));
 }
 
 #[test]

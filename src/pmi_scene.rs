@@ -32,6 +32,7 @@ pub struct Scene {
     read: pmi::PmiRead,
     index: usize,
     stored: Option<Map<String, Value>>,
+    foreign: Option<(Document, pmi::PmiRead)>,
 }
 
 impl Scene {
@@ -39,11 +40,21 @@ impl Scene {
         let doc = Document::parse(loaded.bytes.to_vec()).map_err(|e| e.to_string())?;
         let defs = step::read_part_definitions(&loaded.bytes).map_err(|e| e.to_string())?;
         let read = pmi::read(&doc, &defs).map_err(|e| e.to_string())?;
+        let stored = resume::answers_for(loaded).map_err(|e| e.to_string())?;
+        let foreign = if stored.is_some() && resume::scoped(&doc, loaded.binding.part) {
+            let bytes = crate::provenance::without_owned(&doc, &read, &[loaded.binding.part])?;
+            let doc = Document::parse(bytes).map_err(|e| e.to_string())?;
+            let read = pmi::read(&doc, &defs).map_err(|e| e.to_string())?;
+            Some((doc, read))
+        } else {
+            None
+        };
         Ok(Self {
             doc,
             read,
             index: loaded.binding.part,
-            stored: resume::answers_for(loaded).map_err(|e| e.to_string())?,
+            stored,
+            foreign,
         })
     }
 
@@ -78,8 +89,12 @@ impl Scene {
         answers: Option<&Map<String, Value>>,
         comparison: bool,
     ) -> Result<Value, String> {
-        let before = &self.read.parts[self.index];
-        let foreign = self.stored.is_none() && has_pmi(before);
+        let before = &self
+            .foreign
+            .as_ref()
+            .map_or(&self.read, |(_, read)| read)
+            .parts[self.index];
+        let foreign = (self.stored.is_none() || self.foreign.is_some()) && has_pmi(before);
         if let Some(answers) = answers {
             let owned;
             let analysis = match analysis {
@@ -97,7 +112,11 @@ impl Scene {
                     .values()
                     .any(|meta| matches!(meta["status"].as_str(), Some("answered" | "default")))
             {
-                return self.file(loaded, None, comparison);
+                return if let Some((doc, read)) = &self.foreign {
+                    self.file_from(loaded, None, comparison, Some((doc, read)))
+                } else {
+                    self.file(loaded, None, comparison)
+                };
             }
             let mut graphics =
                 presentation::generated(&semantic, &loaded.part).map_err(|e| e.to_string())?;
@@ -129,7 +148,12 @@ impl Scene {
             }
             let mut result = encode(&semantic, graphics, metadata)?;
             if foreign {
-                merge(&mut result, self.file(loaded, None, comparison)?)?;
+                let file = if let Some((doc, read)) = &self.foreign {
+                    self.file_from(loaded, None, comparison, Some((doc, read)))?
+                } else {
+                    self.file(loaded, None, comparison)?
+                };
+                merge(&mut result, file)?;
             } else if comparison {
                 // Replace plans rebuild Specify requirements; keep CAD requirements even
                 // when the source also contains saved interview answers.
@@ -141,10 +165,13 @@ impl Scene {
                     .filter(|(_, meta)| meta["status"] == "existing")
                     .map(|(id, _)| id.clone())
                     .collect();
-                let overlay = file["specify"]
+                let replaced: std::collections::BTreeSet<String> = file["specify"]
                     .as_object()
                     .ok_or("invalid metadata")?
-                    .clone();
+                    .keys()
+                    .filter(|id| !existing.contains(*id))
+                    .cloned()
+                    .collect();
                 for rows in file["pmi"]["pmi"]
                     .as_object_mut()
                     .ok_or("invalid PMI")?
@@ -152,9 +179,7 @@ impl Scene {
                 {
                     if let Some(rows) = rows.as_array_mut() {
                         rows.retain(|row| {
-                            row["id"].as_str().is_some_and(|id| {
-                                existing.contains(id) || !overlay.contains_key(id)
-                            })
+                            row["id"].as_str().is_some_and(|id| !replaced.contains(id))
                         });
                     }
                 }
@@ -166,6 +191,13 @@ impl Scene {
                     .as_object_mut()
                     .ok_or("invalid graphics")?
                     .retain(|id, _| existing.contains(id));
+                // This is a scene of the retained CAD requirements, not the whole
+                // file. Remove replaced identities along with their semantic rows
+                // before merging it into the rebuilt answer scene.
+                file["presentation"]["semantic_ids"]
+                    .as_array_mut()
+                    .ok_or("invalid semantic ids")?
+                    .retain(|id| id.as_str().is_some_and(|id| !replaced.contains(id)));
                 // Only notation is consumed here; the two generated layouts may place
                 // the same part note differently when the file has extra foreign PMI.
                 file["presentation"]["planes"] = json!([]);
@@ -295,7 +327,11 @@ impl Scene {
                 });
             bindings.insert((collection.into(), index), (id, meta, count));
         };
-        let before = &self.read.parts[self.index];
+        let (baseline_doc, baseline_read) = self
+            .foreign
+            .as_ref()
+            .map_or((&self.doc, &self.read), |(doc, read)| (doc, read));
+        let before = &baseline_read.parts[self.index];
         let mut p = writer::scene_model(
             loaded,
             &intent,
@@ -311,11 +347,17 @@ impl Scene {
         characteristics::allocate(
             loaded,
             &mut p,
-            before,
+            &self.read.parts[self.index],
             &self.read.provenance.parts[self.index],
             &self.doc,
             Some(answers),
-            !foreign,
+            if self.foreign.is_some() {
+                characteristics::Allocation::Scoped
+            } else if foreign {
+                characteristics::Allocation::Add
+            } else {
+                characteristics::Allocation::Replace
+            },
         )?;
         let numbers = characteristics::planned_numbers(&p)?;
         let mut semantic = wire::identify(p, None).map_err(|e| e.to_string())?;
@@ -363,13 +405,13 @@ impl Scene {
         if foreign {
             let original = wire::identify(
                 before.clone(),
-                Some(&self.read.identifiers.parts[self.index]),
+                Some(&baseline_read.identifiers.parts[self.index]),
             )
             .map_err(|e| e.to_string())?;
             let recorded = recorded_numbers(
                 &original,
-                &self.read.provenance.parts[self.index],
-                &self.doc,
+                &baseline_read.provenance.parts[self.index],
+                baseline_doc,
             )?;
             for (i, datum) in semantic.pmi.datums.iter().enumerate() {
                 if let Some(old) = before
@@ -407,16 +449,27 @@ impl Scene {
         planned: Option<&Map<String, Value>>,
         comparison: bool,
     ) -> Result<Value, String> {
-        let p = &self.read.parts[self.index];
+        self.file_from(loaded, planned, comparison, None)
+    }
+
+    fn file_from(
+        &self,
+        loaded: &LoadedPart,
+        planned: Option<&Map<String, Value>>,
+        comparison: bool,
+        source: Option<(&Document, &pmi::PmiRead)>,
+    ) -> Result<Value, String> {
+        let (doc, read) = source.unwrap_or((&self.doc, &self.read));
+        let stored = if source.is_some() {
+            None
+        } else {
+            self.stored.as_ref()
+        };
+        let p = &read.parts[self.index];
         // identify (without named anchor bindings) deliberately exports mesh indices.
-        let mut semantic =
-            wire::identify(p.clone(), Some(&self.read.identifiers.parts[self.index]))
-                .map_err(|e| e.to_string())?;
-        let recorded = recorded_numbers(
-            &semantic,
-            &self.read.provenance.parts[self.index],
-            &self.doc,
-        )?;
+        let mut semantic = wire::identify(p.clone(), Some(&read.identifiers.parts[self.index]))
+            .map_err(|e| e.to_string())?;
+        let recorded = recorded_numbers(&semantic, &read.provenance.parts[self.index], doc)?;
         let mut metadata = Map::new();
         for (collection, ids) in &mut semantic.ids {
             for (i, id) in ids.iter_mut().enumerate() {
@@ -444,7 +497,7 @@ impl Scene {
                 metadata.insert(id.clone(), meta);
             }
         }
-        if let Some(answers) = &self.stored {
+        if let Some(answers) = stored {
             part_metadata(&mut semantic, &mut metadata, answers)?;
             attribute_ids(&mut semantic, &mut metadata)?;
             // Drop obsolete content ids after renaming the part settings.
@@ -454,18 +507,11 @@ impl Scene {
         let mut graphics = if comparison {
             presentation::generated(&semantic, &loaded.part)
         } else {
-            presentation::read(&self.doc, &self.read, PartId(self.index), &semantic)
+            presentation::read(doc, read, PartId(self.index), &semantic)
         }
         .map_err(|e| e.to_string())?;
         if !comparison {
-            notes::file(
-                &self.doc,
-                &self.read,
-                self.index,
-                &semantic,
-                loaded,
-                &mut graphics,
-            )?;
+            notes::file(doc, read, self.index, &semantic, loaded, &mut graphics)?;
         }
         let mut result = encode(&semantic, graphics, metadata)?;
         // Append keeps the original callout records. Reopening must still draw
@@ -473,7 +519,7 @@ impl Scene {
         if notes::multiple_blocks(&result) {
             notes::combined(&mut result, &semantic, None, loaded)?;
         }
-        notes::material(&mut result, &semantic, self.stored.as_ref());
+        notes::material(&mut result, &semantic, stored);
         Ok(result)
     }
 }

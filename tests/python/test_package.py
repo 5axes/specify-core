@@ -318,3 +318,32 @@ def test_limits_and_combined_iso_class_round_trip(plate, tmp_path):
     labels = "; ".join(m.get("notation", "") for m in scene["specify"].values())
     assert "9.8 - 10.2" in labels and "⌀7.8 - ⌀8.2" in labels
     assert "GENERAL TOLERANCES ISO 2768-mK" in labels
+
+
+def test_spindle_diff_scenes_obey_editor_links():
+    fixtures = Path(__file__).resolve().parents[1] / "fixtures" / "revisions"
+    old = fixtures / "spindle_pmi.old.step.gz"
+    new = fixtures / "spindle_pmi.new.step.gz"
+    analysis = api.analyse(old)
+    answers = dict(STEEL)
+    while True:
+        defaults = {
+            q.id: q.default for q in api.questions(analysis, answers)
+            if q.id not in answers and q.default is not None
+        }
+        if not defaults:
+            break
+        answers.update(defaults)
+    report = api.diff(old, new, answers, scenes=True)["report"]
+    for side in ("old", "new"):
+        scene = report["pmi"]["scenes"][side]
+        ids = {
+            row["id"] for section in ("pmi", "units")
+            for rows in scene["pmi"][section].values() if isinstance(rows, list)
+            for row in rows if isinstance(row.get("id"), str)
+        }
+        assert ids == set(scene["presentation"]["semantic_ids"]), side
+    assert not any(
+        item.get("old") == "M4×0.7-6H THRU" and item.get("new") == "1.5"
+        for item in report["pmi"]["items"]
+    )

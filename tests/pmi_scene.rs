@@ -1415,3 +1415,115 @@ fn answered_material_keeps_semantic_ids_to_the_pmi_ids() {
         );
     }
 }
+
+#[test]
+fn diff_scenes_keep_editor_ids_and_old_ghost_links() {
+    use specify_core::{revision, rules};
+    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/revisions");
+    for case in ["spindle_pmi", "hole_removed"] {
+        let old = part::load(&fixtures.join(format!("{case}.old.step.gz")), None).unwrap();
+        let new = part::load(&fixtures.join(format!("{case}.new.step.gz")), None).unwrap();
+        let answers = rules::with_all_defaults(
+            &api::analyse(&old).unwrap(),
+            &json!({"part.material":"steel"})
+                .as_object()
+                .unwrap()
+                .clone(),
+        )
+        .unwrap();
+        // Exercise both the rebuilt answer scene and the file-only scene.
+        for given in [&answers, &Map::new()] {
+            let report = revision::diff_with_options(
+                &old,
+                &new,
+                given,
+                revision::DiffOptions { scenes: true },
+            )
+            .unwrap();
+            let scenes = report.pmi.scenes.as_ref().unwrap();
+            for scene in [&scenes.old, &scenes.new] {
+                validate(scene);
+                let listed = scene["presentation"]["semantic_ids"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|id| id.as_str().unwrap().to_owned())
+                    .collect();
+                assert_eq!(editor_ids(scene), listed, "{case}");
+            }
+            let mut ghosts = 0;
+            for change in &report.pmi.items {
+                if change.old.is_none() {
+                    continue;
+                }
+                let id = change.old_id.as_deref().unwrap_or(&change.id);
+                assert!(editor_ids(&scenes.old).contains(id), "{case}: {id}");
+                assert!(scenes.old["specify"][id].is_object(), "{case}: {id}");
+                // Semantic-only requirements need no ink. Every drawn old
+                // requirement must keep its callout and links to old mesh faces.
+                if let Some(items) = scenes.old["presentation"]["items"][id].as_array() {
+                    assert!(!items.is_empty(), "{case}: {id}");
+                    for face in &change.faces.old {
+                        assert!(face.face < old.definition.faces.len(), "{case}: {id}");
+                    }
+                    ghosts += 1;
+                }
+            }
+            // Bare hole_removed has no file PMI when no answers are supplied.
+            if case == "spindle_pmi" || !given.is_empty() {
+                assert!(ghosts > 0, "{case}: no old callouts checked");
+            }
+        }
+    }
+}
+
+#[test]
+fn mixed_resume_preview_keeps_foreign_control_and_replaces_owned_control() {
+    let loaded = plate();
+    let analysis = api::analyse(&loaded).unwrap();
+    let face = analysis["faces"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["kind"] == "plane")
+        .unwrap()["id"]
+        .clone();
+    let mut answers = json!({"extra.1":{"kind":"flatness","faces":[face],"value":"0.011"}})
+        .as_object()
+        .unwrap()
+        .clone();
+    let intent = api::preview(&analysis, &answers).unwrap();
+    let bytes = writer::write_bytes(&loaded, &intent, None).unwrap().0;
+    let bytes = String::from_utf8(bytes)
+        .unwrap()
+        .replace(writer::PMI_PROVENANCE, "independent producer")
+        .into_bytes();
+    let foreign = part::load_bytes("foreign.step", bytes).unwrap();
+    answers["extra.1"]["value"] = json!("0.031");
+    let intent = api::preview(&api::analyse(&foreign).unwrap(), &answers).unwrap();
+    let bytes = writer::write_bytes(&foreign, &intent, Some(&answers))
+        .unwrap()
+        .0;
+    let loaded = part::load_bytes("mixed.step", bytes).unwrap();
+    let analysis = api::analyse(&loaded).unwrap();
+    let cache = Scene::new(&loaded).unwrap();
+    let before = cache
+        .scene(&loaded, Some(&analysis), Some(&answers))
+        .unwrap();
+    validate(&before);
+    answers["extra.1"]["value"] = json!("0.047");
+    let scene = cache
+        .scene(&loaded, Some(&analysis), Some(&answers))
+        .unwrap();
+    validate(&scene);
+    let tolerances = &scene["pmi"]["pmi"]["tolerances"];
+    assert_eq!(tolerances.as_array().unwrap().len(), 2);
+    assert!(tolerances.to_string().contains("0.011"));
+    assert!(tolerances.to_string().contains("0.047"));
+    assert!(!tolerances.to_string().contains("0.031"));
+    assert_eq!(
+        scene["specify"]["flatness:extra.1"]["number"],
+        before["specify"]["flatness:extra.1"]["number"]
+    );
+    assert_eq!(scene["specify"]["flatness:extra.1"]["status"], "answered");
+}

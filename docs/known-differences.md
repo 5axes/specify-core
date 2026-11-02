@@ -14,15 +14,15 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | [analysis](#analysis) | 5 | 0 | 0 | 0 | 0 | 0 | 5 |
 | [anchors](#anchors) | 4 | 0 | 2 | 1 | 2 | 0 | 9 |
 | [cli](#cli) | 260 | 0 | 52 | 0 | 2 | 1 | 315 |
-| [cross_engine](#cross_engine) | 53 | 1 | 0 | 1 | 1 | 20 | 76 |
+| [cross_engine](#cross_engine) | 53 | 2 | 0 | 1 | 1 | 20 | 77 |
 | [existing](#existing) | 27 | 0 | 0 | 0 | 7 | 0 | 34 |
 | [features](#features) | 3460 | 1415 | 543 | 2481 | 1066 | 1878 | 10843 |
 | [iso286](#iso286) | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | [mates](#mates) | 1 | 0 | 0 | 0 | 3 | 0 | 4 |
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 0 | 40 |
 | [rules](#rules) | 114 | 0 | 615 | 0 | 0 | 0 | 729 |
-| [writer](#writer) | 1088 | 0 | 0 | 0 | 15 | 0 | 1103 |
-| **all** | 5017 | 1433 | 1221 | 2487 | 1101 | 1899 | 13158 |
+| [writer](#writer) | 1090 | 0 | 0 | 0 | 15 | 0 | 1105 |
+| **all** | 5019 | 1434 | 1221 | 2487 | 1101 | 1899 | 13161 |
 
 ## analysis
 
@@ -228,11 +228,15 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   The evidence is stated per entry (10 distinct; all in `cross_engine.json`). The first, for `nist/nist_ctc_01_asme1_ap242` at `python_readback.existing[key=dimension|Location_LinearDistance|[4]|[0,1,71,72,73,74,91,92,93,94,95,96]#1]`: Shared planner, #75: independent fresh STEP readback states Location_LinearDistance 400.0 mm on [4] to [0, 1, 71, 72, 73, 74, 91, 92, 93, 94, 95, 96]. The exact nominal-only dimension is retained as physical PMI but read_existing intentionally excludes authored untoleranced dimensions (#63); the independent Python reader includes it. Its complete semantic target includes every coincident hole or pattern origin, rather than silently dropping covered members. The corpus physical-support/duplicate/chain checks pass, and cross_engine verifies current writer bytes and reader evidence hashes. Only this exact item is covered.
 
-### cross_engine: rust-wrong (1 entry)
+### cross_engine: rust-wrong (2 entries)
 
 - **the faces' rounded centroids differ where haecceity's face integrals are off (U11), so the schema 2 fingerprints differ** (`nist/nist_ctc_05_asme1_ap242` at `fingerprint_v2[fingerprint differs: faces differ in kind or rounded centroid]`)
 
-  Python's faces (python_meta.json.gz, resume_evidence) and the Rust engine's faces of the Rust-written file agree in kind and count (156) and in every centroid rounded to 3 decimals but those of faces 93, 97, 109 and 112 (B-spline surfaces: Python [-145.171, 51.241, 52.431], Rust -145.170814, 51.239719, 52.431061) and 98, 103, 104 and 108 (spheres: Python 72.111, Rust 72.111586 rounds to 72.112). OpenCascade's adaptive integral (eps 1e-9) of the same faces gives 51.24061051 and 72.11149644, Python's values: features.json judges each of these eight centroids rust-wrong (faces[93].centroid[\*] etc., upstream need U11, Part::face_moments to 1e-6). The fingerprint itself is not at fault: on the other 34 parts of the check, where the rounded faces are the same, specify-core's own schema 2 fingerprint (branch fingerprint-v2) equals the Rust engine's byte for byte (schema_two_fingerprints_are_the_same_in_both_engines). No answers are stored in a NIST file the Rust writer writes, so nothing fails to resume here; answers stored on this part would not cross engines until U11 is met.
+  Python's faces (python_meta.json.gz, resume_evidence) and the Rust engine's faces of the Rust-written file agree in kind and count (156) and in every centroid rounded to 3 decimals but those of faces 93, 97, 109 and 112 (B-spline surfaces: Python [-145.171, 51.241, 52.431], Rust -145.170814, 51.239719, 52.431061) and 98, 103, 104 and 108 (spheres: Python 72.111, Rust 72.111586 rounds to 72.112). OpenCascade's adaptive integral (eps 1e-9) of the same faces gives 51.24061051 and 72.11149644, Python's values: features.json judges each of these eight centroids rust-wrong (faces[93].centroid[\*] etc., upstream need U11, Part::face_moments to 1e-6). The fingerprint itself is not at fault: on the other 34 parts of the check, where the rounded faces are the same, specify-core's own schema 2 fingerprint (branch fingerprint-v2) equals the Rust engine's byte for byte (schema_two_fingerprints_are_the_same_in_both_engines). Add-mode answers are now stored. The independent Python 3.12 reference recapture confirms that this existing U11 mismatch also prevents its CTC-05 answers from resuming in Python; native write/resume still verifies its own face fingerprint.
+
+- **Stored Add-mode answers expose the existing CTC-05 cross-engine face-integral mismatch (U11)** (`nist/nist_ctc_05_asme1_ap242` at `python_readback.resume[python did not resume: fingerprint differs: faces differ in kind or rounded centroid]`)
+
+  Add-mode answer storage intentionally adds the supplied {"part.material":"steel"} payload with pmi_scope=specify-core:written:v1. Independent Python 3.12.13 readback of the refreshed CTC-05 byte golden using the frozen reference source cc341dd + 63e67bd + d97d030 (2cb6499) finds the identical payload and face count, but returns no resumed answers because its rounded face centroids yield a different schema-2 fingerprint. The exact eight-face U11 discrepancy is retained in the separate fingerprint_v2 entry; no face values, oracle geometry, tolerances or other known differences are changed. Native answers_for resumes the stored material and the writer verifies it against its own fingerprint. This records the newly observable consequence of the existing kernel integration error, without claiming it fixed or ignoring answer fields.
 
 ### cross_engine: undetermined (1 entry)
 
@@ -1114,7 +1118,7 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 
 ## writer
 
-### writer: rust-correct (1088 entries)
+### writer: rust-correct (1090 entries)
 
 - **Specify-written requirements retain STEP-only authorship (issue #22)** (`*` at `existing[key=*].provenance`)
 
@@ -1204,6 +1208,10 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 
   The captured scenario answers extra.1 on plate face 9 with +0.1/-0 at nominal Ø8. Archived Python reports only Ø8 with an empty fit slot. Specify now reports Ø8 +0.1/+0, retaining deviations and absolute limits as distinct drawing forms. A direct Python-package write of the unchanged captured intent verifies the new report; the STEP tolerance remains Deviations and no captured Python or STEP fixture is edited. tests/limits_and_classes.rs also verifies ± size report text and limit report text.
 
+- **Add-mode answers now resume beside preserved foreign PMI** (2 entries, 2 case globs)
+
+  The evidence is stated per entry (2 distinct; all in `writer.json`). The first, for `nist/nist_ctc_01_asme1_ap242` at `resume[python did not resume]`: For nist/nist_ctc_01_asme1_ap242, the archived Python writer deliberately stored no Add-mode answers, so its frozen readback is null. The requested provenance-scoped Add implementation now stores exactly meta.answers, {"part.material":"steel"}, and native answers_for resumes that map. The independently recaptured cross_engine Python 3.12.13 readback of this exact updated Rust byte golden also resumes the same answers using the frozen cc341dd + 63e67bd + d97d030 reference (2cb6499). Dedicated NIST CTC/FTC regressions in tests/add_mode_answers.rs compare every original foreign entity span at its original id across write/resume/edited write; the characteristic number remains stable and the changed control appears once. This entry covers only this case and the newly available answer map. All archived Python-written inputs, answer expectations, semantic comparisons and other ledger entries remain unchanged.
+
 ### writer: not-applicable (15 entries)
 
 - **Python's three parts of one product are one part here** (`nist/nist_ctc_02_asme1_ap242` at `write.message[*]`)
@@ -1235,6 +1243,8 @@ Every `rust-wrong` entry (a bug kept visible) and every `undetermined` entry (a 
 
 - **the faces' rounded centroids differ where haecceity's face integrals are off (U11), so the schema 2 fingerprints differ** (1 entry)
   - `nist/nist_ctc_05_asme1_ap242`: `fingerprint_v2[fingerprint differs: faces differ in kind or rounded centroid]`
+- **Stored Add-mode answers expose the existing CTC-05 cross-engine face-integral mismatch (U11)** (1 entry)
+  - `nist/nist_ctc_05_asme1_ap242`: `python_readback.resume[python did not resume: fingerprint differs: faces differ in kind or rounded centroid]`
 
 ### cross_engine: undetermined
 
