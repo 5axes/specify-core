@@ -24,6 +24,10 @@ Analysis `existing` dimension records and intent size/location rows add optional
 `limits: [lower, upper]` in mm (degrees for an imported angle). `upper` and `lower`
 remain deviations from nominal for tolerance checks and existing consumers. The
 `limits` field is absent for deviations and fits; no haecceity schema changes are needed.
+A basic (theoretically exact) dimension's `existing` record adds `basic: true`; the field
+is absent otherwise. A basic dimension has no `upper`/`lower` of its own. Scene metadata
+(`specify[id]`) carries the same `basic: true` for a basic dimension, and diff words add
+` (basic)`.
 
 `specify-core-wasm` is a workspace member in `crates/specify-core-wasm`. The root remains
 `specify-core`, with its existing CLI and tests; the default workspace member is the root,

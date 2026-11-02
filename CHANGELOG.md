@@ -33,6 +33,10 @@ All notable changes to specify-core-rust. The format follows
 
 ### Fixed
 
+- Analysis `existing` records (and Python `ExistingPmi`) mark a basic dimension with
+  `basic: true`, as does the scene's `specify[id]` metadata, and diff words add ` (basic)`.
+  Basic dimensions such as cadgen's "theoretical" 30 and 50 on the PMI plate were read by
+  haecceity as basic but reported as plain untoleranced dimensions.
 - An intent no longer lists the file's own stated dimensions as requirements. The shared
   planner still uses them, so General guesses stay off those features, but the file's PMI
   stays the characteristic: on NIST CTC-01 the editor showed every toleranced hole twice,
@@ -43,6 +47,10 @@ All notable changes to specify-core-rust. The format follows
 - Every diff pairing pass checks requirement kinds and known measurement roles,
   including number and id matches. Thread callouts cannot pair with location
   dimensions; location roles follow the part's rotation during comparison.
+
+### WASM API
+
+- `PmiSceneMetadata` adds optional `basic: true` for a basic (theoretically exact) dimension.
 
 ## 0.1.7 (2026-11-02)
 

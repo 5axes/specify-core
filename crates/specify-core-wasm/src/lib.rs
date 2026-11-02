@@ -202,6 +202,8 @@ export interface PmiSceneMetadata {
   number?: number;
   origin?: "requirement" | "general_tolerance" | "imported";
   source?: {schema: number; faces: string; support: number[]; parameter: string};
+  /** A basic (theoretically exact) dimension; absent otherwise. */
+  basic?: true;
 }
 /** JSON.parse of either pmiScene call. Supporting rows may lack a specify entry. */
 export interface PmiScene {
