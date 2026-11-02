@@ -248,7 +248,7 @@ fn items(scene: &Value) -> Vec<Item> {
         } else {
             text
         };
-        let cells = if notation.is_some() {
+        let cells = if notation.is_some() && collection != "dimensions" {
             // The block's cells include other requirements. Own notation and
             // semantic fields already capture every change to this note.
             json!([])

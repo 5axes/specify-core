@@ -13,16 +13,16 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 |---|---:|---:|---:|---:|---:|---:|---:|
 | [analysis](#analysis) | 5 | 0 | 0 | 0 | 0 | 0 | 5 |
 | [anchors](#anchors) | 4 | 0 | 2 | 1 | 2 | 0 | 9 |
-| [cli](#cli) | 221 | 0 | 52 | 0 | 2 | 1 | 276 |
+| [cli](#cli) | 260 | 0 | 52 | 0 | 2 | 1 | 315 |
 | [cross_engine](#cross_engine) | 53 | 2 | 0 | 1 | 1 | 20 | 77 |
-| [existing](#existing) | 26 | 0 | 0 | 0 | 7 | 0 | 33 |
+| [existing](#existing) | 27 | 0 | 0 | 0 | 7 | 0 | 34 |
 | [features](#features) | 3460 | 1415 | 543 | 2481 | 1066 | 1878 | 10843 |
 | [iso286](#iso286) | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | [mates](#mates) | 1 | 0 | 0 | 0 | 3 | 0 | 4 |
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 0 | 40 |
-| [rules](#rules) | 89 | 0 | 615 | 0 | 0 | 0 | 704 |
-| [writer](#writer) | 1088 | 0 | 0 | 0 | 15 | 0 | 1103 |
-| **all** | 4952 | 1434 | 1221 | 2487 | 1101 | 1899 | 13094 |
+| [rules](#rules) | 114 | 0 | 615 | 0 | 0 | 0 | 729 |
+| [writer](#writer) | 1090 | 0 | 0 | 0 | 15 | 0 | 1105 |
+| **all** | 5019 | 1434 | 1221 | 2487 | 1101 | 1899 | 13161 |
 
 ## analysis
 
@@ -76,7 +76,15 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## cli
 
-### cli: rust-correct (221 entries)
+### cli: rust-correct (260 entries)
+
+- **Combined ISO 2768 class choices in CLI and serve** (36 entries, 3 case globs)
+
+  The evidence is stated per entry (12 distinct; all in `cli.json`). The first, for `cli/*/questions` at `stdout.[1].options[4]`: Option 4 is now ISO 2768-fH, one of the requested twelve f/m/c/v × H/K/L combinations after the existing four plain classes. Default stays ISO 2768-m. In open-only CLI output the answered material question is removed, moving the general question from index 1 to 0. The served full question retains index 1. cli_datum_origins.json.gz pins every exact case/path/old/new value; tests/limits_and_classes.rs verifies the complete choices and mK PMI. Frozen Python captures remain unchanged.
+
+- **Absolute slash bounds are accepted by CLI answers** (3 entries, 1 case glob)
+
+  The frozen scenario gives extra.1 size limits 6.58/6.62 on the plate’s Ø6.6 face 6. This requested unsigned slash grammar is now valid: questions exits 0 without the former invalid-answer stderr. Apply accepts the dimension and instead reports the still-unanswered required part.material question. cli_datum_origins.json.gz pins these exact three command envelope changes; rule_defaults_oracle.json.gz pins the corresponding accepted intent and tests/limits_and_classes.rs verifies Limits STEP write/read/resume. The original refused scenario and Python result are retained.
 
 - **Shared planner report item in serve (#75)** (62 entries, 4 case globs)
 
@@ -250,7 +258,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## existing
 
-### existing: rust-correct (26 entries)
+### existing: rust-correct (27 entries)
 
 - **presentation read as a dimension** (`*` at `existing[key=dimension|DimensionPresentation|*`)
 
@@ -272,9 +280,9 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   See the Location_None entries for [89,90] and [75,76] (#126, #127).
 
-- **limits read as deviations** (`nist/nist_ctc_01_asme1_ap242*` at `existing[key=dimension|Size_Diameter|[7*]|#1].*er`)
+- **limit dimensions retain absolute bounds and derived deviations** (2 entries, 1 case glob)
 
-  The diameters on [71,72] and [73,74] (#84, #87) state limits 34.8/35.2 on 35: Rust reports them as their offsets from nominal, +0.2/-0.2; OpenCascade reads a range and specify-core reports no deviations.
+  The evidence is stated per entry (2 distinct; all in `existing.json`). The first, for `nist/nist_ctc_01_asme1_ap242*` at `existing[key=dimension|Size_Diameter|[7*]|#1].*er`: The diameters on [71,72] and [73,74] (#84, #87) state absolute limits 34.8/35.2 on 35. Specify now preserves limits=[34.8,35.2] and displays haecceity’s drawn limit range, retaining derived upper/lower deviations +0.2/-0.2 for tolerance checks. The old loss of representation is fixed by tests/limits_and_classes.rs; this numerical comparison remains because archived Python reports no deviations. No original capture was changed.
 
 - **datum letters repeated by OpenCascade** (`nist/nist_ctc_02_asme1_ap242#0` at `existing[key=geometric_tolerance|*].datums[*]`)
 
@@ -1040,7 +1048,15 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 
 ## rules
 
-### rules: rust-correct (89 entries)
+### rules: rust-correct (114 entries)
+
+- **Combined ISO 2768-1 and ISO 2768-2 class choices** (24 entries, 1 case glob)
+
+  The evidence is stated per entry (12 distinct; all in `rules.json`). The first, for `*/questions` at `*questions[1].options[4]`: The maintainer requests all f/m/c/v × H/K/L designations alongside the four existing choices. Option 4 is now ISO 2768-fH; archived Python has only indices 0–3. Default remains ISO 2768-m. tests/limits_and_classes.rs checks all 16 options, linear-table equivalence and mK STEP readback with GeometricClass::K. rule_defaults_oracle.json.gz pins every exact departure by case/path/value; original Python captures are unchanged.
+
+- **Absolute slash bounds are accepted as limits** (`scenarios/callout_refused_8/*` at `*`)
+
+  Archived callout_refused_8 gives extra.1 a cylindrical size 6.58/6.62 on the plate’s Ø6.6 face 6 and expects refusal. The requested grammar now accepts this strictly increasing unsigned slash pair as absolute limits, keeping upper/lower derived deviations. Its questions/open/problems/preview/apply departures are pinned exactly in rule_defaults_oracle.json.gz. tests/limits_and_classes.rs verifies the same grammar and raw Limits PMI, resume and labels; the original refused Python scenario and result remain intact.
 
 - **Optional full-thread depth question and explicit default acceptance** (48 entries, 16 case globs)
 
@@ -1102,7 +1118,7 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 
 ## writer
 
-### writer: rust-correct (1088 entries)
+### writer: rust-correct (1090 entries)
 
 - **Specify-written requirements retain STEP-only authorship (issue #22)** (`*` at `existing[key=*].provenance`)
 
@@ -1187,6 +1203,10 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 - **Exact Basic bolt-circle location diameter and same-face occurrence pairing (#75)** (8 entries, 3 case globs)
 
   The evidence is stated per entry (3 distinct; all in `writer.json`). The first, for `corpus/cadgenbench/flanged_spool_132` at `existing[key=dimension|Size_Diameter|[0,16,17,18,20,21]|#2]*`: Shared planner, #75: fresh writer-oracle STEP metadata states answered:dim:pattern[hole:0,hole:16,hole:17,hole:18,hole:20,hole:21]/bolt_circle.diameter = Ø90 Basic on [0, 16, 17, 18, 20, 21]. This is radial location geometry belonging to the accepted position frame, distinct from the member bore diameter and its answered ISO 286 fit. Python omitted the bolt-circle quantity. The Basic diameter now precedes the bore in the reader's same-face Size_Diameter occurrence keys; those occurrence suffixes are comparison indices, not characteristic numbers. Both physical quantities remain, once, with distinct planner role IDs. tests/planner_dimensions.rs checks the actual standard Basic tolerance and complete Required/readback correspondence. The writer oracle's fit-limit projection now also requires the nominal to match, so a bolt circle cannot inherit the bore's fit limits. Only this exact item/report line is covered.
+
+- **Explicit size write reports include their deviation band** (2 entries, 1 case glob)
+
+  The captured scenario answers extra.1 on plate face 9 with +0.1/-0 at nominal Ø8. Archived Python reports only Ø8 with an empty fit slot. Specify now reports Ø8 +0.1/+0, retaining deviations and absolute limits as distinct drawing forms. A direct Python-package write of the unchanged captured intent verifies the new report; the STEP tolerance remains Deviations and no captured Python or STEP fixture is edited. tests/limits_and_classes.rs also verifies ± size report text and limit report text.
 
 - **Add-mode answers now resume beside preserved foreign PMI** (2 entries, 2 case globs)
 

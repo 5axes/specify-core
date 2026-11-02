@@ -314,8 +314,13 @@ fn what(prompt: &str) -> String {
         .map_or_else(|| "hole".to_string(), |caps| caps[1].to_string())
 }
 
-/// `_size_text`: a size as its fit, or its deviations.
+/// A size as its fit, absolute limits, or deviations.
 fn size_text(req: &Map<String, Value>) -> Result<String> {
+    if let Some(bounds) = req.get("limits") {
+        let [lower, upper]: [f64; 2] = serde_json::from_value(bounds.clone())
+            .map_err(|e| Error::Invalid(format!("a size has invalid limits: {e}")))?;
+        return Ok(format!("{}/{}", g(lower), g(upper)));
+    }
     if let Some(fit) = req.get("fit").filter(|f| truthy(f)) {
         return Ok(str_of(fit));
     }

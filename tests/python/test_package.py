@@ -297,6 +297,29 @@ def test_diff_scenes_are_optional_and_match_pmi_scene(plate):
     assert scenes["new"] == api.pmi_scene(plate, included["report"]["answers"])
 
 
+def test_limits_and_combined_iso_class_round_trip(plate, tmp_path):
+    given = {
+        "part.general_tolerance": "ISO 2768-mK",
+        "extra.size": {"kind": "size", "faces": [9], "value": "7.8/8.2"},
+        "extra.distance": {"kind": "distance", "faces": [2], "reference": [4], "value": "9.8/10.2"},
+    }
+    analysis = api.analyse(plate)
+    question = next(q for q in api.questions(analysis, {}) if q.id == "part.general_tolerance")
+    assert question.default == "ISO 2768-m"
+    assert len(question.options) == 16 and "ISO 2768-mK" in question.options
+    out = tmp_path / "limits.step"
+    api.write(plate, api.preview(analysis, given), out, answers=given)
+    assert api.analyse(out)["resume"]["answers"] == given
+    limits = [d for d in read_existing(out) if d.limits is not None]
+    assert {d.limits for d in limits} == {(7.8, 8.2), (9.8, 10.2)}
+    assert all(d.to_dict()["limits"] == list(d.limits) for d in limits)
+    assert all(abs(d.upper - .2) < 1e-9 and abs(d.lower + .2) < 1e-9 for d in limits)
+    scene = api.pmi_scene(out)
+    labels = "; ".join(m.get("notation", "") for m in scene["specify"].values())
+    assert "9.8 - 10.2" in labels and "⌀7.8 - ⌀8.2" in labels
+    assert "GENERAL TOLERANCES ISO 2768-mK" in labels
+
+
 def test_spindle_diff_scenes_obey_editor_links():
     fixtures = Path(__file__).resolve().parents[1] / "fixtures" / "revisions"
     old = fixtures / "spindle_pmi.old.step.gz"

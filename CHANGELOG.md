@@ -8,6 +8,12 @@ All notable changes to specify-core-rust. The format follows
 
 ### Added
 
+- Preserve answered and imported limit dimensions through STEP, resume, scene labels and
+  diff reports; size and distance answers accept lower/upper slash bounds. Analysis and
+  Python existing-PMI records expose optional absolute limits alongside derived deviations.
+  Size write reports now show explicit ± and signed deviation bands as well as fits and limits.
+- Offer ISO 2768 f/m/c/v × H/K/L combined general-tolerance classes and round-trip their
+  geometric class, retaining the ISO 2768-m default and existing linear tables.
 - Add the shared text-to-cad PMI plate from pinned cadgen 0.8.3 exports, with
   regeneration source and MIT attribution. Tests cover Specify-authored PMI,
   schema-3 face names, all 16 answers surviving thickness/bore edits, and the

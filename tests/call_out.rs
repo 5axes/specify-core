@@ -241,11 +241,8 @@ fn a_call_out_that_does_not_suit_its_faces_is_refused() {
             json!({"faces": bore, "reference": top, "kind": "distance", "value": "±0.1"}),
             "along",
         ),
-        // Limits typed as limits, not deviations, are refused rather than misread.
-        (
-            json!({"faces": bore, "kind": "size", "value": "6.58/6.62"}),
-            "deviations from 6.6",
-        ),
+        // Slash bounds are now accepted and tested in limits_and_classes.rs.
+        // Dash ranges remain refused: they are ambiguous with signed deviations.
         (
             json!({"faces": top, "reference": bottom, "kind": "distance", "value": "9.9-10.1"}),
             "deviations",

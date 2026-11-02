@@ -281,12 +281,14 @@ pub fn requirement(
         }
         "size" => {
             let d = 2.0 * first.radius()?;
-            let (fit, upper, lower) = limits(key, &value, d, true)?;
-            Ok(Some(sized(fit, upper, lower, d)))
+            let tolerance = limits(key, &value, d, true)?;
+            let mut req = sized(tolerance.fit.clone(), tolerance.upper, tolerance.lower, d);
+            tolerance.keep_limits(&mut req);
+            Ok(Some(req))
         }
         "distance" => {
             let distance = distance(key, extra, &chosen, faces)?;
-            let (_, upper, lower) = limits(key, &value, distance, false)?;
+            let tolerance = limits(key, &value, distance, false)?;
             let reference: Vec<i64> = match extra.get("reference").and_then(iter_of) {
                 Some(items) => items
                     .iter()
@@ -297,8 +299,9 @@ pub fn requirement(
             let mut req = base(&Value::from("location"));
             req.insert("reference".into(), Value::from(reference));
             req.insert("distance".into(), Value::from(round(distance, 6)));
-            req.insert("upper".into(), Value::from(upper));
-            req.insert("lower".into(), Value::from(lower));
+            req.insert("upper".into(), Value::from(tolerance.upper));
+            req.insert("lower".into(), Value::from(tolerance.lower));
+            tolerance.keep_limits(&mut req);
             Ok(Some(req))
         }
         name => {
@@ -345,18 +348,66 @@ fn fit(key: &str, value: &str, d: f64) -> Result<String> {
     choices::fit(&caps[1], &caps[2], d).map_err(|e| Error::Invalid(format!("{key}: {e}")))
 }
 
-/// `_limits`: (fit, upper, lower) from `±0.05` (or `0.05`), deviations `+0.1/-0`, or, where
-/// `fits`, a fit such as `H7` on a diameter of `nominal`; the fit is empty unless one is given.
-/// Limits are deviations from `nominal`, each signed (or 0): `5.98/6.02` is refused, not read
-/// as +6.02/+5.98.
-fn limits(key: &str, value: &str, nominal: f64, fits: bool) -> Result<(String, f64, f64)> {
+struct DimensionTolerance {
+    fit: String,
+    upper: f64,
+    lower: f64,
+    limits: Option<[f64; 2]>,
+}
+
+impl DimensionTolerance {
+    fn keep_limits(&self, req: &mut Map<String, Value>) {
+        if let Some(bounds) = self.limits {
+            req.insert("limits".into(), Value::from(bounds));
+        }
+    }
+}
+
+/// Fit, deviations and optional absolute limits from `±0.05` (or `0.05`),
+/// `+0.1/-0`, or, where `fits`, `H7` on a diameter of `nominal`.
+/// The fit is empty unless one is given.
+/// Unsigned ascending `5.98/6.02` states absolute bounds. `limits:-6.02/-5.98`
+/// permits signed bounds without changing the existing signed-deviation grammar.
+fn limits(key: &str, value: &str, nominal: f64, fits: bool) -> Result<DimensionTolerance> {
     let text = pyfmt::strip(value).replace(' ', "").replace('−', "-");
     if fits && FIT.is_match(&text) {
         let fit = fit(key, &text, nominal)?;
         let (upper, lower) = standards::fit_limits(&fit, nominal).map_err(Error::Invalid)?;
-        return Ok((fit, upper, lower));
+        return Ok(DimensionTolerance {
+            fit,
+            upper,
+            lower,
+            limits: None,
+        });
     }
     let number = |s: &str| pyfmt::parse_float(s).unwrap_or(f64::NAN);
+    let explicit = text.strip_prefix("limits:");
+    if let Some(caps) = LIMITS_SLASH
+        .captures(explicit.unwrap_or(&text))
+        .filter(|caps| {
+            explicit.is_some()
+                || [&caps[1], &caps[2]]
+                    .iter()
+                    .all(|part| !part.starts_with(['+', '-']))
+        })
+    {
+        let (lower, upper) = (number(&caps[1]), number(&caps[2]));
+        if !lower.is_finite() || !upper.is_finite() || lower >= upper {
+            return invalid(format!(
+                "{key}: absolute limits must be finite and increasing"
+            ));
+        }
+        let (u, l) = (upper - nominal, lower - nominal);
+        if !u.is_finite() || !l.is_finite() {
+            return invalid(format!("{key}: limit deviations must be finite"));
+        }
+        return Ok(DimensionTolerance {
+            fit: String::new(),
+            upper: u,
+            lower: l,
+            limits: Some([lower, upper]),
+        });
+    }
     let (upper, lower) = if let Some(caps) = PLUS_MINUS.captures(&text) {
         // PLUS_MINUS has a mandatory numeric capture group 1.
         let upper = number(&caps[1]);
@@ -394,7 +445,12 @@ fn limits(key: &str, value: &str, nominal: f64, fits: bool) -> Result<(String, f
             g(nominal)
         ));
     }
-    Ok((String::new(), upper + 0.0, lower + 0.0)) // no -0.0
+    Ok(DimensionTolerance {
+        fit: String::new(),
+        upper: upper + 0.0,
+        lower: lower + 0.0,
+        limits: None,
+    }) // no -0.0
 }
 
 /// `_distance`: from `extra`'s reference (coplanar flat faces) to its faces: a parallel level,

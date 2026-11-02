@@ -338,6 +338,14 @@ fn patterned_requirements_put_the_count_in_notation_and_first_cell() {
         .collect();
     assert!(!ids.is_empty());
     for id in ids {
+        if scene["specify"][id].get("notation").is_some() {
+            assert!(
+                scene["specify"][id]["notation"]
+                    .as_str()
+                    .unwrap()
+                    .starts_with("6×")
+            );
+        }
         for graphic in scene["presentation"]["items"][id].as_array().unwrap() {
             assert!(
                 graphic["name"].as_str().unwrap().starts_with("6×"),

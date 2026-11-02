@@ -295,10 +295,16 @@ pub fn interpret<S: AsRef<str>>(
     }
     if qid == "part.general_tolerance" {
         static GRADE: LazyLock<Regex> =
-            LazyLock::new(|| pattern(r"^(?:iso{S}*)?(?:2768{S}*-?{S}*)?([fmcv])$"));
+            LazyLock::new(|| pattern(r"^(?:iso{S}*)?(?:2768{S}*-?{S}*)?([fmcv])([hkl])?$"));
         if let Some(grade) = GRADE.captures(&typed.to_lowercase()) {
             // GRADE has a mandatory capture group 1.
-            let named = format!("ISO 2768-{}", &grade[1]);
+            let named = format!(
+                "ISO 2768-{}{}",
+                &grade[1],
+                grade
+                    .get(2)
+                    .map_or(String::new(), |g| g.as_str().to_ascii_uppercase())
+            );
             if options.iter().any(|o| o.as_ref() == named) {
                 return Ok(named);
             }

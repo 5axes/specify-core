@@ -932,6 +932,24 @@ fn encode(
     graphics: presentation::Presentation,
     mut metadata: Map<String, Value>,
 ) -> Result<Value, String> {
+    // Labels describe the semantic dimension even when imported ink is missing.
+    // Haecceity draws Limits as lower - upper and deviations as ± or signed bands.
+    for (id, dimension) in semantic.ids["dimensions"]
+        .iter()
+        .zip(&semantic.pmi.dimensions)
+    {
+        if let Some(meta) = metadata.get_mut(id) {
+            let text = haecceity::presentation::dimension_text(dimension);
+            let count = graphics
+                .items
+                .get(id)
+                .into_iter()
+                .flatten()
+                .find_map(|g| g.name.split_once('×')?.0.trim().parse::<usize>().ok())
+                .filter(|&n| n > 1);
+            meta["notation"] = json!(count.map_or(text.clone(), |n| format!("{n}× {text}")));
+        }
+    }
     manufacturing_notation(semantic, &mut metadata, &graphics);
     note_notation(semantic, &mut metadata);
     // Serialize the upstream document directly, including optional stroked flags.
