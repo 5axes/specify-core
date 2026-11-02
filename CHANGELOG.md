@@ -30,8 +30,9 @@ All notable changes to specify-core-rust. The format follows
 ### Fixed
 
 - Analysis `existing` records (and Python `ExistingPmi`) mark a basic dimension with
-  `basic: true`. Basic dimensions such as cadgen's "theoretical" 30 and 50 on the PMI plate
-  were read by haecceity as basic but reported as plain untoleranced dimensions.
+  `basic: true`, as does the scene's `specify[id]` metadata, and diff words add ` (basic)`.
+  Basic dimensions such as cadgen's "theoretical" 30 and 50 on the PMI plate were read by
+  haecceity as basic but reported as plain untoleranced dimensions.
 - An intent no longer lists the file's own stated dimensions as requirements. The shared
   planner still uses them, so General guesses stay off those features, but the file's PMI
   stays the characteristic: on NIST CTC-01 the editor showed every toleranced hole twice,
@@ -201,6 +202,7 @@ All notable changes to specify-core-rust. The format follows
 
 ### WASM API
 
+- `PmiSceneMetadata` adds optional `basic: true` for a basic (theoretically exact) dimension.
 - Add optional `polyline_roles` and text-placement `cell_box` declarations for host-font presentation rendering; pass through when supplied by haecceity.
 - `diff` accepts an optional seventh `scenes` boolean. `DiffPmi.scenes` contains
   `{old: PmiScene, new: PmiScene}` when requested; `PmiItemChange` adds optional

@@ -25,7 +25,9 @@ Analysis `existing` dimension records and intent size/location rows add optional
 remain deviations from nominal for tolerance checks and existing consumers. The
 `limits` field is absent for deviations and fits; no haecceity schema changes are needed.
 A basic (theoretically exact) dimension's `existing` record adds `basic: true`; the field
-is absent otherwise. A basic dimension has no `upper`/`lower` of its own.
+is absent otherwise. A basic dimension has no `upper`/`lower` of its own. Scene metadata
+(`specify[id]`) carries the same `basic: true` for a basic dimension, and diff words add
+` (basic)`.
 The Python `ExistingPmi.basic` field is `False` unless the dimension is basic;
 `to_dict()` emits `basic` only when it is `True`.
 The Python `ExistingPmi.limits` field is an optional `(lower, upper)` tuple;

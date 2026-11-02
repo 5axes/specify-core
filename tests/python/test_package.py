@@ -347,3 +347,13 @@ def test_spindle_diff_scenes_obey_editor_links():
         item.get("old") == "M4×0.7-6H THRU" and item.get("new") == "1.5"
         for item in report["pmi"]["items"]
     )
+
+
+def test_basic_dimensions_read_as_basic():
+    ctc04 = Path(__file__).resolve().parents[1] / "fixtures" / "nist" / "nist_ctc_04_asme1_ap242.stp.gz"
+    found = read_existing(ctc04)
+    basic = [d for d in found if d.basic]
+    assert len(basic) == 2
+    assert all(d.kind == "dimension" and d.upper is None and d.lower is None for d in basic)
+    assert all(d.to_dict()["basic"] is True for d in basic)
+    assert all("basic" not in d.to_dict() for d in found if not d.basic)
