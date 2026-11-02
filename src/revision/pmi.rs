@@ -480,6 +480,21 @@ fn compare(
                                         })
                                         .count()
                                         == 1
+                                    // Role checks can reject candidates, but must
+                                    // not turn an ambiguous kind into identity.
+                                    && new
+                                        .iter()
+                                        .enumerate()
+                                        .filter(|(k, other)| {
+                                            !used.contains(k)
+                                                && other.match_kind == was.match_kind
+                                                && !(carried_numbers
+                                                    && was.number.is_some()
+                                                    && other.number.is_some()
+                                                    && was.number != other.number)
+                                        })
+                                        .count()
+                                        == 1
                             }
                         }
                 })
@@ -838,20 +853,25 @@ mod tests {
             dimension("old-bore", vec![0], vec![], "bore.diameter", "6"),
             dimension("old-boss", vec![1], vec![], "boss.diameter", "20"),
         ];
-        let new = [dimension(
-            "new-pattern",
-            vec![10, 11],
-            vec![],
-            "bore.diameter",
-            "8",
-        )];
-        let changes = compare(&old, &new, &BTreeMap::new(), &[], &[], false);
-        assert_eq!(changes.len(), 3);
-        assert!(
-            changes
-                .iter()
-                .all(|c| c.class == "removed" || c.class == "added")
-        );
+        let new = [
+            dimension("new-pattern", vec![10, 11], vec![], "bore.diameter", "8"),
+            dimension(
+                "new-circle",
+                vec![10, 11],
+                vec![],
+                "bolt_circle.diameter",
+                "60",
+            ),
+        ];
+        for (old, new) in [(&old[..], &new[..1]), (&old[..1], &new[..])] {
+            let changes = compare(old, new, &BTreeMap::new(), &[], &[], false);
+            assert_eq!(changes.len(), 3);
+            assert!(
+                changes
+                    .iter()
+                    .all(|c| c.class == "removed" || c.class == "added")
+            );
+        }
     }
 
     #[test]
