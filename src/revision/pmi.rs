@@ -9,6 +9,8 @@ struct Item {
     number: Option<u64>,
     kind: String,
     match_kind: String,
+    dimension_role: Option<String>,
+    reference_faces: Vec<usize>,
     on_faces: Vec<usize>,
     status: String,
     faces: Vec<usize>,
@@ -281,6 +283,18 @@ fn items(scene: &Value) -> Vec<Item> {
                     &Value::Null
                 }
             ),
+            dimension_role: (collection == "dimensions")
+                .then(|| meta["source"]["parameter"].as_str().map(str::to_owned))
+                .flatten(),
+            reference_faces: {
+                let mut reference = Vec::new();
+                if let Some(from) = value.pointer("/kind/location/from") {
+                    supports(from, &rows, &mut BTreeSet::new(), &mut reference, true);
+                }
+                reference.sort_unstable();
+                reference.dedup();
+                reference
+            },
             on_faces: {
                 let mut primary = Vec::new();
                 let target = value.pointer("/kind/location/to").unwrap_or(value);
@@ -320,9 +334,9 @@ fn items(scene: &Value) -> Vec<Item> {
     result
 }
 
-fn mapped(item: &Item, faces: &BTreeMap<usize, Bind>) -> Option<Vec<usize>> {
+fn mapped(support: &[usize], faces: &BTreeMap<usize, Bind>) -> Option<Vec<usize>> {
     let mut result = Vec::new();
-    for face in &item.faces {
+    for face in support {
         match faces.get(face) {
             Some(Bind::To(face)) => result.push(*face),
             Some(Bind::Ambiguous(candidates)) if !candidates.is_empty() => {
@@ -336,6 +350,34 @@ fn mapped(item: &Item, faces: &BTreeMap<usize, Bind>) -> Option<Vec<usize>> {
     Some(result)
 }
 
+// A growth match is weaker than exact support. Keep location endpoints separate:
+// the same hole can support both a member pitch and a location to the whole pattern.
+// Stated measurement roles distinguish bore/counterbore sizes and location axes;
+// values, generated ids and fresh characteristic numbers are never growth evidence.
+fn support_growth(was: &Item, now: &Item, faces: &BTreeMap<usize, Bind>) -> bool {
+    if was.match_kind != now.match_kind
+        || was.dimension_role.is_none()
+        || was.dimension_role != now.dimension_role
+    {
+        return false;
+    }
+    let subset = |old: &[usize], new: &[usize]| {
+        mapped(old, faces).is_some_and(|mapped| {
+            if mapped.is_empty() {
+                new.is_empty()
+            } else {
+                mapped.iter().all(|face| new.contains(face))
+            }
+        })
+    };
+    mapped(&was.faces, faces).is_some_and(|mapped| {
+        !mapped.is_empty()
+            && mapped.len() < now.faces.len()
+            && mapped.iter().all(|face| now.faces.contains(face))
+    }) && subset(&was.on_faces, &now.on_faces)
+        && subset(&was.reference_faces, &now.reference_faces)
+}
+
 fn compare(
     old: &[Item],
     new: &[Item],
@@ -347,14 +389,14 @@ fn compare(
     let mut pairs = BTreeMap::new();
     let mut used = BTreeSet::new();
     // Complete each stronger pass before any weaker match can consume its candidate.
-    for pass in usize::from(!carried_numbers)..4 {
+    for pass in usize::from(!carried_numbers)..5 {
         for (i, was) in old
             .iter()
             .enumerate()
             .filter(|(i, _)| !pairs.contains_key(i))
             .collect::<Vec<_>>()
         {
-            let mapped = mapped(was, faces);
+            let mapped = mapped(&was.faces, faces);
             let candidates: Vec<_> = new
                 .iter()
                 .enumerate()
@@ -371,6 +413,13 @@ fn compare(
                             }
                             2 => {
                                 mapped.as_ref().is_some_and(|f| *f == now.faces)
+                                    && !(carried_numbers
+                                        && was.number.is_some()
+                                        && now.number.is_some()
+                                        && was.number != now.number)
+                            }
+                            3 => {
+                                support_growth(was, now, faces)
                                     && !(carried_numbers
                                         && was.number.is_some()
                                         && now.number.is_some()
@@ -409,7 +458,26 @@ fn compare(
             } else {
                 candidates
             };
-            if let [(j, _)] = candidates.as_slice() {
+            if let [(j, now)] = candidates.as_slice() {
+                // Require uniqueness in both directions, before consuming any
+                // growth candidate. Two old requirements may not claim one new row.
+                if pass == 3
+                    && old
+                        .iter()
+                        .enumerate()
+                        .filter(|(k, other)| {
+                            !pairs.contains_key(k)
+                                && support_growth(other, now, faces)
+                                && !(carried_numbers
+                                    && other.number.is_some()
+                                    && now.number.is_some()
+                                    && other.number != now.number)
+                        })
+                        .count()
+                        != 1
+                {
+                    continue;
+                }
                 pairs.insert(i, *j);
                 used.insert(*j);
             }
@@ -619,6 +687,8 @@ mod tests {
             number: None,
             kind: "geometric_tolerance".into(),
             match_kind: "flatness".into(),
+            dimension_role: None,
+            reference_faces: Vec::new(),
             status: "existing".into(),
             on_faces: faces.clone(),
             faces,
@@ -626,6 +696,125 @@ mod tests {
             cells: json!([text]),
             semantic: json!({"magnitude":text}),
         }
+    }
+
+    fn dimension(
+        id: &str,
+        target: Vec<usize>,
+        reference: Vec<usize>,
+        role: &str,
+        text: &str,
+    ) -> Item {
+        let mut faces = target.clone();
+        faces.extend(&reference);
+        faces.sort_unstable();
+        faces.dedup();
+        let mut item = control(id, faces, text);
+        item.kind = "dimension".into();
+        item.match_kind = if role.starts_with("location.") {
+            "dimension:location"
+        } else {
+            "dimension:diameter"
+        }
+        .into();
+        item.dimension_role = Some(role.into());
+        item.on_faces = target;
+        item.reference_faces = reference;
+        item
+    }
+
+    #[test]
+    fn exact_support_reserves_its_candidate_before_support_growth() {
+        let mut old = [
+            dimension("old-grow", vec![0], vec![], "bore.diameter", "6"),
+            dimension("old-exact", vec![0, 1], vec![], "bore.diameter", "8"),
+        ];
+        let mut new = [
+            dimension("new-grow", vec![10, 12], vec![], "bore.diameter", "6"),
+            dimension("new-exact", vec![10, 11], vec![], "bore.diameter", "8"),
+        ];
+        old[0].number = Some(1);
+        old[1].number = Some(2);
+        new[0].number = Some(20);
+        new[1].number = Some(2);
+        let faces = BTreeMap::from([(0, Bind::To(10)), (1, Bind::To(11))]);
+        let changes = compare(&old, &new, &faces, &[], &[], false);
+        assert_eq!(changes.len(), 2);
+        assert!(
+            changes
+                .iter()
+                .all(|c| c.old_id.as_deref() == Some("old-grow") && c.id == "new-grow")
+        );
+        assert!(
+            changes
+                .iter()
+                .any(|c| c.class == "changed" && c.reason.as_deref() == Some("support changed"))
+        );
+        assert!(changes.iter().any(|c| c.class == "renumbered"));
+        // #96 still keeps differently numbered items distinct on weak matches.
+        let carried = compare(&old, &new, &faces, &[], &[], true);
+        assert_eq!(carried.len(), 2);
+        assert!(
+            carried
+                .iter()
+                .any(|c| c.class == "removed" && c.id == "old-grow")
+        );
+        assert!(
+            carried
+                .iter()
+                .any(|c| c.class == "added" && c.id == "new-grow")
+        );
+    }
+
+    #[test]
+    fn growth_requires_a_unique_candidate_in_both_directions() {
+        let old = [
+            dimension("old-a", vec![0], vec![], "bore.diameter", "6"),
+            dimension("old-b", vec![1], vec![], "bore.diameter", "8"),
+        ];
+        let new = [
+            dimension("new-a", vec![10, 11], vec![], "bore.diameter", "6"),
+            dimension("new-b", vec![10, 12], vec![], "bore.diameter", "8"),
+        ];
+        let faces = BTreeMap::from([(0, Bind::To(10)), (1, Bind::To(11))]);
+        for changes in [
+            compare(&old, &new[..1], &faces, &[], &[], false),
+            compare(&old[..1], &new, &faces, &[], &[], false),
+        ] {
+            assert_eq!(changes.len(), 3);
+            assert!(
+                changes
+                    .iter()
+                    .all(|c| c.class == "added" || c.class == "removed")
+            );
+        }
+    }
+
+    #[test]
+    fn growth_checks_measurement_roles_and_both_location_endpoints() {
+        let faces = BTreeMap::from([(0, Bind::To(10)), (1, Bind::To(11))]);
+        let bore = dimension("old", vec![0], vec![], "bore.diameter", "6");
+        let mut new = dimension("new", vec![10, 12], vec![], "counterbore.diameter", "6");
+        assert!(!support_growth(&bore, &new, &faces));
+        new.dimension_role = None;
+        assert!(!support_growth(&bore, &new, &faces));
+        let pitch = dimension("pitch", vec![1], vec![0], "location.length.x", "50");
+        let location = dimension(
+            "location",
+            vec![10, 11, 12],
+            vec![20],
+            "location.length.x",
+            "50",
+        );
+        assert!(!support_growth(&pitch, &location, &faces));
+        let grown_pitch = dimension(
+            "grown-pitch",
+            vec![11, 13],
+            vec![10, 12],
+            "location.length.x",
+            "50",
+        );
+        assert!(support_growth(&pitch, &grown_pitch, &faces));
     }
 
     #[test]

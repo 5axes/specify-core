@@ -966,7 +966,7 @@ fn fresh_revision_fixture_pairs_never_cross_requirement_types() {
     // real renumbering rather than treating unrelated occupants of a number as edits.
     // Tuple: changed, renumbered, added, removed.
     let cases = [
-        ("complex_counterbore", [0, 4, 7, 5]), // New counterbore rows; old locations retire.
+        ("complex_counterbore", [5, 6, 2, 0]), // Five surviving pattern requirements grow support; two counterbore sizes are new.
         ("complex_fillet_all", [0, 10, 5, 6]), // Split supports and removed datum, not size edits.
         ("complex_many", [3, 2, 5, 5]),        // Three genuine recess-location edits remain.
         ("complex_moved", [1, 11, 0, 0]),      // Only the pattern's bore diameter changes.
@@ -1079,4 +1079,80 @@ fn a_semantic_only_knurl_change_has_its_own_wording() {
             .starts_with("diamond knurl, pitch "),
         "{knurl:?}"
     );
+}
+
+#[test]
+fn counterbores_grow_the_existing_pattern_requirements_instead_of_replacing_them() {
+    let old = load("revisions/complex_counterbore.old.step.gz");
+    let new = load("revisions/complex_counterbore.new.step.gz");
+    let supplied =
+        specify_core::rules::with_all_defaults(&api::analyse(&old).unwrap(), &Map::new()).unwrap();
+    let report = revision::diff(&old, &new, &supplied).unwrap();
+    let old_pattern = "pattern[hole:11,hole:12,hole:8,hole:9]";
+    let new_pattern = "pattern[hole:11.19,hole:12.20,hole:8.13,hole:9.14]";
+    for (old_id, new_id, text) in [
+        (
+            format!("planner:dim:{old_pattern}/pitch/0"),
+            format!("planner:dim:{new_pattern}/pitch/0"),
+            "42.426407",
+        ),
+        (
+            format!("planner:dim:{old_pattern}/pitch/1"),
+            format!("planner:dim:{new_pattern}/pitch/1"),
+            "42.426407",
+        ),
+        (
+            format!("planner:dim:{old_pattern}/bore.diameter"),
+            format!("planner:dim:{new_pattern}/bore.diameter"),
+            "⌀6",
+        ),
+        (
+            format!("planner:dim:plane:0/to/{old_pattern}/0"),
+            format!("planner:dim:plane:0/to/{new_pattern}/0"),
+            "50",
+        ),
+        (
+            format!("planner:dim:plane:1/to/{old_pattern}/1"),
+            format!("planner:dim:plane:1/to/{new_pattern}/1"),
+            "40",
+        ),
+    ] {
+        let paired = report
+            .pmi
+            .items
+            .iter()
+            .find(|item| {
+                item.class == "changed"
+                    && item.old_id.as_deref() == Some(&old_id)
+                    && item.id == new_id
+            })
+            .unwrap_or_else(|| panic!("missing {old_id} → {new_id}: {:?}", report.pmi.items));
+        assert_eq!(paired.old.as_deref(), Some(text));
+        assert_eq!(paired.new.as_deref(), Some(text));
+        assert_eq!(paired.reason.as_deref(), Some("support changed"));
+        assert!(
+            !report
+                .pmi
+                .items
+                .iter()
+                .any(|item| (item.class == "removed" && item.id == old_id)
+                    || (item.class == "added" && item.id == new_id))
+        );
+    }
+    let added: Vec<_> = report
+        .pmi
+        .items
+        .iter()
+        .filter(|item| item.class == "added")
+        .collect();
+    assert_eq!(added.len(), 2, "{added:?}");
+    for (role, text) in [("counterbore.diameter", "⌀12"), ("counterbore.depth", "3")] {
+        assert!(
+            added.iter().any(
+                |item| item.id == format!("planner:dim:{new_pattern}/{role}")
+                    && item.new.as_deref() == Some(text)
+            ),
+            "{added:?}"
+        );
+    }
 }

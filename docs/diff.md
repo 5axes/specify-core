@@ -111,6 +111,16 @@ on the resulting pair; equal wording may therefore have a renumbering line witho
 change. A split can map one old face to several new faces. Ambiguous item matches stay
 added/removed rather than choosing arbitrarily.
 
+After exact faces and before unique remaining kind, planned dimensions can match
+through support growth. Every mapped old face must remain in the new support;
+the dimension type and stated source measurement role must agree. Location targets
+and references are checked separately, preserving pitch endpoints and measuring
+planes. The match must be unique in both directions among unmatched items. This
+keeps a pattern's existing pitches, bore diameter and locations when counterbores
+add supporting faces, without letting a new counterbore diameter consume the bore
+requirement. These pairs can report `changed` with reason `support changed`, plus
+any genuine fresh-number difference. Carried-number exclusions still apply.
+
 Comparison uses haecceity's full semantic notation and frame cells, including
 material and datum modifiers, diameter zones, fits, qualifiers and note text.
 Semantic fields are compared too, including the datum system, basic flag and fit

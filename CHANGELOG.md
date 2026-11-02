@@ -6,6 +6,10 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+- Diff retains uniquely matched planned dimensions when their target/reference
+  supports grow, after exact-face matches and before kind fallback. Measurement
+  roles distinguish existing bore/pitch/location requirements from new counterbores.
+
 - Diff pairs fresh-numbered plans by requirement/geometry identity; only continued
   characteristic-number histories give numbers priority. Thread manufacturing notes
   show drawing wording, and semantic-only attribute notes, knurls and finishes show
