@@ -362,8 +362,8 @@ export function createDrawnLayer(
         const flip = ax * -uy - ay * -ux < 0 ? -1 : 1;
         const m = [flip * ax / mm, flip * ay / mm, -ux / mm, -uy / mm].map((n) => n.toFixed(4)).join(', ');
         const own = (mm * size) / CAP_HEIGHT;
-        const cell = height === undefined ? Infinity : mm * height;
-        inner.style.fontSize = `${Math.max(own, Math.min(SET_TEXT_PX, cell)).toFixed(1)}px`;
+        const cell = height ? mm * height : Infinity;
+        inner.style.fontSize = `${Math.min(Math.max(own, SET_TEXT_PX), cell).toFixed(1)}px`;
         inner.style.transform = `matrix(${m}, 0, 0) ${shift(at.alignment)}`;
         continue;
       }
@@ -464,7 +464,7 @@ export function createDrawnLayer(
         for (const el of d.set) {
           const r = el.getBoundingClientRect();
           const view = el.parentElement?.parentElement?.getBoundingClientRect();
-          if (!r.width || !view) continue;
+          if (!r.width || !view || el.style.visibility === 'hidden') continue;
           if (x >= r.left - view.left && x <= r.right - view.left && y >= r.top - view.top && y <= r.bottom - view.top) return d.item;
         }
         for (let k = 0; k + 1 < d.segments.length; k += 2) {

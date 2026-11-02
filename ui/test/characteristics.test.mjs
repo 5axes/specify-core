@@ -32,3 +32,21 @@ test('a requirement Specify did not write is not listed', () => {
   ]), analysis, new Map());
   assert.deepEqual(rows.map((r) => r.text), ['⌀20']);
 });
+
+test('several features are named once, plural only for a repeated hole or face', () => {
+  const mixed = { ...analysis, faces: [...analysis.faces, { id: 3, kind: 'cylinder', radius: 12.5 }],
+    features: [...analysis.features, { id: 'holes:3', family: 'holes', faces: [3] }] };
+  const rows = characteristics(intent([
+    { kind: 'size', feature: 'holes:1,holes:3', faces: [], nominal: 20 },
+  ]), mixed, new Map());
+  assert.deepEqual(rows.map((r) => r.feature), ['⌀20 hole, ⌀25 hole']);
+});
+
+test('a requirement Specify did not write gets no label on the part', async () => {
+  const { toLabels } = await import('../src/specify/labels.ts');
+  const labels = toLabels(intent([
+    { kind: 'size', feature: 'holes:1', faces: [1], nominal: 20 },
+    { kind: 'size', feature: 'holes:1,holes:2', faces: [1, 2], nominal: 20, not_written_reason: 'covered' },
+  ]), analysis);
+  assert.deepEqual(labels.map((l) => l.id.split(':').slice(0, 2).join(':')), ['req:0']);
+});

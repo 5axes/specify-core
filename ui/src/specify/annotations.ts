@@ -348,10 +348,11 @@ export function createAnnotations(
   // sight, and anything whose leader happened to leave on the far side; so it
   // is not used. The rest are moved off one another, the one nearest the camera
   // keeping its place: each to the nearest free spot above, below or to either
-  // side, a dimension's value only along its line's normal on screen (up or
-  // down). Each leader is drawn from its label's near edge, wherever the label
+  // side, a dimension's value only up or down on screen. Each leader is drawn from its label's near edge, wherever the label
   // stands, so it meets the label and points at its feature.
   const proj = new THREE.Vector3();
+  const from = new THREE.Vector3();
+  const was = new THREE.Vector3();
   function declutter() {
     const [w, h] = nav.size();
     const rows: { p: Placed; depth: number; x: number; y: number; bw: number; bh: number }[] = [];
@@ -395,12 +396,18 @@ export function createAnnotations(
       const x = r.p.centred ? '-50%' : `${(9 + dx).toFixed(1)}px`;
       r.p.inner.style.transform = `translate(${x}, calc(-50% + ${dy.toFixed(1)}px))`;
       if (r.p.leader) {
-        // From the label's near edge, at the depth it stands at, so the leader meets the label.
+        // From the label's near edge, at the depth it stands at, so the leader meets the label;
+        // rewritten in place, and only when that point has moved.
         const edge = dx < 0 ? left(r) + dx + r.bw : left(r) + dx;
-        const from = new THREE.Vector3((edge / w) * 2 - 1, -((r.y + dy) / h) * 2 + 1, r.depth).unproject(nav.camera);
-        r.p.leader.line.geometry.setPositions([from.x, from.y, from.z, r.p.tip.x, r.p.tip.y, r.p.tip.z]);
-        r.p.leader.line.computeLineDistances();
-        point(r.p.leader.head, r.p.tip, from);
+        from.set((edge / w) * 2 - 1, -((r.y + dy) / h) * 2 + 1, r.depth).unproject(nav.camera);
+        const { line, head } = r.p.leader;
+        const start = line.geometry.getAttribute('instanceStart') as THREE.InterleavedBufferAttribute;
+        if (from.distanceToSquared(was.fromBufferAttribute(start, 0)) > (d * 1e-6) ** 2) {
+          start.data.array.set([from.x, from.y, from.z], 0);
+          start.data.needsUpdate = true;
+          line.geometry.computeBoundingSphere();
+          point(head, r.p.tip, from);
+        }
       }
     }
   }
