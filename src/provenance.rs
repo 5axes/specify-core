@@ -179,3 +179,127 @@ pub fn all(p: &PartPmi, prov: &PartProvenance, doc: &Document) -> bool {
         && prov.geometry_items.iter().all(|id|matches!(doc.get(*id),Some(RawEntity::Simple {name,attributes,..}) if name=="CARTESIAN_POINT" && string(attributes.first(),MARKER)))
         && p.decimal_places.is_none()
 }
+
+/// Remove only marked requirements of resumed Add-mode parts. Unmarked requirements and
+/// their complete forward dependencies are protected, including shared features/datums.
+/// The kernel planner handles helpers and presentation; any foreign edit is refused.
+pub(crate) fn without_owned(
+    doc: &Document,
+    read: &haecceity::pmi::PmiRead,
+    parts: &[usize],
+) -> Result<Vec<u8>, String> {
+    let mut seeds = BTreeSet::new();
+    let mut protected = BTreeSet::new();
+    for &part in parts {
+        let p = &read.parts[part];
+        let prov = &read.provenance.parts[part];
+        let mut classified = BTreeSet::<u64>::new();
+        let mut classify = |ids: &[u64], owned: bool| {
+            classified.extend(ids);
+            if owned {
+                seeds.extend(ids);
+            } else {
+                protected.extend(ids);
+            }
+        };
+        for ids in &prov.dimensions {
+            classify(ids, dimension(doc, ids));
+        }
+        for (i, ids) in prov.tolerances.iter().enumerate() {
+            classify(ids, p.tolerances[i].description.as_deref() == Some(MARKER));
+        }
+        for (items, kind) in [
+            (&prov.features, "feature"),
+            (&prov.datums, "datum"),
+            (&prov.general, "general"),
+            (&prov.threads, "thread"),
+            (&prov.knurls, "knurl"),
+            (&prov.surface_textures, "surface texture"),
+            (&prov.attributes, "attribute"),
+        ] {
+            for ids in items {
+                classify(ids, marked(doc, ids, kind));
+            }
+        }
+        classify(&prov.material, marked(doc, &prov.material, "material"));
+        protected.extend(prov.all().into_iter().filter(|id| !classified.contains(id)));
+        protected.extend(prov.geometry.iter().flatten());
+    }
+    // Protect other parts, including their shared PMI dependencies.
+    for (i, prov) in read.provenance.parts.iter().enumerate() {
+        if !parts.contains(&i) {
+            protected.extend(prov.all());
+        }
+    }
+    let mut pending: Vec<_> = protected.iter().copied().collect();
+    while let Some(id) = pending.pop() {
+        if let Some(e) = doc.get(id) {
+            haecceity::p21::visit_attributes(e, &mut |a| {
+                if let Attribute::EntityRef(target) = a
+                    && protected.insert(*target)
+                {
+                    pending.push(*target);
+                }
+            });
+        }
+    }
+    seeds.retain(|id| !protected.contains(id));
+    if seeds.is_empty() {
+        return Ok(doc.bytes().to_vec());
+    }
+    // The reader omits inverse descriptions and some identifiers. They belong only to
+    // their exact target, and may join removal only when that target is already a seed.
+    loop {
+        let mut extra = Vec::new();
+        for (&id, e) in &doc.graph().entities {
+            if let RawEntity::Simple {
+                name, attributes, ..
+            } = e
+                && (matches!(name.as_str(), "ID_ATTRIBUTE" | "UUID_ATTRIBUTE")
+                    || description_target(e).is_some())
+                && matches!(attributes.get(1), Some(Attribute::EntityRef(target)) if seeds.contains(target))
+                && !seeds.contains(&id)
+                && !protected.contains(&id)
+            {
+                extra.push(id);
+            }
+        }
+        if extra.is_empty() {
+            break;
+        }
+        seeds.extend(extra);
+    }
+    let plan = loop {
+        match haecceity::removal::plan(
+            doc,
+            &seeds,
+            haecceity::removal::PresentationPolicy::RemovePresentation,
+        ) {
+            Ok(plan) => break plan,
+            Err(r)
+                if !r.emptied.is_empty()
+                    && r.blockers.is_empty()
+                    && r.missing.is_empty()
+                    && r.infrastructure.is_empty()
+                    && r.anchored.is_empty()
+                    && r.emptied
+                        .iter()
+                        .all(|e| !seeds.contains(&e.id) && !protected.contains(&e.id)) =>
+            {
+                seeds.extend(r.emptied.iter().map(|e| e.id));
+            }
+            Err(r) => return Err(r.to_string()),
+        }
+    };
+    if plan
+        .removed
+        .iter()
+        .chain(plan.rewritten.keys())
+        .any(|id| protected.contains(id))
+    {
+        return Err("replacing Specify PMI would change foreign PMI".into());
+    }
+    let mut edit = Edit::new();
+    plan.into_edit(&mut edit);
+    doc.apply(&edit).map(|w| w.bytes).map_err(|e| e.to_string())
+}

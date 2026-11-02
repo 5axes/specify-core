@@ -186,7 +186,10 @@ No separate number-matching operation is needed in a drawing or CSV consumer.
 
 An Add-mode write preserves imported PMI byte for byte. Existing numeric characteristic ids
 reserve their numbers; newly written characteristics receive higher ones. A foreign datum
-that haecceity reuses is not written or numbered again. Material, general-tolerance classes,
+that haecceity reuses is not written or numbered again. Add-mode answers now resume:
+rewrites remove only Specify's marked requirements and reuse their numbers by structural
+identity, including after value edits. Foreign numbers reserve their values but cannot be
+claimed by a new Specify requirement on the same support. Material, general-tolerance classes,
 text notes and caller metadata are settings rather than individual inspection characteristics.
 
 ## Read APIs and compatibility
@@ -195,7 +198,7 @@ text notes and caller metadata are settings rather than individual inspection ch
   `entity` (the exact numeric-id carrier), `kind`, `type`, `faces`, and optional `reference`.
   `characteristics::number(&Document, entity)` reads that entity's numeric id directly.
 - `api::analyse` adds `characteristics` only when the file has numbered requirements. It is
-  available even on a resumed file, where interview `existing` remains empty.
+  available on resumed files; scoped Add-mode files retain foreign PMI in `existing`.
 - `existing::read_existing` / `Reading::existing` add `ExistingPmi.number: Option<u64>`;
   JSON omits `number` when absent. Numbered thread/knurl/finish rows are kept distinct instead
   of aggregating different requirements of the same kind. A default part texture is in the

@@ -38,7 +38,8 @@ is reserved for resume. Names, owners and values pass through to haecceity; its 
 `description` and `general_property` metadata follow its normal writer rules. Extras follow
 the usual write mode: replacing a resumed part replaces its previous extras along with its PMI
 and answers, so resupply every extra wanted in the new write. Adding to foreign PMI leaves
-existing attributes alone. There is no separate merge or update by attribute name.
+existing foreign attributes alone. Scoped Add-mode rewrites replace Specify-authored
+extras together with its answers, so resupply those extras too. There is no separate merge or update by attribute name.
 
 Characteristic numbers are read with `characteristics::read` and appear in analysis's optional
 `characteristics` list and `ExistingPmi.number`. Writers allocate them from the file's history;

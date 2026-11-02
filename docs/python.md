@@ -123,3 +123,18 @@ Optional live Python/OpenCascade tests use only an explicitly configured
 checkout on the host. `SPECIFY_TEST_NIST_AP242=/path/to/plain/nist` additionally enables
 live comparisons on the five `nist_ctc_0N_asme1_ap242.stp` inputs. The committed captures
 remain the default regression record; these live checks do not recapture them.
+
+## Resuming answers beside foreign PMI
+
+Writes store supplied answers even when the part already contains foreign PMI. Reopening
+returns them in `resume.answers`, while unmarked foreign PMI stays in `existing` and keeps
+its questions answered. Writing edited answers replaces Specify's provenance-marked items
+and preserves foreign entity bytes. Specify's characteristic numbers survive these edits.
+Mixed parts use Add after selective removal of Specify's items; older Add-mode files with
+no stored answers continue to open as existing PMI. See [writing modes](design.md).
+
+Mixed-file rewrites require a writer implementing `pmi_scope`. Older writers, including
+0.1.7 and the archived Python engine, can read the saved answers without honoring that
+scope; their replacement rules do not guarantee preservation of foreign PMI. Use the
+scoped writer for these rewrites. Existing 0.1.7 Add-mode files without saved answers keep
+their existing-PMI opening behavior in this engine.

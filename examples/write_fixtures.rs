@@ -15,6 +15,12 @@
 //! /Users/paul/repos/specify-core/.venv/bin/python tools/capture.py cross-engine tests/fixtures/cross_engine
 //! ```
 //!
+//! **For Add-mode answers.** CTC-01, CTC-03 and CTC-05 now store the supplied base answers
+//! with provenance scope. Only those three byte goldens and their independent Python
+//! readbacks/metadata are refreshed; see `tests/fixtures/cross_engine/README.md` for the
+//! per-case reasons and pinned reference reconstruction. Historical Python-written evidence
+//! and both refusals are retained.
+//!
 //! **For quiddity-rust 0.4.3.** Regenerated with 56a4cbc0 and independently
 //! recaptured with the same Python reference (7e2125d, `--rust-only`). All fourteen
 //! byte goldens and both refusals remain unchanged. Recognition is unchanged;
