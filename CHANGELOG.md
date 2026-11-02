@@ -6,6 +6,8 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+## 0.1.8 (2026-11-02)
+
 ### Added
 
 - Add Amy's cadgen PMI plate (gist, MIT) as a fixture with cadgen's own AP242 semantic PMI. Tests check
@@ -25,6 +27,8 @@ All notable changes to specify-core-rust. The format follows
 
 ### Changed
 
+- The Python package's links and the step-diff README point at draftwright.io; the step-diff
+  handoff accepts `/diff` from both draftwright.io and editor.draftwright.io (#108, #112).
 - Store supplied answers in Add mode beside foreign PMI. Resume keeps unmarked PMI in
   `existing`; mixed rewrites replace only Specify's provenance-marked requirements and
   preserve their characteristic numbers while retaining foreign entity bytes. Scoped saves
