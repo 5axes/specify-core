@@ -44,6 +44,10 @@ All notable changes to specify-core-rust. The format follows
   including number and id matches. Thread callouts cannot pair with location
   dimensions; location roles follow the part's rotation during comparison.
 
+### WASM API
+
+- `PmiSceneMetadata` adds optional `basic: true` for a basic (theoretically exact) dimension.
+
 ## 0.1.7 (2026-11-02)
 
 - Diff retains uniquely matched planned dimensions when their target/reference
@@ -202,7 +206,6 @@ All notable changes to specify-core-rust. The format follows
 
 ### WASM API
 
-- `PmiSceneMetadata` adds optional `basic: true` for a basic (theoretically exact) dimension.
 - Add optional `polyline_roles` and text-placement `cell_box` declarations for host-font presentation rendering; pass through when supplied by haecceity.
 - `diff` accepts an optional seventh `scenes` boolean. `DiffPmi.scenes` contains
   `{old: PmiScene, new: PmiScene}` when requested; `PmiItemChange` adds optional
