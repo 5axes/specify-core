@@ -441,7 +441,6 @@ fn compare(
                 .enumerate()
                 .filter(|(j, now)| {
                     !used.contains(j)
-                        && compatible(was, now)
                         && match pass {
                             0 => was.number.is_some() && was.number == now.number,
                             1 => {
@@ -480,26 +479,31 @@ fn compare(
                                         })
                                         .count()
                                         == 1
-                                    // Role checks can reject candidates, but must
-                                    // not turn an ambiguous kind into identity.
-                                    && new
-                                        .iter()
-                                        .enumerate()
-                                        .filter(|(k, other)| {
-                                            !used.contains(k)
-                                                && other.match_kind == was.match_kind
-                                                && !(carried_numbers
-                                                    && was.number.is_some()
-                                                    && other.number.is_some()
-                                                    && was.number != other.number)
-                                        })
-                                        .count()
-                                        == 1
                             }
                         }
                 })
                 .collect();
+            let candidates = if candidates.len() > 1 || pass == 2 {
+                candidates
+                    .into_iter()
+                    .filter(|(_, now)| {
+                        if pass == 2 {
+                            now.match_kind == was.match_kind
+                        } else {
+                            now.kind == was.kind
+                        }
+                    })
+                    .collect::<Vec<_>>()
+            } else {
+                candidates
+            };
             if let [(j, now)] = candidates.as_slice() {
+                // Veto incompatible requirements in every pass, after uniqueness
+                // is established. Role checks must not resolve ambiguous supports
+                // (e.g. a changed pattern's bore and bolt-circle dimensions).
+                if !compatible(was, now) {
+                    continue;
+                }
                 // Require uniqueness in both directions, before consuming any
                 // growth candidate. Two old requirements may not claim one new row.
                 if pass == 3
@@ -872,6 +876,29 @@ mod tests {
                     .all(|c| c.class == "removed" || c.class == "added")
             );
         }
+    }
+
+    #[test]
+    fn role_checks_do_not_resolve_ambiguous_exact_supports() {
+        let old = [dimension("old-bore", vec![0], vec![], "bore.diameter", "6")];
+        let new = [
+            dimension("new-bore", vec![10, 11], vec![], "bore.diameter", "8"),
+            dimension(
+                "new-circle",
+                vec![10, 11],
+                vec![],
+                "bolt_circle.diameter",
+                "60",
+            ),
+        ];
+        let faces = BTreeMap::from([(0, Bind::Ambiguous(vec![10, 11]))]);
+        let changes = compare(&old, &new, &faces, &[], &[], false);
+        assert_eq!(changes.len(), 3);
+        assert!(
+            changes
+                .iter()
+                .all(|c| c.class == "added" || c.class == "removed")
+        );
     }
 
     #[test]
