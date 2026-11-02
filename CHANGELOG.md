@@ -6,6 +6,13 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+### Changed
+
+- Store supplied answers in Add mode beside foreign PMI. Resume keeps unmarked PMI in
+  `existing`; mixed rewrites replace only Specify's provenance-marked requirements and
+  preserve their characteristic numbers while retaining foreign entity bytes. Scoped saves
+  supersede stale legacy answer frames without removing their unmarked records.
+
 ### Fixed
 
 - Answered diff scenes remove replaced file identities together with their PMI

@@ -1,8 +1,11 @@
 //! Answers stored in a written STEP and resumed from it (port of `resume.py`).
 //!
 //! Writing a part, specify-core also stores the answers it was given in the file, so that
-//! opening the file again resumes them: the analysis is of the geometry alone and carries the
-//! answers back, and writing it again replaces its PMI rather than adding to it. The payload is
+//! opening the file again resumes them. Replace-mode files analyse the geometry alone;
+//! scoped Add-mode files also retain foreign PMI as existing interview answers. A mixed
+//! rewrite removes only provenance-marked Specify requirements before adding replacements.
+//! Add payloads carry `pmi_scope: "specify-core:written:v1"`; legacy payloads without it
+//! retain their previous behavior. The payload is
 //! Python's: `{schema, answers, part, face_count, faces}` as compact JSON, base64-encoded (a
 //! Part 21 string then needs no escapes), `faces` being a [`fingerprint`] of the part's faces
 //! that is checked before unnamed face indices are trusted. Named parts write schema 3 with
@@ -19,7 +22,8 @@
 //! reader looks for, so each engine resumes the other's files; [`stored`] reads both.
 //!
 //! In an assembly each part's answers are stored on that part and say which part they are for;
-//! a part with none stored has not been written by specify-core.
+//! a part with none stored has no resumable interview. Older Add-mode parts can carry
+//! Specify provenance without saved answers and still open as existing PMI.
 
 pub(crate) mod names;
 
@@ -48,6 +52,14 @@ pub const SCHEMAS: [i64; 3] = [1, 2, SCHEMA];
 /// The name of the stored item (and of the attribute set holding it): Python's, kept from
 /// before specify-core was renamed so that older files still resume.
 pub const NAME: &str = "pmi-assist answers";
+
+/// Add-mode payloads scope replacement to provenance-marked requirements. Absence keeps
+/// legacy resume semantics, including 0.1.7 Add-mode files with no stored answers.
+pub(crate) fn scoped(doc: &Document, part: usize) -> bool {
+    stored_with_form(doc).get(&part).is_some_and(|(p, _)| {
+        p.get("pmi_scope").and_then(Value::as_str) == Some(crate::provenance::MARKER)
+    })
+}
 
 /// The faces in order, by kind and centroid rounded to 3 decimals: what answers refer to, as
 /// schema 2 hashes them ([`fingerprint_of`]). The fingerprint written.
@@ -161,8 +173,9 @@ pub fn is_answers(set: &AttributeSet) -> bool {
 
 /// Every part's stored answers in the STEP text `bytes`, by part (Python's `stored`): each
 /// `DESCRIPTIVE_REPRESENTATION_ITEM('pmi-assist answers', ...)`, in file order, whose string
-/// is base64 of a JSON object of one of [`SCHEMAS`] with an `answers` object. The first for a
-/// part is kept; answers saved before parts were told apart are part 0's. Anything else (not
+/// is base64 of a JSON object of one of [`SCHEMAS`] with an `answers` object. The first legacy
+/// frame for a part is kept; a later provenance-scoped frame supersedes older frames without
+/// removing their entities. Answers saved before parts were told apart are part 0's. Anything else (not
 /// base64, not JSON, another schema, a part that is not an integer) is passed over, as Python
 /// passes it over. A file that does not parse as Part 21 stores nothing.
 pub fn stored(bytes: &[u8]) -> BTreeMap<usize, Map<String, Value>> {
@@ -200,8 +213,14 @@ fn stored_with_form(doc: &Document) -> BTreeMap<usize, (Map<String, Value>, bool
             Some(_) => None,
         };
         if let Some(part) = part {
-            out.entry(part)
-                .or_insert_with(|| (payload, is_attribute_item(doc, id)));
+            if payload.get("pmi_scope").and_then(Value::as_str) == Some(crate::provenance::MARKER) {
+                // Add must retain unmarked legacy frames, including stale fingerprints.
+                // Its newly saved frame is authoritative; legacy-only files keep first-wins.
+                out.insert(part, (payload, is_attribute_item(doc, id)));
+            } else {
+                out.entry(part)
+                    .or_insert_with(|| (payload, is_attribute_item(doc, id)));
+            }
         }
     }
     out

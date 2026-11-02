@@ -141,7 +141,9 @@ pub fn analyse_file(step: &Path, part: Option<usize>) -> Result<Value> {
 /// `{schema, binding, faces, features}`, then for a part of an assembly its `mates` and each
 /// face's `contact`, then `existing` and `part` (the file's own PMI and settings), or for a file
 /// specify-core wrote whose answers fit this part `existing: []`, `part: {}` and `resume:
-/// {answers}`. The snapshot is what gets stored: it is never re-derived for the same file.
+/// {answers}`. Scoped Add-mode resumes instead retain foreign PMI in `existing`/`part`
+/// alongside `resume`; only Specify-authored requirements belong to the saved answers.
+/// The snapshot is what gets stored: it is never re-derived for the same file.
 ///
 /// New schema-6 families and concave fillets include an optional plain `description` on
 /// their feature objects. Their measured `record` and defining `faces` remain the inputs
@@ -295,6 +297,28 @@ fn analyse_with(
             // the file's to keep, and the answers come back to be edited.
             analysis.insert("existing".into(), json!([]));
             analysis.insert("part".into(), json!({}));
+            if let Ok(doc) = &doc
+                && resume::scoped(doc, loaded.binding.part)
+            {
+                let defs = haecceity::step::read_part_definitions(&loaded.bytes)
+                    .map_err(|e| refused(&e))?;
+                let read = haecceity::pmi::read(doc, &defs).map_err(|e| refused(&e))?;
+                let foreign = crate::provenance::without_owned(doc, &read, &[loaded.binding.part])
+                    .map_err(|e| refused(&e))?;
+                let foreign = haecceity::p21::Document::parse(foreign).map_err(|e| refused(&e))?;
+                let reading =
+                    existing::read_parsed(loaded, foreign, &defs).map_err(|e| refused(&e))?;
+                analysis.insert(
+                    "existing".into(),
+                    serde_json::to_value(reading.existing(loaded).map_err(|e| refused(&e))?)
+                        .map_err(|e| refused(&e))?,
+                );
+                analysis.insert("part".into(), Value::Object(reading.settings(loaded)));
+                let stated = crate::dimensioning::stated(reading.model());
+                if !stated.is_empty() {
+                    analysis.insert("dimensioning_stated".into(), json!(stated));
+                }
+            }
             if let Some(why) = &resumed.unverified {
                 warnings.push(format!("saved answers: {why}"));
             }
