@@ -21,6 +21,9 @@ All notable changes to specify-core-rust. The format follows
 
 ### Added
 
+- Add Amy's cadgen PMI plate (gist, MIT) as a fixture with cadgen's own AP242 semantic PMI. Tests check
+  that it reads once as foreign PMI: ISO 2768-mK general tolerance, basic 30/50, and no extra Specify
+  size or location requirement beside its dimensions.
 - Preserve answered and imported limit dimensions through STEP, resume, scene labels and
   diff reports; size and distance answers accept lower/upper slash bounds. Analysis and
   Python existing-PMI records expose optional absolute limits alongside derived deviations.
