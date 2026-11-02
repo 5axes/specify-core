@@ -62,8 +62,11 @@ the other 10 parts do not. `scripts/diff-browser.mjs` compares them as an assemb
 (`pzfreo/gramil` at `9171ef6`, Open Community License v1), the same bytes as
 `tests/fixtures/revisions/gramil_shaft.old.step.gz` and `.new.step.gz` in `pzfreo/specify-core`
 at `3bb019e`, made there by `gramil_shaft.py`: after adds a 1.5 mm end chamfer. With the answers
-Specify defaults for before, the diff pairs location dimensions whose ids differ (`old_id`) and
-two thread notes with no callout, only faces; `scripts/diff-browser.mjs` uses them for both.
+Specify defaults for before, the diff pairs location dimensions whose ids differ (`old_id`):
+`scripts/diff-browser.mjs` uses them for a renumbered item's old callout. (Its no-callout note
+comes from the step-diff-demo spindle pair: with Specify's defaults accepted on the old side,
+specify-core 0.1.8 reports the defaulted M4 thread removed, and its manufacturing note with no
+callout, only faces.)
 
 `19-spindle-semantic-links-only.step.gz` is `19-spindle-semantic-links-only.step` from the
 2026-10-30 PMI comparison (#128), gzipped: a turned spindle Specify wrote, whose graphical PMI
