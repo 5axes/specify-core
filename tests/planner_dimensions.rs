@@ -271,10 +271,9 @@ fn stored_dimensions_enter_the_planner_and_are_kept_once_in_add_mode() {
     let given = json!({"part.material":"steel"});
     let i = rules::apply_with_defaults(&a, given.as_object().unwrap(), true).unwrap();
     let rs = required(&i);
-    assert!(
-        rs.iter()
-            .any(|r| r.id.starts_with("stored:") && r.nominal == 8.)
-    );
+    // The stored size is the planner's authority: no fresh proposal on the hole, and it
+    // stays the file's own dimension rather than an intent requirement beside it.
+    assert!(!rs.iter().any(|r| r.id.starts_with("stored:")));
     assert!(!rs.iter().any(|r| r.id == "dim:hole:9/bore.diameter"));
     let (bytes, _) = writer::write_bytes(&imported, &i, None).unwrap();
     let written = part::load_bytes("added.step", bytes).unwrap();
@@ -329,18 +328,18 @@ fn stored_pattern_origin_is_a_specified_authority_not_a_second_origin() {
     let given = json!({"part.general_tolerance":"ISO 2768-m"});
     let i = api::preview(&a, given.as_object().unwrap()).unwrap();
     let rs = required(&i);
-    let stored: Vec<_> = rs.iter().filter(|r| r.id.starts_with("stored:")).collect();
-    assert_eq!(stored.len(), 1);
-    assert!(
-        matches!(&stored[0].kind, quiddity::dimensioning::Kind::Location { to, .. } if to.feature.starts_with("pattern["))
-    );
-    assert!(!rs.iter().any(|r| matches!(&r.kind, quiddity::dimensioning::Kind::Location { from, to, axis } if matches!(&stored[0].kind, quiddity::dimensioning::Kind::Location { from: a, to: b, axis: c } if from==a && to==b && axis==c)) && !r.id.starts_with("stored:")));
+    // The stored origin is the planner's authority, kept in the file and not repeated in
+    // the intent: no proposal locates the pattern from the same plane again.
+    assert!(!rs.iter().any(|r| r.id.starts_with("stored:")));
+    assert!(!rs.iter().any(|r| matches!(&r.kind,
+        quiddity::dimensioning::Kind::Location { from, to, .. }
+            if to.feature.starts_with("pattern[") && from.faces == [0])));
     let (bytes, _) = writer::write_bytes(&imported, &i, None).unwrap();
     let written = part::load_bytes("origin-added.step", bytes).unwrap();
     let read = model(&written);
     assert_eq!(
         read.parts[0].dimensions.len(),
-        rs.len(),
+        rs.len() + 1,
         "stored origin is already present exactly once"
     );
 }
