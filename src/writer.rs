@@ -1376,9 +1376,12 @@ fn size_label(req: &Map<String, Json>, nominal: f64) -> Result<String, WriteErro
     if let Some(limits) = limit_label(req) {
         return Ok(format!("Ø{limits}"));
     }
-    let how = if truthy(req.get("basic")) {
-        "basic".into()
-    } else if let Some(fit) = req
+    // Basic dimensions keep the existing report's empty fit slot; their box is
+    // represented by the semantic/presentation model.
+    if truthy(req.get("basic")) {
+        return Ok(format!("Ø{} ", pyfmt::g(nominal)));
+    }
+    let how = if let Some(fit) = req
         .get("fit")
         .and_then(Json::as_str)
         .filter(|s| !s.is_empty())
