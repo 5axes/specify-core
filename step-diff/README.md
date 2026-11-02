@@ -138,7 +138,7 @@ A part with no saved requirements still gets the comment: what changed, the pict
 ## From another web page
 
 A CAD tool's own page can open the same 3D comparison with two files it already has: it opens
-https://editor.draftwright.io/diff and posts it the files, which are compared in the browser and
+https://draftwright.io/diff and posts it the files, which are compared in the browser and
 never uploaded. [HANDOFF.md](HANDOFF.md) gives the message and the few lines that send it.
 
 ## Limits
