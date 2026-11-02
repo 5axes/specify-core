@@ -395,3 +395,98 @@ fn specified_answers_resume_per_name_and_refuse_cadgens_added_hole_renames() {
         written1.path.display()
     );
 }
+
+fn gist_plate() -> part::LoadedPart {
+    part::load(
+        &Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/text-to-cad/pmi_plate_gist/pmi_plate.step.gz"),
+        None,
+    )
+    .unwrap()
+}
+
+/// cadgen's own semantic PMI on the gist plate reads as the file's, with nothing doubled.
+#[test]
+fn cadgen_semantic_pmi_reads_once_with_its_basics() {
+    let p = gist_plate();
+    let a = api::analyse(&p).unwrap();
+    assert_eq!(a["part"]["general_tolerance"], "ISO 2768-mK");
+    assert_eq!(a["part"]["material"], "Alu_G6061_T6");
+    let existing = a["existing"].as_array().unwrap();
+    let of = |kind: &'static str| existing.iter().filter(move |e| e["kind"] == kind);
+    let datums: Vec<_> = of("datum")
+        .map(|d| (d["type"].as_str().unwrap(), d["faces"].clone()))
+        .collect();
+    assert_eq!(
+        datums,
+        [("A", json!([4])), ("B", json!([1])), ("C", json!([0]))]
+    );
+    let dims: Vec<_> = of("dimension").collect();
+    assert_eq!(dims.len(), 4);
+    let thickness = dims.iter().find(|d| d["faces"] == json!([4])).unwrap();
+    assert_eq!(
+        (
+            &thickness["value"],
+            &thickness["upper"],
+            &thickness["lower"]
+        ),
+        (&json!(10.0), &json!(0.2), &json!(-0.2))
+    );
+    let bore = dims.iter().find(|d| d["type"] == "Size_Diameter").unwrap();
+    assert_eq!(
+        (&bore["faces"], &bore["upper"], &bore["lower"]),
+        (&json!([6]), &json!(0.1), &json!(0.0))
+    );
+    // The hole is located by basic 30 from B and basic 50 from C (#114).
+    for (from, value) in [(1, 30.0), (0, 50.0)] {
+        let d = dims
+            .iter()
+            .find(|d| d["faces"] == json!([from]) && d["faces2"] == json!([6]))
+            .unwrap();
+        assert_eq!(d["value"], json!(value));
+        assert_eq!(d["basic"], json!(true), "basic {value}");
+        assert!(d.get("upper").is_none() && d.get("lower").is_none());
+    }
+    assert!(
+        dims.iter()
+            .filter(|d| d["value"] != json!(30.0) && d["value"] != json!(50.0))
+            .all(|d| d.get("basic").is_none())
+    );
+    let tolerances: Vec<_> = of("geometric_tolerance")
+        .map(|t| (t["type"].as_str().unwrap(), t["value"].as_f64().unwrap()))
+        .collect();
+    assert_eq!(
+        tolerances,
+        [
+            ("Flatness", 0.05),
+            ("Position", 0.1),
+            ("ProfileOfSurface", 0.1),
+            ("ProfileOfSurface", 0.1),
+            ("ProfileOfSurface", 0.5)
+        ]
+    );
+
+    // The general tolerance is stated once, as the file's.
+    let scene = specify_core::pmi_scene::pmi_scene(&p.bytes, None).unwrap();
+    let meta = scene["specify"].as_object().unwrap();
+    let general: Vec<_> = meta
+        .values()
+        .filter(|m| m["notation"].as_str().is_some_and(|n| n.contains("2768")))
+        .collect();
+    assert_eq!(general.len(), 1);
+    assert_eq!(general[0]["notation"], "GENERAL TOLERANCES ISO 2768-mK");
+    assert_eq!(
+        meta.values().filter(|m| m["basic"] == json!(true)).count(),
+        2
+    );
+
+    // No Specify size or location requirement repeats the file's dimensions (#113).
+    let intent = api::apply(&a, &Map::new(), true).unwrap();
+    for r in &intent.requirements {
+        let kind = r.get("kind").and_then(Value::as_str);
+        assert!(
+            !matches!(kind, Some("size" | "location")) || r.contains_key("not_written_reason"),
+            "an extra requirement beside the file's own dimensions: {r:?}"
+        );
+    }
+}
