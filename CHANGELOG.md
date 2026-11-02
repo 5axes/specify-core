@@ -21,6 +21,15 @@ All notable changes to specify-core-rust. The format follows
   preserve their characteristic numbers while retaining foreign entity bytes. Scoped saves
   supersede stale legacy answer frames without removing their unmarked records.
 
+### Fixed
+
+- Answered diff scenes remove replaced file identities together with their PMI
+  rows before merging retained CAD requirements, keeping semantic links and old
+  callouts consistent with each scene's own document.
+- Every diff pairing pass checks requirement kinds and known measurement roles,
+  including number and id matches. Thread callouts cannot pair with location
+  dimensions; location roles follow the part's rotation during comparison.
+
 ## 0.1.7 (2026-11-02)
 
 - Diff retains uniquely matched planned dimensions when their target/reference

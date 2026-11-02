@@ -165,10 +165,13 @@ impl Scene {
                     .filter(|(_, meta)| meta["status"] == "existing")
                     .map(|(id, _)| id.clone())
                     .collect();
-                let overlay = file["specify"]
+                let replaced: std::collections::BTreeSet<String> = file["specify"]
                     .as_object()
                     .ok_or("invalid metadata")?
-                    .clone();
+                    .keys()
+                    .filter(|id| !existing.contains(*id))
+                    .cloned()
+                    .collect();
                 for rows in file["pmi"]["pmi"]
                     .as_object_mut()
                     .ok_or("invalid PMI")?
@@ -176,9 +179,7 @@ impl Scene {
                 {
                     if let Some(rows) = rows.as_array_mut() {
                         rows.retain(|row| {
-                            row["id"].as_str().is_some_and(|id| {
-                                existing.contains(id) || !overlay.contains_key(id)
-                            })
+                            row["id"].as_str().is_some_and(|id| !replaced.contains(id))
                         });
                     }
                 }
@@ -190,6 +191,13 @@ impl Scene {
                     .as_object_mut()
                     .ok_or("invalid graphics")?
                     .retain(|id, _| existing.contains(id));
+                // This is a scene of the retained CAD requirements, not the whole
+                // file. Remove replaced identities along with their semantic rows
+                // before merging it into the rebuilt answer scene.
+                file["presentation"]["semantic_ids"]
+                    .as_array_mut()
+                    .ok_or("invalid semantic ids")?
+                    .retain(|id| id.as_str().is_some_and(|id| !replaced.contains(id)));
                 // Only notation is consumed here; the two generated layouts may place
                 // the same part note differently when the file has extra foreign PMI.
                 file["presentation"]["planes"] = json!([]);
