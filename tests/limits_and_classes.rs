@@ -197,6 +197,16 @@ fn combined_classes_are_choices_and_round_trip_without_changing_defaults() {
         .as_object()
         .unwrap()
         .clone();
+    let combined = api::preview(&a, &answers).unwrap();
+    let plain = api::preview(
+        &a,
+        json!({"part.general_tolerance":"ISO 2768-m"})
+            .as_object()
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(combined.general, plain.general);
+    assert_eq!(combined.requirements, plain.requirements);
     let written = write(&p, &answers);
     let read = model(&written);
     let pmi::GeneralTolerance::Class {
@@ -279,4 +289,20 @@ fn nist_ctc01_imported_limits_survive_analysis_resume_and_rewrite() {
     .unwrap();
     assert_eq!(resumed.answers, answers);
     check(&write(&written, &resumed.answers));
+}
+
+#[test]
+fn conflicting_size_diagnostics_keep_limit_labels_and_fits() {
+    let a = api::analyse(&plate()).unwrap();
+    let answers = json!({"hole.function:holes:9":"fit:H7",
+        "extra.limit":{"kind":"size","faces":[9],"value":"7.8/8.2"}});
+    let problems = specify_core::problems::problems(&a, answers.as_object().unwrap()).unwrap();
+    assert!(
+        problems.iter().any(|p| p["message"]
+            .as_str()
+            .is_some_and(|text| text.contains("sized twice")
+                && text.contains("H7")
+                && text.contains("7.8/8.2"))),
+        "{problems:?}"
+    );
 }

@@ -3,8 +3,8 @@
 //!
 //! Each part's intent becomes one [`PartPmi`] (`part_pmi`): datums A–H on their datum
 //! features (coplanar faces, or a hole's cylinders for an axis datum), sizes (an ISO 286 fit as
-//! the fit, `±` as deviations and limits as limits), locations (basic, deviations or limits) from the reference
-//! faces to the feature, geometric tolerances with their zone, modifier and datum system,
+//! the fit, `±` as deviations and limits as limits), locations (basic, deviations or limits)
+//! from the reference faces to the feature, geometric tolerances with their zone, modifier and datum system,
 //! material, the general tolerance as a class, threads (with their manufacturing data as a
 //! user defined attribute set, upstream need U8), knurls, surface finish and the part's notes.
 //! Every part is written in one `haecceity::pmi::write` edit of the file, which validates every

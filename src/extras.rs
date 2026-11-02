@@ -363,8 +363,9 @@ impl DimensionTolerance {
     }
 }
 
-/// `_limits`: fit, deviations and optional absolute limits from `±0.05` (or `0.05`), deviations `+0.1/-0`, or, where
-/// `fits`, a fit such as `H7` on a diameter of `nominal`; the fit is empty unless one is given.
+/// Fit, deviations and optional absolute limits from `±0.05` (or `0.05`),
+/// `+0.1/-0`, or, where `fits`, `H7` on a diameter of `nominal`.
+/// The fit is empty unless one is given.
 /// Unsigned ascending `5.98/6.02` states absolute bounds. `limits:-6.02/-5.98`
 /// permits signed bounds without changing the existing signed-deviation grammar.
 fn limits(key: &str, value: &str, nominal: f64, fits: bool) -> Result<DimensionTolerance> {

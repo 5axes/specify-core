@@ -266,6 +266,7 @@ python3 -m unittest discover -s tools -p 'test_*.py'
 cargo build --locked --release -p specify-core-wasm --example parity_reference
 node scripts/wasm-parity.mjs
 node scripts/wasm-hostile.mjs
+node scripts/wasm-limits.mjs
 ```
 
 The root `[profile.wasm-release]` inherits release with `lto = true`, `codegen-units = 1`

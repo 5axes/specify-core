@@ -1,7 +1,7 @@
 # Questions for the maintainer
 
 
-## Limit dimensions and combined ISO 2768 classes
+## Decision (2026-11-02): limit dimensions and combined ISO 2768 classes
 
 Size and distance answers (`extra.<id>` with `kind: "size"` or `"distance"`) accept
 absolute lower/upper limits: `"9.8/10.2"`. Bounds must be finite and strictly increasing.
@@ -19,6 +19,9 @@ combinations of f/m/c/v with H/K/L, for example `"ISO 2768-mK"`. The default rem
 text and haecceity recognises its geometric class. Linear defaults still use the existing
 ISO 2768-1 table for the first letter. Specify has no ISO 2768-2 tables, so H/K/L adds
 no numeric geometric defaults; explicitly answered geometric tolerances keep their values.
+Imported foreign PMI continues to use Add mode, retaining original limit entities and storing
+no interview payload. Saved project answers can resume externally against that part. Bare or
+previously authored parts store and resume the exact limit answer strings in STEP as usual.
 
 ## Decision (2026-10-15): gzipped STEP
 
