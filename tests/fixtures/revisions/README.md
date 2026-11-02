@@ -105,3 +105,8 @@ Notes scene regressions (copied without modifying the STEP records; deterministi
 - `cadgen_notes_plate.step.gz`: quiddity-rust `crates/haecceity/tests/fixtures/xcaf/pmi_plate.geom.step.gz`.
 The last three mirror #163's geometry checks. The existing NIST CTC-01 fixture completes
 the one-block sweep; bare geometry uses accepted defaults to supply notes.
+
+`spindle_pmi.old/new.step.gz` are the editor team's Specify 0.1.7 spindle
+revision reproducer (`spindle_pmi_before/after.step.gz`), copied byte for byte.
+They cover answered diff scenes retaining stale file semantic ids and a thread
+manufacturing note incorrectly paired with a newly numbered location dimension.
