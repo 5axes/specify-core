@@ -95,6 +95,8 @@ export function toLabels(
     });
   }
   (intent?.requirements ?? []).forEach((r, i) => {
+    // One Specify did not write (an answered requirement covers it) is not on the part.
+    if (r['not_written_reason']) return;
     const base = {
       id: `req:${i}:${r.question ?? ''}`, faces: r.faces, group: group(r),
       ...(r.question ? { question: r.question } : {}),

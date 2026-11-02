@@ -89,10 +89,11 @@ export function characteristics(
       const f = features.get(p);
       return f?.faces.length ? [f.faces] : [];
     });
-    const [first] = found;
-    if (!first) return own?.faces.length ? describeFaces(own.faces, analysis) : id;
-    const one = describeFaces(first, analysis);
-    return found.length > 1 ? `${found.length}× ${one}s` : one;
+    if (!found.length) return own?.faces.length ? describeFaces(own.faces, analysis) : id;
+    const names = [...new Set(found.map((f) => describeFaces(f, analysis)))];
+    const [one] = names;
+    if (names.length > 1 || !one) return names.join(', ');
+    return found.length > 1 && /(hole|shaft|cylinder|face)$/.test(one) ? `${found.length}× ${one}s` : one;
   };
   const title = (id: string) => titles.get(id) ?? described(id, []);
   const name = (id: string, faces: readonly number[]): string => {
