@@ -71,7 +71,7 @@ export interface DiffPmi {
 
 export interface GeometryCarrierExemption {
   aspect: number;
-  condition: "shared-carrier-controlled-pair" | "shared-carrier-datum-target-support";
+  condition: "shared-carrier-controlled-pair" | "shared-carrier-datum-target-support" | "kept-carrier-datum-member" | "kept-carrier-independent-feature" | "kept-carrier-datum-feature" | "kept-carrier-datum-composite";
   feature: number;
   part: number;
 }
@@ -132,6 +132,7 @@ export interface PmiScene {
 
 export interface PmiSceneGraphic {
   id?: PmiSceneId;
+  leader?: PmiSceneVector;
   name: string;
   plane_id?: PmiSceneId;
   polyline_roles?: ("text" | "frame" | "leader" | "extension" | "symbol" | "dimension")[];
@@ -209,10 +210,17 @@ export interface PmiSceneView {
   up?: PmiSceneVector;
 }
 
+export interface PreservedNormalization {
+  id: number;
+  normalization: string;
+}
+
 export interface WriteReport {
   geometry_carrier_exemptions?: GeometryCarrierExemption[];
   not_written: string[];
   output: string;
+  presentation_warnings?: string[];
+  preserved_normalizations?: PreservedNormalization[];
   warnings: string[];
   written: string[];
 }
