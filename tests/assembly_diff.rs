@@ -36,6 +36,22 @@ fn json_file(path: PathBuf) -> Value {
     serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
 }
 
+// Diff now transports numbering evidence even for a part with no answered questions.
+// Keep exact answer-map equality and verify every part's evidence against its loaded faces.
+fn with_evidence(new: &Path, requirements: Value) -> Value {
+    let mut expected = requirements.as_object().unwrap().clone();
+    for part in load_all(new).unwrap() {
+        let answers = expected
+            .entry(part.name.clone())
+            .or_insert_with(|| json!({}));
+        answers["_specify"] = json!({
+            "evidence": specify_core::resume::evidence(&part).unwrap(),
+            "unresolved": {},
+        });
+    }
+    Value::Object(expected)
+}
+
 #[test]
 fn the_parts_pair_by_name_and_only_the_two_changed_parts_are_changed() {
     let (old, new) = (
@@ -119,7 +135,10 @@ fn the_command_line_writes_the_parts_table_each_changed_part_and_the_picture() {
     let report = json_file(out.join("report.json"));
     assert_eq!(report["parts"].as_array().unwrap().len(), 12);
     assert_eq!(report["parts"][1]["report"]["verdict"], "ok");
-    assert_eq!(json_file(out.join("answers.json")), json!({}));
+    assert_eq!(
+        json_file(out.join("answers.json")),
+        with_evidence(&fixture("new"), json!({}))
+    );
 }
 
 #[test]
@@ -139,7 +158,10 @@ fn an_assembly_s_answers_are_given_and_carried_by_part_name() {
     );
     assert_eq!(
         json_file(out.join("answers.json")),
-        json!({"GRM-04 drive plate": {"part.material": "6061-T6"}})
+        with_evidence(
+            &fixture("new"),
+            json!({"GRM-04 drive plate": {"part.material": "6061-T6"}})
+        )
     );
 
     write(json!({"nope": {}}));
@@ -351,7 +373,10 @@ fn a_single_part_s_answers_are_its_part_s_when_it_becomes_an_assembly() {
     );
     assert_eq!(
         json_file(out.join("answers.json")),
-        json!({"plate": {"part.material": "6061-T6"}})
+        with_evidence(
+            &part_fixture("assembly.step"),
+            json!({"plate": {"part.material": "6061-T6"}})
+        )
     );
 }
 

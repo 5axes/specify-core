@@ -179,7 +179,8 @@ specify-core diff old.step new.step --answers old.answers.json -o changes
 - `report.md`: the review, written to post as a pull request comment;
 - `model.png`: the new part, with changed faces orange, new faces green, and gone or moved faces
   in translucent red;
-- `answers.json`: the carried answers, to commit;
+- `answers.json`: the carried answers, with `_specify` evidence and unresolved carry
+  blocks, to commit; see [answer files and changed geometry](docs/answers.md);
 - `report.json`: all of the above as data.
 
 PMI changes are listed by characteristic number (for example `#7 ⌀6.6 H7 → ⌀6.6 H8`). Without

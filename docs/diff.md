@@ -16,7 +16,7 @@ The [STEP diff action](../step-diff/README.md) runs it on pull requests.
 | --- | --- |
 | `report.md` | The review in Markdown, headed `TITLE` (by default the new file's name), written to be posted as a pull request comment. |
 | `model.png` | The new part, drawn isometrically. |
-| `answers.json` | The requirements applied to the new revision, in the existing sidecar format for callers to commit. |
+| `answers.json` | The requirements applied to the new revision, plus `_specify` geometry evidence and unresolved carry blocks; see [answer files](answers.md). |
 | `report.json` | All of it as data: the verdict, summary, applied requirements, changed features, measures, PMI changes, unresolved requirements, requirements to check and requirements to specify. |
 
 It also prints `{"verdict", "summary"}` to stdout. The `summary` field is retained in
@@ -225,6 +225,12 @@ The requirements used are, in order of preference:
 2. without `--answers`, or with an empty file, those Specify stored in the old STEP file when it
    wrote its PMI;
 3. none, in which case the report still says what changed.
+
+Carried maps include `_specify.evidence` for the new part and `_specify.unresolved`
+with every dropped question's reason. Keep this metadata: bulk defaults cannot replace
+a dropped answer, and write refuses evidence from different geometry. Explicit answers
+clear their carry blocks. Plain maps remain accepted but cannot detect stale in-range
+indices. See [answer files and changed geometry](answers.md).
 
 ## The picture
 

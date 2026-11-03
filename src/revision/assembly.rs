@@ -78,7 +78,8 @@ pub struct PartChange {
     /// The part's own comparison, for a part in both files.
     #[serde(rename = "report", skip_serializing_if = "Option::is_none")]
     pub revised: Option<Revised>,
-    /// BOM answers carried geometrically even when a renamed part is unpaired for PMI.
+    /// BOM answers carried geometrically even when a renamed part is unpaired for PMI;
+    /// added parts also keep their answer-file geometry evidence here.
     #[serde(skip_serializing_if = "Map::is_empty")]
     pub bom_answers: Map<String, Value>,
     /// The old placements no new one is at, of a part placed a different number of times or
@@ -195,7 +196,12 @@ pub fn diff_with_options(
     let (old_names, new_names) = (names_of(old), names_of(new));
     let wrapped;
     let given = match old_names.as_slice() {
-        [only] if given.values().any(|a| !a.is_object()) => {
+        [only]
+            if given.values().any(|a| !a.is_object())
+                || given.get(crate::answer_file::META).is_some_and(|m| {
+                    m.get("evidence").is_some() || m.get("unresolved").is_some()
+                }) =>
+        {
             wrapped = Map::from_iter([(only.clone(), Value::Object(given.clone()))]);
             &wrapped
         }
@@ -253,13 +259,20 @@ pub fn diff_with_options(
             (Some(_), None) => ("removed", Vec::new(), None),
             _ => ("added", Vec::new(), None),
         };
+        let mut carried_bom = n.map(|i| bom_answers[i].clone()).unwrap_or_default();
+        if revised.is_none()
+            && let Some(j) = n
+        {
+            crate::answer_file::attach(&new[j], &mut carried_bom, &Map::new(), [])
+                .map_err(api::Error::Analysis)?;
+        }
         rows.push(PartChange {
             name,
             status,
             old: count(old, o),
             new: count(new, n),
             revised,
-            bom_answers: n.map(|i| bom_answers[i].clone()).unwrap_or_default(),
+            bom_answers: carried_bom,
             gone,
         });
     }

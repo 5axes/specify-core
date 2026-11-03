@@ -2092,8 +2092,13 @@ fn split_diff(dir: &Path, new: &Path) -> Value {
     let old = split_plate("old");
     save(&dir.join("given.json"), &split_answers());
     let done = run(&[
-        "diff", &s(&old), &s(new), "--answers", &s(&dir.join("given.json")),
-        "-o", &s(&dir.join("changes")),
+        "diff",
+        &s(&old),
+        &s(new),
+        "--answers",
+        &s(&dir.join("given.json")),
+        "-o",
+        &s(&dir.join("changes")),
     ]);
     assert_eq!(done.code, 0, "{}", done.stderr);
     serde_json::from_slice(&std::fs::read(dir.join("changes/answers.json")).unwrap()).unwrap()
@@ -2103,8 +2108,15 @@ fn split_write(dir: &Path, step: &Path, answers: &Path) -> Run {
     let analysis = dir.join("analysis.json");
     save(&analysis, &api::analyse_file(step, None).unwrap());
     run(&[
-        "write", &s(step), &s(&analysis), &s(answers), "--accept-defaults",
-        "--intent", &s(&dir.join("intent.json")), "-o", &s(&dir.join("out.step")),
+        "write",
+        &s(step),
+        &s(&analysis),
+        &s(answers),
+        "--accept-defaults",
+        "--intent",
+        &s(&dir.join("intent.json")),
+        "-o",
+        &s(&dir.join("out.step")),
     ])
 }
 
@@ -2114,19 +2126,33 @@ fn dropped_carried_datum_cannot_be_bulk_defaulted_and_explicit_answer_clears_it(
     let new = split_plate("new");
     let mut answers = split_diff(&dir, &new);
     assert!(answers.get("datum.A").is_none());
-    let report: Value = serde_json::from_slice(&std::fs::read(dir.join("changes/report.json")).unwrap()).unwrap();
-    let reason = report["unresolved"].as_array().unwrap().iter()
-        .find(|u| u["id"] == "datum.A").unwrap()["reason"].as_str().unwrap();
+    let report: Value =
+        serde_json::from_slice(&std::fs::read(dir.join("changes/report.json")).unwrap()).unwrap();
+    let reason = report["unresolved"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|u| u["id"] == "datum.A")
+        .unwrap()["reason"]
+        .as_str()
+        .unwrap();
     let done = split_write(&dir, &new, &dir.join("changes/answers.json"));
     assert_eq!(done.code, 2, "{}", done.stderr);
-    assert!(done.stderr.contains(&format!("incomplete: datum.A (carried answer could not be applied: {reason})")), "{}", done.stderr);
+    assert!(
+        done.stderr.contains(&format!(
+            "incomplete: datum.A (carried answer could not be applied: {reason})"
+        )),
+        "{}",
+        done.stderr
+    );
     assert!(!dir.join("out.step").exists());
     assert!(!dir.join("intent.json").exists());
     answers["datum.A"] = json!([4, 8]);
     save(&dir.join("resolved.json"), &answers);
     let done = split_write(&dir, &new, &dir.join("resolved.json"));
     assert_eq!(done.code, 0, "{}", done.stderr);
-    let intent: Value = serde_json::from_slice(&std::fs::read(dir.join("intent.json")).unwrap()).unwrap();
+    let intent: Value =
+        serde_json::from_slice(&std::fs::read(dir.join("intent.json")).unwrap()).unwrap();
     assert_eq!(intent["datums"][0]["faces"], json!([4, 8]));
 }
 

@@ -271,9 +271,11 @@ fn accept_defaults_cannot_replace_a_dropped_carried_datum() {
     let before = specify_core::part::load(&old, None).unwrap();
     let after = specify_core::part::load(&new, None).unwrap();
     let given = json!({"part.material":"6061-T6", "datum.A":[4]});
-    let revised = specify_core::revision::diff(&before, &after, given.as_object().unwrap()).unwrap();
+    let revised =
+        specify_core::revision::diff(&before, &after, given.as_object().unwrap()).unwrap();
     let analysis = specify_core::api::analyse(&after).unwrap();
-    let output = std::env::temp_dir().join(format!("serve-dropped-datum-{}.step", std::process::id()));
+    let output =
+        std::env::temp_dir().join(format!("serve-dropped-datum-{}.step", std::process::id()));
     let _ = std::fs::remove_file(&output);
     let mut server = Server::default();
     let mut request = json!({"id":1, "op":"write", "step":new, "output":output,
@@ -286,11 +288,47 @@ fn accept_defaults_cannot_replace_a_dropped_carried_datum() {
         let reply = server.reply(&req);
         assert_eq!(reply["ok"], false, "{reply}");
         assert_eq!(reply["error"]["code"], "incomplete", "{reply}");
-        assert!(reply["error"]["message"].as_str().unwrap().contains("datum.A (carried answer could not be applied:"));
+        assert!(
+            reply["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("datum.A (carried answer could not be applied:")
+        );
         assert!(!output.exists());
     }
     request["answers"]["datum.A"] = json!([4, 8]);
     let reply = server.reply(&request);
     assert_eq!(reply["ok"], true, "{reply}");
     std::fs::remove_file(output).unwrap();
+}
+
+#[test]
+fn serve_write_refuses_saved_answers_on_changed_geometry() {
+    let old = specify_core::part::load(
+        &common::fixtures().join("revisions/plate_split.old.step.gz"),
+        None,
+    )
+    .unwrap();
+    let new_path = common::fixtures().join("revisions/plate_split.new.step.gz");
+    let new = specify_core::part::load(&new_path, None).unwrap();
+    let given = json!({"part.material":"6061-T6", "datum.A":[4]});
+    let saved = specify_core::revision::diff(&old, &old, given.as_object().unwrap())
+        .unwrap()
+        .answers;
+    let analysis = specify_core::api::analyse(&new).unwrap();
+    let output =
+        std::env::temp_dir().join(format!("serve-stale-evidence-{}.step", std::process::id()));
+    let _ = std::fs::remove_file(&output);
+    let mut server = Server::default();
+    let reply = server.reply(&json!({"id":1,"op":"write","step":new_path,
+        "output":output,"analysis":analysis,"answers":saved,"accept_defaults":true}));
+    assert_eq!(reply["ok"], false, "{reply}");
+    assert_eq!(reply["error"]["code"], "invalid", "{reply}");
+    assert!(
+        reply["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("stale answers")
+    );
+    assert!(!output.exists());
 }

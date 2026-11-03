@@ -44,7 +44,7 @@ use crate::api::{self, Error};
 use crate::part;
 use crate::pyjson;
 use crate::revision::assembly;
-use crate::rules::{self, IncompleteError, Intent};
+use crate::rules::{self, Intent};
 use crate::serve;
 use crate::writer::WriteError;
 use serde_json::{Map, Value, json};
@@ -634,6 +634,12 @@ fn write(step: &Path, pairs: &[String], args: &Args, out: &mut impl Write) -> Re
     for pair in pairs.chunks(2) {
         let analysis = read_json(Path::new(&pair[0]))?;
         let answers = answers_of(read_json(Path::new(&pair[1]))?)?;
+        if answers.contains_key(crate::answer_file::META) {
+            let index = analysis["binding"]["part"].as_u64().unwrap_or(0) as usize;
+            let loaded = part::load(step, Some(index)).map_err(Exit::error)?;
+            crate::answer_file::check(&loaded, &answers)
+                .map_err(|why| Exit::new(2, format!("answers {}: {why}", pair[1])))?;
+        }
         let mut intent = match api::apply(&analysis, &answers, args.flag("--accept-defaults")) {
             Ok(intent) => intent,
             Err(e) if !several => return Err(refused(e)),
@@ -645,10 +651,10 @@ fn write(step: &Path, pairs: &[String], args: &Args, out: &mut impl Write) -> Re
                     .cloned()
                     .unwrap_or(json!(0));
                 return Err(refused(match e {
-                    Error::Rules(rules::Error::Incomplete(e)) => Error::from(IncompleteError::new(
-                        e.missing,
-                        Some(part.as_u64().unwrap_or(0) as usize),
-                    )),
+                    Error::Rules(rules::Error::Incomplete(mut e)) => {
+                        e.part = Some(part.as_u64().unwrap_or(0) as usize);
+                        Error::from(e)
+                    }
                     Error::Rules(rules::Error::Invalid(m)) => {
                         let shown = match &part {
                             Value::String(s) => s.clone(),

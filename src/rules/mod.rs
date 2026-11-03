@@ -13,7 +13,7 @@
 //! Messages, prompts and the JSON produced are specify-core's, byte for byte and key for key.
 
 // Literal indices into LOCATING and EDGES are in bounds of their fixed-size constant arrays.
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use serde_json::{Map, Value};
@@ -90,11 +90,17 @@ pub struct IncompleteError {
     pub missing: Vec<String>,
     /// In an assembly, which part's questions they are.
     pub part: Option<usize>,
+    /// Diff's reason for each dropped carried answer, without changing `missing` IDs.
+    pub carried: BTreeMap<String, String>,
 }
 
 impl IncompleteError {
     pub fn new(missing: Vec<String>, part: Option<usize>) -> Self {
-        IncompleteError { missing, part }
+        IncompleteError {
+            missing,
+            part,
+            carried: BTreeMap::new(),
+        }
     }
 }
 
@@ -102,6 +108,19 @@ impl fmt::Display for IncompleteError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if let Some(part) = self.part {
             write!(f, "part {part}: ")?;
+        }
+        if !self.carried.is_empty() {
+            let shown: Vec<String> = self
+                .missing
+                .iter()
+                .map(|id| {
+                    self.carried.get(id).map_or_else(
+                        || id.clone(),
+                        |reason| format!("{id} (carried answer could not be applied: {reason})"),
+                    )
+                })
+                .collect();
+            return f.write_str(&shown.join(", "));
         }
         write!(
             f,
@@ -868,6 +887,7 @@ pub fn with_defaults(qs: &[Question], answers: &Map<String, Value>) -> Map<Strin
         if let Some(default) = &q.default
             && !q.id.starts_with("bom.")
             && !merged.contains_key(&q.id)
+            && !crate::answer_file::blocked(answers, &q.id)
         {
             merged.insert(q.id.clone(), default.clone());
         }
@@ -881,6 +901,7 @@ pub fn with_all_defaults(
     analysis: &Value,
     answers: &Map<String, Value>,
 ) -> Result<Map<String, Value>> {
+    crate::answer_file::require_resolved(answers)?;
     Ok(settled(&Ctx::new(analysis)?, answers)?.0)
 }
 
@@ -904,6 +925,7 @@ fn settled(
 
 /// Turn a complete set of answers into intent. Refuses while any question is open.
 pub fn apply(analysis: &Value, answers: &Map<String, Value>) -> Result<Intent> {
+    crate::answer_file::require_resolved(answers)?;
     let ctx = Ctx::new(analysis)?;
     let qs = questions_in(&ctx, answers)?;
     let missing: Vec<String> = open_questions(&qs, answers)

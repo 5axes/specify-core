@@ -406,8 +406,13 @@ fn check_jobs(jobs: &[Job<'_>]) -> Result<(), WriteError> {
     if parts.len() != jobs.len() {
         return invalid("a part is written once");
     }
-    for (loaded, intent, _) in jobs {
+    for (loaded, intent, answers) in jobs {
         check_binding(loaded, intent)?;
+        if let Some(answers) = answers {
+            crate::answer_file::check(loaded, answers).map_err(WriteError::Invalid)?;
+            crate::answer_file::require_resolved(answers)
+                .map_err(|e| WriteError::Invalid(e.to_string()))?;
+        }
     }
     Ok(())
 }
@@ -653,6 +658,7 @@ fn write_verified(
         let payload = match answers {
             Some(answers) => {
                 let mut saved = answers.clone();
+                saved.remove(crate::answer_file::META);
                 saved.remove(crate::characteristics::CARRY);
                 saved.remove(crate::bom::CARRY);
                 saved.retain(|key, _| !key.starts_with("bom."));

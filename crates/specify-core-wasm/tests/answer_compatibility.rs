@@ -80,10 +80,23 @@ fn carried_refusals_survive_wasm_defaults_review_and_write() {
     let analysis = api::analyse(&loaded).unwrap();
     let mut answers = json!({"part.material":"steel", "_specify":{
         "unresolved":{"datum.A":"face 4 has no match in the new part"}
-    }}).as_object().unwrap().clone();
-    assert!(session.accept_defaults(&answers).unwrap_err().contains("carried answer could not be applied"));
+    }})
+    .as_object()
+    .unwrap()
+    .clone();
+    assert!(
+        session
+            .accept_defaults(&answers)
+            .unwrap_err()
+            .contains("carried answer could not be applied")
+    );
     assert!(specify_core_wasm::accept_defaults(&analysis, &answers).is_err());
-    assert!(!session.review(&answers).unwrap()["open"].as_array().unwrap().is_empty());
+    assert!(
+        !session.review(&answers).unwrap()["open"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
     assert!(session.write_pmi(&answers, None, None).is_err());
     answers.insert("datum.A".into(), json!([4]));
     let accepted = session.accept_defaults(&answers).unwrap();
@@ -92,5 +105,10 @@ fn carried_refusals_survive_wasm_defaults_review_and_write() {
     answers["_specify"]["evidence"] = session.evidence().unwrap();
     session.write_pmi(&answers, None, None).unwrap();
     answers["_specify"]["evidence"]["face_count"] = json!(999);
-    assert!(session.write_pmi(&answers, None, None).unwrap_err().contains("stale answers"));
+    assert!(
+        session
+            .write_pmi(&answers, None, None)
+            .unwrap_err()
+            .contains("stale answers")
+    );
 }

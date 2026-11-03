@@ -171,7 +171,9 @@ fn a_turned_part_carries_every_answer() {
     );
     assert_eq!(r.verdict, "ok", "{}", r.summary);
     assert!(r.features.is_empty());
-    assert_eq!(r.answers.len(), 2);
+    // The two requirements plus the reserved evidence/carry transport.
+    assert_eq!(r.answers.len(), 3);
+    assert_eq!(r.answers["_specify"]["unresolved"], json!({}));
     assert_eq!(
         r.summary,
         "No feature changed. All 2 requirements still apply to the changed part."

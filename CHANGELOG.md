@@ -8,12 +8,21 @@ All notable changes to specify-core-rust. The format follows
 
 ### Fixed
 
+- Preserve dropped diff answers as `_specify.unresolved` carry blocks: CLI, serve,
+  Python and WASM bulk defaults cannot silently replace them. Explicit answers clear
+  their blocks. Diff answer maps also carry the in-STEP face evidence; write refuses
+  stale evidence before output, naming CLI answer files and directing callers to diff.
+  Plain maps remain compatible and cannot detect changed in-range face identities.
+
 - Analysis `existing` records (and Python `ExistingPmi`) mark a basic dimension with
   `basic: true`, as does the scene's `specify[id]` metadata, and diff words add ` (basic)`.
   Basic dimensions such as cadgen's "theoretical" 30 and 50 on the PMI plate were read by
   haecceity as basic but reported as plain untoleranced dimensions.
 
 ### WASM API
+
+- Add `AnswerFileMetadata` for optional `_specify.evidence` and `_specify.unresolved`
+  in answer maps; default acceptance and writes enforce carry blocks and face evidence.
 
 - `PmiSceneMetadata` adds optional `basic: true` for a basic (theoretically exact) dimension.
 
