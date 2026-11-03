@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { brotliCompressSync, gzipSync, gunzipSync, constants } from 'node:zlib';
 import init, { IntentEngine, review, acceptDefaults, interpret, start, diff } from '../crates/specify-core-wasm/pkg/specify_core_wasm.js';
 
@@ -11,9 +11,7 @@ const root = new URL('../', import.meta.url);
 const wasm = readFileSync(new URL('crates/specify-core-wasm/pkg/specify_core_wasm_bg.wasm', root));
 await init({ module_or_path: wasm });
 start();
-const executable = process.env.CARGO_TARGET_DIR
-  ? join(process.env.CARGO_TARGET_DIR, 'release', 'examples', 'parity_reference')
-  : fileURLToPath(new URL('target/release/examples/parity_reference', root));
+const executable = resolve(fileURLToPath(root), process.env.CARGO_TARGET_DIR ?? 'target', 'release/examples/parity_reference');
 const project = Buffer.from(JSON.stringify({ revision: 1, drawing: 'front' })).toString('base64');
 
 // Geometric calculations may differ in their last bits between native and WASM libm.
