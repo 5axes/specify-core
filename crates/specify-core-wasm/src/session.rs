@@ -268,6 +268,9 @@ impl Session {
         payload: Option<&Value>,
         bom: bool,
     ) -> Result<Value, String> {
+        // A complete old sidecar may also contain feature IDs that disappeared. Diagnose
+        // its geometry evidence before interpreting any of those IDs on this part.
+        specify_core::answer_file::check(&self.loaded, answers)?;
         input::answers(&self.analysis, answers).map_err(|e| e.to_string())?;
         let mut intent =
             api::preview(&self.analysis, answers).map_err(|error| error.to_string())?;
@@ -336,6 +339,7 @@ impl Session {
         &self,
         answers: &Map<String, Value>,
     ) -> Result<Map<String, Value>, String> {
+        specify_core::answer_file::check(&self.loaded, answers)?;
         input::answers(&self.analysis, answers).map_err(|e| e.to_string())?;
         api::export_answers(&self.loaded, &self.analysis, answers).map_err(|e| e.to_string())
     }

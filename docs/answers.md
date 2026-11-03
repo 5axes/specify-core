@@ -72,8 +72,8 @@ refused as stale; carry with `diff` instead, then explicitly resolve its blocks.
 
 ## Specify metadata
 
-Specify's diff answer maps (`answers.json`, `report.answers`, and each assembly part's
-map) add a reserved `_specify` member. Preserve it when editing or storing answers.
+Specify's complete exports and diff answer maps (`answers.json`, `report.answers`, and
+each assembly part's map) add a reserved `_specify` member. Preserve it when editing or storing answers.
 Old plain files remain accepted by the new tools. New maps require updated Specify/editor
 WASM builds: older builds reject `_specify` as an `unknown answer ID`. Use an updated build
 to open and write these maps.

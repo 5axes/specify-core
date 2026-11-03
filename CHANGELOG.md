@@ -13,6 +13,8 @@ All notable changes to specify-core-rust. The format follows
   `engine.exportAnswers`. Accepted defaults are explicit, including dependent questions;
   sidecars carry verified `_specify.evidence`, sort keys recursively and refuse incomplete
   sets or unresolved carries. Existing partial-default operations keep their shape.
+  WASM export and write check evidence before feature IDs, so a full old map with
+  disappeared features reports stale geometry rather than an unknown feature.
 
 - Preserve dropped revision-stable datum/part/BOM answers as `_specify.unresolved`
   carry blocks: CLI, serve, Python and WASM bulk defaults cannot silently replace them.

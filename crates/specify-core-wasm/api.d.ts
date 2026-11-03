@@ -3,6 +3,7 @@ export class IntentEngine {
   acceptDefaults(answers: string): string;
   constructor(name: string, bytes: Uint8Array);
   evidence(): string;
+  exportAnswers(answers: string): string;
   free(): void;
   original(): Uint8Array | undefined;
   payload(name: string): string | undefined;
@@ -88,6 +89,7 @@ export interface InitOutput {
   readonly intentengine_acceptDefaults: (a: number, b: number, c: number) => [number, number, number, number];
   readonly intentengine_bom: (a: number, b: number) => [number, number, number, number];
   readonly intentengine_evidence: (a: number) => [number, number, number, number];
+  readonly intentengine_exportAnswers: (a: number, b: number, c: number) => [number, number, number, number];
   readonly intentengine_open: (a: number, b: number, c: number, d: number) => [number, number, number];
   readonly intentengine_openPart: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
   readonly intentengine_original: (a: number) => [number, number];

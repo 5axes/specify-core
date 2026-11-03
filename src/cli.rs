@@ -6,6 +6,7 @@
 //! specify-core analyse STEP -o ANALYSIS [--part K]
 //! specify-core mesh STEP -o MESH [--part K]
 //! specify-core questions ANALYSIS [--answers ANSWERS] [--open]
+//!                        [--resolve-defaults --step STEP]
 //! specify-core write STEP ANALYSIS ANSWERS [ANALYSIS ANSWERS ...] -o OUT
 //!                    [--accept-defaults] [--intent INTENT]
 //! specify-core diff OLD NEW -o DIR [--answers ANSWERS] [--part K] [--title TITLE]
