@@ -22,6 +22,16 @@ fn pair() -> (part::LoadedPart, part::LoadedPart) {
 fn object(value: Value) -> Map<String, Value> {
     value.as_object().unwrap().clone()
 }
+// Revision answer maps now include destination numbering evidence, as well as requirements.
+fn diff_answers(p: &part::LoadedPart, mut expected: Map<String, Value>) -> Map<String, Value> {
+    expected.insert(
+        "_specify".into(),
+        json!({
+            "evidence": resume::evidence(p).unwrap(), "unresolved": {},
+        }),
+    );
+    expected
+}
 fn face(p: &part::LoadedPart, feature: &str, number: usize) -> usize {
     let name = format!("f:named_plate.{feature}.{number};M:named_plate.body");
     p.face_names
@@ -137,7 +147,7 @@ fn rebuilt_names_carry_fit_datum_multi_face_tolerance_and_extra() {
     assert!(!out.migrated.is_empty());
     let report = revision::diff(&old, &new, &before).unwrap();
     assert!(report.unresolved.is_empty(), "{:?}", report.unresolved);
-    assert_eq!(report.answers, answers(&new));
+    assert_eq!(report.answers, diff_answers(&new, answers(&new)));
 }
 
 #[test]
@@ -207,7 +217,10 @@ fn mixed_support_uses_names_and_geometric_correspondence_per_face() {
     let out = rematch(&new, &a, &evidence);
     assert!(out.unresolved.is_empty(), "{out:?}");
     assert_eq!(out.answers, expected);
-    assert_eq!(revision::diff(&old, &new, &a).unwrap().answers, expected);
+    assert_eq!(
+        revision::diff(&old, &new, &a).unwrap().answers,
+        diff_answers(&new, expected)
+    );
 }
 
 #[test]
@@ -330,7 +343,7 @@ fn shared_source_names_are_unnamed_and_new_unique_bindings_still_work() {
     assert_eq!(out.answers, expected);
     assert_eq!(
         revision::diff(&old, &new, &before).unwrap().answers,
-        expected
+        diff_answers(&new, expected)
     );
     // Writing answers on the shared faces succeeds and resumes by geometry.
     let bytes = writer::write_bytes(
