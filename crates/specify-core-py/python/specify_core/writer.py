@@ -17,7 +17,6 @@ class WriteReport:
     not_written: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     geometry_carrier_exemptions: list[dict[str, Any]] = field(default_factory=list)
-
     presentation_warnings: list[str] = field(default_factory=list)
     preserved_normalizations: list[dict[str, Any]] = field(default_factory=list)
 
