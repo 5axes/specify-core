@@ -13,7 +13,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 |---|---:|---:|---:|---:|---:|---:|---:|
 | [analysis](#analysis) | 5 | 0 | 0 | 0 | 0 | 0 | 5 |
 | [anchors](#anchors) | 4 | 0 | 2 | 1 | 2 | 0 | 9 |
-| [cli](#cli) | 260 | 0 | 52 | 0 | 2 | 1 | 315 |
+| [cli](#cli) | 262 | 0 | 52 | 0 | 2 | 1 | 317 |
 | [cross_engine](#cross_engine) | 54 | 2 | 0 | 1 | 1 | 20 | 78 |
 | [existing](#existing) | 30 | 0 | 0 | 0 | 7 | 0 | 37 |
 | [features](#features) | 3460 | 1415 | 543 | 2481 | 1066 | 1878 | 10843 |
@@ -22,7 +22,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 0 | 40 |
 | [rules](#rules) | 114 | 0 | 615 | 0 | 0 | 0 | 729 |
 | [writer](#writer) | 1091 | 0 | 0 | 0 | 15 | 0 | 1106 |
-| **all** | 5024 | 1434 | 1221 | 2487 | 1101 | 1899 | 13166 |
+| **all** | 5026 | 1434 | 1221 | 2487 | 1101 | 1899 | 13168 |
 
 ## analysis
 
@@ -76,7 +76,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## cli
 
-### cli: rust-correct (260 entries)
+### cli: rust-correct (262 entries)
 
 - **Combined ISO 2768 class choices in CLI and serve** (36 entries, 3 case globs)
 
@@ -157,6 +157,10 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 - **Exact tap-drill defaults and dependent question order** (13 entries, 3 case globs)
 
   src/rules/holes.rs prefers an exact tabulated tap drill to an ambiguous smaller clearance screw. Accepted defaults now include the thread and its optional full-thread edit, changing dependent question positions. cli_datum_origins.json.gz pins the complete before/after values; explicit clearance answers remain supported.
+
+- **Complete answer export flags in questions usage and help** (2 entries, 2 case globs)
+
+  questions now exports complete evidence-bearing sidecars with --resolve-defaults --step STEP. tests/cli.rs::command_lines asserts the exact usage/help transformation for this individual capture; every other byte and exit code stays checked. No oracle payload or existing known-difference entry changes.
 
 ### cli: equivalent (52 entries)
 
