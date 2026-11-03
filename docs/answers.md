@@ -84,7 +84,7 @@ answers; the editor's automatic defaults skip blocked IDs.
 
 Supply an explicit valid answer for that ID to acknowledge its refusal (for the split
 bottom, `"datum.A":[4,8]`). This overrides its unresolved entry; future diff output removes
-the resolved entry. Unresolved entries survive repeated diffs until acknowledged. If a
+the resolved entry. Stable carry blocks survive repeated diffs until acknowledged. If a
 question has disappeared entirely, review its removal and explicitly remove its
 `unresolved` entry. Removing all metadata discards these protections.
 
