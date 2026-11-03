@@ -484,6 +484,9 @@ fn all_questions(
     answers: &Map<String, Value>,
     propose: &str,
 ) -> Result<Vec<Question>> {
+    // Every front end reaches the rules here: an ID no question can have is refused, never
+    // ignored (#126).
+    crate::input::ids(answers).map_err(|e| Error::Invalid(e.to_string()))?;
     if let Some(notes) = answers.get("part.notes") {
         note_strings(notes)?;
     }
@@ -1276,7 +1279,78 @@ fn intent(
             .requirements
             .retain(|r| r.get("stored") != Some(&Value::Bool(true)));
     }
+    intent.requirements.extend(unasked(ctx, answers, qs)?);
     Ok(intent)
+}
+
+/// The kind of the intent rows for answers no question takes (see [`unasked`]).
+pub const UNASKED: &str = "unasked";
+
+/// Answers valid in form whose question is not asked given the other answers (#126): a
+/// dependent question such as `datum.A.flatness` or `hole.position:*` disappears when
+/// `part.locating` changes, say. They contribute no PMI, so each becomes a faceless row with a
+/// `not_written_reason`, which every writer lists in `not_written`. The answers themselves are
+/// kept (stored, exported, carried), so the question takes them again if it returns.
+///
+/// Which IDs are asked comes from the rules (`qs`), not a list: only answers the intent reads
+/// directly, whether or not they are asked (`part.*`, `bom.*`, `extra.*` and reserved `_`
+/// members), are exempt.
+fn unasked(
+    ctx: &Ctx<'_>,
+    answers: &Map<String, Value>,
+    qs: &[Question],
+) -> Result<Vec<Map<String, Value>>> {
+    let ids: Vec<&String> = answers
+        .keys()
+        .filter(|id| {
+            !(id.starts_with("part.")
+                || id.starts_with("bom.")
+                || id.starts_with(extras::PREFIX)
+                || id.starts_with('_'))
+                && !qs.iter().any(|q| &q.id == *id)
+        })
+        .collect();
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    // Would the question be asked under the other way of locating holes? One more question
+    // pass, only when some answer is unasked.
+    let locating = answer(answers, qs, "part.locating").and_then(Value::as_str);
+    let other = match locating {
+        Some(current) => {
+            let mut flipped = answers.clone();
+            let to = LOCATING.iter().find(|l| **l != current).unwrap_or(&LOCATING[0]);
+            flipped.insert("part.locating".into(), Value::from(*to));
+            questions_in(ctx, &flipped).ok()
+        }
+        None => None,
+    };
+    let mut rows = Vec::with_capacity(ids.len());
+    for id in ids {
+        let letter = id
+            .strip_prefix("datum.")
+            .filter(|l| l.len() == 1)
+            .and_then(|l| l.chars().next());
+        let why = if let Some(letter) = letter.filter(|&l| ctx.file_datum(l).is_some()) {
+            format!("{id} is not asked: the file already states datum {letter}")
+        } else if let (Some(current), Some(other)) = (locating, &other)
+            && other.iter().any(|q| &q.id == id)
+        {
+            format!("{id} is not asked when part.locating is '{current}'")
+        } else {
+            format!("{id} is not asked of this part given the other answers")
+        };
+        rows.push(object([
+            ("kind", Value::from(UNASKED)),
+            ("answer", Value::from(id.as_str())),
+            ("faces", Value::Array(Vec::new())),
+            (
+                "not_written_reason",
+                Value::from(format!("{why}, so its answer was not written")),
+            ),
+        ]));
+    }
+    Ok(rows)
 }
 
 /// A one-character datum letter, or None.
