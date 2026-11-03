@@ -32,7 +32,7 @@ input part.
 `public/samples/nist_ctc_01_asme1_ap242-e1.stp`, the "NIST CTC-01 with PMI" sample, is NIST's
 Combined Test Case 1 (CTC-01, ASME tolerancing) in its AP242 edition 1, from the NIST MBE PMI
 Validation and Conformance Testing Project, as the file's own header says. It is unmodified: the same bytes as `tests/fixtures/ap242/nist/nist_ctc_01_asme1_ap242-e1.stp.gz` in
-`pzfreo/quiddity-rust` at `v0.4.1` (`a2195eed18057ec33389cd7d59d47dfeb2c20870`), decompressed;
+`pzfreo/quiddity` (then quiddity-rust) at `v0.4.1` (`a2195eed18057ec33389cd7d59d47dfeb2c20870`), decompressed;
 SHA-256 `036683e8358ac27d51a92c35362e175c91bc44d3b600a5c605fb496865edcd37`. NIST's test files are
 works of the US Government and not subject to copyright in the United States (public domain).
 `scripts/fixtures/ctc01-text-filled.step.gz` is the same part with one authored text literal added
