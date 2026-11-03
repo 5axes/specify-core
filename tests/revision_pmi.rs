@@ -1020,7 +1020,9 @@ fn fresh_revision_fixture_pairs_never_cross_requirement_types() {
         ("hole_removed", [0, 9, 0, 4]), // Removed hole requirements retire.
         ("named_plate", [1, 4, 0, 0]), // Thickness really changes 8 to 11.
         ("plate_removed", [0, 4, 2, 5]), // Datum B retires; it does not become C.
-        ("plate_thickened", [2, 17, 3, 5]), // Thickness and location semantics change; no pitch→diameter.
+        // Thickness/location edits remain, without pitch→diameter pairing. The retired M3
+        // pattern's own manufacturing note folds into its thread: five removals become four.
+        ("plate_thickened", [2, 17, 3, 4]),
         ("pmi_split", [1, 7, 4, 7]), // Split supports alter planner semantics, not datum letters.
     ];
     let signature = |scene: &Value, id: &str| {
