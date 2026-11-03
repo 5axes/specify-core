@@ -245,7 +245,14 @@ fn assembly_diff_accepts_each_parts_accept_defaults_map_through_json() {
 fn spindle_diff_scenes_obey_the_editor_link_rule() {
     let (old, new) = (bytes("spindle_pmi.old"), bytes("spindle_pmi.new"));
     let engine = session::Session::open("old.step", &old).unwrap();
-    let answers = engine.accept_defaults(&Map::new()).unwrap();
+    let answers = engine
+        .accept_defaults(
+            &serde_json::from_value(serde_json::json!({
+                "part.material":"steel"
+            }))
+            .unwrap(),
+        )
+        .unwrap();
     let result = session::diff_with_options(
         ("old.step", &old),
         ("new.step", &new),

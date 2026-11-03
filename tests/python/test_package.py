@@ -325,7 +325,7 @@ def test_spindle_diff_scenes_obey_editor_links():
     old = fixtures / "spindle_pmi.old.step.gz"
     new = fixtures / "spindle_pmi.new.step.gz"
     analysis = api.analyse(old)
-    answers = {}
+    answers = dict(STEEL)
     while True:
         defaults = {
             q.id: q.default for q in api.questions(analysis, answers)
