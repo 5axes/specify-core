@@ -1038,7 +1038,8 @@ fn xcaf_plate_combines_imported_and_accepted_notes_without_another_edge_requirem
             .iter()
             .any(|q| q.id == "part.edges")
     );
-    let answers = specify_core::rules::with_all_defaults(&analysis, &Map::new()).unwrap();
+    let mut answers = specify_core::rules::with_all_defaults(&analysis, &Map::new()).unwrap();
+    answers.insert("part.notes".into(), json!(["Inspect machined surfaces"]));
     assert!(!answers.contains_key("part.edges"));
     let cache = Scene::new(&loaded).unwrap();
     let file = cache.scene(&loaded, Some(&analysis), None).unwrap();
@@ -1183,6 +1184,42 @@ fn xcaf_plate_combines_imported_and_accepted_notes_without_another_edge_requirem
     assert!(text.contains("MATERIAL: Alu_G6061_T6"));
     assert!(!text.contains("Break sharp edges 0.2 max"));
     assert_eq!(reopened["specify"]["part.material"]["status"], "existing");
+
+    // Retain the real file's legacy DIMENSION wrappers through a resumed edit too.
+    let saved = part::load_bytes("xcaf-added.step", after.bytes().to_vec()).unwrap();
+    assert_eq!(
+        specify_core::resume::answers_for(&saved).unwrap(),
+        Some(answers.clone())
+    );
+    let mut edited_answers = answers.clone();
+    edited_answers.insert(
+        "part.notes".into(),
+        json!(["Inspect machined surfaces after coating"]),
+    );
+    let analysis = api::analyse(&saved).unwrap();
+    let intent = api::preview(&analysis, &edited_answers).unwrap();
+    let (second, _) = writer::write_bytes(&saved, &intent, Some(&edited_answers)).unwrap();
+    let second = haecceity::p21::Document::parse(second).unwrap();
+    for id in before.ids() {
+        assert_eq!(
+            before.bytes()[before.span(id).unwrap()],
+            second.bytes()[second.span(id).unwrap()],
+            "original entity #{id} changed on edited write"
+        );
+    }
+    let edited = part::load_bytes("xcaf-edited.step", second.bytes().to_vec()).unwrap();
+    assert_eq!(
+        specify_core::existing::part_settings(&edited).unwrap()["material"],
+        "Alu_G6061_T6"
+    );
+    assert_eq!(
+        specify_core::existing::part_settings(&edited).unwrap()["notes"],
+        json!(["Inspect machined surfaces after coating"])
+    );
+    assert_eq!(
+        specify_core::resume::answers_for(&edited).unwrap(),
+        Some(edited_answers)
+    );
 }
 
 #[test]

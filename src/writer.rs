@@ -808,17 +808,20 @@ fn write_verified(
         back
     };
 
+    // Unchanged PMI keeps the original records instead of the verified replacement candidate.
+    // Drop all kernel edit diagnostics: no candidate carriers or presentation were emitted.
+    let kernel_report = if unchanged {
+        KernelWriteReport::default()
+    } else {
+        kernel_report
+    };
     // In an assembly written together, each line says which part it is of.
     let mut report = WriteReport {
         output: first.path.clone(),
         written: Vec::new(),
         not_written: Vec::new(),
         warnings: Vec::new(),
-        geometry_carrier_exemptions: if unchanged {
-            Vec::new()
-        } else {
-            kernel_report.geometry_carrier_exemptions
-        },
+        geometry_carrier_exemptions: kernel_report.geometry_carrier_exemptions,
         presentation_warnings: kernel_report.presentation_warnings,
         preserved_normalizations: kernel_report.preserved_normalizations,
     };
