@@ -40,7 +40,11 @@ def test_export_answers_roundtrip_and_blocking(tmp_path):
     with pytest.raises(IncompleteError, match='carried answer could not be applied') as exc:
         api.export_answers(new, changed, carried)
     assert 'datum.A' in exc.value.missing
+    assert set(carried['_specify']['unresolved']) == {'datum.A', 'datum.A.flatness'}
     carried['datum.A'] = [4, 8]
+    with pytest.raises(IncompleteError, match='datum.A.flatness'):
+        api.export_answers(new, changed, carried)
+    carried['datum.A.flatness'] = saved['datum.A.flatness']
     assert api.export_answers(new, changed, carried)['_specify']['unresolved'] == {}
     with pytest.raises(IncompleteError) as exc:
         api.export_answers(old, analysis, {})

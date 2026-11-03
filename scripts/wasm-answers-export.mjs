@@ -30,7 +30,10 @@ try {
   const carried = JSON.parse(diff('v1.step', oldBytes, 'v2.step', newBytes, text, 'Split')).report.answers;
   assert.equal(carried['part.material'], given['part.material']);
   refuses(() => next.exportAnswers(JSON.stringify(carried)), /datum\.A \(carried answer could not be applied:/);
+  assert.deepEqual(Object.keys(carried._specify.unresolved).sort(), ['datum.A', 'datum.A.flatness']);
   carried['datum.A'] = [4, 8];
+  refuses(() => next.exportAnswers(JSON.stringify(carried)), /datum\.A\.flatness/);
+  carried['datum.A.flatness'] = saved['datum.A.flatness'];
   assert.deepEqual(JSON.parse(next.exportAnswers(JSON.stringify(carried)))._specify.unresolved, {});
 } finally { old.free(); next.free(); }
 console.log('Complete answer export: deterministic sidecars, resume, stale evidence and carry blocks passed');

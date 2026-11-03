@@ -286,7 +286,7 @@ fn export_answers(
     let answers = answers_of(answers)?;
     let index = analysis["binding"]["part"].as_u64().unwrap_or(0) as usize;
     let owned;
-    let handle = match loaded(step, Some(index))? {
+    let handle = match loaded(step, None)? {
         Some(handle) => handle,
         None => {
             owned = load_path(py, step, Some(index))?;
