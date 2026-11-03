@@ -53,6 +53,10 @@ truncate a redirected file before the command runs; export to a temporary path a
 on success when replacing an existing committed sidecar. Existing saved evidence is checked
 before export, so changed geometry cannot be silently restamped with fresh evidence.
 
+Like `write`, export reads answers only from `--answers`, not from answers already stored
+in the STEP: exporting a PMI-written STEP with `{}` refuses its required questions. Pass
+the part's committed sidecar (or the answers you want) explicitly.
+
 The same non-writing operation is available in existing front-end shapes:
 
 - Rust: `api::export_answers(&loaded, &analysis, &answers)` returns an answer map.

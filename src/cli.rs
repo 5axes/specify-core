@@ -155,9 +155,9 @@ positional arguments:
   analysis
 
 options:
-  -h, --help         show this help message and exit
-  --answers ANSWERS  answers JSON: {question id: value}
-  --open             only unanswered questions
+  -h, --help          show this help message and exit
+  --answers ANSWERS   answers JSON: {question id: value}
+  --open              only unanswered questions
   --resolve-defaults  export complete answers with defaults and face evidence as JSON
   --step STEP         matching STEP part for export (required with --resolve-defaults)
 ",

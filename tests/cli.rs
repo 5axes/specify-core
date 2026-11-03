@@ -1331,7 +1331,10 @@ fn command_lines(dir: &Path) -> Vec<Difference> {
                 "usage: specify-core questions [-h] [--answers ANSWERS] [--open] analysis"
             ));
             python.replace("[--open] analysis", "[--open]\n                              [--resolve-defaults --step STEP] analysis")
-                .replace("  --open             only unanswered questions\n", "  --open             only unanswered questions\n  --resolve-defaults  export complete answers with defaults and face evidence as JSON\n  --step STEP         matching STEP part for export (required with --resolve-defaults)\n")
+                // As argparse does, the longer flag widens every option row by one column.
+                .replace("  -h, --help         show", "  -h, --help          show")
+                .replace("  --answers ANSWERS  answers", "  --answers ANSWERS   answers")
+                .replace("  --open             only unanswered questions\n", "  --open              only unanswered questions\n  --resolve-defaults  export complete answers with defaults and face evidence as JSON\n  --step STEP         matching STEP part for export (required with --resolve-defaults)\n")
         };
         let bom_usage = |python: &str| {
             assert!(python.contains("[--accept-defaults] [--intent INTENT]"));
