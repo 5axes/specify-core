@@ -300,7 +300,12 @@ console.log('assembly diff: per-part acceptDefaults JSON accepted; invalid id na
       input: JSON.stringify({ diff: paths }),
     });
     assert.equal(native.status, 0, native.error?.message ?? native.stderr);
-    compare(result, JSON.parse(native.stdout));
+    // Apply the same circular-cap triangulation contract as snapshot parity.
+    const geometry = value => ({
+      ...value,
+      view: { ...value.view, old: meshGeometry(value.view.old), new: meshGeometry(value.view.new) },
+    });
+    compare(geometry(result), geometry(JSON.parse(native.stdout)));
     const thread = result.report.pmi.items.filter(i => i.id.includes('thread:holes:14'));
     assert.equal(thread.length, 1);
     assert.equal(thread[0].id, 'thread:holes:14');
