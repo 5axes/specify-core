@@ -73,13 +73,13 @@ callout, only faces.)
 (the 37.6 / 33.6 / 27.2 / 5 / 1.5 ladder, ⌖⌀0.2 A and ⌖⌀0.3Ⓜ A, ⌀3.3 H11, datums A and B) is
 linked to its semantic items. `19-spindle-semantic-links-only.presentation.json.gz` and
 `.pmi.json.gz` are its `haecceity.presentation/1` and `haecceity.pmi/1`, written by
-`quiddity pmi json presentation` and `quiddity pmi json export` (quiddity-rust branch `cx/q142`
+`quiddity pmi json presentation` and `quiddity pmi json export` (quiddity branch `cx/q142`
 at `3698257`, json feature), gzipped. `scripts/graphical-pmi.test.mjs` reads them;
 `scripts/pmi-scene-wasm.test.mjs` reads the spindle's scene from Specify's pmiScene, and
 `scripts/specify-only-browser.mjs` opens the spindle in /specify and draws it in Graphical (View PMI) from it.
 
 `ctc01-text-filled.step.gz` is haecceity's
-`crates/haecceity/tests/fixtures/presentation/ctc01-text-filled.step.gz` (quiddity-rust `v0.2.8`):
+`crates/haecceity/tests/fixtures/presentation/ctc01-text-filled.step.gz` (quiddity `v0.2.8`):
 NIST CTC-01 with its tessellated (filled) graphical PMI, plus one authored text literal,
 `CTC-01 editable test text` at `[10, 20, 30]`, 3 mm high, that haecceity's `build_fixture.py`
 adds (that directory's README records how). It is the foreign-PMI part: its callouts are the
