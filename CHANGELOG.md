@@ -13,6 +13,10 @@ All notable changes to specify-core-rust. The format follows
   gets a separate `.T.` datum feature. Add upgrades requiring source repairs
   refuse with entity ids and repair details, without a Replace retry. PMI-less
   inputs continue selecting Replace before writing.
+- Refresh thirteen cross-engine STEP byte goldens and four no-BOM hashes for
+  #184's notes placement clear of drawn ink; per-case presentation ids/reasons are
+  documented in the fixture README. All fourteen independent Python semantic
+  readbacks remain identical; both part-index refusals stay fixed.
 - Retain strict API/CLI byte comparisons and per-case cross-engine goldens for
   shared face carriers and direct datum endpoints relative to v0.4.4. Correct the
   CTC-01/CTC-03 fixture reasons: neither original input has a DIMENSION wrapper.

@@ -151,8 +151,10 @@ Adding a datum to a kept carrier now emits an independent `.T.` datum feature;
 it never specializes the original aspect. CTC-01 datum D on face 24 is tested
 through write, reopen and edited write, retaining NIST's perpendicularity and all
 original entity spans. Actual preserved-carrier exceptions are reported as
+`kept-carrier-datum-feature` (a single face), `kept-carrier-datum-composite`,
 `kept-carrier-datum-member` or `kept-carrier-independent-feature` in
-`geometry_carrier_exemptions`.
+`geometry_carrier_exemptions`. These names come from the released code; the
+release summary mentions only the member and independent-feature forms.
 
 Add upgrades requiring source repairs return `AddPreservation`, naming the ids
 and required repairs. Specify reports this as a refused write to CLI/Python/WASM

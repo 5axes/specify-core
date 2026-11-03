@@ -85,7 +85,7 @@ export interface AnalysisFace {
 }
 export interface GeometryCarrierExemption {
   part: number;
-  condition: "shared-carrier-controlled-pair" | "shared-carrier-datum-target-support" | "kept-carrier-datum-member" | "kept-carrier-independent-feature";
+  condition: "shared-carrier-controlled-pair" | "shared-carrier-datum-target-support" | "kept-carrier-datum-member" | "kept-carrier-independent-feature" | "kept-carrier-datum-feature" | "kept-carrier-datum-composite";
   aspect: number;
   feature: number;
 }

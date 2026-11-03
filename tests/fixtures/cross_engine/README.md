@@ -174,3 +174,49 @@ All fourteen decoded independent Python semantic readbacks remain identical;
 metadata records the actual written hashes and clean reference. No known-difference
 entry is removed or changed. Original input spans, foreign dependencies, shared
 carrier removal and stable characteristic numbers are checked in native tests.
+
+## Current pin: v0.4.6 (`1ebf8cb6`)
+
+Regenerated all sixteen cases once with `examples/write_fixtures.rs`. Thirteen
+successful byte goldens change solely for #184's GENERAL NOTES placement, which
+avoids actual projected strokes and row text cells. Entity ids, types and semantic
+records are identical to the parked v0.4.5 outputs. Each notes block changes four
+presentation `COORDINATES_LIST` records and one placement `CARTESIAN_POINT`:
+
+| Case | Changed presentation entity ids / reason |
+|---|---|
+| `nist/nist_ctc_01_asme1_ap242` | 4896, 4900, 4904, 4908, 4913: its GENERAL NOTES block moves clear of ink. |
+| `nist/nist_ctc_03_asme1_ap242` | 6524, 6528, 6532, 6536, 6541: its GENERAL NOTES block moves clear of ink. |
+| `nist/nist_ctc_05_asme1_ap242` | 17296, 17300, 17304, 17308, 17313: its GENERAL NOTES block moves clear of ink. |
+| `parts/a_file_with_two_parts_must_say_which` | 867, 871, 875, 879, 884; 1037, 1041, 1045, 1049, 1054: both parts' notes blocks move clear of ink. |
+| `parts/a_placed_part_is_meshed_in_the_frame_the_analysis_uses` | 684, 688, 692, 696, 701: the placed part's notes block moves clear of ink. |
+| `parts/assembly` | 1732, 1736, 1740, 1744, 1749; 1981, 1985, 1989, 1993, 1998: both parts' notes blocks move clear of ink. |
+| `parts/default_datum_a_takes_every_coplanar_face` | 1697, 1701, 1705, 1709, 1714: its notes block moves clear of ink. |
+| `parts/four_corner_holes_are_quiddity_rectangle_with_members` | 1049, 1053, 1057, 1061, 1066: its notes block moves clear of the rectangle callouts. |
+| `parts/identical_holes_no_pattern_claims_form_a_set` | 873, 877, 881, 885, 890: its notes block moves clear of the hole-set callouts. |
+| `parts/pin` | 508, 512, 516, 520, 525: its notes block moves clear of the pin callouts. |
+| `parts/plate` | 1569, 1573, 1577, 1581, 1586: its notes block moves clear of the plate callouts. |
+| `parts/stack` | 2204, 2208, 2212, 2216, 2221; 2657, 2661, 2665, 2669, 2674; 2843, 2847, 2851, 2855, 2860: all three notes blocks move clear of ink. |
+| `parts/wrapped` | 684, 688, 692, 696, 701: its notes block moves clear of ink. |
+
+`parts/a_hole_along_x_is_labelled_from_its_rim` and both part-index refusals remain
+byte-identical. All fourteen decoded Python semantic readbacks remain identical
+after independent recapture with Python 3.12.13, clean reference `7e2125d`, and its
+frozen `uv.lock` (`--rust-only`). Metadata records actual new hashes; historical
+Python-written specimens and evidence remain frozen. No cross-engine verdict or
+known-difference entry is removed or widened.
+
+The four no-BOM presentation hashes in `tests/bom_opt_in.rs` change for the same
+#184 notes-placement reason, retaining their existing strict history projection:
+
+| Case | New SHA-256 of the compared STEP bytes |
+|---|---|
+| plate, default answers | `476d188c1b42527116bd9564c17c6e0b0f049f7f3d9ffc191f4acff04dee5b81` |
+| assembly, complete answers (with/without default acceptance) | `5eb56a396bed9761a277f2d99c9c7672b1ba3dc47ebd3a2f97002f99a96c27b8` |
+| assembly, default answers | `ec34b34e8972a6e85cd1ec4c464281f0bda0a025a5afaca71d6a7c176f7082eb` |
+| plate, complete answers (with/without default acceptance) | `0d16d5c1cff1368017745881c9b45924ede847a76701eafca456e55ea8dc4285` |
+
+These six API/CLI cases still compare complete output bytes exactly. The v0.4.6
+Add policy introduces no new Specify refusal on this fixture/oracle/corpus tier:
+the six raw-kernel AP203 refusals already use Replace in Specify because they have
+no PMI (per-file repair reasons are in the NIST README).

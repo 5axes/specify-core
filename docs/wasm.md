@@ -590,8 +590,9 @@ omitted when empty:
 
 - `geometry_carrier_exemptions`: `{part, condition, aspect, feature}` records, with
   STEP entity ids and conditions `shared-carrier-controlled-pair`,
-  `shared-carrier-datum-target-support`, `kept-carrier-datum-member` or
-  `kept-carrier-independent-feature`.
+  `shared-carrier-datum-target-support`, `kept-carrier-datum-member`,
+  `kept-carrier-independent-feature`, `kept-carrier-datum-feature` or
+  `kept-carrier-datum-composite`.
 - `preserved_normalizations`: `{id, normalization}` records for original entities
   Add retained instead of normalizing. Values are `legacy-text-rechunking`,
   `kept-usage-factoring`, `functional-sar-isolation`, `functional-sar-unwrapping`

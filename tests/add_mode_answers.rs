@@ -282,14 +282,25 @@ fn ctc01_datum_on_kept_perpendicularity_carrier_preserves_foreign_entities() {
         let intent = api::preview(&analysis, &answers).unwrap();
         let (bytes, report) = writer::write_bytes(&current, &intent, Some(&answers)).unwrap();
         assert_entities_identical(&original, &bytes);
-        assert!(
-            report
-                .geometry_carrier_exemptions
-                .iter()
-                .any(|e| e.feature == 298 && e.condition == "kept-carrier-independent-feature"),
-            "{report:?}"
-        );
+        if number.is_none() {
+            // Only a newly added kept-carrier feature is an actual exemption.
+            assert_eq!(report.geometry_carrier_exemptions.len(), 1, "{report:?}");
+            let added = &report.geometry_carrier_exemptions[0];
+            assert_eq!(added.feature, 298);
+            assert_eq!(added.condition, "kept-carrier-datum-feature");
+        }
         let doc = Document::parse(bytes.clone()).unwrap();
+        let definitions = haecceity::step::read_part_definitions(&bytes).unwrap();
+        let read = haecceity::pmi::read(&doc, &definitions).unwrap();
+        let d = read.parts[0]
+            .datums
+            .iter()
+            .find(|d| d.label().as_str() == "D")
+            .unwrap();
+        let support = &read.provenance.parts[0].features[d.feature().unwrap().0];
+        assert!(support.iter().any(|&id| matches!(doc.get(id), Some(haecceity::p21::RawEntity::Simple { name, attributes, .. })
+            if name == "DATUM_FEATURE" && attributes[3] == haecceity::p21::Attribute::Enum("T".into()))),
+            "D must keep a .T. datum feature even when a rewrite reuses it");
         assert!(
             !haecceity::express_rules::check_all(&doc)
                 .iter()
