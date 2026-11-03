@@ -192,7 +192,8 @@ export function toLabels(
     } else if (e.kind === 'geometric_tolerance') {
       out.push({
         ...base, kind: 'frame',
-        cells: [CHARACTERISTIC[e.type] ?? e.type, fmt(e.value ?? 0), ...(e.datums ?? [])],
+        // A tolerance the file states with no value is drawn without one, never as 0.
+        cells: [CHARACTERISTIC[e.type] ?? e.type, ...(e.value == null ? [] : [fmt(e.value)]), ...(e.datums ?? [])],
       });
     } else if (e.kind === 'note') {
       out.push({ ...base, kind: 'note', cells: [e.type] });
