@@ -70,7 +70,7 @@ pub fn check(loaded: &LoadedPart, answers: &Map<String, Value>) -> Result<(), St
         && !resume::evidence_matches(loaded, evidence).map_err(|e| e.to_string())?
     {
         return Err(
-            "stale answers: saved face evidence refers to different geometry or face numbering; use \
+            "stale answers: saved face evidence refers to different geometry, face numbering or authored names; use \
                     `specify-core diff OLD NEW --answers ANSWERS -o CHANGES` to carry them"
                 .into(),
         );
