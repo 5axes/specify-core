@@ -177,7 +177,9 @@ except where a hash is taken (resume fingerprint, `pyjson.rs`).
   for faces and features: the analysis may come from either engine and from older versions.
 - Mesh: `{format: "pmi-assist-mesh", version: 2, binding, bbox, positions, indices, faces,
   missing, edges}`.
-- Write report: `{output, written, not_written, warnings}`.
+- Write report: `{output, written, not_written, warnings}`. An answer whose question the rules
+  do not ask is an intent row of kind `unasked` with a `not_written_reason`, listed in
+  `not_written` (#126; docs/answers.md).
 - Errors: `IncompleteError { missing, part }`, invalid answer (`ValueError` in Python) as a typed
   `Invalid(String)`, `SpecError`, verification and write failures; the CLI and `serve` map them to
   Python's exit codes and error codes (`incomplete`, `invalid`, `failed`).

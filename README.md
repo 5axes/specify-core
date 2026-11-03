@@ -79,7 +79,9 @@ specify-core write plate.step plate.analysis.json plate.complete.answers.json -o
 ```
 
 `write` refuses until every question has an answer, or `--accept-defaults` supplies the rest.
-It prints a JSON report with `output`, `written`, `not_written` and `warnings`.
+It prints a JSON report with `output`, `written`, `not_written` and `warnings`. `not_written`
+gives each reason, including an answer whose question is not asked given the other answers
+([answers](docs/answers.md#answers-to-questions-not-asked)).
 
 Exit codes:
 - **0:** done.
@@ -104,7 +106,7 @@ intent = api.apply(analysis, answers, accept_defaults=True)
 report = api.write("plate.step", intent, "plate-pmi.step", answers=answers)
 
 print(report.written)       # ['datum A', 'Ø8 H7 on holes:9', 'position 0.05 on holes:9', ...]
-print(report.not_written)   # anything not written, with the reason
+print(report.not_written)   # anything not written, with the reason (an unasked answer too)
 ```
 
 The other functions are listed in the [package README](crates/specify-core-py/README.md):

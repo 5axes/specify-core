@@ -39,7 +39,8 @@ map** to stdout, rather than a question list, and never writes STEP. `--step` is
 an analysis alone cannot supply verified face evidence. Its binding selects the part of an
 assembly and must match that STEP. `--open` cannot be combined with export.
 
-The map contains every supplied answer and each accepted PMI default, including defaults
+The map contains every supplied answer (including any whose question is not asked; see
+below) and each accepted PMI default, including defaults
 of questions revealed by earlier answers, plus `_specify.evidence` for this part and
 `_specify.unresolved: {}`. Optional BOM suggestions remain opt-in; supplied BOM answers
 are preserved. Output recursively sorts object keys, uses two-space indentation and a
@@ -73,6 +74,38 @@ their existing return shapes. Exported maps can be passed directly to `write`, `
 questions/review, serve, Python and WASM. Writing the unchanged part from the export gives
 the same semantic PMI as accepting the original defaults. Writing changed geometry is
 refused as stale; carry with `diff` instead, then explicitly resolve its blocks.
+
+## Answers to questions not asked
+
+An answer can be valid in form while its question is not asked, given the other answers.
+Dependent questions come and go: with `part.locating` `"± dimensions"` there is no
+`datum.A.flatness`, `datum.B.control`/`datum.C.control`, `hole.position:*`, `hole.frame:*` or
+`diameter.runout:*`, and with `"position tolerances"` no `hole.location:*`; a full-thread
+depth is asked only of a blind tapped hole; a datum the file already states is not asked.
+Which IDs are asked is the rules' question list, the same as `questions` returns.
+
+Such an answer contributes no PMI, and is **never dropped silently**. `apply` and `preview`
+add a faceless intent row `{"kind":"unasked","answer":ID,"faces":[],"not_written_reason":…}`,
+and every write report (CLI, serve, Python, WASM) lists it in `not_written`:
+
+```text
+datum.A.flatness is not asked when part.locating is '± dimensions', so its answer was not written
+```
+
+Where switching `part.locating` would ask it, the reason says so; otherwise it says the
+question is not asked of this part given the other answers, or that the file already states
+the datum. `apply` does not refuse these answers: callers revising answers across a change
+of `part.locating` keep both modes' answers, and the question takes its answer again when it
+returns. The answer is still stored in the STEP with the others, exported unchanged by
+`questions --resolve-defaults` (dropping it would lose it, and refusing would break the same
+callers), and carried by `diff` like any other answer. Its value is checked against the
+question's options only while the question is asked. `part.*`, `bom.*` and `extra.*` answers
+are read whether or not asked, so they never appear here.
+
+An ID that **no** question can have, such as `bogus.question`, is refused with
+`Invalid answers: bogus.question: unknown answer ID` by every entry point: Rust `api`,
+CLI, serve, Python and WASM. `extra.*` requirements and the reserved `_specify*` members
+remain accepted.
 
 ## Specify metadata
 

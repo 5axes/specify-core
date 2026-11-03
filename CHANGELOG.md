@@ -33,6 +33,12 @@ All notable changes to specify-core-rust. The format follows
 
 ### Fixed
 
+- An answer valid in form whose question is not asked given the other answers (e.g.
+  `datum.A.flatness` or `hole.position:*` with `part.locating` `"± dimensions"`) is listed in
+  every write report's `not_written` with the reason, instead of being dropped silently. It
+  stays stored and exported; `apply` does not refuse it. Rust `api`, CLI, serve and Python now
+  refuse an answer ID no question can have (`unknown answer ID`), as WASM already did.
+  For #126.
 - Export the complete answer set before writing with `questions --resolve-defaults
   --step STEP`, serve `export_answers`, Python `api.export_answers` and WASM
   `engine.exportAnswers`. Accepted defaults are explicit, including dependent questions;
