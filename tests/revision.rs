@@ -256,7 +256,19 @@ fn the_command_line_writes_the_answers_report_and_picture() {
     assert!(report.get("answers").is_some() && report.get("check_lines").is_none());
     let carried: Value =
         serde_json::from_str(&std::fs::read_to_string(dir.join("answers.json")).unwrap()).unwrap();
-    assert_eq!(carried, json!({ "hole.function:holes:8": "general" }));
+    // The same carried requirement now includes destination evidence and the removed answer's
+    // exact refusal, so a later bulk-default write cannot erase that decision.
+    let destination = load(&fixture("new"), None).unwrap();
+    assert_eq!(
+        carried,
+        json!({
+            "hole.function:holes:8": "general",
+            "_specify": {
+                "evidence": specify_core::resume::evidence(&destination).unwrap(),
+                "unresolved": {"hole.function:holes:7": "the Ø7 × 10 through hole was removed"},
+            },
+        })
+    );
     let md = std::fs::read_to_string(dir.join("report.md")).unwrap();
     assert!(md.starts_with("### Plate: Specify\n\n⚠️"), "{md}");
     assert!(
@@ -338,7 +350,22 @@ fn a_datum_s_settings_stay_open_with_their_datum() {
         [("datum.A", "orphaned"), ("datum.A.flatness", "orphaned")]
     );
     assert_eq!(r.unresolved[1].reason, "its datum datum.A is unresolved");
-    assert_eq!(r.answers.keys().collect::<Vec<_>>(), ["datum.B"]);
+    // Unresolved datum settings are now transported with their parent, not silently lost.
+    assert_eq!(
+        r.answers.keys().collect::<Vec<_>>(),
+        ["datum.B", "_specify"]
+    );
+    let (_, destination) = pair("hole_removed");
+    assert_eq!(
+        r.answers["_specify"],
+        json!({
+            "evidence": specify_core::resume::evidence(&destination).unwrap(),
+            "unresolved": {
+                "datum.A": r.unresolved[0].reason,
+                "datum.A.flatness": "its datum datum.A is unresolved",
+            },
+        })
+    );
 }
 
 #[test]
