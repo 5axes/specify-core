@@ -20,7 +20,7 @@ can't place is listed, never silently moved.
 
 It is deterministic (rules and standards tables, no AI) and pure Rust: no OpenCascade, no
 Python. Feature recognition and the STEP/AP242 kernel come from
-[quiddity-rust](https://github.com/pzfreo/quiddity-rust).
+[pzfreo/quiddity](https://github.com/pzfreo/quiddity).
 
 **Try it in the browser, with nothing to install:**
 - [**draftwright.io/specify**](https://draftwright.io/specify): open a STEP part, answer the questions in 3D, and download the STEP with its PMI.

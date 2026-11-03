@@ -6,6 +6,31 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+### Changed
+
+- Move native, WASM and Python builds from quiddity/haecceity v0.4.4 to v0.4.6
+  (`1ebf8cb6`).
+  Add preserves original entity bytes in the kernel; a datum on a kept carrier
+  gets a separate `.T.` datum feature. Add upgrades requiring source repairs
+  refuse with entity ids and repair details, without a Replace retry. PMI-less
+  inputs continue selecting Replace before writing.
+- Share per-face geometry carriers and reference datum features directly (#181).
+  Specify stamps new complex carriers and protects carriers and face support shared
+  with foreign requirements during owned-item removal; characteristic numbers stay stable.
+- Adopt reader `haecceity-pmi-read/15` in place of /14, including authored standalone
+  members named `haecceity.feature/1`. A datum whose feature reaches no face is an
+  `Unresolved` finding, surfaced as a new `PMI unresolved datum …` analysis/CLI warning.
+- Refresh cross-engine STEP byte goldens and four no-BOM hashes for shared-carrier
+  and direct-datum links and #184's notes placement clear of drawn ink. Per-case
+  reasons are documented in the fixture README. All fourteen independent Python
+  semantic readbacks remain identical; both part-index refusals stay fixed.
+- Add optional `geometry_carrier_exemptions` (`{part, condition, aspect, feature}`),
+  `preserved_normalizations` (`{id, normalization}`) and `presentation_warnings` to
+  native/CLI, Python and WASM write reports. Update the packaged presentation schema
+  for optional model-space `Graphic.leader`; the semantic schema stays unchanged.
+- Source the v0.4.6 kernel from `pzfreo/quiddity`, renamed from `pzfreo/quiddity-rust`.
+  The crates remain named `quiddity` and `haecceity`; GitHub redirects the former URL.
+
 ### Fixed
 
 - Export the complete answer set before writing with `questions --resolve-defaults
@@ -31,7 +56,11 @@ All notable changes to specify-core-rust. The format follows
   old plain files remain compatible with new tools.
 - Diff refuses stale answer evidence with exit 2 and asks for the matching old part,
   instead of suggesting `diff` again while already comparing revisions.
-
+- Diff folds a thread's own `thread manufacturing` note into its thread item when
+  owner id, faces and drawing wording agree. Added, removed and changed threads
+  appear once; manufacturing-only edits still change the thread item with its
+  drawing wording. Other manufacturing notes remain separate across native, CLI,
+  WASM and Python diff.
 - Analysis `existing` records (and Python `ExistingPmi`) mark a basic dimension with
   `basic: true`, as does the scene's `specify[id]` metadata, and diff words add ` (basic)`.
   Basic dimensions such as cadgen's "theoretical" 30 and 50 on the PMI plate were read by
@@ -46,6 +75,10 @@ All notable changes to specify-core-rust. The format follows
   in answer maps; default acceptance and writes enforce carry blocks and face evidence.
 
 - `PmiSceneMetadata` adds optional `basic: true` for a basic (theoretically exact) dimension.
+- Add `WriteReport`, `GeometryCarrierExemption` and `PreservedNormalization`
+  interfaces, with optional `geometry_carrier_exemptions`, `presentation_warnings`
+  and `preserved_normalizations` report keys. Expose optional `PmiSceneGraphic.leader`
+  in millimetres.
 
 ## 0.1.8 (2026-11-02)
 

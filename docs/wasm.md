@@ -427,6 +427,11 @@ use empty arrays. `old_id` appears on paired changed/renumbered items only when
 it differs from `id`; use `old_id ?? id` to ghost the old callout. Renumbering
 semantics and characteristic-number matching are unchanged.
 
+A thread's own `thread manufacturing` note folds into its thread item when owner
+id, face anchors and drawing wording match. Manufacturing-only edits still change
+that item, with drawing wording in `old` / `new`; other notes remain separate.
+The optional scenes retain both semantic records. See the [shared fold rule](diff.md#pmi-requirements).
+
 Pass an optional seventh argument `true` to `diff` to include
 `report.pmi.scenes: {old: PmiScene, new: PmiScene}` (also in each matched assembly
 part's report). Omitted/false keeps scene documents out of the report; removing
@@ -551,7 +556,7 @@ packaged schemas are `specify_core/schema/haecceity.pmi-1.json` and
 `specify_core/schema/haecceity.presentation-1.json`.
 
 Scene export uses haecceity's serialise-only `json` feature in native, WASM and Python.
-`json-import` is not enabled. The Python package ships the v0.4.4 schemas as data; its
+`json-import` is not enabled. The Python package ships the v0.4.6 schemas as data; its
 smoke tests validate exports with Python's `jsonschema`, keeping schemas and import
 validation code out of the WASM binary.
 
@@ -562,7 +567,7 @@ Haecceity v0.4.4 adds optional `polyline_roles`, parallel to
 with x along `x_axis` and y along `normal × x_axis`. Hosts can fit and centre their
 own font in that box. File graphics omit roles/boxes unless known. These additive
 fields keep schema `/1`; strict `deny_unknown_fields` consumers must update their
-types. Specify passes both through unchanged. Native, WASM and Python builds pin the released v0.4.4 tag; no local path
+types. Specify passes both through unchanged. Native, WASM and Python builds pin the released v0.4.6 tag; no local path
 patch is needed.
 
 In the role array, `text` includes explicit ISO glyph strokes already represented
@@ -589,3 +594,24 @@ Mixed-file rewrites require a writer implementing `pmi_scope`. Older writers, in
 scope; their replacement rules do not guarantee preservation of foreign PMI. Use the
 scoped writer for these rewrites. Existing 0.1.7 Add-mode files without saved answers keep
 their existing-PMI opening behavior in this engine.
+
+With v0.4.6, native/CLI, Python and WASM write reports expose these optional keys,
+omitted when empty:
+
+- `geometry_carrier_exemptions`: `{part, condition, aspect, feature}` records, with
+  STEP entity ids and conditions `shared-carrier-controlled-pair`,
+  `shared-carrier-datum-target-support`, `kept-carrier-datum-member`,
+  `kept-carrier-independent-feature`, `kept-carrier-datum-feature` or
+  `kept-carrier-datum-composite`.
+- `preserved_normalizations`: `{id, normalization}` records for original entities
+  Add retained instead of normalizing. Values are `legacy-text-rechunking`,
+  `kept-usage-factoring`, `functional-sar-isolation`, `functional-sar-unwrapping`
+  and `legacy-endpoint-retirement`.
+- `presentation_warnings`: strings naming callout placement or glyph diagnostics.
+
+`PmiSceneGraphic.leader` is an optional model-space leader tip in millimetres.
+The packaged v0.4.6 presentation schema includes it; the semantic schema is unchanged.
+Specify passes the field through but does not yet accept a source-presentation companion.
+Add preserves original entities in the kernel. It can add a separate datum feature
+on a kept carrier; an upgrade requiring original-entity repairs instead fails with
+ids and repair details. Specify never automatically retries a refused Add with Replace.
