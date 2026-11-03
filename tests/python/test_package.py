@@ -325,7 +325,7 @@ def test_spindle_diff_scenes_obey_editor_links():
     old = fixtures / "spindle_pmi.old.step.gz"
     new = fixtures / "spindle_pmi.new.step.gz"
     analysis = api.analyse(old)
-    answers = dict(STEEL)
+    answers = {}
     while True:
         defaults = {
             q.id: q.default for q in api.questions(analysis, answers)
@@ -335,6 +335,11 @@ def test_spindle_diff_scenes_obey_editor_links():
             break
         answers.update(defaults)
     report = api.diff(old, new, answers, scenes=True)["report"]
+    thread = [item for item in report["pmi"]["items"] if "thread:holes:14" in item["id"]]
+    assert len(thread) == 1
+    assert thread[0]["id"] == "thread:holes:14"
+    assert thread[0]["class"] == "removed"
+    assert thread[0]["old"] == "M4×0.7-6H THRU"
     for side in ("old", "new"):
         scene = report["pmi"]["scenes"][side]
         ids = {

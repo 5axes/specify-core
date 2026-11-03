@@ -9,6 +9,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut input = String::new();
     io::stdin().read_to_string(&mut input)?;
     let request: Value = serde_json::from_str(&input)?;
+    if let Some(pair) = request["diff"].as_array() {
+        let old = part::File::read(std::path::Path::new(pair[0].as_str().ok_or("old path")?))?;
+        let new = part::File::read(std::path::Path::new(pair[1].as_str().ok_or("new path")?))?;
+        let session = Session::open("old.step", old.bytes())?;
+        let defaults = session.accept_defaults(&Map::new())?;
+        println!(
+            "{}",
+            specify_core_wasm::session::diff_with_options(
+                ("old.step", old.bytes()),
+                ("new.step", new.bytes()),
+                &defaults,
+                "Spindle",
+                specify_core::revision::DiffOptions { scenes: true },
+            )?
+        );
+        return Ok(());
+    }
     let name = request["name"].as_str().ok_or("missing name")?;
     let bytes = std::fs::read(request["path"].as_str().ok_or("missing path")?)?;
     let answers: Map<String, Value> = serde_json::from_value(request["answers"].clone())?;

@@ -11,7 +11,7 @@ const root = new URL('../', import.meta.url);
 const wasm = readFileSync(new URL('crates/specify-core-wasm/pkg/specify_core_wasm_bg.wasm', root));
 await init({ module_or_path: wasm });
 start();
-const executable = fileURLToPath(new URL('target/release/examples/parity_reference', root));
+const executable = join(process.env.CARGO_TARGET_DIR || fileURLToPath(new URL('target', root)), 'release/examples/parity_reference');
 const project = Buffer.from(JSON.stringify({ revision: 1, drawing: 'front' })).toString('base64');
 
 // Geometric calculations may differ in their last bits between native and WASM libm.
@@ -286,3 +286,26 @@ console.log('assemblies: parts listed, a part opened, written into the original 
   throwsString(() => diff('old.step', bytes, 'new.step', bytes, JSON.stringify(answers), 'Assembly'), /part "plate".*part.nope.*unknown answer ID/);
 }
 console.log('assembly diff: per-part acceptDefaults JSON accepted; invalid id names its part');
+
+// The editor's spindle pair with acceptDefaults('{}'): the manufacturing note is
+// part of its own thread, with one review line and the full scenes still available.
+{
+  const paths = ['old', 'new'].map(side => fileURLToPath(new URL(`tests/fixtures/revisions/spindle_pmi.${side}.step.gz`, root)));
+  const [old, next] = paths.map(path => gunzipSync(readFileSync(path)));
+  const engine = new IntentEngine('old.step', old);
+  try {
+    const result = JSON.parse(diff('old.step', old, 'new.step', next, engine.acceptDefaults('{}'), 'Spindle', true));
+    const native = spawnSync(executable, [], {
+      cwd: fileURLToPath(root), encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
+      input: JSON.stringify({ diff: paths }),
+    });
+    assert.equal(native.status, 0, native.error?.message ?? native.stderr);
+    compare(result, JSON.parse(native.stdout));
+    const thread = result.report.pmi.items.filter(i => i.id.includes('thread:holes:14'));
+    assert.equal(thread.length, 1);
+    assert.equal(thread[0].id, 'thread:holes:14');
+    assert.equal(thread[0].class, 'removed');
+    assert.equal(thread[0].old, 'M4×0.7-6H THRU');
+  } finally { engine.free(); }
+}
+console.log('spindle diff: accepted defaults, folded thread and full scene parity passed');

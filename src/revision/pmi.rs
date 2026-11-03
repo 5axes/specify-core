@@ -837,9 +837,14 @@ mod tests {
 
     #[test]
     fn folded_note_edits_survive_unchanged_thread_semantics() {
-        let before = thread_scene("M4×0.7-6H ↧ 2", "2");
-        for wording in ["M4×0.7-6H ↧ 1.8", "M4×0.7-6H ↧ 2"] {
-            let after = thread_scene(wording, "1.8");
+        for (wording, property) in [
+            ("M4×0.7-6H ↧ 1.8", "minimum full thread"),
+            ("M4×0.7-6H ↧ 2", "tapping drill diameter"),
+        ] {
+            let mut before = thread_scene("M4×0.7-6H ↧ 2", "2");
+            let mut after = thread_scene(wording, "1.8");
+            before["pmi"]["pmi"]["attributes"][0]["value"]["items"][0][0] = json!(property);
+            after["pmi"]["pmi"]["attributes"][0]["value"]["items"][0][0] = json!(property);
             assert_eq!(
                 before["pmi"]["pmi"]["threads"],
                 after["pmi"]["pmi"]["threads"]
@@ -868,42 +873,52 @@ mod tests {
 
     #[test]
     fn thread_notes_fold_only_with_the_same_owner_faces_and_wording() {
-        let note = "attribute:thread:holes:14:thread manufacturing:0";
+        let own_note = "attribute:thread:holes:14:thread manufacturing:0";
+        let other_note = "attribute:thread:holes:14:thread manufacturing:1";
         let own = thread_scene("M4×0.7-6H THRU", "2");
         for mismatch in ["owner", "faces", "wording", "missing", "name"] {
             let mut scene = own.clone();
+            let mut extra = scene["pmi"]["pmi"]["attributes"][0].clone();
+            extra["id"] = json!(other_note);
+            scene["pmi"]["pmi"]["attributes"]
+                .as_array_mut()
+                .unwrap()
+                .push(extra);
+            scene["specify"][other_note] = scene["specify"][own_note].clone();
+            let mut note = other_note;
             match mismatch {
                 "owner" => {
                     let id = "attribute:thread:holes:15:thread manufacturing:0";
-                    scene["pmi"]["pmi"]["attributes"][0]["id"] = json!(id);
+                    scene["pmi"]["pmi"]["attributes"][1]["id"] = json!(id);
                     let meta = scene["specify"]
                         .as_object_mut()
                         .unwrap()
                         .remove(note)
                         .unwrap();
                     scene["specify"][id] = meta;
+                    note = id;
                 }
-                "faces" => scene["pmi"]["pmi"]["attributes"][0]["value"]["on"] = json!({"face":15}),
+                "faces" => scene["pmi"]["pmi"]["attributes"][1]["value"]["on"] = json!({"face":15}),
                 "wording" => scene["specify"][note]["notation"] = json!("Use forming tap"),
                 "missing" => scene["pmi"]["pmi"]["threads"] = json!([]),
                 "name" => {
-                    scene["pmi"]["pmi"]["attributes"][0]["value"]["name"] = json!("inspection")
+                    scene["pmi"]["pmi"]["attributes"][1]["value"]["name"] = json!("inspection")
                 }
                 _ => unreachable!(),
             }
             let changes = compare(&[], &items(&scene), &BTreeMap::new(), &[], &[], false);
-            assert_eq!(
-                changes.len(),
-                if mismatch == "missing" { 1 } else { 2 },
-                "{mismatch}: {changes:?}"
-            );
+            assert_eq!(changes.len(), 2, "{mismatch}: {changes:?}");
             assert!(
-                changes.iter().any(|i| i.kind == "note"),
+                changes.iter().any(|i| i.kind == "note" && i.id == note),
                 "{mismatch}: {changes:?}"
             );
+            if mismatch == "missing" {
+                assert!(changes.iter().all(|i| i.kind == "note"));
+            } else {
+                assert!(changes.iter().any(|i| i.kind == "thread"));
+                assert!(!changes.iter().any(|i| i.id == own_note));
+            }
         }
-        // The companion control is the thread's own note with matching support and wording.
-        assert_eq!(items(&own).len(), 1);
     }
 
     fn control(id: &str, faces: Vec<usize>, text: &str) -> Item {

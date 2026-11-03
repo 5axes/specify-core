@@ -422,6 +422,11 @@ use empty arrays. `old_id` appears on paired changed/renumbered items only when
 it differs from `id`; use `old_id ?? id` to ghost the old callout. Renumbering
 semantics and characteristic-number matching are unchanged.
 
+A thread's own `thread manufacturing` note folds into its thread item when owner
+id, face anchors and drawing wording match. Manufacturing-only edits still change
+that item, with drawing wording in `old` / `new`; other notes remain separate.
+The optional scenes retain both semantic records. See the [shared fold rule](diff.md#pmi-requirements).
+
 Pass an optional seventh argument `true` to `diff` to include
 `report.pmi.scenes: {old: PmiScene, new: PmiScene}` (also in each matched assembly
 part's report). Omitted/false keeps scene documents out of the report; removing

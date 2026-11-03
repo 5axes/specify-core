@@ -245,14 +245,7 @@ fn assembly_diff_accepts_each_parts_accept_defaults_map_through_json() {
 fn spindle_diff_scenes_obey_the_editor_link_rule() {
     let (old, new) = (bytes("spindle_pmi.old"), bytes("spindle_pmi.new"));
     let engine = session::Session::open("old.step", &old).unwrap();
-    let answers = engine
-        .accept_defaults(
-            &serde_json::from_value(serde_json::json!({
-                "part.material":"steel"
-            }))
-            .unwrap(),
-        )
-        .unwrap();
+    let answers = engine.accept_defaults(&Map::new()).unwrap();
     let result = session::diff_with_options(
         ("old.step", &old),
         ("new.step", &new),
@@ -261,6 +254,20 @@ fn spindle_diff_scenes_obey_the_editor_link_rule() {
         revision::DiffOptions { scenes: true },
     )
     .unwrap();
+    let thread: Vec<_> = result["report"]["pmi"]["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|i| {
+            i["id"]
+                .as_str()
+                .is_some_and(|id| id.contains("thread:holes:14"))
+        })
+        .collect();
+    assert_eq!(thread.len(), 1, "{thread:?}");
+    assert_eq!(thread[0]["id"], "thread:holes:14");
+    assert_eq!(thread[0]["old"], "M4×0.7-6H THRU");
+    assert_eq!(thread[0]["class"], "removed");
     for side in ["old", "new"] {
         let scene = &result["report"]["pmi"]["scenes"][side];
         let ids: std::collections::BTreeSet<_> = ["pmi", "units"]
