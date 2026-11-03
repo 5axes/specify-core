@@ -772,7 +772,7 @@ fn diff(old: &Path, new: &Path, args: &Args, out: &mut impl Write) -> Result<(),
             scenes: args.flag("--pmi-scenes"),
         },
     )
-    .map_err(Exit::error)?;
+    .map_err(refused)?;
     let dir = PathBuf::from(args.value("--output").expect("required"));
     std::fs::create_dir_all(&dir).map_err(|e| Exit::error(format!("{}: {e}", dir.display())))?;
     let title = args.value("--title").map(String::from).unwrap_or_else(|| {

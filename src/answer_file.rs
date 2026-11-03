@@ -26,14 +26,25 @@ pub fn validate(answers: &Map<String, Value>) -> Result<(), String> {
     Ok(())
 }
 
+// These question IDs keep their meaning across revisions. Feature IDs encode old face
+// indices and may already name a different feature in the destination. Extra requirements
+// have no defaultable question; their failed supports remain in the diff report too.
+fn stable_question(id: &str) -> bool {
+    id.starts_with("datum.") || id.starts_with("part.") || id.starts_with("bom.")
+}
+
+/// The refusal for an unanswered, revision-stable question. Never shadow a reused feature ID,
+/// including when reading metadata produced before this restriction was introduced.
+pub fn block_reason<'a>(answers: &'a Map<String, Value>, id: &str) -> Option<&'a str> {
+    if !stable_question(id) || answers.contains_key(id) {
+        return None;
+    }
+    answers.get(META)?.get("unresolved")?.get(id)?.as_str()
+}
+
 /// An explicit answer acknowledges the carry refusal for that ID. Defaults never do.
 pub fn blocked(answers: &Map<String, Value>, id: &str) -> bool {
-    !answers.contains_key(id)
-        && answers
-            .get(META)
-            .and_then(|m| m.get("unresolved"))
-            .and_then(|u| u.get(id))
-            .is_some()
+    block_reason(answers, id).is_some()
 }
 
 pub fn require_resolved(answers: &Map<String, Value>) -> rules::Result<()> {
@@ -57,7 +68,7 @@ fn unresolved(answers: &Map<String, Value>) -> Map<String, Value> {
         .and_then(Value::as_object)
         .into_iter()
         .flatten()
-        .filter(|(id, _)| !answers.contains_key(*id))
+        .filter(|(id, _)| stable_question(id) && !answers.contains_key(*id))
         .map(|(id, reason)| (id.clone(), reason.clone()))
         .collect()
 }
@@ -65,10 +76,7 @@ fn unresolved(answers: &Map<String, Value>) -> Map<String, Value> {
 /// Verify the saved numbering against actual geometry, even when intent used a fresh analysis.
 /// Plain maps have no evidence and retain their historical trust-by-index semantics.
 pub fn check(loaded: &LoadedPart, answers: &Map<String, Value>) -> Result<(), String> {
-    validate(answers)?;
-    if let Some(evidence) = answers.get(META).and_then(|m| m.get("evidence"))
-        && !resume::evidence_matches(loaded, evidence).map_err(|e| e.to_string())?
-    {
+    if !matches(loaded, answers)? {
         return Err(
             "stale answers: saved face evidence refers to different geometry, face numbering or authored names; use \
                     `specify-core diff OLD NEW --answers ANSWERS -o CHANGES` to carry them"
@@ -76,6 +84,22 @@ pub fn check(loaded: &LoadedPart, answers: &Map<String, Value>) -> Result<(), St
         );
     }
     Ok(())
+}
+
+/// A diff must start with the revision to which the saved face indices belong.
+pub fn check_for_diff(loaded: &LoadedPart, answers: &Map<String, Value>) -> Result<(), String> {
+    if !matches(loaded, answers)? {
+        return Err("stale answers: the answers file belongs to another revision; pass the matching old part as OLD".into());
+    }
+    Ok(())
+}
+
+fn matches(loaded: &LoadedPart, answers: &Map<String, Value>) -> Result<bool, String> {
+    validate(answers)?;
+    match answers.get(META).and_then(|m| m.get("evidence")) {
+        Some(evidence) => resume::evidence_matches(loaded, evidence).map_err(|e| e.to_string()),
+        None => Ok(true),
+    }
 }
 
 /// Attach evidence for the destination and retain unresolved decisions across repeated diffs.
@@ -87,7 +111,12 @@ pub fn attach(
     dropped: impl IntoIterator<Item = (String, String)>,
 ) -> Result<(), String> {
     let mut unresolved = unresolved(previous);
-    unresolved.extend(dropped.into_iter().map(|(id, reason)| (id, json!(reason))));
+    unresolved.extend(
+        dropped
+            .into_iter()
+            .filter(|(id, _)| stable_question(id))
+            .map(|(id, reason)| (id, json!(reason))),
+    );
     unresolved.retain(|id, _| !answers.contains_key(id));
     answers.insert(
         META.into(),

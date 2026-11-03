@@ -425,7 +425,7 @@ impl Intent {
 /// in ± mode and when every feature uses the general tolerance. Datums the person changes
 /// or removes remain questions; a file's own frame is retained.
 pub fn questions(analysis: &Value, answers: &Map<String, Value>) -> Result<Vec<Question>> {
-    questions_in(&Ctx::new(analysis)?, answers)
+    carry_review(questions_in(&Ctx::new(analysis)?, answers)?, answers)
 }
 
 /// `_questions` with the letters to `propose` given, for tests of the proposal itself.
@@ -434,7 +434,29 @@ pub fn questions_proposing(
     answers: &Map<String, Value>,
     propose: &str,
 ) -> Result<Vec<Question>> {
-    all_questions(&Ctx::new(analysis)?, answers, propose)
+    carry_review(
+        all_questions(&Ctx::new(analysis)?, answers, propose)?,
+        answers,
+    )
+}
+
+// Presentation removes a blocked suggestion without changing the internal hypothetical
+// questions used to compute prospective diagnostics. Applying defaults still checks the
+// carry block independently, before any default is accepted.
+fn carry_review(
+    mut questions: Vec<Question>,
+    answers: &Map<String, Value>,
+) -> Result<Vec<Question>> {
+    crate::answer_file::validate(answers).map_err(Error::Invalid)?;
+    for q in &mut questions {
+        if let Some(reason) = crate::answer_file::block_reason(answers, &q.id) {
+            q.default = None;
+            q.attention = "required";
+            q.reason = format!("carried answer could not be applied: {reason}");
+            q.basis.clear();
+        }
+    }
+    Ok(questions)
 }
 
 pub(crate) fn questions_in(ctx: &Ctx<'_>, answers: &Map<String, Value>) -> Result<Vec<Question>> {

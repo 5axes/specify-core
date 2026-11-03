@@ -1495,7 +1495,7 @@ pub fn diff_with_options(
     given: &Map<String, Value>,
     options: DiffOptions,
 ) -> Result<Revised> {
-    crate::answer_file::check(old, given)
+    crate::answer_file::check_for_diff(old, given)
         .map_err(|why| api::Error::Rules(crate::rules::Error::Invalid(why)))?;
     // One recognition of each part, for both its analysis and its fingerprints.
     let old_q = qc::recognise(&old.part);

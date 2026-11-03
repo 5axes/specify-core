@@ -2136,6 +2136,28 @@ fn dropped_carried_datum_cannot_be_bulk_defaulted_and_explicit_answer_clears_it(
         .unwrap()["reason"]
         .as_str()
         .unwrap();
+    let analysis = dir.join("questions.analysis.json");
+    save(&analysis, &api::analyse_file(&new, None).unwrap());
+    let asked = run(&[
+        "questions",
+        &s(&analysis),
+        "--answers",
+        &s(&dir.join("changes/answers.json")),
+    ]);
+    assert_eq!(asked.code, 0, "{}", asked.stderr);
+    let questions: Value = serde_json::from_str(&asked.stdout).unwrap();
+    let q = questions
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|q| q["id"] == "datum.A")
+        .unwrap();
+    assert_eq!(q["default"], json!(null));
+    assert_eq!(q["attention"], "required");
+    assert_eq!(
+        q["reason"],
+        format!("carried answer could not be applied: {reason}")
+    );
     let done = split_write(&dir, &new, &dir.join("changes/answers.json"));
     assert_eq!(done.code, 2, "{}", done.stderr);
     assert!(
@@ -2184,4 +2206,51 @@ fn plain_maps_have_no_geometry_history_and_remain_compatible() {
         // The same map could be newly handwritten for either part: no provenance to check.
         assert_eq!(done.code, 0, "{}", done.stderr);
     }
+}
+
+#[test]
+fn diff_refuses_answers_from_another_old_revision_with_actionable_exit_two() {
+    let dir = scratch("diff-stale-evidence");
+    let old = split_plate("old");
+    let new = split_plate("new");
+    split_diff(&dir, &old);
+    let saved = dir.join("changes/answers.json");
+    let rejected = dir.join("wrong-old");
+    let done = run(&[
+        "diff",
+        &s(&new),
+        &s(&new),
+        "--answers",
+        &s(&saved),
+        "-o",
+        &s(&rejected),
+    ]);
+    assert_eq!(done.code, 2, "{}", done.stderr);
+    assert!(
+        done.stderr
+            .contains("answers file belongs to another revision"),
+        "{}",
+        done.stderr
+    );
+    assert!(
+        done.stderr.contains("pass the matching old part as OLD"),
+        "{}",
+        done.stderr
+    );
+    assert!(
+        !done.stderr.contains("use `specify-core diff"),
+        "{}",
+        done.stderr
+    );
+    assert!(!rejected.exists());
+    let done = run(&[
+        "diff",
+        &s(&old),
+        &s(&new),
+        "--answers",
+        &s(&saved),
+        "-o",
+        &s(&dir.join("matching-old")),
+    ]);
+    assert_eq!(done.code, 0, "{}", done.stderr);
 }

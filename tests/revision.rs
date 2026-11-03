@@ -256,8 +256,8 @@ fn the_command_line_writes_the_answers_report_and_picture() {
     assert!(report.get("answers").is_some() && report.get("check_lines").is_none());
     let carried: Value =
         serde_json::from_str(&std::fs::read_to_string(dir.join("answers.json")).unwrap()).unwrap();
-    // The same carried requirement now includes destination evidence and the removed answer's
-    // exact refusal, so a later bulk-default write cannot erase that decision.
+    // The carried requirement includes destination evidence. The removed hole's old ID
+    // cannot block the different hole now using it; its refusal stays in the report.
     let destination = load(&fixture("new"), None).unwrap();
     assert_eq!(
         carried,
@@ -265,7 +265,7 @@ fn the_command_line_writes_the_answers_report_and_picture() {
             "hole.function:holes:8": "general",
             "_specify": {
                 "evidence": specify_core::resume::evidence(&destination).unwrap(),
-                "unresolved": {"hole.function:holes:7": "the Ø7 × 10 through hole was removed"},
+                "unresolved": {},
             },
         })
     );
@@ -816,4 +816,45 @@ fn chamfer_trimming_is_compared_after_the_whole_part_moves() {
         r.change_lines()[0].0,
         "1.5 × 45° chamfer added: on the end of the Ø8 boss"
     );
+}
+
+#[test]
+fn an_orphaned_feature_id_does_not_block_the_different_hole_reusing_it() {
+    let (old, new) = pair("hole_removed");
+    let given = answers(json!({"part.material":"6061-T6", "hole.function:holes:7":"fit:H7"}));
+    let r = diff(&old, &new, &given).unwrap();
+    assert_eq!(r.unresolved.len(), 1);
+    assert_eq!(r.unresolved[0].id, "hole.function:holes:7");
+    assert_eq!(r.unresolved[0].class, "orphaned");
+    let analysis = specify_core::api::analyse(&new).unwrap();
+    let questions = specify_core::api::questions(&analysis, &r.answers).unwrap();
+    let reused = questions
+        .iter()
+        .find(|q| q.id == "hole.function:holes:7")
+        .unwrap();
+    assert!(
+        reused.default.is_some(),
+        "the new hole has its own suggestion"
+    );
+    assert!(
+        r.answers["_specify"]["unresolved"]
+            .get(&reused.id)
+            .is_none()
+    );
+    let accepted = specify_core::rules::with_all_defaults(&analysis, &r.answers).unwrap();
+    assert_eq!(accepted[&reused.id], *reused.default.as_ref().unwrap());
+    let intent = specify_core::api::apply(&analysis, &r.answers, true).unwrap();
+    let (bytes, _) = specify_core::writer::write_bytes(&new, &intent, Some(&r.answers)).unwrap();
+    let back = specify_core::part::load_bytes("new.step", bytes).unwrap();
+    assert!(
+        !specify_core::resume::answers_for(&back)
+            .unwrap()
+            .unwrap()
+            .contains_key(&reused.id)
+    );
+    // Files from the earlier implementation must not shadow a reused (or absent) feature ID.
+    let mut earlier = r.answers.clone();
+    earlier["_specify"]["unresolved"][&reused.id] = json!(r.unresolved[0].reason);
+    earlier["_specify"]["unresolved"]["hole.function:holes:999"] = json!("removed hole");
+    specify_core::api::apply(&analysis, &earlier, true).unwrap();
 }

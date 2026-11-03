@@ -284,7 +284,30 @@ fn adding_removing_and_readding_retires_numbers_with_geometric_identity() {
         .unwrap()
         .answers,
     );
-    let mut restored_answers = given[0].clone();
+    // added() clones the first surviving shape: this new part is a pin, not the removed
+    // plate. A real user's old plate sidecar must be refused; explicitly diff the matching
+    // old plate onto the new part before reusing its BOM answers. Keep the evidence.
+    let old_plate = grown.load(Some(0)).unwrap();
+    let new_pin = restored.load(Some(2)).unwrap();
+    assert_ne!(old_plate.binding.face_count, new_pin.binding.face_count);
+    assert_eq!(
+        resume::fingerprint(&new_pin).unwrap(),
+        resume::fingerprint(&restored.load(Some(0)).unwrap()).unwrap()
+    );
+    let stale = writer::write_bytes(
+        &new_pin,
+        &rules::Intent::new(serde_json::to_value(&new_pin.binding).unwrap()),
+        Some(&given[0]),
+    )
+    .unwrap_err();
+    assert!(stale.to_string().contains("stale answers"), "{stale}");
+    let mut restored_answers = revision::diff(&old_plate, &new_pin, &given[0])
+        .unwrap()
+        .answers;
+    assert_eq!(
+        restored_answers["_specify"]["evidence"],
+        resume::evidence(&new_pin).unwrap()
+    );
     restored_answers.remove(bom::CARRY);
     a.push(restored_answers);
     let restored = file(write(&restored, &a));

@@ -109,6 +109,10 @@ try {
   const given = { 'part.material': '6061-T6', 'datum.A': [4], 'datum.B': [1], 'datum.C': [0] };
   const carried = JSON.parse(diff('old.step', beforeBytes, 'new.step', afterBytes, JSON.stringify(given), 'Split')).report.answers;
   const blocked = JSON.stringify(carried);
+  const question = JSON.parse(after.review(blocked)).questions.find(q => q.id === 'datum.A');
+  assert.equal(question.default, null);
+  assert.equal(question.attention, 'required');
+  assert.equal(question.reason, `carried answer could not be applied: ${carried._specify.unresolved['datum.A']}`);
   const incomplete = e => typeof e === 'string' && /datum\.A \(carried answer could not be applied: face 4 has no match/.test(e);
   assert.throws(() => after.acceptDefaults(blocked), incomplete);
   const analysis = JSON.stringify(JSON.parse(after.snapshot()).analysis);

@@ -583,6 +583,22 @@ fn a_dropped_carry_stays_blocked_across_default_paths_and_repeated_diffs() {
         );
     }
     let qs = api::questions(&analysis, &revised.answers).unwrap();
+    let blocked = qs.iter().find(|q| q.id == "datum.A").unwrap();
+    assert_eq!(blocked.default, None);
+    assert_eq!(blocked.attention, "required");
+    assert_eq!(
+        blocked.reason,
+        format!("carried answer could not be applied: {reason}")
+    );
+    let review = api::review(&analysis, &revised.answers).unwrap();
+    let shown = review["questions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|q| q["id"] == "datum.A")
+        .unwrap();
+    assert_eq!(shown["default"], json!(null));
+    assert_eq!(shown["reason"], blocked.reason);
     assert!(!specify_core::rules::with_defaults(&qs, &revised.answers).contains_key("datum.A"));
     assert!(specify_core::rules::with_all_defaults(&analysis, &revised.answers).is_err());
     let again = specify_core::revision::diff(&new, &new, &revised.answers).unwrap();

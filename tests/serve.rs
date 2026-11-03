@@ -280,6 +280,23 @@ fn accept_defaults_cannot_replace_a_dropped_carried_datum() {
     let mut server = Server::default();
     let mut request = json!({"id":1, "op":"write", "step":new, "output":output,
         "analysis":analysis, "answers":revised.answers, "accept_defaults":true});
+    let asked = server
+        .reply(&json!({"id":2,"op":"questions","analysis":analysis,"answers":request["answers"]}));
+    assert_eq!(asked["ok"], true, "{asked}");
+    let q = asked["result"]["questions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|q| q["id"] == "datum.A")
+        .unwrap();
+    assert_eq!(q["default"], json!(null));
+    assert_eq!(q["attention"], "required");
+    assert!(
+        q["reason"]
+            .as_str()
+            .unwrap()
+            .contains("face 4 has no match in the new part")
+    );
     for multiple in [false, true] {
         let mut req = request.clone();
         if multiple {
