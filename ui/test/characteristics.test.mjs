@@ -63,3 +63,15 @@ test('a dimension the file states with no value is listed as such, never as 0', 
     ['⌀20', 20], ['no value stated', null], ['no value stated', null],
   ]);
 });
+
+test('a tolerance the file states with no value is drawn without one, never as 0', async () => {
+  const { toLabels } = await import('../src/specify/labels.ts');
+  const stated = { ...analysis, existing: [
+    { kind: 'geometric_tolerance', type: 'Position', faces: [1], value: 0.75, datums: ['A'] },
+    { kind: 'geometric_tolerance', type: 'Position', faces: [2], datums: ['A'] },
+  ] };
+  const frames = toLabels(intent([]), stated).filter((l) => l.kind === 'frame');
+  assert.deepEqual(frames.map((l) => l.cells), [['⌖', '0.75', 'A'], ['⌖', 'A']]);
+  const rows = characteristics(intent([]), stated, new Map());
+  assert.deepEqual(rows.map((r) => r.text), ['⌖ 0.75', '⌖ no value stated']);
+});
