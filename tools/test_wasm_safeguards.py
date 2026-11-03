@@ -28,7 +28,6 @@ class WorkspacePinTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "same source and pin"):
                 kernel.check_wasm_pin({"haecceity": ("tag", "v0.4.6")}, manifest)
 
-
     def test_only_a_released_sibling_may_use_the_former_kernel_name(self):
         former = kernel.tomllib.loads(
             '[dependencies.haecceity]\ngit = "https://github.com/pzfreo/quiddity-rust"\ntag = "v0.4.6"\n'

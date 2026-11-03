@@ -8,31 +8,31 @@ All notable changes to specify-core-rust. The format follows
 
 ### Changed
 
-- Pin native, WASM and Python builds to quiddity/haecceity v0.4.6 (`1ebf8cb6`).
+- Move native, WASM and Python builds from quiddity/haecceity v0.4.4 to v0.4.6
+  (`1ebf8cb6`).
   Add preserves original entity bytes in the kernel; a datum on a kept carrier
   gets a separate `.T.` datum feature. Add upgrades requiring source repairs
   refuse with entity ids and repair details, without a Replace retry. PMI-less
   inputs continue selecting Replace before writing.
-- Refresh thirteen cross-engine STEP byte goldens and four no-BOM hashes for
-  #184's notes placement clear of drawn ink; per-case presentation ids/reasons are
-  documented in the fixture README. All fourteen independent Python semantic
-  readbacks remain identical; both part-index refusals stay fixed.
-- Retain strict API/CLI byte comparisons and per-case cross-engine goldens for
-  shared face carriers and direct datum endpoints relative to v0.4.4. Correct the
-  CTC-01/CTC-03 fixture reasons: neither original input has a DIMENSION wrapper.
-- Surface optional `preserved_normalizations` (`{id, normalization}`) and
-  `presentation_warnings` alongside `geometry_carrier_exemptions` in native/CLI,
-  Python and WASM reports. Update the packaged presentation schema for optional
-  model-space `Graphic.leader`; the semantic schema and reader /15 stay unchanged.
-- The kernel's git source is `pzfreo/quiddity`, the new name of `pzfreo/quiddity-rust`
-  (GitHub redirects the old one). The crate names and the pinned commit are unchanged.
+- Share per-face geometry carriers and reference datum features directly (#181).
+  Specify stamps new complex carriers and protects carriers and face support shared
+  with foreign requirements during owned-item removal; characteristic numbers stay stable.
+- Adopt reader `haecceity-pmi-read/15` in place of /14, including authored standalone
+  members named `haecceity.feature/1`. A datum whose feature reaches no face is an
+  `Unresolved` finding, surfaced as a new `PMI unresolved datum …` analysis/CLI warning.
+- Refresh cross-engine STEP byte goldens and four no-BOM hashes for shared-carrier
+  and direct-datum links and #184's notes placement clear of drawn ink. Per-case
+  reasons are documented in the fixture README. All fourteen independent Python
+  semantic readbacks remain identical; both part-index refusals stay fixed.
+- Add optional `geometry_carrier_exemptions` (`{part, condition, aspect, feature}`),
+  `preserved_normalizations` (`{id, normalization}`) and `presentation_warnings` to
+  native/CLI, Python and WASM write reports. Update the packaged presentation schema
+  for optional model-space `Graphic.leader`; the semantic schema stays unchanged.
+- Source the v0.4.6 kernel from `pzfreo/quiddity`, renamed from `pzfreo/quiddity-rust`.
+  The crates remain named `quiddity` and `haecceity`; GitHub redirects the former URL.
 
 ### Fixed
 
-- Remove Specify's redundant Add restoration/refusal workaround now that v0.4.6
-  enforces byte preservation. Keep ownership stamping, selective owned-item removal,
-  and protection of shared carriers and inverse face support. Verify CTC-01 datum D
-  on face 24 without changing NIST's perpendicularity or original entity text.
 - Analysis `existing` records (and Python `ExistingPmi`) mark a basic dimension with
   `basic: true`, as does the scene's `specify[id]` metadata, and diff words add ` (basic)`.
   Basic dimensions such as cadgen's "theoretical" 30 and 50 on the PMI plate were read by
@@ -41,10 +41,10 @@ All notable changes to specify-core-rust. The format follows
 ### WASM API
 
 - `PmiSceneMetadata` adds optional `basic: true` for a basic (theoretically exact) dimension.
-- Add optional `presentation_warnings` and `preserved_normalizations` to write
-  reports, extend carrier exemption conditions for kept datum carriers, and expose
-  optional `PmiSceneGraphic.leader` in millimetres. Add the `PreservedNormalization`
-  interface; retain the earlier report and carrier exemption interfaces.
+- Add `WriteReport`, `GeometryCarrierExemption` and `PreservedNormalization`
+  interfaces, with optional `geometry_carrier_exemptions`, `presentation_warnings`
+  and `preserved_normalizations` report keys. Expose optional `PmiSceneGraphic.leader`
+  in millimetres.
 
 ## 0.1.8 (2026-11-02)
 

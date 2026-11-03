@@ -596,7 +596,7 @@ omitted when empty:
 - `preserved_normalizations`: `{id, normalization}` records for original entities
   Add retained instead of normalizing. Values are `legacy-text-rechunking`,
   `kept-usage-factoring`, `functional-sar-isolation`, `functional-sar-unwrapping`
-and `legacy-endpoint-retirement`.
+  and `legacy-endpoint-retirement`.
 - `presentation_warnings`: strings naming callout placement or glyph diagnostics.
 
 `PmiSceneGraphic.leader` is an optional model-space leader tip in millimetres.
