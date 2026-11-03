@@ -5,7 +5,7 @@ AP242 PMI authoring: it loads a STEP part, recognises its features, works out wh
 intent is missing, proposes defaults with reasons, and writes the answers back as AP242 semantic
 PMI, verified by reading the file back. This crate is its port to Rust, with no OpenCascade and
 no Python: geometry, STEP and PMI come from haecceity and features from quiddity, both in
-[quiddity-rust](https://github.com/pzfreo/quiddity-rust).
+[pzfreo/quiddity](https://github.com/pzfreo/quiddity).
 
 Ground rules, from the maintainer's brief:
 
@@ -87,7 +87,7 @@ the resume correspondence rule below handles feature-ID changes.
 
 ## Dependency plan
 
-- `quiddity` and `haecceity` by git from `https://github.com/pzfreo/quiddity-rust`,
+- `quiddity` and `haecceity` by git from `https://github.com/pzfreo/quiddity`,
   pinned to tag `v0.4.6` (`1ebf8cb6`) in both manifests and Cargo.lock.
   Update only these packages with `cargo update -p quiddity -p haecceity`, then run
   the named local profile below and the full suite in CI, and rejudge any departures from the frozen Python captures with

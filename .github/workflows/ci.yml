@@ -23,7 +23,7 @@ jobs:
       QUIDDITY_CORPUS_REQUIRED: "1"
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-      # Same corpus repository and revision as quiddity-rust's suite.yml (pzfreo/quiddity-corpus,
+      # Same corpus repository and revision as pzfreo/quiddity's suite.yml (pzfreo/quiddity-corpus,
       # split from the retired Python repository's tests/corpus; identical at 6d544e0).
       # Tests select Specify's regressions from tests/common/corpus.rs; the full sweep
       # is a local opt-in (SPECIFY_CORPUS_ALL=1), not a CI tier.
@@ -32,7 +32,7 @@ jobs:
           repository: pzfreo/quiddity-corpus
           ref: 3ef06590a7a27ed65ca1f1a6e7f7ea4d5c328f1f
           path: quiddity-corpus
-      # The toolchain comes from rust-toolchain.toml. quiddity-rust is a public git dependency,
+      # The toolchain comes from rust-toolchain.toml. pzfreo/quiddity is a public git dependency,
       # pinned by Cargo.lock.
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3

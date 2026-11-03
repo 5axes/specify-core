@@ -132,7 +132,7 @@ to `not_written`. Should a standard helix angle (e.g. 30°) be assumed and state
 *Status (2026-10-09): done; see Q15.*
 
 **Q5. CI and the corpus.** *Decision (2026-10-20):* Ubuntu and macOS CI check out
-pzfreo/quiddity's `tests/corpus` at `6d544e060cd0eeb4442d2196e5df757b5a15ea55`, matching
+pzfreo/quiddity-python's `tests/corpus` at `6d544e060cd0eeb4442d2196e5df757b5a15ea55`, matching
 quiddity-rust's suite, and run the full workspace tests. Both `QUIDDITY_CORPUS` and
 `SPECIFY_CORPUS` point to that checkout; `QUIDDITY_CORPUS_REQUIRED=1` makes a missing corpus
 directory or required input fatal. Local runs without the switch may omit the corpus.

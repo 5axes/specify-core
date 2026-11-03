@@ -15,7 +15,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SIBLING = "pzfreo/draftwright-rust"
-KERNEL = "pzfreo/quiddity-rust"
+KERNEL = "pzfreo/quiddity"
+# Its name before the 2026-11-03 rename; GitHub redirects it, and released siblings still use it.
+FORMER_KERNEL = "pzfreo/quiddity-rust"
 REQUIRED_TAG = "v0.4.6"
 
 
@@ -43,16 +45,16 @@ def latest_release(repo):
     return max(releases, key=lambda release: release["published_at"])["tag_name"]
 
 
-def pins(manifest):
+def pins(manifest, sources=(KERNEL,)):
     result = {}
     workspace = manifest.get("workspace", {}).get("dependencies", {})
     for name in ("haecceity", "quiddity"):
         dependency = manifest["dependencies"][name]
         if not isinstance(dependency, dict):
-            raise ValueError(f"{name} must be pinned to a quiddity-rust tag or rev")
+            raise ValueError(f"{name} must be pinned to a pzfreo/quiddity tag or rev")
         if dependency.get("workspace"):
             dependency = workspace[name]
-        if dependency.get("git", "").removesuffix(".git").rstrip("/") != f"https://github.com/{KERNEL}":
+        if dependency.get("git", "").removesuffix(".git").rstrip("/") not in {f"https://github.com/{s}" for s in sources}:
             raise ValueError(f"{name} is not sourced from {KERNEL}")
         fields = [key for key in ("tag", "rev") if key in dependency]
         if len(fields) != 1:
@@ -121,7 +123,7 @@ def main():
             check_wasm_pin(local)
         tag = latest_release(SIBLING)
         contents = api(f"{SIBLING}/contents/Cargo.toml?ref={urllib.parse.quote(tag, safe='')}")
-        sibling = pins(tomllib.loads(base64.b64decode(contents["content"]).decode()))
+        sibling = pins(tomllib.loads(base64.b64decode(contents["content"]).decode()), (KERNEL, FORMER_KERNEL))
         print(f"specify-core-rust: {describe(local)}")
         print(f"{SIBLING}@{tag}: {describe(sibling)}")
         matches, resolved = compare(local, sibling)

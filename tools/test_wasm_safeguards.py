@@ -24,9 +24,19 @@ class WorkspacePinTests(unittest.TestCase):
     def test_mismatched_wasm_pin_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             manifest = Path(directory) / "Cargo.toml"
-            manifest.write_text('[dependencies.haecceity]\ngit = "https://github.com/pzfreo/quiddity-rust"\ntag = "v0.2.8"\n')
+            manifest.write_text('[dependencies.haecceity]\ngit = "https://github.com/pzfreo/quiddity"\ntag = "v0.2.8"\n')
             with self.assertRaisesRegex(ValueError, "same source and pin"):
                 kernel.check_wasm_pin({"haecceity": ("tag", "v0.4.6")}, manifest)
+
+
+    def test_only_a_released_sibling_may_use_the_former_kernel_name(self):
+        former = kernel.tomllib.loads(
+            '[dependencies.haecceity]\ngit = "https://github.com/pzfreo/quiddity-rust"\ntag = "v0.4.6"\n'
+            '[dependencies.quiddity]\ngit = "https://github.com/pzfreo/quiddity-rust"\ntag = "v0.4.6"\n')
+        with self.assertRaisesRegex(ValueError, "not sourced from pzfreo/quiddity"):
+            kernel.pins(former)
+        sibling = kernel.pins(former, (kernel.KERNEL, kernel.FORMER_KERNEL))
+        self.assertEqual(set(sibling.values()), {("tag", "v0.4.6")})
 
 
 class ApiTests(unittest.TestCase):

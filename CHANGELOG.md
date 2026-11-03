@@ -24,6 +24,8 @@ All notable changes to specify-core-rust. The format follows
   `presentation_warnings` alongside `geometry_carrier_exemptions` in native/CLI,
   Python and WASM reports. Update the packaged presentation schema for optional
   model-space `Graphic.leader`; the semantic schema and reader /15 stay unchanged.
+- The kernel's git source is `pzfreo/quiddity`, the new name of `pzfreo/quiddity-rust`
+  (GitHub redirects the old one). The crate names and the pinned commit are unchanged.
 
 ### Fixed
 
