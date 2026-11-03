@@ -50,3 +50,16 @@ test('a requirement Specify did not write gets no label on the part', async () =
   ]), analysis);
   assert.deepEqual(labels.map((l) => l.id.split(':').slice(0, 2).join(':')), ['req:0']);
 });
+
+test('a dimension the file states with no value is listed as such, never as 0', () => {
+  // CTC-01 states two of its ⌀35 sizes and two locations with no value, only presentation.
+  const stated = { ...analysis, existing: [
+    { kind: 'dimension', type: 'Size_Diameter', faces: [1], value: 20, upper: 0.1, lower: 0 },
+    { kind: 'dimension', type: 'Size_Diameter', faces: [1] },
+    { kind: 'dimension', type: 'Location_LinearDistance', faces: [2], faces2: [1] },
+  ] };
+  const rows = characteristics(intent([]), stated, new Map());
+  assert.deepEqual(rows.map((r) => [r.text, r.nominal]), [
+    ['⌀20', 20], ['no value stated', null], ['no value stated', null],
+  ]);
+});

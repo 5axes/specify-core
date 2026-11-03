@@ -39,6 +39,9 @@ export interface Characteristic {
 
 type Row = Omit<Characteristic, 'n' | 'sub' | 'id' | 'group'> & { group?: string };
 
+/** What a characteristic's text says when the file states it with no value. */
+const NO_VALUE = 'no value stated';
+
 /** The part's notes, in the order a drawing's notes block lists them. */
 const PART_NOTES: readonly (readonly [string, string])[] = [
   ['material', 'Material'], ['general_tolerance', 'General tolerance'],
@@ -198,15 +201,17 @@ export function characteristics(
     if (!faces.length || e.kind === 'datum') return;
     const feature = describeFaces(faces, analysis);
     const source = `existing:${i}`;
+    // A characteristic the file states without a value (CTC-01's presentation-only
+    // dimensions) is listed as such, never as 0.
     if (e.kind === 'dimension') {
       const prefix = e.type.includes('Diameter') ? '⌀' : '';
       rows.push({
-        feature, faces, source, text: `${prefix}${fmt(e.value ?? 0)}`, nominal: e.value ?? null,
+        feature, faces, source, text: e.value == null ? NO_VALUE : `${prefix}${fmt(e.value)}`, nominal: e.value ?? null,
         upper: e.upper ?? null, lower: e.lower ?? null, datums: '', basic: false,
       });
     } else if (e.kind === 'geometric_tolerance') {
       rows.push({
-        feature, faces, source, text: `${CHARACTERISTIC[e.type] ?? e.type} ${fmt(e.value ?? 0)}`,
+        feature, faces, source, text: `${CHARACTERISTIC[e.type] ?? e.type} ${e.value == null ? NO_VALUE : fmt(e.value)}`,
         nominal: null, upper: e.value ?? null, lower: null, datums: (e.datums ?? []).join('|'), basic: false,
       });
     } else {
