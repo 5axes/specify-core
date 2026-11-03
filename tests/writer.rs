@@ -1275,6 +1275,16 @@ fn writing_twice_gives_identical_bytes() {
     write(&plate, &intent, &a, given.as_object()).unwrap();
     write(&plate, &intent, &b, given.as_object()).unwrap();
     assert_eq!(std::fs::read(&a).unwrap(), std::fs::read(&b).unwrap());
+
+    let saved = load(&a, None).unwrap();
+    let analysis = specify_core::api::analyse(&saved).unwrap();
+    let intent = apply(&analysis, given.clone());
+    let noop = dir.join("noop.step");
+    let report = write(&saved, &intent, &noop, given.as_object()).unwrap();
+    assert_eq!(saved.bytes.as_slice(), std::fs::read(noop).unwrap());
+    assert!(report.geometry_carrier_exemptions.is_empty());
+    assert!(report.presentation_warnings.is_empty());
+    assert!(report.preserved_normalizations.is_empty());
 }
 
 // --- requirements on no faces (question Q17) -----------------------------------------------------

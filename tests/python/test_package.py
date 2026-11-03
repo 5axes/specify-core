@@ -349,6 +349,19 @@ def test_spindle_diff_scenes_obey_editor_links():
     )
 
 
+def test_write_report_optional_geometry_carrier_exemptions():
+    original = {"output": "out.step", "written": [], "not_written": [], "warnings": []}
+    assert WriteReport.from_dict(original).to_dict() == original
+    additions = [{"part": 2, "condition": "shared-carrier-controlled-pair", "aspect": 123, "feature": 45}]
+    extended = {
+        **original,
+        "geometry_carrier_exemptions": additions,
+        "presentation_warnings": ["feature note glyphs could not be drawn"],
+        "preserved_normalizations": [{"id": 77, "normalization": "legacy-endpoint-retirement"}],
+    }
+    assert WriteReport.from_dict(extended).to_dict() == extended
+
+
 def test_basic_dimensions_read_as_basic():
     ctc04 = Path(__file__).resolve().parents[1] / "fixtures" / "nist" / "nist_ctc_04_asme1_ap242.stp.gz"
     found = read_existing(ctc04)

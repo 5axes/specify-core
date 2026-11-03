@@ -15,6 +15,13 @@
 //! /Users/paul/repos/specify-core/.venv/bin/python tools/capture.py cross-engine tests/fixtures/cross_engine
 //! ```
 //!
+//! **For quiddity-rust 0.4.6 (`1ebf8cb6`).** Regenerate all sixteen cases and independently
+//! recapture with Python 3.12.13 and frozen reference 7e2125d (`--rust-only`). All fourteen
+//! successes are checked byte for byte after the v0.4.5 carrier-link refresh;
+//! per-case regeneration results belong in the fixture README. The kernel now
+//! preserves Add bytes itself, including legacy endpoints; Specify retains its
+//! ownership stamping. Recapture independent Python reads if any STEP bytes change.
+//!
 //! **For Add-mode answers.** CTC-01, CTC-03 and CTC-05 now store the supplied base answers
 //! with provenance scope. Only those three byte goldens and their independent Python
 //! readbacks/metadata are refreshed; see `tests/fixtures/cross_engine/README.md` for the
