@@ -1319,7 +1319,10 @@ fn unasked(
     let other = match locating {
         Some(current) => {
             let mut flipped = answers.clone();
-            let to = LOCATING.iter().find(|l| **l != current).unwrap_or(&LOCATING[0]);
+            let to = LOCATING
+                .iter()
+                .find(|l| **l != current)
+                .unwrap_or(&LOCATING[0]);
             flipped.insert("part.locating".into(), Value::from(*to));
             questions_in(ctx, &flipped).ok()
         }
