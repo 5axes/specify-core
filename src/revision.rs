@@ -298,7 +298,9 @@ fn pmi_words(p: &Value) -> String {
                 "Size_SphericalRadius" => format!("SR{value}"),
                 _ => format!("{words} {value}"),
             };
-            format!("{size}{limits}")
+            // A basic dimension is drawn framed; in words it says so.
+            let basic = if p["basic"] == true { " (basic)" } else { "" };
+            format!("{size}{limits}{basic}")
         }
         "geometric_tolerance" => {
             let datums: Vec<&str> = p["datums"]

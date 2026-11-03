@@ -28,6 +28,17 @@ Python. Feature recognition and the STEP/AP242 kernel come from
 
 ![The STEP diff action's comment on a pull request](step-diff/comment.png)
 
+## With AI and code-first CAD
+
+Text-to-CAD and code-first tools (build123d, cadgen) now let an AI produce a part's geometry. What they don't produce is the manufacturing intent a supplier needs: datums, fits, threads, tolerances and finish. Specify is the deterministic half of that loop:
+
+- **A question list an agent can work through.** `questions` returns each decision the part needs, with a proposed answer and its reason, as JSON. The agent (or a person) answers by question id. Nothing has to be written as free-form GD&T.
+- **Checked, standard output.** Specify, not the AI, writes the AP242 semantic PMI and reads it back to verify it, so a wrong answer is refused, never silently turned into bad PMI.
+- **Answers that survive regeneration.** Parts whose code names its faces keep their answers on the same faces when the model is rebuilt; Specify re-asks only about faces an edit touched ([docs/face-names.md](docs/face-names.md)).
+- **Changes a reviewer can trust.** `diff` explains what changed between two revisions in engineering terms, on every pull request with the GitHub action, so an agent's edits are reviewable.
+
+Call it from an agent through Python (`pip install specify-core`), the command line or the JSON-lines host process.
+
 ## Ways to use it
 
 One engine, one set of answers and files, whichever way you call it:
@@ -37,7 +48,7 @@ One engine, one set of answers and files, whichever way you call it:
 | **In the browser** | nothing: [draftwright.io/specify](https://draftwright.io/specify) and [draftwright.io/diff](https://draftwright.io/diff) | |
 | **Command line** | a [release](https://github.com/pzfreo/specify-core/releases) binary, or `cargo build --release` | [below](#command-line) |
 | **Python** | `pip install specify-core` (CPython 3.12+, no dependencies) | [below](#python), [package README](crates/specify-core-py/README.md) |
-| **Rust** | `specify-core = { git = "https://github.com/pzfreo/specify-core", tag = "v0.1.7" }` | [below](#rust), [docs/library.md](docs/library.md) |
+| **Rust** | `specify-core = { git = "https://github.com/pzfreo/specify-core", tag = "v0.1.8" }` | [below](#rust), [docs/library.md](docs/library.md) |
 | **Browser** (WebAssembly) | `specify-core-wasm-<version>.tgz` on each release | [docs/wasm.md](docs/wasm.md) |
 | **Host process** (JSON lines) | `specify-core serve` | [below](#host-process) |
 | **GitHub pull requests** | `uses: pzfreo/specify-core/step-diff@main` | [step-diff/README.md](step-diff/README.md) |
@@ -193,7 +204,7 @@ Each [release](https://github.com/pzfreo/specify-core/releases) has the command 
 (x86_64), macOS (Apple silicon) and Windows (x86_64), each with a SHA-256 checksum:
 
 ```bash
-v=v0.1.7; t=aarch64-apple-darwin   # or x86_64-unknown-linux-gnu
+v=v0.1.8; t=aarch64-apple-darwin   # or x86_64-unknown-linux-gnu
 gh release download $v -R pzfreo/specify-core -p "specify-core-$v-$t.tar.gz*"
 shasum -a 256 -c specify-core-$v-$t.tar.gz.sha256 && tar -xzf specify-core-$v-$t.tar.gz
 ./specify-core-$v-$t/specify-core --help
@@ -231,7 +242,7 @@ Every file is read back and checked before it is kept.
 
 ## Status
 
-**0.1.7** (2026-11-02). Until 1.0:
+**0.1.8** (2026-11-02). Until 1.0:
 - a minor release (0.2, 0.3) may change the command line, the JSON formats or answer ids, and its
   [CHANGELOG](CHANGELOG.md) entry says how to upgrade;
 - a patch release doesn't.

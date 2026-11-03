@@ -6,20 +6,6 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
-### Added
-
-- Preserve answered and imported limit dimensions through STEP, resume, scene labels and
-  diff reports; size and distance answers accept lower/upper slash bounds. Analysis and
-  Python existing-PMI records expose optional absolute limits alongside derived deviations.
-  Size write reports now show explicit ± and signed deviation bands as well as fits and limits.
-- Offer ISO 2768 f/m/c/v × H/K/L combined general-tolerance classes and round-trip their
-  geometric class, retaining the ISO 2768-m default and existing linear tables.
-- Add the shared text-to-cad PMI plate from pinned cadgen 0.8.3 exports, with
-  regeneration source and MIT attribution. Tests cover Specify-authored PMI,
-  schema-3 face names, all 16 answers surviving thickness/bore edits, and the
-  current added-hole result: 12 attached, four explicitly unresolved after
-  cadgen renames supports. Verify written face names and AP242 PMI anchors.
-
 ### Changed
 
 - Pin native, WASM and Python builds to quiddity/haecceity v0.4.5 (`845a8919`).
@@ -35,10 +21,6 @@ All notable changes to specify-core-rust. The format follows
   capture reference are recorded in the fixture README.
 - Surface optional `geometry_carrier_exemptions` in native/CLI, Python and WASM
   write reports, with the kernel's part, condition, aspect and feature ids.
-- Store supplied answers in Add mode beside foreign PMI. Resume keeps unmarked PMI in
-  `existing`; mixed rewrites replace only Specify's provenance-marked requirements and
-  preserve their characteristic numbers while retaining foreign entity bytes. Scoped saves
-  supersede stale legacy answer frames without removing their unmarked records.
 
 ### Fixed
 
@@ -47,6 +29,47 @@ All notable changes to specify-core-rust. The format follows
   migrations that require changing foreign entities, naming the affected ids.
   Stamp new complex datum/composite carriers and protect shared carriers used by
   foreign controls when removing Specify-owned controls.
+- Analysis `existing` records (and Python `ExistingPmi`) mark a basic dimension with
+  `basic: true`, as does the scene's `specify[id]` metadata, and diff words add ` (basic)`.
+  Basic dimensions such as cadgen's "theoretical" 30 and 50 on the PMI plate were read by
+  haecceity as basic but reported as plain untoleranced dimensions.
+
+### WASM API
+
+- `PmiSceneMetadata` adds optional `basic: true` for a basic (theoretically exact) dimension.
+- Add `WriteReport` and `GeometryCarrierExemption` JSON interfaces; write reports
+  optionally expose `geometry_carrier_exemptions` for actual kernel additions.
+
+## 0.1.8 (2026-11-02)
+
+### Added
+
+- Add Amy's cadgen PMI plate (gist, MIT) as a fixture with cadgen's own AP242 semantic PMI. Tests check
+  that it reads once as foreign PMI: ISO 2768-mK general tolerance, basic 30/50, and no extra Specify
+  size or location requirement beside its dimensions.
+- Preserve answered and imported limit dimensions through STEP, resume, scene labels and
+  diff reports; size and distance answers accept lower/upper slash bounds. Analysis and
+  Python existing-PMI records expose optional absolute limits alongside derived deviations.
+  Size write reports now show explicit ± and signed deviation bands as well as fits and limits.
+- Offer ISO 2768 f/m/c/v × H/K/L combined general-tolerance classes and round-trip their
+  geometric class, retaining the ISO 2768-m default and existing linear tables.
+- Add the shared text-to-cad PMI plate from pinned cadgen 0.8.3 exports, with
+  regeneration source and MIT attribution. Tests cover Specify-authored PMI,
+  schema-3 face names, all 16 answers surviving thickness/bore edits, and the
+  current added-hole result: 12 attached, four explicitly unresolved after
+  cadgen renames supports. Verify written face names and AP242 PMI anchors.
+
+### Changed
+
+- The Python package's links and the step-diff README point at draftwright.io; the step-diff
+  handoff accepts `/diff` from both draftwright.io and editor.draftwright.io (#108, #112).
+- Store supplied answers in Add mode beside foreign PMI. Resume keeps unmarked PMI in
+  `existing`; mixed rewrites replace only Specify's provenance-marked requirements and
+  preserve their characteristic numbers while retaining foreign entity bytes. Scoped saves
+  supersede stale legacy answer frames without removing their unmarked records.
+
+### Fixed
+
 - An intent no longer lists the file's own stated dimensions as requirements. The shared
   planner still uses them, so General guesses stay off those features, but the file's PMI
   stays the characteristic: on NIST CTC-01 the editor showed every toleranced hole twice,
@@ -57,11 +80,6 @@ All notable changes to specify-core-rust. The format follows
 - Every diff pairing pass checks requirement kinds and known measurement roles,
   including number and id matches. Thread callouts cannot pair with location
   dimensions; location roles follow the part's rotation during comparison.
-
-### WASM API
-
-- Add `WriteReport` and `GeometryCarrierExemption` JSON interfaces; write reports
-  optionally expose `geometry_carrier_exemptions` for actual kernel additions.
 
 ## 0.1.7 (2026-11-02)
 

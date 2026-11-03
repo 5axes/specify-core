@@ -29,9 +29,13 @@ class ExistingPmi:
     datums: tuple[str, ...] = ()
     #: Absolute lower/upper bounds; upper/lower above remain deviations.
     limits: tuple[float, float] | None = None
+    #: A basic (theoretically exact) dimension, with no tolerance of its own.
+    basic: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         out = {k: v for k, v in self.__dict__.items() if v not in (None, ())}
+        if not self.basic:
+            out.pop("basic")
         # A datum the file attaches to no face still has faces: none.
         out.setdefault("faces", ())
         for key in ("faces", "faces2", "datums", "limits"):
@@ -53,6 +57,7 @@ def read_existing(loaded: LoadedPart | str | Path) -> list[ExistingPmi]:
             r["lower"],
             tuple(r["datums"]),
             tuple(r["limits"]) if r["limits"] is not None else None,
+            r["basic"],
         )
         for r in records
     ]

@@ -725,6 +725,13 @@ fn stored_metadata(p: &PartPmi, collection: &str, i: usize, meta: &mut Value) {
     if collection != "dimensions" {
         return;
     }
+    // The ink frames a basic dimension; say so too, for clients that list notation as text.
+    if p.dimensions
+        .get(i)
+        .is_some_and(|d| d.tolerance == pmi::DimTolerance::Basic)
+    {
+        meta["basic"] = json!(true);
+    }
     let stored = pmi_origin::read(p, NoteOwner::Dimension(pmi::DimensionId(i)));
     if let Some(origin) = stored.origin {
         meta["origin"] = json!(origin);

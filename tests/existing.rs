@@ -400,3 +400,41 @@ fn solid_edge_lost_datum_is_unresolved_in_existing_and_cli_output() {
     let warnings = String::from_utf8(output.stderr).unwrap();
     assert!(warnings.contains(&unresolved[0].detail), "{warnings}");
 }
+
+#[test]
+fn basic_dimensions_are_marked_basic_in_existing_and_the_scene() {
+    let loaded = part::load(
+        &Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/nist/nist_ctc_04_asme1_ap242.stp.gz"),
+        None,
+    )
+    .unwrap();
+    let found = existing::read_existing(&loaded).unwrap();
+    let basic: Vec<_> = found.iter().filter(|d| d.basic).collect();
+    assert_eq!(basic.len(), 2);
+    for d in &basic {
+        assert_eq!(d.kind, "dimension");
+        assert!(d.value.is_some());
+        assert_eq!((d.upper, d.lower, d.limits), (None, None, None));
+    }
+    let analysis = specify_core::api::analyse(&loaded).unwrap();
+    let records = analysis["existing"].as_array().unwrap();
+    assert_eq!(
+        records.iter().filter(|d| d["basic"] == json!(true)).count(),
+        2
+    );
+    // Absent, not false, everywhere else.
+    assert!(
+        records
+            .iter()
+            .all(|d| d.get("basic").is_none() || d["basic"] == json!(true))
+    );
+    let scene = specify_core::pmi_scene::pmi_scene(&loaded.bytes, None).unwrap();
+    let framed = scene["specify"]
+        .as_object()
+        .unwrap()
+        .values()
+        .filter(|m| m["basic"] == json!(true))
+        .count();
+    assert_eq!(framed, 2);
+}

@@ -14,15 +14,15 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | [analysis](#analysis) | 5 | 0 | 0 | 0 | 0 | 0 | 5 |
 | [anchors](#anchors) | 4 | 0 | 2 | 1 | 2 | 0 | 9 |
 | [cli](#cli) | 260 | 0 | 52 | 0 | 2 | 1 | 315 |
-| [cross_engine](#cross_engine) | 53 | 2 | 0 | 1 | 1 | 20 | 77 |
-| [existing](#existing) | 27 | 0 | 0 | 0 | 7 | 0 | 34 |
+| [cross_engine](#cross_engine) | 54 | 2 | 0 | 1 | 1 | 20 | 78 |
+| [existing](#existing) | 30 | 0 | 0 | 0 | 7 | 0 | 37 |
 | [features](#features) | 3460 | 1415 | 543 | 2481 | 1066 | 1878 | 10843 |
 | [iso286](#iso286) | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | [mates](#mates) | 1 | 0 | 0 | 0 | 3 | 0 | 4 |
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 0 | 40 |
 | [rules](#rules) | 114 | 0 | 615 | 0 | 0 | 0 | 729 |
-| [writer](#writer) | 1090 | 0 | 0 | 0 | 15 | 0 | 1105 |
-| **all** | 5019 | 1434 | 1221 | 2487 | 1101 | 1899 | 13161 |
+| [writer](#writer) | 1091 | 0 | 0 | 0 | 15 | 0 | 1106 |
+| **all** | 5024 | 1434 | 1221 | 2487 | 1101 | 1899 | 13166 |
 
 ## analysis
 
@@ -190,7 +190,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## cross_engine
 
-### cross_engine: rust-correct (53 entries)
+### cross_engine: rust-correct (54 entries)
 
 - **Specify-written requirements retain STEP-only authorship (issue #22)** (`*` at `python_readback.existing[key=*].provenance`)
 
@@ -228,6 +228,10 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   The evidence is stated per entry (10 distinct; all in `cross_engine.json`). The first, for `nist/nist_ctc_01_asme1_ap242` at `python_readback.existing[key=dimension|Location_LinearDistance|[4]|[0,1,71,72,73,74,91,92,93,94,95,96]#1]`: Shared planner, #75: independent fresh STEP readback states Location_LinearDistance 400.0 mm on [4] to [0, 1, 71, 72, 73, 74, 91, 92, 93, 94, 95, 96]. The exact nominal-only dimension is retained as physical PMI but read_existing intentionally excludes authored untoleranced dimensions (#63); the independent Python reader includes it. Its complete semantic target includes every coincident hole or pattern origin, rather than silently dropping covered members. The corpus physical-support/duplicate/chain checks pass, and cross_engine verifies current writer bytes and reader evidence hashes. Only this exact item is covered.
 
+- **Basic dimensions are marked basic** (`parts/*` at `python_*.existing[key=dimension|*].basic`)
+
+  Specify's existing records now mark a basic (theoretically exact) dimension with basic: true, which haecceity reads as DimTolerance::Basic; the archived Python reader has no such field. The key is emitted only when true, so the only differences are python (missing) rust true at existing[key=dimension\|...].basic. Values, tolerances and all other fields are unchanged; tests/existing.rs basic_dimensions_are_marked_basic_in_existing_and_the_scene verifies the NIST CTC-04 basics.
+
 ### cross_engine: rust-wrong (2 entries)
 
 - **the faces' rounded centroids differ where haecceity's face integrals are off (U11), so the schema 2 fingerprints differ** (`nist/nist_ctc_05_asme1_ap242` at `fingerprint_v2[fingerprint differs: faces differ in kind or rounded centroid]`)
@@ -258,7 +262,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## existing
 
-### existing: rust-correct (27 entries)
+### existing: rust-correct (30 entries)
 
 - **presentation read as a dimension** (`*` at `existing[key=dimension|DimensionPresentation|*`)
 
@@ -343,6 +347,10 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 - **haecceity reports unresolved-reference findings** (`*nist*` at `findings.unresolved-reference`)
 
   haecceity reports a feature it cannot anchor (CTC-04: an aspect naming the MANIFOLD_SOLID_BREP); OpenCascade is silent.
+
+- **Basic dimensions are marked basic** (3 entries, 3 case globs)
+
+  Specify's existing records now mark a basic (theoretically exact) dimension with basic: true, which haecceity reads as DimTolerance::Basic; the archived Python reader has no such field. The key is emitted only when true, so the only differences are python (missing) rust true at existing[key=dimension\|...].basic. Values, tolerances and all other fields are unchanged; tests/existing.rs basic_dimensions_are_marked_basic_in_existing_and_the_scene verifies the NIST CTC-04 basics.
 
 ### existing: not-applicable (7 entries)
 
@@ -1118,7 +1126,7 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 
 ## writer
 
-### writer: rust-correct (1090 entries)
+### writer: rust-correct (1091 entries)
 
 - **Specify-written requirements retain STEP-only authorship (issue #22)** (`*` at `existing[key=*].provenance`)
 
@@ -1211,6 +1219,10 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 - **Add-mode answers now resume beside preserved foreign PMI** (2 entries, 2 case globs)
 
   The evidence is stated per entry (2 distinct; all in `writer.json`). The first, for `nist/nist_ctc_01_asme1_ap242` at `resume[python did not resume]`: For nist/nist_ctc_01_asme1_ap242, the archived Python writer deliberately stored no Add-mode answers, so its frozen readback is null. The requested provenance-scoped Add implementation now stores exactly meta.answers, {"part.material":"steel"}, and native answers_for resumes that map. The independently recaptured cross_engine Python 3.12.13 readback of this exact updated Rust byte golden also resumes the same answers using the frozen cc341dd + 63e67bd + d97d030 reference (2cb6499). Dedicated NIST CTC/FTC regressions in tests/add_mode_answers.rs compare every original foreign entity span at its original id across write/resume/edited write; the characteristic number remains stable and the changed control appears once. This entry covers only this case and the newly available answer map. All archived Python-written inputs, answer expectations, semantic comparisons and other ledger entries remain unchanged.
+
+- **Basic dimensions are marked basic** (`*` at `existing[key=dimension|*].basic`)
+
+  Specify's existing records now mark a basic (theoretically exact) dimension with basic: true, which haecceity reads as DimTolerance::Basic; the archived Python reader has no such field. The key is emitted only when true, so the only differences are python (missing) rust true at existing[key=dimension\|...].basic. Values, tolerances and all other fields are unchanged; tests/existing.rs basic_dimensions_are_marked_basic_in_existing_and_the_scene verifies the NIST CTC-04 basics. Specify writes basic location dimensions for answered positions, so every written case with one reads basic: true on readback.
 
 ### writer: not-applicable (15 entries)
 

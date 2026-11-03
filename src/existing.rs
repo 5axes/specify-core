@@ -85,6 +85,8 @@ pub struct ExistingPmi {
     /// Absolute lower/upper bounds, only for a limit dimension. Deviations above
     /// remain available to tolerance checks and older consumers.
     pub limits: Option<[f64; 2]>,
+    /// A basic (theoretically exact) dimension: no tolerance of its own.
+    pub basic: bool,
     /// The datum letters a tolerance cites, primary first.
     pub datums: Vec<String>,
     /// STEP authorship token on this requirement; absent for unmarked input PMI.
@@ -106,6 +108,7 @@ impl ExistingPmi {
             upper: None,
             lower: None,
             limits: None,
+            basic: false,
             datums: Vec::new(),
             provenance: None,
             number: None,
@@ -140,6 +143,9 @@ impl Serialize for ExistingPmi {
         }
         if let Some(limits) = self.limits {
             map.serialize_entry("limits", &limits)?;
+        }
+        if self.basic {
+            map.serialize_entry("basic", &true)?;
         }
         if !self.datums.is_empty() {
             map.serialize_entry("datums", &self.datums)?;
@@ -332,6 +338,7 @@ impl Reading {
             if let DimTolerance::Limits(b) = &dimension.tolerance {
                 item.limits = Some([value(b.lower()), value(b.upper())]);
             }
+            item.basic = matches!(dimension.tolerance, DimTolerance::Basic);
             let offsets = |upper: &PmiValue, lower: &PmiValue| match nominal {
                 Some(n) => (
                     Some(round_half_even(value(upper) - value(n), 9)),
