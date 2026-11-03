@@ -308,6 +308,7 @@ fn analyse_with(
                 let foreign = haecceity::p21::Document::parse(foreign).map_err(|e| refused(&e))?;
                 let reading =
                     existing::read_parsed(loaded, foreign, &defs).map_err(|e| refused(&e))?;
+                warnings.extend(unresolved_datums(&reading));
                 analysis.insert(
                     "existing".into(),
                     serde_json::to_value(reading.existing(loaded).map_err(|e| refused(&e))?)
@@ -355,6 +356,7 @@ fn analyse_with(
                         .map_err(|e| refused(&e))?,
                 );
             }
+            warnings.extend(unresolved_datums(&reading));
             let existing = reading.existing(loaded).map_err(|e| refused(&e))?;
             let settings = reading.settings(loaded);
             let stated = crate::dimensioning::stated(reading.model());
@@ -376,6 +378,17 @@ fn analyse_with(
         );
     }
     Ok((Value::Object(analysis), warnings))
+}
+
+// A lost datum must not silently disappear from imported PMI. Reader /15 gives
+// these findings their own Unresolved category; keep other historical diagnostics
+// available through existing::Reading without changing analysis JSON.
+fn unresolved_datums(reading: &existing::Reading) -> impl Iterator<Item = String> + '_ {
+    reading
+        .findings()
+        .iter()
+        .filter(|f| f.kind == haecceity::pmi::FindingKind::Unresolved && f.entity == "datum")
+        .map(|f| format!("PMI unresolved datum {:?}: {}", f.ids, f.detail))
 }
 
 /// Every question the part needs, given the answers so far.

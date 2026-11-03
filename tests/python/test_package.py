@@ -335,6 +335,11 @@ def test_spindle_diff_scenes_obey_editor_links():
             break
         answers.update(defaults)
     report = api.diff(old, new, answers, scenes=True)["report"]
+    thread = [item for item in report["pmi"]["items"] if "thread:holes:14" in item["id"]]
+    assert len(thread) == 1
+    assert thread[0]["id"] == "thread:holes:14"
+    assert thread[0]["class"] == "removed"
+    assert thread[0]["old"] == "M4×0.7-6H THRU"
     for side in ("old", "new"):
         scene = report["pmi"]["scenes"][side]
         ids = {
@@ -347,6 +352,19 @@ def test_spindle_diff_scenes_obey_editor_links():
         item.get("old") == "M4×0.7-6H THRU" and item.get("new") == "1.5"
         for item in report["pmi"]["items"]
     )
+
+
+def test_write_report_optional_geometry_carrier_exemptions():
+    original = {"output": "out.step", "written": [], "not_written": [], "warnings": []}
+    assert WriteReport.from_dict(original).to_dict() == original
+    additions = [{"part": 2, "condition": "shared-carrier-controlled-pair", "aspect": 123, "feature": 45}]
+    extended = {
+        **original,
+        "geometry_carrier_exemptions": additions,
+        "presentation_warnings": ["feature note glyphs could not be drawn"],
+        "preserved_normalizations": [{"id": 77, "normalization": "legacy-endpoint-retirement"}],
+    }
+    assert WriteReport.from_dict(extended).to_dict() == extended
 
 
 def test_basic_dimensions_read_as_basic():
