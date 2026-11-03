@@ -33,8 +33,8 @@ map) add a reserved `_specify` member. Preserve it when editing or storing answe
 `evidence` is the same `{schema, face_count, faces, face_names?, geometry?}` that Specify
 stores alongside answers inside STEP and returns from WASM `evidence()`. It belongs to
 the **destination** part's face numbering. Schema 3 may add authored names and geometry;
-write requires the saved count and ordered face fingerprint to match, without remapping
-by name. This deliberately refuses changed numbering even if names could be rematched.
+write requires the saved count, ordered face fingerprint and indexed authored names
+to match, without remapping by name. This deliberately refuses changed numbering even if names could be rematched.
 Malformed evidence is an error. A new diff checks supplied evidence against its old part
 before carrying, so it cannot silently reinterpret stale indices either.
 

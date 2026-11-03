@@ -581,7 +581,12 @@ pub fn validate_evidence(evidence: &Value) -> Result<&Map<String, Value>, Rematc
 /// a write never migrates indices by name, nor trusts a legacy mismatching fingerprint.
 pub fn evidence_matches(loaded: &LoadedPart, evidence: &Value) -> Result<bool, RematchError> {
     let payload = validate_evidence(evidence)?;
-    Ok(check(loaded, payload, false).map_err(RematchError::Faces)? == Check::Verified)
+    Ok(
+        check(loaded, payload, false).map_err(RematchError::Faces)? == Check::Verified
+            && (schema_of(payload) != Some(3)
+                || payload.get("face_names")
+                    == Some(&json!(names::identities(&loaded.face_names)))),
+    )
 }
 
 /// Answers held outside the STEP (a saved project's), matched to `features`, this part's as

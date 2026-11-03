@@ -397,3 +397,19 @@ fn shared_or_incidentally_unique_generic_labels_keep_schema_two() {
         assert!(out.unresolved.is_empty());
     }
 }
+
+#[test]
+fn sidecar_write_refuses_contradictory_names_even_with_the_same_geometric_fingerprint() {
+    let (old, _) = pair();
+    let given = answers(&old);
+    let saved = revision::diff(&old, &old, &given).unwrap().answers;
+    let hole = face(&old, "body_make_cylinder1", 1);
+    let changed = renamed(&old, &[(hole, "")]);
+    assert_eq!(
+        resume::fingerprint(&old).unwrap(),
+        resume::fingerprint(&changed).unwrap()
+    );
+    let intent = api::preview(&api::analyse(&changed).unwrap(), &given).unwrap();
+    let error = writer::write_bytes(&changed, &intent, Some(&saved)).unwrap_err();
+    assert!(error.to_string().contains("stale answers"), "{error}");
+}
