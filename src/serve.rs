@@ -21,6 +21,10 @@
 //!  "output": "/path/out.step", "accept_defaults": true}
 //! -> the report and the intent; the answers are stored in the file
 //! -> {"id": 4, "ok": false, "error": {"code": "incomplete", "message": ..., "missing": [...]}}
+//! Complete answer export, before writing (result.answers is an ordinary answer map):
+//! {"id": 8, "op": "export_answers", "step": "/path/part.step",
+//!  "analysis": {...}, "answers": {"part.material": "steel"}}
+//!
 //! {"id": 7, "op": "write", "step": ..., "output": ..., "accept_defaults": true,
 //!  "parts": [{"analysis": ..., "answers": ...}, ...]}
 //! -> parts of an assembly, written together (one part may be written alone: the others and
@@ -249,6 +253,12 @@ impl Server {
                     "open": open,
                     "problems": problems(analysis, &answers)?,
                 }))
+            }
+            Some("export_answers") => {
+                let step = path(request, "step")?;
+                let index = analysis["binding"]["part"].as_u64().unwrap_or(0) as usize;
+                let loaded = part::load(&step, Some(index)).map_err(Error::Load)?;
+                Ok(json!({"answers": api::export_answers(&loaded, analysis, &answers)?}))
             }
             Some("interpret") => interpret(request, analysis, &answers),
             Some("preview") => {

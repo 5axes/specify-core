@@ -21,6 +21,55 @@ This also applies to **released v0.1.8 and earlier `changes/answers.json` files*
 `diff` with the original old/new parts and old answers to regenerate these changes files**;
 merely upgrading the writer cannot recover their lost carry decisions.
 
+## Export a complete sidecar
+
+Export after choosing required answers, before writing STEP:
+
+```sh
+specify-core analyse plate_v1.step -o plate.analysis.json
+specify-core questions plate.analysis.json --answers chosen.json \
+  --resolve-defaults --step plate_v1.step > plate.answers.json
+specify-core write plate_v1.step plate.analysis.json plate.answers.json -o plate.pmi.step
+# After editing geometry, carry the committed sidecar from its matching old part:
+specify-core diff plate_v1.step plate_v2.step --answers plate.answers.json -o changes
+```
+
+`questions --resolve-defaults` is the single CLI export surface. It writes an **answer
+map** to stdout, rather than a question list, and never writes STEP. `--step` is required:
+an analysis alone cannot supply verified face evidence. Its binding selects the part of an
+assembly and must match that STEP. `--open` cannot be combined with export.
+
+The map contains every supplied answer and each accepted PMI default, including defaults
+of questions revealed by earlier answers, plus `_specify.evidence` for this part and
+`_specify.unresolved: {}`. Optional BOM suggestions remain opt-in; supplied BOM answers
+are preserved. Output recursively sorts object keys, uses two-space indentation and a
+final newline, and preserves array order. Identical inputs export identical bytes,
+independent of input key order. Re-exporting the complete map is idempotent.
+
+An incomplete export **refuses** (CLI exit 2, no JSON on stdout), naming every missing
+required question or blocked carry. It never accepts a default for an unresolved question.
+Supply explicit answers to acknowledge blocks, then export again. A shell may create or
+truncate a redirected file before the command runs; export to a temporary path and rename
+on success when replacing an existing committed sidecar. Existing saved evidence is checked
+before export, so changed geometry cannot be silently restamped with fresh evidence.
+
+The same non-writing operation is available in existing front-end shapes:
+
+- Rust: `api::export_answers(&loaded, &analysis, &answers)` returns an answer map.
+- Serve: `{"op":"export_answers","step":"plate_v1.step","analysis":<analysis>,"answers":<chosen>}`
+  returns `result.answers` in the normal reply envelope.
+- Python: `api.export_answers(step_or_loaded_part, analysis, answers)` returns a dict;
+  serialize with `json.dumps(complete, indent=2) + "\n"` for the same stable file layout.
+- WASM: `engine.exportAnswers(answersJson)` returns the answer map as a JSON string;
+  use `JSON.stringify(JSON.parse(result), null, 2) + "\n"` for a formatted sidecar.
+
+These exports accept defaults explicitly and require completeness. Existing
+`with_all_defaults` / `acceptDefaults` operations still support partial review and retain
+their existing return shapes. Exported maps can be passed directly to `write`, `diff`,
+questions/review, serve, Python and WASM. Writing the unchanged part from the export gives
+the same semantic PMI as accepting the original defaults. Writing changed geometry is
+refused as stale; carry with `diff` instead, then explicitly resolve its blocks.
+
 ## Specify metadata
 
 Specify's diff answer maps (`answers.json`, `report.answers`, and each assembly part's

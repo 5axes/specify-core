@@ -330,6 +330,16 @@ impl Session {
         crate::accept_defaults(&self.analysis, answers)
     }
 
+    /// A complete answer file with accepted defaults and this part's evidence. Unlike
+    /// accept_defaults, refuses incomplete sets; never writes or changes the session.
+    pub fn export_answers(
+        &self,
+        answers: &Map<String, Value>,
+    ) -> Result<Map<String, Value>, String> {
+        input::answers(&self.analysis, answers).map_err(|e| e.to_string())?;
+        api::export_answers(&self.loaded, &self.analysis, answers).map_err(|e| e.to_string())
+    }
+
     /// The review settled to the default path (`specify_core::tolerancing::settle`), with the
     /// label anchors [`Session::review`] adds: `{review, state}`.
     pub fn settle(&self, state: &tolerancing::State) -> Result<Value, String> {

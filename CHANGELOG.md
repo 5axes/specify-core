@@ -8,6 +8,12 @@ All notable changes to specify-core-rust. The format follows
 
 ### Fixed
 
+- Export the complete answer set before writing with `questions --resolve-defaults
+  --step STEP`, serve `export_answers`, Python `api.export_answers` and WASM
+  `engine.exportAnswers`. Accepted defaults are explicit, including dependent questions;
+  sidecars carry verified `_specify.evidence`, sort keys recursively and refuse incomplete
+  sets or unresolved carries. Existing partial-default operations keep their shape.
+
 - Preserve dropped revision-stable datum/part/BOM answers as `_specify.unresolved`
   carry blocks: CLI, serve, Python and WASM bulk defaults cannot silently replace them.
   Failed feature carries remain report-only: old face-based IDs may name a different
@@ -30,6 +36,9 @@ All notable changes to specify-core-rust. The format follows
   haecceity as basic but reported as plain untoleranced dimensions.
 
 ### WASM API
+
+- Add `IntentEngine.exportAnswers(answers: string): string` for complete, deterministic
+  answer sidecars with geometry evidence; incomplete sets and carry blocks throw.
 
 - Add `AnswerFileMetadata` for optional `_specify.evidence` and `_specify.unresolved`
   in answer maps; default acceptance and writes enforce carry blocks and face evidence.

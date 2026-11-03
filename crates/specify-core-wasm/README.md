@@ -18,3 +18,8 @@ Shared/generic labels retain geometric matching and are omitted from analysis. K
 `evidence()` object with external answers: named parts use schema 3; missing or
 duplicate names are unresolved without geometric fallback. See
 [face-name matching and compatibility](../../docs/face-names.md).
+
+Complete answer sidecars (defaults explicit, with geometry evidence) can be exported
+before writing: `engine.exportAnswers(answersJson)` returns an answer map as JSON.
+Incomplete sets and unresolved carries are refused. See
+[answer files](../../docs/answers.md#export-a-complete-sidecar).
