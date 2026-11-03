@@ -59,6 +59,11 @@ export interface AnswerEvidence {
   schema: 1 | 2 | 3;
 }
 
+export interface AnswerFileMetadata {
+  evidence?: AnswerEvidence;
+  unresolved?: Record<string, string>;
+}
+
 export interface DiffPmi {
   answers_from: "given" | "stored" | "none";
   existing: unknown[];
