@@ -1135,9 +1135,22 @@ fn xcaf_plate_combines_imported_and_accepted_notes_without_another_edge_requirem
     assert_eq!(file, pmi_scene::pmi_scene(&loaded.bytes, None).unwrap());
     // Scene projection must not mutate the source bytes or change a subsequent write.
     let intent = api::preview(&analysis, &answers).unwrap();
-    let first = writer::write_bytes(&loaded, &intent, Some(&answers))
-        .unwrap()
-        .0;
+    let (first, report) = writer::write_bytes(&loaded, &intent, Some(&answers)).unwrap();
+    let retained: Vec<_> = report
+        .preserved_normalizations
+        .iter()
+        .filter(|r| r.normalization == "legacy-endpoint-retirement")
+        .map(|r| r.id)
+        .collect();
+    assert_eq!(
+        retained,
+        [490, 508, 515],
+        "the kernel reports each retained legacy wrapper"
+    );
+    assert_eq!(
+        report.to_dict()["preserved_normalizations"],
+        serde_json::to_value(&report.preserved_normalizations).unwrap()
+    );
     cache
         .scene(&loaded, Some(&analysis), Some(&answers))
         .unwrap();

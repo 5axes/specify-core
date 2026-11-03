@@ -255,71 +255,66 @@ fn stale_unmarked_legacy_answers_cannot_mask_scoped_add_saves() {
 }
 
 #[test]
-fn datum_on_foreign_carrier_is_refused_before_specializing_it() {
-    let bare = part::load(&common::fixtures().join("parts/plate.step"), None).unwrap();
-    let analysis = api::analyse(&bare).unwrap();
-    let face = analysis["faces"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|f| f["kind"] == "plane")
-        .unwrap()["id"]
-        .as_u64()
-        .unwrap() as usize;
-    let mut intent = specify_core::rules::Intent::new(serde_json::to_value(&bare.binding).unwrap());
-    intent.requirements.push(
-        json!({"kind":"flatness", "faces":[face], "tolerance":0.031})
-            .as_object()
+fn ctc01_datum_on_kept_perpendicularity_carrier_preserves_foreign_entities() {
+    let path = common::case("nist/nist_ctc_01_asme1_ap242")
+        .input()
+        .unwrap();
+    let loaded = part::load(&path, None).unwrap();
+    let original = loaded.bytes.to_vec();
+    let perpendicularity = |p: &part::LoadedPart| {
+        existing::read_existing(p)
             .unwrap()
-            .clone(),
-    );
-    let bytes = writer::write_bytes(&bare, &intent, None).unwrap().0;
-    let bytes = String::from_utf8(bytes)
+            .into_iter()
+            .filter(|e| e.kind == "geometric_tolerance" && e.r#type == "Perpendicularity")
+            .collect::<Vec<_>>()
+    };
+    let foreign_perpendicularity = perpendicularity(&loaded);
+    assert!(!foreign_perpendicularity.is_empty());
+    let mut answers = json!({"part.material":"6061-T6", "datum.D":[24]})
+        .as_object()
         .unwrap()
-        .replace(writer::PMI_PROVENANCE, "independent producer")
-        .into_bytes();
-    let foreign = part::load_bytes("foreign-carrier.step", bytes.clone()).unwrap();
-    let doc = Document::parse(bytes.clone()).unwrap();
-    let defs = haecceity::step::read_part_definitions(&bytes).unwrap();
-    let read = haecceity::pmi::read(&doc, &defs).unwrap();
-    let mut pmi = haecceity::pmi::PartPmi::default();
-    pmi.features.push(read.parts[0].features[0].clone());
-    pmi.datums.push(
-        haecceity::pmi::Datum::new(
-            haecceity::pmi::DatumLabel::new("A").unwrap(),
-            Some(haecceity::pmi::FeatureId(0)),
-            Vec::new(),
-        )
-        .unwrap(),
-    );
-    let (_, report) = haecceity::pmi::write(
-        &doc,
-        &defs,
-        &[(haecceity::pmi::PartId(0), pmi)],
-        haecceity::pmi::write::Mode::Add,
-        haecceity::pmi::write::PresentationPolicy::RemovePresentation,
-    )
-    .unwrap();
-    assert!(
-        !report.rewritten.is_empty(),
-        "0.4.5 specializes the kept carrier"
-    );
-    let mut intent =
-        specify_core::rules::Intent::new(serde_json::to_value(&foreign.binding).unwrap());
-    intent.datums.push(
-        json!({"letter":"A", "faces":[face]})
-            .as_object()
-            .unwrap()
-            .clone(),
-    );
-    let err = writer::write_bytes(&foreign, &intent, None)
-        .unwrap_err()
-        .to_string();
-    assert!(err.contains("cannot preserve entity bytes"), "{err}");
-    for id in report.rewritten {
-        assert!(err.contains(&id.to_string()), "{err}");
+        .clone();
+    let mut current = loaded;
+    let mut number = None;
+    for material in ["6061-T6", "6082-T6"] {
+        answers.insert("part.material".into(), json!(material));
+        let analysis = api::analyse(&current).unwrap();
+        let intent = api::preview(&analysis, &answers).unwrap();
+        let (bytes, report) = writer::write_bytes(&current, &intent, Some(&answers)).unwrap();
+        assert_entities_identical(&original, &bytes);
+        assert!(
+            report
+                .geometry_carrier_exemptions
+                .iter()
+                .any(|e| e.feature == 298 && e.condition == "kept-carrier-independent-feature"),
+            "{report:?}"
+        );
+        let doc = Document::parse(bytes.clone()).unwrap();
+        assert!(
+            !haecceity::express_rules::check_all(&doc)
+                .iter()
+                .any(|v| v.entity.eq_ignore_ascii_case("datum_feature") && v.rule == "WR2")
+        );
+        let reopened = part::load_bytes("ctc01-datum-d.step", bytes).unwrap();
+        assert_eq!(perpendicularity(&reopened), foreign_perpendicularity);
+        let rows = existing::read_existing(&reopened).unwrap();
+        let datum = rows
+            .iter()
+            .find(|e| e.kind == "datum" && e.r#type == "D")
+            .unwrap();
+        assert_eq!(datum.faces, [24]);
+        assert_eq!(datum.provenance.as_deref(), Some(writer::PMI_PROVENANCE));
+        let n = datum.number.expect("new datum is numbered");
+        if let Some(old) = number {
+            assert_eq!(n, old);
+        }
+        number = Some(n);
+        assert_eq!(
+            resume::answers_for(&reopened).unwrap(),
+            Some(answers.clone())
+        );
+        current = reopened;
     }
-    assert_eq!(foreign.bytes.as_slice(), bytes);
 }
 
 #[test]

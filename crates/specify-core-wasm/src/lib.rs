@@ -83,21 +83,27 @@ export interface AnalysisFace {
   radius?: number;
   contact?: unknown;
 }
-/** JSON returned by evidence(), also embedded alongside stored answers. */
 export interface GeometryCarrierExemption {
   part: number;
-  condition: "shared-carrier-controlled-pair" | "shared-carrier-datum-target-support";
+  condition: "shared-carrier-controlled-pair" | "shared-carrier-datum-target-support" | "kept-carrier-datum-member" | "kept-carrier-independent-feature";
   aspect: number;
   feature: number;
 }
-/** Report in writePmi JSON. Exemptions are absent when no private endpoint was added. */
+export interface PreservedNormalization {
+  id: number;
+  normalization: string;
+}
+/** Report in writePmi JSON; optional diagnostic keys are absent when empty. */
 export interface WriteReport {
   output: string;
   written: string[];
   not_written: string[];
   warnings: string[];
   geometry_carrier_exemptions?: GeometryCarrierExemption[];
+  presentation_warnings?: string[];
+  preserved_normalizations?: PreservedNormalization[];
 }
+/** JSON returned by evidence(), also embedded alongside stored answers. */
 export interface AnswerEvidence {
   schema: 1 | 2 | 3;
   face_count: number;
@@ -181,6 +187,7 @@ export interface PmiSceneTextPlacement {
   alignment?: string;
 }
 export interface PmiSceneGraphic {
+  leader?: PmiSceneVector;
   id?: PmiSceneId;
   plane_id?: PmiSceneId;
   text_placements?: PmiSceneTextPlacement[];

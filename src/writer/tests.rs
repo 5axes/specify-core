@@ -134,12 +134,33 @@ fn write_report_exemptions_are_additive_and_use_written_entity_ids() {
         not_written: vec![],
         warnings: vec![],
         geometry_carrier_exemptions: vec![],
+        presentation_warnings: vec![],
+        preserved_normalizations: vec![],
     };
     assert!(
         report
             .to_dict()
             .get("geometry_carrier_exemptions")
             .is_none()
+    );
+    assert!(report.to_dict().get("presentation_warnings").is_none());
+    assert!(report.to_dict().get("preserved_normalizations").is_none());
+    report
+        .presentation_warnings
+        .push("feature note glyphs could not be drawn".into());
+    report
+        .preserved_normalizations
+        .push(PreservedNormalization {
+            id: 77,
+            normalization: "legacy-endpoint-retirement".into(),
+        });
+    assert_eq!(
+        report.to_dict()["presentation_warnings"],
+        json!(["feature note glyphs could not be drawn"])
+    );
+    assert_eq!(
+        report.to_dict()["preserved_normalizations"],
+        json!([{"id":77,"normalization":"legacy-endpoint-retirement"}])
     );
     report
         .geometry_carrier_exemptions
@@ -198,4 +219,61 @@ fn authored_standalone_composition_members_remain_features_on_read() {
         "standalone supports do not invent requirements"
     );
     assert!(reading.findings().is_empty());
+}
+
+#[test]
+fn add_upgrade_refusal_reaches_specify_without_retrying_replace() {
+    let source = Source::of(include_bytes!("../../tests/fixtures/parts/plate.step")).unwrap();
+    // A legacy AP214 producer using PRODUCT_TYPE, with foreign semantic PMI.
+    let mut foreign = PartPmi::default();
+    foreign
+        .features
+        .push(Feature::Items(vec![Anchor::Face(FaceIndex(0))]));
+    foreign
+        .datums
+        .push(Datum::new(DatumLabel::new("A").unwrap(), Some(FeatureId(0)), vec![]).unwrap());
+    let (edit, _) = pmi::write(
+        &source.doc,
+        &source.defs,
+        &[(PartId(0), foreign)],
+        Mode::Replace,
+        PresentationPolicy::RemovePresentation,
+    )
+    .unwrap();
+    let doc = Document::parse(source.doc.apply(&edit).unwrap().bytes).unwrap();
+    let mut legacy = p21::Edit::new();
+    legacy.set_file_schema(vec!["AUTOMOTIVE_DESIGN".into()]);
+    let product = doc
+        .ids()
+        .find(
+            |&id| matches!(doc.get(id), Some(RawEntity::Simple { name, .. }) if name == "PRODUCT"),
+        )
+        .unwrap();
+    legacy.add(p21::simple(
+        "PRODUCT_TYPE",
+        vec![
+            Attribute::String("legacy".into()),
+            Attribute::String("".into()),
+            Attribute::List(vec![Attribute::EntityRef(product)]),
+        ],
+    ));
+    let bytes = doc.apply(&legacy).unwrap().bytes;
+    let loaded = part::load_bytes("legacy-foreign.step", bytes.clone()).unwrap();
+    let mut intent = Intent::new(serde_json::to_value(&loaded.binding).unwrap());
+    intent.part.insert("material".into(), json!("steel"));
+    let error = write_bytes(&loaded, &intent, None).unwrap_err();
+    assert!(matches!(&error, WriteError::Refused(_)), "{error}");
+    let message = error.to_string();
+    assert!(
+        message.contains("Add would change original entities"),
+        "{message}"
+    );
+    assert!(
+        message.contains(
+            "AP214 keyword rewrite PRODUCT_TYPE -> PRODUCT_RELATED_PRODUCT_CATEGORY on entity #"
+        ),
+        "{message}"
+    );
+    assert!(message.contains("Replace re-authors that PMI"), "{message}");
+    assert_eq!(loaded.bytes.as_slice(), bytes);
 }

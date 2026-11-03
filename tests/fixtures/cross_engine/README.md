@@ -155,8 +155,8 @@ reviewed reasons; each still compares every decompressed STEP byte:
 
 | Case | Reason for changed STEP bytes in v0.4.5 |
 |---|---|
-| `nist/nist_ctc_01_asme1_ap242` | #181 reuses neutral per-face carriers and directly references datum features for new requirements; Specify retains the original foreign legacy endpoints verbatim. |
-| `nist/nist_ctc_03_asme1_ap242` | #181 removes new forwarding location endpoints in favour of direct datum/face carriers; original foreign wrappers remain byte-identical. |
+| `nist/nist_ctc_01_asme1_ap242` | #181 reuses neutral per-face carriers and directly references datum features for new requirements. This input has no SHAPE_ASPECT('DIMENSION') wrapper; no foreign-wrapper restoration was involved. |
+| `nist/nist_ctc_03_asme1_ap242` | #181 removes new forwarding location endpoints in favour of direct datum/face carriers. This input has no SHAPE_ASPECT('DIMENSION') wrapper; no foreign-wrapper restoration was involved. |
 | `nist/nist_ctc_05_asme1_ap242` | #181 shares the new location/feature carriers and their GISUs instead of adding private dimension wrappers. |
 | `parts/a_hole_along_x_is_labelled_from_its_rim` | The new linear location directly references its existing datum/face endpoint instead of a DIMENSION wrapper. |
 | `parts/assembly` | New locations on both parts reuse their datum/face carriers; subsequent new entity ids move. |

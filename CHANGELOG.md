@@ -8,27 +8,25 @@ All notable changes to specify-core-rust. The format follows
 
 ### Changed
 
-- Pin native, WASM and Python builds to quiddity/haecceity v0.4.5 (`845a8919`).
-  New requirements share face carriers and reference datum features directly;
-  refresh the four no-BOM byte hashes for that intended linkage change while
-  retaining exact API/CLI equality and stable characteristic-number checks.
-  Reader /15 retains authored `haecceity.feature/1` composition members and reports
-  lost datum supports as Unresolved; imported unresolved datums reach CLI warnings.
-  Packaged schemas remain byte-identical to the locked dependency.
-- Refresh ten cross-engine STEP goldens for shared geometry carriers/direct datum
-  endpoints; four outputs and both refusals stay fixed. All fourteen independent
-  Python semantic readbacks remain unchanged; per-case reasons and the frozen
-  capture reference are recorded in the fixture README.
-- Surface optional `geometry_carrier_exemptions` in native/CLI, Python and WASM
-  write reports, with the kernel's part, condition, aspect and feature ids.
+- Pin native, WASM and Python builds to quiddity/haecceity v0.4.6 (`1ebf8cb6`).
+  Add preserves original entity bytes in the kernel; a datum on a kept carrier
+  gets a separate `.T.` datum feature. Add upgrades requiring source repairs
+  refuse with entity ids and repair details, without a Replace retry. PMI-less
+  inputs continue selecting Replace before writing.
+- Retain strict API/CLI byte comparisons and per-case cross-engine goldens for
+  shared face carriers and direct datum endpoints relative to v0.4.4. Correct the
+  CTC-01/CTC-03 fixture reasons: neither original input has a DIMENSION wrapper.
+- Surface optional `preserved_normalizations` (`{id, normalization}`) and
+  `presentation_warnings` alongside `geometry_carrier_exemptions` in native/CLI,
+  Python and WASM reports. Update the packaged presentation schema for optional
+  model-space `Graphic.leader`; the semantic schema and reader /15 stay unchanged.
 
 ### Fixed
 
-- Preserve foreign legacy DIMENSION wrappers and location entity spans during Add
-  despite v0.4.5's automatic normalization. Refuse Add datum promotion or other
-  migrations that require changing foreign entities, naming the affected ids.
-  Stamp new complex datum/composite carriers and protect shared carriers used by
-  foreign controls when removing Specify-owned controls.
+- Remove Specify's redundant Add restoration/refusal workaround now that v0.4.6
+  enforces byte preservation. Keep ownership stamping, selective owned-item removal,
+  and protection of shared carriers and inverse face support. Verify CTC-01 datum D
+  on face 24 without changing NIST's perpendicularity or original entity text.
 - Analysis `existing` records (and Python `ExistingPmi`) mark a basic dimension with
   `basic: true`, as does the scene's `specify[id]` metadata, and diff words add ` (basic)`.
   Basic dimensions such as cadgen's "theoretical" 30 and 50 on the PMI plate were read by
@@ -37,8 +35,10 @@ All notable changes to specify-core-rust. The format follows
 ### WASM API
 
 - `PmiSceneMetadata` adds optional `basic: true` for a basic (theoretically exact) dimension.
-- Add `WriteReport` and `GeometryCarrierExemption` JSON interfaces; write reports
-  optionally expose `geometry_carrier_exemptions` for actual kernel additions.
+- Add optional `presentation_warnings` and `preserved_normalizations` to write
+  reports, extend carrier exemption conditions for kept datum carriers, and expose
+  optional `PmiSceneGraphic.leader` in millimetres. Add the `PreservedNormalization`
+  interface; retain the earlier report and carrier exemption interfaces.
 
 ## 0.1.8 (2026-11-02)
 

@@ -353,7 +353,12 @@ def test_write_report_optional_geometry_carrier_exemptions():
     original = {"output": "out.step", "written": [], "not_written": [], "warnings": []}
     assert WriteReport.from_dict(original).to_dict() == original
     additions = [{"part": 2, "condition": "shared-carrier-controlled-pair", "aspect": 123, "feature": 45}]
-    extended = {**original, "geometry_carrier_exemptions": additions}
+    extended = {
+        **original,
+        "geometry_carrier_exemptions": additions,
+        "presentation_warnings": ["feature note glyphs could not be drawn"],
+        "preserved_normalizations": [{"id": 77, "normalization": "legacy-endpoint-retirement"}],
+    }
     assert WriteReport.from_dict(extended).to_dict() == extended
 
 

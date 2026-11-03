@@ -44,12 +44,12 @@ print(report.written)       # ['datum A', 'Ø8 H7 on holes:9', 'position 0.05 on
 print(report.not_written)   # anything that could not be written, with the reason
 ```
 
-`WriteReport.geometry_carrier_exemptions` lists kernel compatibility endpoints as
-`{part, condition, aspect, feature}`. `to_dict()` omits this additive key when empty.
-The condition names are `shared-carrier-controlled-pair` and
-`shared-carrier-datum-target-support`; ids refer to the written STEP. Add writes
-preserve original entity text, retaining legacy dimension wrappers. A new datum
-that requires specializing a foreign carrier is refused with the affected ids.
+Write reports optionally include `geometry_carrier_exemptions` (`{part, condition,
+aspect, feature}`), `preserved_normalizations` (`{id, normalization}`), and
+`presentation_warnings` (strings). `to_dict()` omits empty lists. The v0.4.6 kernel
+preserves original entity text during Add, including when adding a separate datum
+feature on a kept carrier. Add upgrades requiring source repairs raise a clear
+`RuntimeError` naming the entities and repair; Specify never retries with Replace.
 
 Opening the written file again picks up where you left off:
 `api.analyse("plate-pmi.step")["resume"]["answers"]` returns the answers stored in it.

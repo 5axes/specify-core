@@ -25,3 +25,23 @@ quiddity-rust v0.4.5 (`845a8919`), `tests/fixtures/ap242/reexport/09-NIST-reexpo
 It loses datum B's establishing feature. Reader /15 reports B as Unresolved and
 omits that datum, retaining A and C. This tests Specify's existing-PMI and CLI
 finding output, rather than inventing a valid support for the lost datum.
+
+## v0.4.6 Add upgrade audit
+
+These exact AP203 source repairs now refuse a direct **kernel Add**. Each input
+has no foreign PMI, so Specify selects Replace before writing and still succeeds;
+there is no fallback after refusal and no Specify oracle expectation to change.
+`tests/add_mode_upgrades.rs` checks both paths, exact ids, and the material readback.
+
+| Corpus file under `nist/` | Required repair / original ids |
+|---|---|
+| `nist_ctc_01_asme1_rd.stp` | R1 approval assignment: 14, 15 |
+| `nist_ctc_02_asme1_rc.stp` | R2 conversion-unit dimensions: 20750 |
+| `nist_ctc_03_asme1_rc.stp` | R1 approval assignment: 14, 15 |
+| `nist_ctc_05_asme1_rd.stp` | R2 conversion-unit dimensions: 6596, 6599, 6625, 6634, 6651, 6660, 6669 |
+| `nist_ftc_06_asme1_rd.stp` | R1 approval assignment: 14, 15 |
+| `nist_ftc_09_asme1_rd.stp` | R2 conversion-unit dimensions: 5778, 5781, 5805, 5814, 5827, 5836 |
+
+The AP214 `PRODUCT_TYPE` case is also repaired by Replace when PMI-less. A
+synthetic foreign-PMI AP214 regression in `src/writer/tests.rs` verifies that an
+Add refusal naming its keyword rewrite reaches Specify without a Replace retry.
