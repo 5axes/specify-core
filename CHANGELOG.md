@@ -12,10 +12,11 @@ All notable changes to specify-core-rust. The format follows
   carry blocks: CLI, serve, Python and WASM bulk defaults cannot silently replace them.
   Failed feature carries remain report-only: old face-based IDs may name a different
   feature in the destination. Explicit answers clear stable question blocks, which
-  `questions` and review now show as required, with no default and the diff reason. Diff answer maps also carry the in-STEP face evidence; write refuses
+  `questions` and review now show as required, with no default and the diff reason.
+  Diff answer maps also carry the in-STEP face evidence; write refuses
   stale evidence before output, naming CLI answer files and directing callers to diff.
   Plain maps remain compatible and cannot detect changed in-range face identities.
-  **Re-run `diff` to regenerate changes files produced by released v0.1.8 and earlier**: their
+  **Re-run `diff` to regenerate changes files from released v0.1.8 and earlier**: their
   metadata-free `changes/answers.json` cannot reveal dropped answers, so the literal
   old-file `write --accept-defaults` repro still exits 0 on updated tools.
   Older Specify/editor WASM builds reject new `_specify` maps as `unknown answer ID`;
