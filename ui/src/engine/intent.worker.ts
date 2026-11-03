@@ -60,7 +60,7 @@ self.onmessage = ({ data: { id, operation, args } }) => {
     try {
       const module = await load();
       let result: unknown = true;
-      if (operation === 'open' || operation === 'review' || operation === 'settle' || operation === 'write' || operation === 'rematch' || operation === 'scene') {
+      if (operation === 'open' || operation === 'review' || operation === 'settle' || operation === 'write' || operation === 'rematch' || operation === 'scene' || operation === 'answers') {
         if (!engine || sourceId !== args.sourceId || part !== args.part || operation === 'open') {
           engine?.free(); engine = undefined;
           engine = args.part === undefined ? new module.IntentEngine(args.name, args.bytes)
@@ -70,6 +70,10 @@ self.onmessage = ({ data: { id, operation, args } }) => {
         if (operation === 'write') {
           const document = JSON.parse(engine.writePmi(accepted(args.answers), args.project));
           result = { ...document, bytes: new Uint8Array(document.bytes) };
+        } else if (operation === 'answers') {
+          // Every answer the STEP would be written with, the defaults made explicit: a part's
+          // `<part>.answers.json` for a repository, which `specify-core write` takes as it is.
+          result = JSON.parse(accepted(args.answers));
         } else if (operation === 'settle') {
           const { state } = JSON.parse(engine.settle(JSON.stringify(args.state)));
           result = { review: reviewed(state.answers), state };
