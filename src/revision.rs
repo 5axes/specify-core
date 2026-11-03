@@ -7,7 +7,8 @@
 //! adapted, ambiguous, orphaned or new. Existing CAD PMI keeps its geometric comparison.
 //!
 //! An answer names its feature by family and defining faces (`hole.function:holes:12.13`) or,
-//! for a datum, lists faces (`datum.A: [4]`). Each face is mapped by name or unnamed correspondence;
+//! for a datum or an added requirement, lists faces (`datum.A: [4]`, an `extra.*`'s `faces` and
+//! `reference`). Each face is mapped by name or unnamed correspondence;
 //! the answer is then carried to the new part's feature of that family holding the mapped faces.
 //! An answer is never guessed: when a face is gone (*orphaned*), matches several faces
 //! (*ambiguous*), or no single feature holds the mapped faces, it is left unresolved with its
@@ -93,7 +94,8 @@ pub struct Unresolved {
     pub id: String,
     pub answer: Value,
     /// `orphaned`, `ambiguous`, `unmatched` (the faces carried, but no single feature of the
-    /// family holds them) or `stale` (the old part had no such feature either).
+    /// family holds them), `stale` (the old part had no such feature either) or `unresolved`
+    /// (refused by name, or carried but refused by the new part, with the refusal).
     pub class: String,
     pub reason: String,
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -1357,7 +1359,6 @@ fn feature_answer(id: &str) -> Option<(&str, &str, Vec<usize>)> {
 }
 
 struct Matching<'a> {
-    named: bool,
     faces: BTreeMap<usize, Bind>,
     old_features: &'a [Feature],
     new_features: &'a [Feature],
@@ -1463,23 +1464,82 @@ impl Matching<'_> {
                 Value::Array(now.into_iter().map(Value::from).collect()),
             ));
         }
-        let value = if self.named {
-            let mut failure = None;
-            crate::resume::names::map_value(id, answer, |i| {
-                self.faces(&[i]).map(|v| v[0]).map_err(|error| {
-                    let refusal = gone(error);
-                    let reason = refusal.reason.clone();
-                    failure = Some(refusal);
-                    reason
-                })
+        // Every other face list (an added requirement's `faces` and `reference`) is mapped the
+        // same way, named or not: an index kept unchanged may now be another feature's face.
+        let mut failure = None;
+        let value = crate::resume::names::map_value(id, answer, |i| {
+            self.faces(&[i]).map(|v| v[0]).map_err(|error| {
+                let refusal = gone(error);
+                let reason = refusal.reason.clone();
+                failure = Some(refusal);
+                reason
             })
-            .map_err(|reason| {
-                failure.unwrap_or_else(|| unresolved("unresolved", reason, Vec::new()))
-            })?
-        } else {
-            answer.clone()
-        };
+        })
+        .map_err(|reason| {
+            failure.unwrap_or_else(|| unresolved("unresolved", reason, Vec::new()))
+        })?;
         Ok((id.into(), value))
+    }
+}
+
+/// Move each carried answer the new part refuses to *unresolved* (class `unresolved`, with
+/// the refusal), until review accepts the rest; review of what remains is returned. An answer
+/// whose faces mapped can still not fit the new part: a size on two holes, one since resized,
+/// or a datum's faces that are no longer coplanar. The refusal names the answer it is about
+/// where it can; else the answer whose removal changes the refusal is the one refused.
+fn refuse_unfit(
+    analysis: &Value,
+    carried: &mut Map<String, Value>,
+    given_as: &BTreeMap<String, (String, Value)>,
+    unresolved: &mut Vec<Unresolved>,
+) -> Result<Value> {
+    let refusal = |answers: &Map<String, Value>| match api::review(analysis, answers) {
+        Ok(review) => Ok(std::result::Result::Ok(review)),
+        Err(api::Error::Rules(crate::rules::Error::Invalid(message))) => Ok(Err(message)),
+        Err(other) => Err(other),
+    };
+    loop {
+        let message = match refusal(carried)? {
+            Ok(review) => return Ok(review),
+            Err(message) => message,
+        };
+        let names = |id: &str| {
+            message.starts_with(&format!("{id}: "))
+                || id
+                    .strip_prefix("datum.")
+                    .is_some_and(|letter| message.starts_with(&format!("datum {letter}: ")))
+        };
+        let ids: Vec<String> = carried
+            .keys()
+            .filter(|id| names(id))
+            .chain(carried.keys().filter(|id| !names(id)))
+            .cloned()
+            .collect();
+        let mut refused = None;
+        for id in ids {
+            let mut without = carried.clone();
+            without.remove(&id);
+            if refusal(&without)?.err().as_deref() != Some(message.as_str()) {
+                refused = Some(id);
+                break;
+            }
+        }
+        let Some(id) = refused else {
+            return Err(api::Error::Rules(crate::rules::Error::Invalid(message)));
+        };
+        let value = carried
+            .remove(&id)
+            .expect("listed from the carried answers");
+        let (was, answer) = given_as.get(&id).cloned().unwrap_or((id.clone(), value));
+        let why = message.strip_prefix(&format!("{id}: ")).unwrap_or(&message);
+        unresolved.push(Unresolved {
+            id: was,
+            answer,
+            class: "unresolved".into(),
+            reason: format!("the new part refuses it: {why}"),
+            candidates: Vec::new(),
+            question: String::new(),
+        });
     }
 }
 
@@ -1553,7 +1613,6 @@ pub fn diff_with_options(
         faces.insert(i, bind);
     }
     let matching = Matching {
-        named: identities.iter().any(Option::is_some),
         faces,
         old_features: &old_features,
         new_features: &new_features,
@@ -1708,6 +1767,8 @@ pub fn diff_with_options(
         .filter(|(id, _)| id.as_str() != crate::answer_file::META)
         .map(|(id, answer)| (id, answer, matching.answer(id, answer)))
         .collect();
+    // Each carried answer's ID and value as given, for one the new part then refuses.
+    let mut given_as: BTreeMap<String, (String, Value)> = BTreeMap::new();
     let mut reached: BTreeMap<&str, usize> = BTreeMap::new();
     for (_, _, r) in &results {
         if let Ok((now, _)) = r {
@@ -1756,11 +1817,17 @@ pub fn diff_with_options(
                         question: asked(id),
                     });
                 }
+                given_as.insert(now.clone(), (id.clone(), (*answer).clone()));
                 carried.insert(now, value);
             }
             Err(u) => unresolved.push((**u).clone()),
         }
     }
+    // The new part may refuse an answer its faces carried to (#123): an added size on two
+    // holes, one since resized. Each is left unresolved with the refusal, never raised.
+    let mut new_review = refuse_unfit(&new_analysis, &mut carried, &given_as, &mut unresolved)?;
+    migrated.retain(|(_, now)| carried.contains_key(now));
+    check.retain(|c| carried.contains_key(&c.id));
     // A datum's settings (`datum.A.flatness`) follow it: they stay open with an open datum.
     let open_datums: Vec<(String, String)> = unresolved
         .iter()
@@ -1776,9 +1843,16 @@ pub fn diff_with_options(
                 .map(|(_, class)| (id.clone(), class.clone()))
         })
         .collect();
+    if !settings.is_empty() {
+        for (id, _) in &settings {
+            carried.remove(id);
+        }
+        new_review = api::review(&new_analysis, &carried)?;
+    }
     for (id, class) in settings {
-        let answer = carried
-            .remove(&id)
+        let answer = given_as
+            .get(&id)
+            .map(|(_, v)| v.clone())
             .expect("listed from the carried answers");
         let datum = &id[..id.rfind('.').expect("a datum setting")];
         unresolved.push(Unresolved {
@@ -1837,15 +1911,14 @@ pub fn diff_with_options(
         .filter(|(id, _)| !before.contains(id))
         .map(|(id, title)| OpenQuestion { id, title })
         .collect();
-    let warnings = |analysis: &Value, answers: &Map<String, Value>| -> Result<Vec<Value>> {
-        let review = api::review(analysis, answers)?;
-        Ok(review["problems"]
+    let warnings = |review: &Value| -> Vec<Value> {
+        review["problems"]
             .as_array()
             .cloned()
             .unwrap_or_default()
             .into_iter()
             .filter(|p| p["severity"] != "info")
-            .collect())
+            .collect()
     };
     // A problem is its code, its subject and its message; an old problem's subject (an answer
     // ID, which its message may quote) is read in the new part first.
@@ -1861,8 +1934,8 @@ pub fn diff_with_options(
         }
     };
     let (was, now) = (
-        warnings(&old_analysis, answers)?,
-        warnings(&new_analysis, &carried)?,
+        warnings(&api::review(&old_analysis, answers)?),
+        warnings(&new_review),
     );
     let (was_keys, now_keys): (BTreeSet<_>, BTreeSet<_>) = (
         was.iter().map(|p| key(p, true)).collect(),

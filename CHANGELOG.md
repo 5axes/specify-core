@@ -54,6 +54,14 @@ All notable changes to specify-core-rust. The format follows
   old-file `write --accept-defaults` repro still exits 0 on updated tools.
   Older Specify/editor WASM builds reject new `_specify` maps as `unknown answer ID`;
   old plain files remain compatible with new tools.
+- For #123, #124, #125: diff maps an added requirement's (`extra.*`) `faces` and
+  `reference` through the same face matching as datums, on unnamed parts as on named
+  ones, instead of keeping old indices that could name another feature under an `ok`
+  verdict. A face with no match leaves it `orphaned`, several `ambiguous`. A carried
+  answer the new part refuses (a size whose two holes now differ) is listed as
+  `unresolved` with the refusal instead of raising, so the rest of the report is
+  returned. Dropped `extra.*` answers are `_specify.unresolved` carry blocks: write
+  and bulk defaults refuse until the requirement is answered again or its entry removed.
 - Diff refuses stale answer evidence with exit 2 and asks for the matching old part,
   instead of suggesting `diff` again while already comparing revisions.
 - Diff folds a thread's own `thread manufacturing` note into its thread item when

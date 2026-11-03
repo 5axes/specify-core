@@ -78,7 +78,10 @@ the old part (a hole, a pattern, a boss, a slot, a fillet) is then:
   - **orphaned:** the feature was removed;
   - **ambiguous:** it now matches several features;
   - **unmatched:** its faces carried, but no single feature of its family holds them;
-  - **stale:** the old part had no such feature either.
+  - **stale:** the old part had no such feature either;
+  - **unresolved:** its faces carried, but the new part refuses it as answered (the reason
+    says why): a size on two holes, one since resized, is no longer one diameter. The report
+    is still returned; one answer that no longer fits never costs the rest.
 - **Requirements to check** belong to a feature that changed. They're applied, but a fit or a
   clearance chosen for the old size may be wrong for the new one.
 - **Requirements to specify** are decisions needed for new features.
@@ -225,6 +228,9 @@ part. It accepts paths or loaded part handles; paths accept a part index.
 
 Each requirement's faces are mapped to the new part, and the requirement moves to the new
 feature of the same family that holds them. Its id is renamed when the faces renumbered.
+A datum's faces and an added requirement's (`extra.*`) `faces` and `reference` are mapped
+the same way, by authored name or by correspondence, so an added requirement stays on its
+feature when another feature takes lower face numbers (For #125).
 A requirement is never guessed onto a feature: when there's no single place for it, it's left unresolved with its
 value and reason, for a person to place.
 
@@ -236,7 +242,7 @@ The requirements used are, in order of preference:
 3. none, in which case the report still says what changed.
 
 Carried maps include `_specify.evidence` for the new part and `_specify.unresolved`
-with every dropped question's reason. Keep this metadata: bulk defaults cannot replace
+with every dropped datum, part, BOM or added (`extra.*`) answer's reason. Keep this metadata: bulk defaults cannot replace
 a dropped answer, and write refuses evidence from different geometry. Explicit answers
 clear their carry blocks. Plain maps remain accepted but cannot detect stale in-range
 indices. See [answer files and changed geometry](answers.md).

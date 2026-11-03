@@ -858,3 +858,184 @@ fn an_orphaned_feature_id_does_not_block_the_different_hole_reusing_it() {
     earlier["_specify"]["unresolved"]["hole.function:holes:999"] = json!("removed hole");
     specify_core::api::apply(&analysis, &earlier, true).unwrap();
 }
+
+// For #125: an added requirement's faces are mapped as a datum's are. The new Ø7 hole takes
+// face 7, so the old Ø8 hole (7) becomes 8, the Ø6 hole (8) 9, the boss (9) 10 and its top
+// (10) 11. Kept as they were, the indices would name the wrong holes under an `ok` verdict.
+#[test]
+fn an_added_requirement_follows_its_faces_when_a_feature_takes_lower_ids() {
+    let r = revised(
+        "hole_added",
+        json!({
+            "part.material": "6061-T6",
+            "extra.hole.size": {"faces": [7], "kind": "size", "value": "±0.1"},
+            "extra.hole.place": {"faces": [7], "reference": [0], "kind": "distance", "value": "±0.1"},
+            "extra.boss.size": {"faces": [9], "kind": "size", "value": "±0.2"},
+            "extra.boss.height": {"faces": [10], "reference": [2], "kind": "distance", "value": "±0.1"},
+        }),
+    );
+    assert!(r.unresolved.is_empty(), "{:?}", r.unresolved);
+    assert_eq!(
+        r.answers["extra.hole.size"],
+        json!({"faces": [8], "kind": "size", "value": "±0.1"})
+    );
+    assert_eq!(
+        r.answers["extra.hole.place"],
+        json!({"faces": [8], "reference": [0], "kind": "distance", "value": "±0.1"})
+    );
+    assert_eq!(r.answers["extra.boss.size"]["faces"], json!([10]));
+    assert_eq!(r.answers["extra.boss.height"]["faces"], json!([11]));
+    assert_eq!(r.answers["extra.boss.height"]["reference"], json!([2]));
+    assert_eq!(r.answers["_specify"]["unresolved"], json!({}));
+}
+
+// For #124: an added requirement on a removed hole is orphaned, and the rest is reported.
+#[test]
+fn an_added_requirement_on_a_removed_hole_is_orphaned_not_raised() {
+    let given = answers(json!({
+        "part.material": "6061-T6",
+        "datum.A": [4],
+        "hole.function:holes:7": "fit:H7",
+        "extra.gone.size": {"faces": [7], "kind": "size", "value": "±0.1"},
+        "extra.kept.size": {"faces": [8], "kind": "size", "value": "±0.1"},
+    }));
+    let (old, new) = pair("hole_removed");
+    let r = diff(&old, &new, &given).unwrap();
+    let unresolved: Vec<_> = r
+        .unresolved
+        .iter()
+        .map(|u| (u.id.as_str(), u.class.as_str(), u.reason.as_str()))
+        .collect();
+    assert_eq!(
+        unresolved,
+        [
+            (
+                "hole.function:holes:7",
+                "orphaned",
+                "the Ø7 × 10 through hole was removed"
+            ),
+            (
+                "extra.gone.size",
+                "orphaned",
+                "face 7 has no match in the new part"
+            ),
+        ]
+    );
+    assert_eq!(r.unresolved[1].answer, given["extra.gone.size"]);
+    assert!(!r.answers.contains_key("extra.gone.size"));
+    assert_eq!(r.answers["extra.kept.size"]["faces"], json!([7]));
+    assert_eq!(r.answers["datum.A"], json!([4]));
+    // The person's own requirement is not dropped on write: it blocks until answered again
+    // on the new part's faces, or its entry is removed.
+    assert_eq!(
+        r.answers["_specify"]["unresolved"]["extra.gone.size"],
+        "face 7 has no match in the new part"
+    );
+    let analysis = specify_core::api::analyse(&new).unwrap();
+    let refused = specify_core::api::apply(&analysis, &r.answers, true)
+        .unwrap_err()
+        .to_string();
+    assert!(refused.contains("extra.gone.size"), "{refused}");
+    let mut again = r.answers.clone();
+    again.insert(
+        "extra.gone.size".into(),
+        json!({"faces": [6], "kind": "size", "value": "±0.1"}),
+    );
+    specify_core::api::apply(&analysis, &again, true).unwrap();
+}
+
+// For #123: a size on two equal holes, one since resized, maps to faces of two diameters.
+// The new part refuses it; that is reported, and the rest of the report is returned. The old
+// part is hole_added's old revision with its Ø6 hole (face 8) made Ø8, like face 7; the new
+// part is that revision as it is.
+#[test]
+fn an_added_size_across_a_resized_hole_is_unresolved_not_raised() {
+    let dir = std::env::temp_dir().join(format!("specify-core-diff-size-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let fixture = "tests/fixtures/revisions/hole_added.old.step.gz";
+    let old = unpacked(fixture, &dir.join("old.step"), |t| {
+        let mut t = t;
+        for (from, to) in [
+            (
+                "#329 = CARTESIAN_POINT('',(43.,",
+                "#329 = CARTESIAN_POINT('',(44.,",
+            ),
+            (
+                "#519 = CARTESIAN_POINT('',(43.,",
+                "#519 = CARTESIAN_POINT('',(44.,",
+            ),
+            (
+                "#609 = CARTESIAN_POINT('',(43.,",
+                "#609 = CARTESIAN_POINT('',(44.,",
+            ),
+            ("#331 = CIRCLE('',#332,3.)", "#331 = CIRCLE('',#332,4.)"),
+            ("#338 = CIRCLE('',#339,3.)", "#338 = CIRCLE('',#339,4.)"),
+            (
+                "#344 = CYLINDRICAL_SURFACE('',#345,3.)",
+                "#344 = CYLINDRICAL_SURFACE('',#345,4.)",
+            ),
+            ("#521 = CIRCLE('',#522,3.)", "#521 = CIRCLE('',#522,4.)"),
+            ("#528 = CIRCLE('',#529,3.)", "#528 = CIRCLE('',#529,4.)"),
+        ] {
+            assert_eq!(t.matches(from).count(), 1, "{from}");
+            t = t.replace(from, to);
+        }
+        t
+    });
+    let new = unpacked(fixture, &dir.join("new.step"), |t| t);
+    let (old, new) = (load(&old, None).unwrap(), load(&new, None).unwrap());
+    let given = answers(json!({
+        "part.material": "6061-T6",
+        "extra.pair.size": {"faces": [7, 8], "kind": "size", "value": "±0.1"},
+        "extra.one.size": {"faces": [7], "kind": "size", "value": "±0.1"},
+    }));
+    // Valid on the old part: two Ø8 holes.
+    let old_analysis = specify_core::api::analyse(&old).unwrap();
+    specify_core::api::questions(&old_analysis, &given).unwrap();
+    let r = diff(&old, &new, &given).unwrap();
+    assert_eq!(r.unresolved.len(), 1, "{:?}", r.unresolved);
+    let u = &r.unresolved[0];
+    assert_eq!(
+        (u.id.as_str(), u.class.as_str()),
+        ("extra.pair.size", "unresolved")
+    );
+    assert_eq!(
+        u.reason,
+        "the new part refuses it: a size applies to the cylinder(s) of one diameter"
+    );
+    assert_eq!(u.answer, given["extra.pair.size"]);
+    assert_eq!(r.verdict, "decide");
+    assert!(!r.answers.contains_key("extra.pair.size"));
+    assert_eq!(r.answers["extra.one.size"], given["extra.one.size"]);
+    assert_eq!(r.answers["part.material"], "6061-T6");
+    assert!(
+        r.features.iter().any(|f| f.class == "adapted"),
+        "the resized hole is still reported: {:?}",
+        r.features
+    );
+    assert_eq!(
+        r.answers["_specify"]["unresolved"]["extra.pair.size"],
+        u.reason
+    );
+}
+
+// An added requirement on unchanged geometry carries exactly as given, including on the
+// symmetric repeats of plate_thickened's patterns, which correspondence must not confuse.
+#[test]
+fn an_added_requirement_on_unchanged_geometry_carries_unchanged() {
+    let (old, _) = pair("plate_thickened");
+    let given = answers(json!({
+        "part.material": "6061-T6",
+        "datum.A": [4],
+        "extra.end.size": {"faces": [7], "kind": "size", "value": "±0.1"},
+        "extra.other_end.place": {"faces": [10], "reference": [0], "kind": "distance", "value": "±0.1"},
+        "extra.row.size": {"faces": [12, 13, 14], "kind": "size", "value": "±0.05"},
+        "extra.top.flatness": {"faces": [2], "kind": "flatness", "value": "0.05"},
+    }));
+    let r = diff(&old, &old, &given).unwrap();
+    assert!(r.unresolved.is_empty(), "{:?}", r.unresolved);
+    assert!(r.migrated.is_empty());
+    for (id, answer) in &given {
+        assert_eq!(&r.answers[id], answer, "{id}");
+    }
+}

@@ -110,8 +110,12 @@ An unchanged part's evidence remains valid even if its file bytes change without
 faces. Existing in-STEP answer payloads retain their format and evidence; transport
 metadata is consumed before answers are embedded.
 
-`unresolved` contains blocks only for revision-stable question IDs: `datum.*`, `part.*`
-(including general tolerance) and `bom.*`. Their entries preserve diff's exact refusal.
+`unresolved` contains blocks only for revision-stable IDs: `datum.*`, `part.*`
+(including general tolerance), `bom.*` and added requirements' `extra.*`. Their entries
+preserve diff's exact refusal. An `extra.<name>` key is the person's own name for a
+requirement they added, with the same meaning in both revisions; dropping it on write
+because its faces did not carry would silently lose a requirement no question asks for
+again. Answer it again on the new part's faces, or remove its entry to drop it.
 A dropped answer for one of these questions contributes no PMI and cannot be replaced by
 bulk default acceptance. CLI fails with
 `incomplete: datum.A (carried answer could not be applied: <reason>)`, writes no STEP or
@@ -123,7 +127,7 @@ Feature-scoped IDs such as `hole.function:holes:7` encode old face numbers: afte
 a hole, `holes:7` may already refer to a different new hole. A failed carry has no unique,
 verified destination question. These answers remain in **the diff report's `unresolved`
 list**, with their original value and reason, but do not create sidecar blocks under old
-IDs. Added requirements with failed supports likewise remain report-only. Never use an
+IDs. Never use an
 old feature ID as a clearing answer for a different hole. Review the reported removal or
 unmatched requirement, and answer the new part's questions using its current geometry.
 Earlier metadata that contains feature-scoped blocks is ignored for blocking, so it cannot
