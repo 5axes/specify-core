@@ -853,6 +853,44 @@ fn picture_draws_changed_added_and_removed_presentation_inside_the_frame() {
 }
 
 #[test]
+fn spindle_defaults_report_hole_14_thread_once_with_its_drawing_text() {
+    let old = load("revisions/spindle_pmi.old.step.gz");
+    let new = load("revisions/spindle_pmi.new.step.gz");
+    // The editor's acceptDefaults('{}'), without adding any explicit answers.
+    let defaults =
+        specify_core::rules::with_all_defaults(&api::analyse(&old).unwrap(), &Map::new()).unwrap();
+    let report = revision::diff_with_options(
+        &old,
+        &new,
+        &defaults,
+        revision::DiffOptions { scenes: true },
+    )
+    .unwrap();
+    let items: Vec<_> = report
+        .pmi
+        .items
+        .iter()
+        .filter(|i| i.id == "thread:holes:14" || i.id.starts_with("attribute:thread:holes:14:"))
+        .collect();
+    assert_eq!(items.len(), 1, "{items:?}");
+    let item = items[0];
+    assert_eq!(item.id, "thread:holes:14");
+    assert_eq!(item.kind, "thread");
+    assert_eq!(item.class, "removed");
+    assert_eq!(item.old.as_deref(), Some("M4×0.7-6H THRU"));
+    assert_eq!(item.new, None);
+    assert_eq!(item.faces.old, [revision::FaceAnchor { face: 14 }]);
+    assert!(item.faces.new.is_empty());
+    let scenes = report.pmi.scenes.unwrap();
+    assert_eq!(
+        scenes.old["presentation"]["items"][&item.id][0]["name"],
+        "M4×0.7-6H THRU"
+    );
+    // Folding changes the review, while the complete semantic document stays available.
+    assert!(scenes.old["specify"]["attribute:thread:holes:14:thread manufacturing:0"].is_object());
+}
+
+#[test]
 fn thread_manufacturing_changes_show_drawing_wording_on_both_sides() {
     let bare = load("revisions/gramil_shaft.old.step.gz");
     let supplied = answers(json!({"hole.function:holes:13":"tapped:M4"}));
@@ -861,6 +899,8 @@ fn thread_manufacturing_changes_show_drawing_wording_on_both_sides() {
     assert!(text.contains("6H"));
     let new = part::load_bytes("thread-class.step", text.replace("6H", "6G").into_bytes()).unwrap();
     let report = revision::diff(&old, &new, &Map::new()).unwrap();
+    assert_eq!(report.pmi.items.len(), 1, "{:?}", report.pmi.items);
+    assert_eq!(report.pmi.items[0].kind, "thread");
     assert!(
         report
             .pmi
@@ -880,14 +920,17 @@ fn thread_manufacturing_changes_show_drawing_wording_on_both_sides() {
         &answers(json!({"hole.function:holes:14":"tapped:M2", "hole.full_thread:holes:14":"1.8"})),
     );
     let report = revision::diff(&old, &new, &Map::new()).unwrap();
-    let note = report
+    // Depth lives in the manufacturing attribute, so the folded thread must still
+    // report it even though its AP242 thread record did not change.
+    assert_eq!(report.pmi.items.len(), 1, "{:?}", report.pmi.items);
+    let thread = report
         .pmi
         .items
         .iter()
-        .find(|c| c.id.contains("thread manufacturing"))
+        .find(|c| c.kind == "thread")
         .unwrap();
-    assert_eq!(note.old.as_deref(), Some("M2×0.4-6H ↧ 2"));
-    assert_eq!(note.new.as_deref(), Some("M2×0.4-6H ↧ 1.8"));
+    assert_eq!(thread.old.as_deref(), Some("M2×0.4-6H ↧ 2"));
+    assert_eq!(thread.new.as_deref(), Some("M2×0.4-6H ↧ 1.8"));
 }
 
 #[test]

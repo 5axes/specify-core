@@ -336,7 +336,62 @@ fn items(scene: &Value) -> Vec<Item> {
             },
         });
     }
+    // A thread manufacturing attribute is the thread's own note only when its
+    // scene identity, support and drawing wording all agree. Fold before pairing,
+    // retaining its semantics so a manufacturing-only edit still changes the
+    // thread. Keep the scenes themselves intact for callouts and semantic clients.
+    let threads: BTreeMap<_, _> = result
+        .iter()
+        .enumerate()
+        .filter(|(_, item)| item.kind == "thread")
+        .map(|(i, item)| (item.id.as_str(), i))
+        .collect();
+    let mut folded = BTreeSet::new();
+    let mut manufacturing = BTreeMap::<usize, Vec<Value>>::new();
+    for (i, note) in result.iter().enumerate() {
+        if !rows
+            .get(note.id.as_str())
+            .is_some_and(|(collection, value)| {
+                *collection == "attributes" && value["name"] == "thread manufacturing"
+            })
+        {
+            continue;
+        }
+        let Some((owner, occurrence)) = note
+            .id
+            .strip_prefix("attribute:")
+            .and_then(|id| id.rsplit_once(":thread manufacturing:"))
+        else {
+            continue;
+        };
+        let Some(&thread) = threads.get(owner) else {
+            continue;
+        };
+        if occurrence.parse::<usize>().is_ok()
+            && !note.text.is_empty()
+            && note.text == result[thread].text
+            && note.faces == result[thread].faces
+        {
+            folded.insert(i);
+            manufacturing
+                .entry(thread)
+                .or_default()
+                .push(note.semantic.clone());
+        }
+    }
     result
+        .into_iter()
+        .enumerate()
+        .filter_map(|(i, mut item)| {
+            if folded.contains(&i) {
+                return None;
+            }
+            if let Some(notes) = manufacturing.remove(&i) {
+                item.semantic = json!({"thread":item.semantic, "manufacturing":notes});
+            }
+            Some(item)
+        })
+        .collect()
 }
 
 fn mapped(support: &[usize], faces: &BTreeMap<usize, Bind>) -> Option<Vec<usize>> {
@@ -733,6 +788,123 @@ pub(super) fn diff(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn thread_scene(text: &str, depth: &str) -> Value {
+        json!({
+            "pmi": {"pmi": {
+                "features": [{"id":"support", "value":{"items":[{"face":14}]}}],
+                "threads": [{"id":"thread:holes:14", "value":{"feature":"support", "fit_class":"6H"}}],
+                "attributes": [{"id":"attribute:thread:holes:14:thread manufacturing:0", "value":{
+                    "name":"thread manufacturing", "on":{"feature":"support"},
+                    "items":[["minimum full thread", depth]]
+                }}]
+            }},
+            "specify": {
+                "thread:holes:14":{"status":"answered", "notation":text},
+                "attribute:thread:holes:14:thread manufacturing:0":{"status":"answered", "notation":text}
+            }
+        })
+    }
+
+    #[test]
+    fn thread_notes_fold_on_addition_removal_and_change() {
+        let old = items(&thread_scene("M4×0.7-6H ↧ 2", "2"));
+        let mut new = thread_scene("M4×0.7-6G ↧ 2", "2");
+        new["pmi"]["pmi"]["threads"][0]["value"]["fit_class"] = json!("6G");
+        let new = items(&new);
+        let faces = BTreeMap::from([(14, Bind::To(14))]);
+        for (before, after, class) in [
+            (&[][..], old.as_slice(), "added"),
+            (old.as_slice(), &[][..], "removed"),
+            (old.as_slice(), new.as_slice(), "changed"),
+        ] {
+            let changes = compare(before, after, &faces, &[], &[], false);
+            assert_eq!(changes.len(), 1, "{changes:?}");
+            let change = &changes[0];
+            assert_eq!(change.class, class);
+            assert_eq!(change.id, "thread:holes:14");
+            assert_eq!(change.kind, "thread");
+            assert_eq!(
+                change.old.as_deref(),
+                before.first().map(|i| i.text.as_str())
+            );
+            assert_eq!(
+                change.new.as_deref(),
+                after.first().map(|i| i.text.as_str())
+            );
+        }
+    }
+
+    #[test]
+    fn folded_note_edits_survive_unchanged_thread_semantics() {
+        let before = thread_scene("M4×0.7-6H ↧ 2", "2");
+        for wording in ["M4×0.7-6H ↧ 1.8", "M4×0.7-6H ↧ 2"] {
+            let after = thread_scene(wording, "1.8");
+            assert_eq!(
+                before["pmi"]["pmi"]["threads"],
+                after["pmi"]["pmi"]["threads"]
+            );
+            let changes = compare(
+                &items(&before),
+                &items(&after),
+                &BTreeMap::from([(14, Bind::To(14))]),
+                &[],
+                &[],
+                false,
+            );
+            assert_eq!(changes.len(), 1, "{changes:?}");
+            assert_eq!(changes[0].id, "thread:holes:14");
+            assert_eq!(changes[0].class, "changed");
+            assert_eq!(changes[0].old.as_deref(), Some("M4×0.7-6H ↧ 2"));
+            assert_eq!(changes[0].new.as_deref(), Some(wording));
+            if wording == "M4×0.7-6H ↧ 2" {
+                assert_eq!(
+                    changes[0].reason.as_deref(),
+                    Some("semantic fields changed")
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn thread_notes_fold_only_with_the_same_owner_faces_and_wording() {
+        let note = "attribute:thread:holes:14:thread manufacturing:0";
+        let own = thread_scene("M4×0.7-6H THRU", "2");
+        for mismatch in ["owner", "faces", "wording", "missing", "name"] {
+            let mut scene = own.clone();
+            match mismatch {
+                "owner" => {
+                    let id = "attribute:thread:holes:15:thread manufacturing:0";
+                    scene["pmi"]["pmi"]["attributes"][0]["id"] = json!(id);
+                    let meta = scene["specify"]
+                        .as_object_mut()
+                        .unwrap()
+                        .remove(note)
+                        .unwrap();
+                    scene["specify"][id] = meta;
+                }
+                "faces" => scene["pmi"]["pmi"]["attributes"][0]["value"]["on"] = json!({"face":15}),
+                "wording" => scene["specify"][note]["notation"] = json!("Use forming tap"),
+                "missing" => scene["pmi"]["pmi"]["threads"] = json!([]),
+                "name" => {
+                    scene["pmi"]["pmi"]["attributes"][0]["value"]["name"] = json!("inspection")
+                }
+                _ => unreachable!(),
+            }
+            let changes = compare(&[], &items(&scene), &BTreeMap::new(), &[], &[], false);
+            assert_eq!(
+                changes.len(),
+                if mismatch == "missing" { 1 } else { 2 },
+                "{mismatch}: {changes:?}"
+            );
+            assert!(
+                changes.iter().any(|i| i.kind == "note"),
+                "{mismatch}: {changes:?}"
+            );
+        }
+        // The companion control is the thread's own note with matching support and wording.
+        assert_eq!(items(&own).len(), 1);
+    }
 
     fn control(id: &str, faces: Vec<usize>, text: &str) -> Item {
         Item {

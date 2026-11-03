@@ -136,6 +136,15 @@ manufacturing attributes, show their named values instead of the fallback `note`
 Semantic-only knurls show their pattern and pitch; surface textures show their stated
 parameters. Existing drawing wording remains authoritative when a callout is present.
 
+A thread's own `thread manufacturing` attribute is compared as part of the thread,
+giving one item for an added, removed or changed thread. Folding requires the attribute's
+owner id to be that thread's id, identical face anchors and identical drawing wording
+within each revision. Its semantic fields remain part of the comparison: a depth or
+other manufacturing edit still changes the thread item even when the thread record
+itself is unchanged. The item's `old` / `new` use each revision's drawing wording.
+Notes with another owner, different faces or different wording, and notes without a
+matching thread, remain separate items. Optional scenes retain all semantic records.
+
 `report.json` adds `pmi.items`, an ordered list of changes:
 
 ```json

@@ -8,6 +8,11 @@ All notable changes to specify-core-rust. The format follows
 
 ### Fixed
 
+- Diff folds a thread's own `thread manufacturing` note into its thread item when
+  owner id, faces and drawing wording agree. Added, removed and changed threads
+  appear once; manufacturing-only edits still change the thread item with its
+  drawing wording. Other manufacturing notes remain separate across native, CLI,
+  WASM and Python diff.
 - Analysis `existing` records (and Python `ExistingPmi`) mark a basic dimension with
   `basic: true`, as does the scene's `specify[id]` metadata, and diff words add ` (basic)`.
   Basic dimensions such as cadgen's "theoretical" 30 and 50 on the PMI plate were read by
