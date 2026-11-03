@@ -263,3 +263,34 @@ fn what_was_typed_is_interpreted() {
         "{out}"
     );
 }
+
+#[test]
+fn accept_defaults_cannot_replace_a_dropped_carried_datum() {
+    let old = common::fixtures().join("revisions/plate_split.old.step.gz");
+    let new = common::fixtures().join("revisions/plate_split.new.step.gz");
+    let before = specify_core::part::load(&old, None).unwrap();
+    let after = specify_core::part::load(&new, None).unwrap();
+    let given = json!({"part.material":"6061-T6", "datum.A":[4]});
+    let revised = specify_core::revision::diff(&before, &after, given.as_object().unwrap()).unwrap();
+    let analysis = specify_core::api::analyse(&after).unwrap();
+    let output = std::env::temp_dir().join(format!("serve-dropped-datum-{}.step", std::process::id()));
+    let _ = std::fs::remove_file(&output);
+    let mut server = Server::default();
+    let mut request = json!({"id":1, "op":"write", "step":new, "output":output,
+        "analysis":analysis, "answers":revised.answers, "accept_defaults":true});
+    for multiple in [false, true] {
+        let mut req = request.clone();
+        if multiple {
+            req["parts"] = json!([{"analysis":req["analysis"], "answers":req["answers"]}]);
+        }
+        let reply = server.reply(&req);
+        assert_eq!(reply["ok"], false, "{reply}");
+        assert_eq!(reply["error"]["code"], "incomplete", "{reply}");
+        assert!(reply["error"]["message"].as_str().unwrap().contains("datum.A (carried answer could not be applied:"));
+        assert!(!output.exists());
+    }
+    request["answers"]["datum.A"] = json!([4, 8]);
+    let reply = server.reply(&request);
+    assert_eq!(reply["ok"], true, "{reply}");
+    std::fs::remove_file(output).unwrap();
+}

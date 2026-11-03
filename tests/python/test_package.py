@@ -357,3 +357,23 @@ def test_basic_dimensions_read_as_basic():
     assert all(d.kind == "dimension" and d.upper is None and d.lower is None for d in basic)
     assert all(d.to_dict()["basic"] is True for d in basic)
     assert all("basic" not in d.to_dict() for d in found if not d.basic)
+
+
+def test_dropped_carry_cannot_default_and_saved_evidence_rejects_changed_geometry(tmp_path):
+    revisions = Path(__file__).resolve().parents[1] / "fixtures" / "revisions"
+    old = revisions / "plate_split.old.step.gz"
+    new = revisions / "plate_split.new.step.gz"
+    given = {"part.material": "6061-T6", "datum.A": [4]}
+    carried = api.diff(old, new, given)["report"]["answers"]
+    analysis = api.analyse(new)
+    with pytest.raises(IncompleteError, match="datum.A.*carried answer could not be applied"):
+        api.apply(analysis, carried, accept_defaults=True)
+    carried["datum.A"] = [4, 8]
+    intent = api.apply(analysis, carried, accept_defaults=True)
+    api.write(new, intent, tmp_path / "resolved.step", answers=carried)
+    saved = api.diff(old, old, given)["report"]["answers"]
+    api.write(old, api.apply(api.analyse(old), saved, accept_defaults=True),
+              tmp_path / "unchanged.step", answers=saved)
+    with pytest.raises(ValueError, match="stale answers.*diff"):
+        api.write(new, intent, tmp_path / "stale.step", answers=saved)
+    assert not (tmp_path / "stale.step").exists()

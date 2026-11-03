@@ -71,3 +71,26 @@ fn stale_and_repeated_auto_entries_keep_core_settling_semantics() {
         assert_eq!(actual["review"], expected_review);
     }
 }
+
+#[test]
+fn carried_refusals_survive_wasm_defaults_review_and_write() {
+    let bytes = include_bytes!("../../../tests/fixtures/parts/plate.step");
+    let session = Session::open("plate.step", bytes).unwrap();
+    let loaded = part::load_bytes("plate.step", bytes.to_vec()).unwrap();
+    let analysis = api::analyse(&loaded).unwrap();
+    let mut answers = json!({"part.material":"steel", "_specify":{
+        "unresolved":{"datum.A":"face 4 has no match in the new part"}
+    }}).as_object().unwrap().clone();
+    assert!(session.accept_defaults(&answers).unwrap_err().contains("carried answer could not be applied"));
+    assert!(specify_core_wasm::accept_defaults(&analysis, &answers).is_err());
+    assert!(!session.review(&answers).unwrap()["open"].as_array().unwrap().is_empty());
+    assert!(session.write_pmi(&answers, None, None).is_err());
+    answers.insert("datum.A".into(), json!([4]));
+    let accepted = session.accept_defaults(&answers).unwrap();
+    assert_eq!(accepted["datum.A"], json!([4]));
+    session.write_pmi(&accepted, None, None).unwrap();
+    answers["_specify"]["evidence"] = session.evidence().unwrap();
+    session.write_pmi(&answers, None, None).unwrap();
+    answers["_specify"]["evidence"]["face_count"] = json!(999);
+    assert!(session.write_pmi(&answers, None, None).unwrap_err().contains("stale answers"));
+}

@@ -110,3 +110,10 @@ the one-block sweep; bare geometry uses accepted defaults to supply notes.
 revision reproducer (`spindle_pmi_before/after.step.gz`), copied byte for byte.
 They cover answered diff scenes retaining stale file semantic ids and a thread
 manufacturing note incorrectly paired with a newly numbered location dimension.
+
+`plate_split` is the v0.1.8 git-workflow regression: a 100 × 60 × 10 box with
+Ø8 through holes at x = ±30. The new revision cuts a 6 × 60 × 4 box centred
+at (0, 0, -5), splitting old bottom face 4 into new faces 4 and 8. These are
+the supplied workflow plates, gzipped with mtime 0; `plate_split.py` reproduces
+the build123d construction. They check that an orphaned datum cannot become an
+accepted default and that saved evidence detects stale face numbering.
