@@ -38,7 +38,8 @@ All notable changes to specify-core-rust. The format follows
   every write report's `not_written` with the reason, instead of being dropped silently. It
   stays stored and exported; `apply` does not refuse it. Rust `api`, CLI, serve and Python now
   refuse an answer ID no question can have (`unknown answer ID`), as WASM already did.
-  For #126.
+  A carry block applies only while its question is asked; otherwise it is listed the same
+  way, and it refuses again once later answers ask the question. For #126.
 - Export the complete answer set before writing with `questions --resolve-defaults
   --step STEP`, serve `export_answers`, Python `api.export_answers` and WASM
   `engine.exportAnswers`. Accepted defaults are explicit, including dependent questions;
