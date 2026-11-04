@@ -29,9 +29,14 @@ struct Opened {
 
 impl Opened {
     fn start(extra: &[&str]) -> Opened {
+        Opened::start_on(&fixture(), extra)
+    }
+
+    fn start_on(step: &Path, extra: &[&str]) -> Opened {
+        let name = step.file_name().unwrap().to_string_lossy().into_owned();
         let mut child = Command::new(env!("CARGO_BIN_EXE_specify-core"))
             .arg("open")
-            .arg(fixture())
+            .arg(step)
             .arg("--no-browser")
             .args(extra)
             .stdout(Stdio::piped())
@@ -43,7 +48,7 @@ impl Opened {
         stdout.read_line(&mut line).unwrap();
         let page = line
             .trim()
-            .strip_prefix("Open thread-depth-alpha7.step.gz: ")
+            .strip_prefix(&format!("Open {name}: "))
             .unwrap_or_else(|| panic!("the address line: {line:?}"))
             .to_string();
         let file = decode(page.split_once("?open=").expect("?open=").1);
@@ -349,6 +354,58 @@ fn requests_other_than_the_editors_are_refused_and_the_file_is_not_served() {
     assert_eq!(got.status, 200);
     assert_eq!(got.body, bytes);
     assert_eq!(opened.exit().0, 0);
+}
+
+#[test]
+fn a_name_with_spaces_and_reserved_characters_is_served_at_its_encoded_path() {
+    // `?` is not allowed in a Windows file name: there, the name is without it.
+    let (name, encoded) = if cfg!(windows) {
+        (
+            "my part #1 %ä.step.gz",
+            "my%20part%20%231%20%25%C3%A4.step.gz",
+        )
+    } else {
+        (
+            "my part #1 ?%ä.step.gz",
+            "my%20part%20%231%20%3F%25%C3%A4.step.gz",
+        )
+    };
+    let dir = std::env::temp_dir().join(format!("specify-core-open-name-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let step = dir.join(name);
+    std::fs::copy(fixture(), &step).unwrap();
+    let opened = Opened::start_on(&step, &[]);
+    let (host, path) = (opened.host(), opened.path());
+    let (token, served) = path[1..].split_once('/').unwrap();
+    assert_eq!(token.len(), 32);
+    assert!(
+        token.chars().all(|c| matches!(c, '0'..='9' | 'a'..='f')),
+        "{token}"
+    );
+    assert_eq!(served, encoded);
+    let got = request(
+        opened.port,
+        "GET",
+        &format!("/{token}/{encoded}"),
+        &[("Host", &host), ("Origin", EDITOR)],
+    );
+    assert_eq!(got.status, 200);
+    assert_eq!(got.body, std::fs::read(fixture()).unwrap());
+    assert_eq!(opened.exit().0, 0);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_default_port_is_left_out_of_site_as_browsers_leave_it_out_of_origin() {
+    let origin = |s: &str| open::site_origin(s).unwrap();
+    assert_eq!(
+        origin("https://Preview.Example:443/"),
+        "https://preview.example"
+    );
+    assert_eq!(origin("http://localhost:80"), "http://localhost");
+    assert_eq!(origin("https://x:8443"), "https://x:8443");
+    assert_eq!(origin("http://x:443"), "http://x:443");
+    assert_eq!(origin("https://x:80"), "https://x:80");
 }
 
 #[test]

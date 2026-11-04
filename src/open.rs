@@ -6,7 +6,9 @@
 //! `https://draftwright.io/specify?open=<that address>`, which fetches it. The server answers
 //! only a request whose `Host` is exactly `127.0.0.1:<port>` (a page that finds the port through
 //! DNS rebinding is refused) and whose `Origin` is the editor's, allows Chrome's Private Network
-//! Access preflight, serves the file to one `GET` and stops.
+//! Access preflight, serves the file to one `GET` and stops. A request with no `Origin` gets
+//! 403: stricter than the editor's scripts/dw-open.mjs, and right, because the editor's
+//! cross-origin fetch always sends one.
 
 use std::io::{self, Read, Write};
 use std::net::{Ipv4Addr, Shutdown, TcpListener, TcpStream};
@@ -70,7 +72,8 @@ pub fn encode_component(text: &str) -> String {
 }
 
 /// `--site`: an origin, `http(s)://host[:port]` with nothing after it but an optional `/`,
-/// lowercased as a browser reports it.
+/// lowercased and without a default port (`:443` for https, `:80` for http), as a browser
+/// reports it in `Origin`.
 pub fn site_origin(site: &str) -> Result<String, Error> {
     let refused = || {
         Error::Refused(format!(
@@ -86,7 +89,15 @@ pub fn site_origin(site: &str) -> Result<String, Error> {
     if host.is_empty() || !host.chars().all(allowed) {
         return Err(refused());
     }
-    Ok(lower)
+    let default_port = if lower.starts_with("https://") {
+        ":443"
+    } else {
+        ":80"
+    };
+    Ok(lower
+        .strip_suffix(default_port)
+        .unwrap_or(&lower)
+        .to_string())
 }
 
 /// The page the browser opens: `/specify`, or the full editor at `/editor` (on draftwright.io,
@@ -205,7 +216,7 @@ impl Handoff {
     }
 
     /// Answers requests until the file has been served once, then closes the port; or gives up
-    /// after `timeout`. Each connection is answered on its own thread, so a browser's idle
+    /// after `timeout` if nothing has been served (a transfer under way is never cut off). Each connection is answered on its own thread, so a browser's idle
     /// preconnection does not hold up the fetch.
     pub fn serve(self, timeout: Duration) -> Result<(), Error> {
         let io = |e: io::Error| Error::Io(format!("serving on 127.0.0.1:{}: {e}", self.port));
@@ -222,7 +233,7 @@ impl Handoff {
             if finished.try_recv().is_ok() {
                 return Ok(());
             }
-            if Instant::now() >= deadline {
+            if Instant::now() >= deadline && !served.load(Ordering::SeqCst) {
                 return Err(Error::TimedOut(timeout));
             }
             match self.listener.accept() {
@@ -233,7 +244,9 @@ impl Handoff {
                         served.clone(),
                         done.clone(),
                     );
-                    thread::spawn(move || {
+                    // A thread that cannot be started drops the connection, which the browser
+                    // can retry.
+                    let _ = thread::Builder::new().spawn(move || {
                         if answer(stream, &rules, &bytes, &served) {
                             let _ = done.send(());
                         }
@@ -272,17 +285,20 @@ impl Request {
     }
 }
 
-/// Reads a request's head (up to 16 KiB, waiting at most 10 s), or None.
+/// Reads a request's head (up to 16 KiB, all of it within 10 s), or None.
 fn read_request(stream: &mut TcpStream) -> Option<Request> {
-    stream
-        .set_read_timeout(Some(Duration::from_secs(10)))
-        .ok()?;
+    let deadline = Instant::now() + Duration::from_secs(10);
     let mut head = Vec::new();
     let mut chunk = [0u8; 2048];
     while !head.windows(4).any(|w| w == b"\r\n\r\n") {
         if head.len() > 16 * 1024 {
             return None;
         }
+        let left = deadline.checked_duration_since(Instant::now())?;
+        if left.is_zero() {
+            return None;
+        }
+        stream.set_read_timeout(Some(left)).ok()?;
         let n = stream.read(&mut chunk).ok()?;
         if n == 0 {
             return None;
