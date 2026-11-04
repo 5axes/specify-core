@@ -274,6 +274,11 @@ impl Session {
         input::answers(&self.analysis, answers).map_err(|e| e.to_string())?;
         let mut intent =
             api::preview(&self.analysis, answers).map_err(|error| error.to_string())?;
+        // Preview leaves out what apply reports as not written (#126); a write lists it.
+        intent.requirements.extend(
+            specify_core::rules::unasked_rows(&self.analysis, answers)
+                .map_err(|error| error.to_string())?,
+        );
         if bom {
             specify_core::bom::accept_suggestions(&self.analysis, answers, &mut intent)?;
         }

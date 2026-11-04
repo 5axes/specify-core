@@ -239,7 +239,14 @@ fn the_spool_is_written_verified_and_read_back() {
         // This frozen analysis predates the planner. Its missing Basic Ø90 radial
         // location gets one report line of its own (#75); General dimensions
         // still share the aggregate report line below (#63).
-        intent.datums.len() + intent.requirements.len() + 5 + general_line(&report.written)
+        intent.datums.len()
+            + intent
+                .requirements
+                .iter()
+                .filter(|r| r["kind"] != specify_core::rules::UNASKED)
+                .count()
+            + 5
+            + general_line(&report.written)
     );
     assert!(report.written.contains(&"material 6082-T6".to_string()));
     assert!(
@@ -247,7 +254,15 @@ fn the_spool_is_written_verified_and_read_back() {
             .written
             .contains(&"surface finish Ra 3.2".to_string())
     );
-    assert!(report.not_written.is_empty(), "{:?}", report.not_written);
+    // #126: the rules ask no flatness of this spool's datum A, so the given
+    // `datum.A.flatness` was dropped silently; it is now reported.
+    assert_eq!(
+        report.not_written,
+        [
+            "datum.A.flatness is not asked of this part given the other answers, so its answer \
+          was not written"
+        ]
+    );
     assert!(report.warnings.is_empty());
 
     // The limits: each fit is written as its ISO 286 class (Python wrote bare limits, as

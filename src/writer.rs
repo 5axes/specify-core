@@ -450,8 +450,20 @@ fn check_jobs(jobs: &[Job<'_>]) -> Result<(), WriteError> {
         check_binding(loaded, intent)?;
         if let Some(answers) = answers {
             crate::answer_file::check(loaded, answers).map_err(WriteError::Invalid)?;
-            crate::answer_file::require_resolved(answers)
+            // A carry block applies only while its question is asked (#126). Which are asked
+            // is derived from these answers on this part, never taken from the intent: only
+            // when there is a block, as that needs the part's analysis.
+            crate::answer_file::validate(answers).map_err(WriteError::Invalid)?;
+            if !crate::answer_file::unresolved(answers).is_empty() {
+                let analysis =
+                    crate::api::analyse(loaded).map_err(|e| WriteError::Failed(e.to_string()))?;
+                let asked = crate::rules::questions(&analysis, answers)
+                    .map_err(|e| WriteError::Invalid(e.to_string()))?;
+                crate::answer_file::require_resolved_where(answers, |id| {
+                    asked.iter().any(|q| q.id == id)
+                })
                 .map_err(|e| WriteError::Invalid(e.to_string()))?;
+            }
         }
     }
     Ok(())
@@ -703,6 +715,12 @@ fn write_verified(
                 saved.remove(crate::bom::CARRY);
                 saved.retain(|key, _| !key.starts_with("bom."));
                 let mut payload = resume::payload(loaded, &saved).map_err(failed)?;
+                // Carry blocks on questions not asked now (#126) are kept beside the answers,
+                // never inside them: older builds refuse `_specify` among answers.
+                let blocks = crate::answer_file::unresolved(answers);
+                if !blocks.is_empty() {
+                    payload[resume::UNRESOLVED] = Json::Object(blocks);
+                }
                 if mode == Mode::Add || scoped.contains(&loaded.binding.part) {
                     payload["pmi_scope"] = Json::String(PMI_PROVENANCE.into());
                 }

@@ -39,7 +39,8 @@ map** to stdout, rather than a question list, and never writes STEP. `--step` is
 an analysis alone cannot supply verified face evidence. Its binding selects the part of an
 assembly and must match that STEP. `--open` cannot be combined with export.
 
-The map contains every supplied answer and each accepted PMI default, including defaults
+The map contains every supplied answer (including any whose question is not asked; see
+below) and each accepted PMI default, including defaults
 of questions revealed by earlier answers, plus `_specify.evidence` for this part and
 `_specify.unresolved: {}`. Optional BOM suggestions remain opt-in; supplied BOM answers
 are preserved. Output recursively sorts object keys, uses two-space indentation and a
@@ -73,6 +74,58 @@ their existing return shapes. Exported maps can be passed directly to `write`, `
 questions/review, serve, Python and WASM. Writing the unchanged part from the export gives
 the same semantic PMI as accepting the original defaults. Writing changed geometry is
 refused as stale; carry with `diff` instead, then explicitly resolve its blocks.
+
+## Answers to questions not asked
+
+An answer can be valid in form while its question is not asked, given the other answers.
+Dependent questions come and go: with `part.locating` `"± dimensions"` there is no
+`datum.A.flatness`, `datum.B.control`/`datum.C.control`, `hole.position:*`, `hole.frame:*` or
+`diameter.runout:*`, and with `"position tolerances"` no `hole.location:*`; a full-thread
+depth is asked only of a blind tapped hole; a datum the file already states is not asked.
+Which IDs are asked is the rules' question list, the same as `questions` returns.
+
+Such an answer contributes no PMI, and is **never dropped silently**. `apply` adds a
+faceless intent row `{"kind":"unasked","answer":ID,"faces":[],"not_written_reason":…}`, and
+every write report (CLI, serve, Python, WASM) lists it in `not_written`. `preview` leaves
+these rows out, so reviews do not pay for them; the editor's WASM write, which writes its
+preview, adds them with Rust `rules::unasked_rows`:
+
+```text
+datum.A.flatness is not asked when part.locating is '± dimensions', so its answer was not written
+```
+
+Where switching `part.locating` would ask it, the reason says so; otherwise it says the
+question is not asked of this part given the other answers, or that the file already states
+the datum. `apply` does not refuse these answers: callers revising answers across a change
+of `part.locating` keep both modes' answers, and the question takes its answer again when it
+returns. The answer is still stored in the STEP with the others, exported unchanged by
+`questions --resolve-defaults` (dropping it would lose it, and refusing would break the same
+callers), and carried by `diff` like any other answer. A carry block applies only while
+its question is asked: a block on `datum.A.flatness` under `"± dimensions"` does not stop
+`write`, export or bulk defaults, and is listed in `not_written` ("datum.A.flatness was
+carried (carried answer could not be applied: …) but is not asked when part.locating is
+'± dimensions', so nothing was written for it"). It stays in `_specify.unresolved`, so once
+later answers ask the question again it shows as required and refuses again. Write derives
+which blocks apply from its own answers on the part, not from the intent's rows.
+
+Through a STEP, the write stores such blocks in the stored-answers payload's own
+`unresolved` member (`{ID: reason}`), never inside its `answers`, which older builds would
+refuse. Reopening restores them as the resumed answers' `_specify.unresolved`, so the block
+applies again when its question returns. Older Specify and editor builds ignore the extra
+payload member: they reopen and write the STEP normally, but without the block, so on them
+an accepted default can replace it.
+
+An unasked answer's value is checked against the question's options only while the question
+is asked. `part.*`, `bom.*` and `extra.*` answers
+are read whether or not asked, so they never appear here.
+
+An ID that **no** question can have, such as `bogus.question`, is refused with
+`Invalid answers: bogus.question: unknown answer ID` by every entry point: Rust `api`,
+CLI, serve, Python and WASM. `extra.*` requirements and the reserved `_specify*` members
+remain accepted. Answers stored in a STEP by earlier versions, which kept such IDs verbatim,
+are not refused on reopening: the unknown ID is left out of the resumed answers, listed in
+`resume.unresolved` with its value, and named in an analysis warning
+(`saved answer bogus.question: unknown answer ID: …`), so `questions` and `diff` still work.
 
 ## Specify metadata
 
@@ -138,6 +191,9 @@ remove its acceptable suggestion (`default: null`), and put
 `carried answer could not be applied: <diff reason>` in the existing `reason` field. This
 presentation is shared by CLI, serve, Python and WASM. Review can still show partial
 answers; the editor's automatic defaults skip blocked IDs.
+
+A block whose question is not asked under the current answers does not refuse; see
+[Answers to questions not asked](#answers-to-questions-not-asked).
 
 Supply an explicit valid answer for that ID to acknowledge its refusal (for the split
 bottom, `"datum.A":[4,8]`). This overrides its unresolved entry; future diff output removes

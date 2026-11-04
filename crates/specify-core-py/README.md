@@ -41,7 +41,8 @@ intent = api.apply(analysis, answers, accept_defaults=True)   # suggested defaul
 report = api.write("plate.step", intent, "plate-pmi.step", answers=answers)
 
 print(report.written)       # ['datum A', 'Ø8 H7 on holes:9', 'position 0.05 on holes:9', ...]
-print(report.not_written)   # anything that could not be written, with the reason
+print(report.not_written)   # anything that could not be written, with the reason,
+                            # including an answer whose question is not asked
 ```
 
 Write reports optionally include `geometry_carrier_exemptions` (`{part, condition,
