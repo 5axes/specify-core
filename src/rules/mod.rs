@@ -1336,7 +1336,7 @@ fn unasked(
     // A carry block whose question is not asked does not refuse (#126); it is reported too.
     let blocks: Vec<(String, String)> = crate::answer_file::unresolved(answers)
         .into_iter()
-        .filter(|(id, _)| !asks(qs, id))
+        .filter(|(id, _)| !crate::answer_file::always_applies(id) && !asks(qs, id))
         .map(|(id, why)| (id, why.as_str().unwrap_or_default().to_string()))
         .collect();
     if ids.is_empty() && blocks.is_empty() {

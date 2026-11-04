@@ -314,6 +314,48 @@ fn a_carry_block_on_an_unasked_question_is_reported_not_refused() {
     );
 }
 
+/// #128 with #126: an added requirement (`extra.*`) has no question, so its carry block is
+/// never "unasked". Beside a block that is reported as unasked, it still refuses apply and
+/// write, and names the requirement: a dropped requirement the person added is never lost.
+#[test]
+fn a_dropped_added_requirement_stays_refused_beside_an_unasked_block() {
+    let mut answers = blocked("± dimensions");
+    answers["_specify"]["unresolved"]
+        .as_object_mut()
+        .unwrap()
+        .insert(
+            "extra.gone.size".into(),
+            json!("face 7 has no match in the new part"),
+        );
+    let analysis = api::analyse_file(&plate(), None).unwrap();
+    let refused = api::apply(&analysis, &answers, true)
+        .unwrap_err()
+        .to_string();
+    assert!(refused.contains("extra.gone.size"), "{refused}");
+    assert!(!refused.contains("datum.A.flatness"), "{refused}");
+    // The writer checks the answers itself, whatever intent it is given.
+    let intent = api::preview(&analysis, &answers).unwrap();
+    let bytes = std::fs::read(plate()).unwrap();
+    let error = api::write_bytes(bytes, &[(intent, Some(answers.clone()))])
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("extra.gone.size"), "{error}");
+    // Answering it again on this part's faces clears it; the unasked block is then reported.
+    answers.insert(
+        "extra.gone.size".into(),
+        json!({"faces": [2], "kind": "flatness", "value": "0.05"}),
+    );
+    let report = write(&answers, "added-cleared");
+    assert!(
+        report
+            .not_written
+            .iter()
+            .any(|line| line.starts_with("datum.A.flatness was carried")),
+        "{:?}",
+        report.not_written
+    );
+}
+
 /// Switching back to position tolerances asks the question again: the block applies again,
 /// shows as required and stops bulk defaults and write, as #121 decided.
 #[test]
