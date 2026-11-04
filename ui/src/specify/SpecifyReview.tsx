@@ -64,7 +64,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   toReview?: readonly string[];
   /** Keeps suggestions as they stand, the editor's way: accepted, as in its list, not answered. */
   onKeep?: (ids: readonly string[]) => void;
-  /** The PMI as drawn (Specify's pmiScene), when it has any graphics. */
+  /** The PMI as drawn (Specify's pmiScene, less its notes block), when it has any graphics. */
   drawn?: DrawnPmi | null;
 }) {
   const stage = useRef<HTMLDivElement>(null);
@@ -141,6 +141,15 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   const chars = useMemo(
     () => characteristics(preview, session.analysis, titles), [preview, session.analysis, titles],
   );
+  // The part's notes, as Specify's notes block says them (its stated settings, not those that are
+  // none, then the notes written in words): on the view, where they stay put.
+  const freeNotes = answers['part.notes'];
+  const partNotes = [
+    ...chars.filter((c) => c.source.startsWith('part:') && !/^[^:]+: None\b/.test(c.text))
+      .map((c) => ({ key: c.source, text: c.text, question: `part.${c.source.slice('part:'.length)}` })),
+    ...(Array.isArray(freeNotes) ? freeNotes : []).filter((n): n is string => typeof n === 'string' && n.trim() !== '')
+      .map((text, i) => ({ key: `notes:${i}`, text, question: 'part.notes' })),
+  ];
   const balloons = useMemo(() => balloonsBySource(chars), [chars]);
 
   // The slot shows the selected row's question whatever else moved ``current``: the session
@@ -777,6 +786,20 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
             />
           </label>
         </div>
+        {partNotes.length > 0 && (
+          <details className="pmi-lab-partnotes" open>
+            <summary title="The part's notes">General notes ({partNotes.length})</summary>
+            <ol>
+              {partNotes.map((n) => (
+                <li key={n.key}>
+                  {questions.some((q) => q.id === n.question)
+                    ? <button type="button" title="Open its question" onClick={() => { setView('review'); setCurrent(n.question); }}>{n.text}</button>
+                    : n.text}
+                </li>
+              ))}
+            </ol>
+          </details>
+        )}
         <div className="pmi-lab-status">
           {status || (picker.current?.missing.length ? `faces ${picker.current.missing.join(', ')} could not be shown` : '')}
         </div>
