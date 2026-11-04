@@ -175,7 +175,16 @@ metadata records the actual written hashes and clean reference. No known-differe
 entry is removed or changed. Original input spans, foreign dependencies, shared
 carrier removal and stable characteristic numbers are checked in native tests.
 
-## Current pin: v0.4.6 (`1ebf8cb6`)
+## Current pin: v0.4.7 (`dcba9d38`)
+
+No byte golden, independent Python readback or `tests/bom_opt_in.rs` hash changes:
+all sixteen cases and the six API/CLI byte comparisons match the v0.4.6 outputs below
+unchanged, so nothing was regenerated or recaptured. CTC-01's dimensions with no
+stated value were already kept at their original bytes by Add; they now read without
+a nonconformance finding, which no golden records. Recognition `/6` and fingerprints
+`/3` are unchanged.
+
+## Previous pin: v0.4.6 (`1ebf8cb6`)
 
 Regenerated all sixteen cases once with `examples/write_fixtures.rs`. Thirteen
 successful byte goldens change solely for #184's GENERAL NOTES placement, which

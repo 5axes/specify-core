@@ -19,6 +19,8 @@ class WriteReport:
     geometry_carrier_exemptions: list[dict[str, Any]] = field(default_factory=list)
     presentation_warnings: list[str] = field(default_factory=list)
     preserved_normalizations: list[dict[str, Any]] = field(default_factory=list)
+    #: Ids of support Replace kept because PMI it could not read still uses it.
+    retained_shared: list[int] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         result = {
@@ -33,6 +35,8 @@ class WriteReport:
             result["presentation_warnings"] = self.presentation_warnings
         if self.preserved_normalizations:
             result["preserved_normalizations"] = self.preserved_normalizations
+        if self.retained_shared:
+            result["retained_shared"] = self.retained_shared
         return result
 
     @classmethod
@@ -45,6 +49,7 @@ class WriteReport:
             data.get("geometry_carrier_exemptions", []),
             data.get("presentation_warnings", []),
             data.get("preserved_normalizations", []),
+            data.get("retained_shared", []),
         )
 
 
