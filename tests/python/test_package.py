@@ -2,6 +2,7 @@
 in specify-core's Python types. The engine itself is tested in Rust (tests/*.rs)."""
 
 import json
+import math
 import os
 import subprocess
 import sys
@@ -110,7 +111,8 @@ def test_problems_state_each_sealed_interior_void():
     step = Path(__file__).parent.parent / "fixtures/voids/sealed_cavities.step.gz"
     facts = [p for p in problems(api.analyse(step), {}) if p.get("code") == "interior_void"]
     assert sorted(p["faces"] for p in facts) == [[6, 7, 8], [9, 10, 11], [12, 13, 14], [15, 16, 17]]
-    assert {(p["severity"], p["diameter"], p["length"]) for p in facts} == {("info", 4.0, 12.0)}
+    assert {(p["severity"], p["diameter"], p["length"]) for p in facts} == {("info", 2.5, 12.0)}
+    assert all(abs(p["estimated_volume"] - math.pi * 1.25**2 * 12) < 1e-9 for p in facts)
 
 
 def test_the_console_script_lists_the_parts(plate):
