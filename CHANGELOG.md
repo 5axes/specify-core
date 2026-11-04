@@ -8,11 +8,39 @@ All notable changes to specify-core-rust. The format follows
 
 ### Added
 
+- Review `problems` state each sealed interior void (an `interior_voids` feature whose
+  kernel record is a `closed_shell` measurement) as an `info` fact with
+  `code: "interior_void"`, its `feature`, `faces`, the kernel's `estimated_volume` and,
+  for a capped cylinder, `diameter` and `length`: "Closed internal cavity ⌀2.5 × 12
+  long: no opening to the outside; can't be drilled, tapped or moulded as modelled."
+  Grid-sampled chambers behind openings are not stated. Shared by native review, serve,
+  Python `problems` and WASM `review`; no question is added or removed.
 - `specify-core open STEP` opens a STEP file in draftwright.io/specify (`--editor`: /editor)
   with nothing to click and nothing uploaded: the file is served once on 127.0.0.1 at a
   random one-off address, to the editor's origin only (with Chrome's Private Network Access
   preflight), and the command exits once it is fetched or after 10 minutes. `--site ORIGIN`
   points it at another deployment; `--no-browser` prints the address instead of opening it.
+
+### Changed
+
+- Move native, WASM and Python builds from quiddity/haecceity v0.4.6 to v0.4.7
+  (`dcba9d38`). Sealed interior voids are reported only as `interior_voids` (each
+  sealed shell gets an exact `closed_shell` record), no longer also as holes.
+  Dimensions with no stated value are written through unchanged; a projected zone
+  with no end geometry is read as a `fact` finding. An Add needing the new R3
+  integer-literal repair is refused with its ids, as R1/R2 are. Recognition `/6`, fingerprints
+  `/3` and both packaged schemas are unchanged.
+- Adopt reader `haecceity-pmi-read/17` in place of /15.
+- Add optional `retained_shared` (ids of auxiliary support Replace kept for PMI it
+  cannot read) to native/CLI, Python and WASM write reports.
+- Known differences: NIST CTC-04's projected zone #18897 is a `fact` finding (formerly
+  nonconformance); cgb217's void shell (faces 361-363, from `BREP_WITH_VOIDS`) is a
+  Rust-only interior void, and its two former cylindrical-profile entries are kept as
+  `resolved`. Cross-engine byte goldens, readbacks and no-BOM hashes are unchanged.
+
+### WASM API
+
+- `WriteReport` adds optional `retained_shared: number[]`, absent when empty.
 
 ## 0.1.9 (2026-11-04)
 

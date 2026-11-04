@@ -46,8 +46,9 @@ print(report.not_written)   # anything that could not be written, with the reaso
 ```
 
 Write reports optionally include `geometry_carrier_exemptions` (`{part, condition,
-aspect, feature}`), `preserved_normalizations` (`{id, normalization}`), and
-`presentation_warnings` (strings). `to_dict()` omits empty lists. The v0.4.6 kernel
+aspect, feature}`), `preserved_normalizations` (`{id, normalization}`),
+`presentation_warnings` (strings) and `retained_shared` (ids of support Replace kept
+for PMI it cannot read). `to_dict()` omits empty lists. The v0.4.7 kernel
 preserves original entity text during Add, including when adding a separate datum
 feature on a kept carrier. Add upgrades requiring source repairs raise a clear
 `RuntimeError` naming the entities and repair; Specify never retries with Replace.
