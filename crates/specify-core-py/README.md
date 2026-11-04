@@ -118,3 +118,8 @@ file is read back and checked before it is kept.
 
 Status: early (0.x). The JSON formats may change between minor versions; changes are listed in
 the changelog. Draftwright® is a registered trade mark of Betwixt Ltd.
+
+Complete answer sidecars (defaults explicit, with geometry evidence) can be exported
+before writing: `api.export_answers(step, analysis, answers)` returns a dict.
+Incomplete sets and unresolved carries are refused. See
+[answer files](../../docs/answers.md#export-a-complete-sidecar).

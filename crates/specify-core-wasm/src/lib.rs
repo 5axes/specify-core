@@ -394,6 +394,16 @@ export interface PmiScene {
                 .map_err(|error| JsValue::from_str(&error))
         }
 
+        /// Complete answer map, with defaults explicit and `_specify.evidence`, for saving.
+        /// Throws if any required answer or carry block remains unanswered.
+        #[wasm_bindgen(js_name = exportAnswers)]
+        pub fn export_answers(&self, answers: &str) -> Result<String, JsValue> {
+            self.0
+                .export_answers(&self::answers(answers)?)
+                .map(|answers| Value::Object(answers).to_string())
+                .map_err(|error| JsValue::from_str(&error))
+        }
+
         #[wasm_bindgen(js_name = acceptDefaults)]
         pub fn accept_defaults(&self, answers: &str) -> Result<String, JsValue> {
             self.0

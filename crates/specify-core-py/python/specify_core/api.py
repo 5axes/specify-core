@@ -27,6 +27,7 @@ __all__ = [
     "analyse",
     "questions",
     "apply",
+    "export_answers",
     "preview",
     "write",
     "write_parts",
@@ -76,6 +77,20 @@ def apply(
     """
     text = _native.apply(json.dumps(analysis), json.dumps(answers), accept_defaults, bom)
     return Intent.from_dict(json.loads(text))
+
+
+def export_answers(
+    step: str | Path | LoadedPart, analysis: dict[str, Any], answers: dict[str, Any]
+) -> dict[str, Any]:
+    """Complete answer map with defaults explicit and ``_specify.evidence`` for this part.
+
+    Does not write STEP. Raises IncompleteError for unanswered required questions
+    or carry blocks, and ValueError for stale evidence or a mismatched analysis.
+    Serialize with ``json.dumps(result, indent=2) + "\\n"`` for a stable sidecar.
+    """
+    return json.loads(_native.export_answers(
+        _step(step), json.dumps(analysis), json.dumps(answers)
+    ))
 
 
 def preview(analysis: dict[str, Any], answers: dict[str, Any]) -> Intent:

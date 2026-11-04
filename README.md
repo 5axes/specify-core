@@ -72,7 +72,10 @@ The flow is the same everywhere:
 specify-core analyse plate.step -o plate.analysis.json          # features, faces, existing PMI
 specify-core questions plate.analysis.json --open                # what is still unanswered
 echo '{"part.material": "6082-T6", "hole.function:holes:9": "fit:H7"}' > answers.json
-specify-core write plate.step plate.analysis.json answers.json -o plate-pmi.step --accept-defaults
+# Export defaults explicitly, with face evidence, before writing:
+specify-core questions plate.analysis.json --answers answers.json \
+  --resolve-defaults --step plate.step > plate.complete.answers.json
+specify-core write plate.step plate.analysis.json plate.complete.answers.json -o plate-pmi.step
 ```
 
 `write` refuses until every question has an answer, or `--accept-defaults` supplies the rest.
@@ -223,7 +226,10 @@ stdout. Each request carries everything it needs, so a restarted process loses n
 echo '{"id": 1, "op": "analyse", "step": "part.step"}' | specify-core serve
 ```
 
-- **Ops:** `parts`, `analyse`, `questions`, `preview`, `interpret` and `write`.
+- **Ops:** `parts`, `analyse`, `questions`, `preview`, `interpret`, `export_answers` and `write`.
+  `export_answers` takes `step`, `analysis` and `answers`, and returns `result.answers`: a
+  complete map with explicit defaults and geometry evidence; it refuses incomplete sets.
+  See [answer files](docs/answers.md#export-a-complete-sidecar).
 - **Replies:** each reply is `{"id", "ok": true, "result"}` or `{"id", "ok": false, "error": {"code", "message"}}`.
 - **Protocol:** defined in `src/serve.rs`.
 

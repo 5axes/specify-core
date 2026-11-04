@@ -474,7 +474,7 @@ fn tag() -> String {
 
 /// Python's `_check_binding`: the intent must be for these bytes, this part, its face count
 /// and this loader, with Python's messages. Python compares with `==`, so `2` and `2.0` agree.
-fn check_binding(loaded: &LoadedPart, intent: &Intent) -> Result<(), WriteError> {
+pub(crate) fn check_binding(loaded: &LoadedPart, intent: &Intent) -> Result<(), WriteError> {
     let binding = &intent.binding;
     let get = |key: &str| binding.get(key);
     if get("source_sha256") != Some(&json!(loaded.binding.source_sha256)) {

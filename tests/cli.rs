@@ -1325,12 +1325,29 @@ fn command_lines(dir: &Path) -> Vec<Difference> {
         // For #79: these three exact Python usage captures differ only by the
         // documented opt-in flag and the PMI-only default wording. Keep every
         // other byte (including argument errors) under an exact assertion.
+        // Export adds exactly two questions flags; keep all other usage/help bytes exact.
+        let export_usage = |python: &str| {
+            assert!(python.contains(
+                "usage: specify-core questions [-h] [--answers ANSWERS] [--open] analysis"
+            ));
+            python.replace("[--open] analysis", "[--open]\n                              [--resolve-defaults --step STEP] analysis")
+                // As argparse does, the longer flag widens every option row by one column.
+                .replace("  -h, --help         show", "  -h, --help          show")
+                .replace("  --answers ANSWERS  answers", "  --answers ANSWERS   answers")
+                .replace("  --open             only unanswered questions\n", "  --open              only unanswered questions\n  --resolve-defaults  export complete answers with defaults and face evidence as JSON\n  --step STEP         matching STEP part for export (required with --resolve-defaults)\n")
+        };
         let bom_usage = |python: &str| {
             assert!(python.contains("[--accept-defaults] [--intent INTENT]"));
             python.replace("[--accept-defaults] [--intent INTENT]", "[--accept-defaults] [--bom] [--intent INTENT]")
                 .replace("  --accept-defaults    take defaults for the rest\n", "  --accept-defaults    take PMI defaults for the rest\n  --bom                explicitly accept optional BOM suggestions\n")
         };
         match name.as_str() {
+            "cli/usage/08 questions" => {
+                assert_eq!(stderr, export_usage(r["stderr"].as_str().unwrap()))
+            }
+            "cli/usage/20 questions -h" => {
+                assert_eq!(stdout, export_usage(r["stdout"].as_str().unwrap()))
+            }
             "cli/usage/09 write tests/fixtures/parts/plate.step"
             | "cli/usage/15 write tests/fixtures/parts/plate.step a b -o {tmp}/o.step --intent" => {
                 assert_eq!(

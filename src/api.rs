@@ -434,6 +434,29 @@ pub fn apply(
     )?)
 }
 
+/// Complete, editable answer file for this part, without writing STEP. Accepts defaults to
+/// a fixed point and refuses missing answers (including carry blocks). Verify both the
+/// analysis binding and any supplied evidence before attaching fresh evidence: an export
+/// must never turn stale indices into apparently verified answers.
+pub fn export_answers(
+    loaded: &LoadedPart,
+    analysis: &Value,
+    answers: &Map<String, Value>,
+) -> Result<Map<String, Value>> {
+    crate::answer_file::check(loaded, answers)
+        .map_err(|why| Error::Rules(rules::Error::Invalid(why)))?;
+    let mut complete = rules::with_all_defaults(analysis, answers)?;
+    let intent = rules::apply(analysis, &complete)?;
+    writer::check_binding(loaded, &intent)?;
+    crate::answer_file::attach(loaded, &mut complete, answers, std::iter::empty())
+        .map_err(|why| Error::Rules(rules::Error::Invalid(why)))?;
+    // Sort objects recursively, including caller-supplied extra requirements. Arrays keep
+    // their semantic order (datum precedence, feature members, and note sequences).
+    let mut value = Value::Object(complete);
+    value.sort_all_objects();
+    Ok(value.as_object().expect("constructed an object").clone())
+}
+
 /// What the answers so far amount to (`rules::preview`). Unanswered defaults stay suggestions
 /// on questions, and contribute no PMI until explicitly accepted.
 pub fn preview(analysis: &Value, answers: &Map<String, Value>) -> Result<Intent> {

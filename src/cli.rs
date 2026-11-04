@@ -6,6 +6,7 @@
 //! specify-core analyse STEP -o ANALYSIS [--part K]
 //! specify-core mesh STEP -o MESH [--part K]
 //! specify-core questions ANALYSIS [--answers ANSWERS] [--open]
+//!                        [--resolve-defaults --step STEP]
 //! specify-core write STEP ANALYSIS ANSWERS [ANALYSIS ANSWERS ...] -o OUT
 //!                    [--accept-defaults] [--intent INTENT]
 //! specify-core diff OLD NEW -o DIR [--answers ANSWERS] [--part K] [--title TITLE]
@@ -144,16 +145,21 @@ const QUESTIONS: Command = Command {
     options: &[
         (None, "--answers", true, false),
         (None, "--open", false, false),
+        (None, "--resolve-defaults", false, false),
+        (None, "--step", true, false),
     ],
-    help: "usage: specify-core questions [-h] [--answers ANSWERS] [--open] analysis
+    help: "usage: specify-core questions [-h] [--answers ANSWERS] [--open]
+                              [--resolve-defaults --step STEP] analysis
 
 positional arguments:
   analysis
 
 options:
-  -h, --help         show this help message and exit
-  --answers ANSWERS  answers JSON: {question id: value}
-  --open             only unanswered questions
+  -h, --help          show this help message and exit
+  --answers ANSWERS   answers JSON: {question id: value}
+  --open              only unanswered questions
+  --resolve-defaults  export complete answers with defaults and face evidence as JSON
+  --step STEP         matching STEP part for export (required with --resolve-defaults)
 ",
 };
 
@@ -602,6 +608,31 @@ fn run(command: &Command, args: &Args, out: &mut impl Write) -> Result<(), Exit>
                 Some(path) => answers_of(read_json(Path::new(path))?)?,
                 None => Map::new(),
             };
+            if args.flag("--resolve-defaults") {
+                if args.flag("--open") {
+                    return Err(Exit::new(
+                        2,
+                        "--open cannot be combined with --resolve-defaults",
+                    ));
+                }
+                let step = args.value("--step").ok_or_else(|| {
+                    Exit::new(
+                        2,
+                        "--resolve-defaults requires --step STEP for face evidence",
+                    )
+                })?;
+                let index = analysis["binding"]["part"].as_u64().unwrap_or(0) as usize;
+                let loaded = part::load(Path::new(step), Some(index)).map_err(Exit::error)?;
+                let exported = api::export_answers(&loaded, &analysis, &answers)
+                    .map_err(|e| Exit::new(2, e.to_string()))?;
+                return print(
+                    out,
+                    &serde_json::to_string_pretty(&exported).map_err(Exit::error)?,
+                );
+            }
+            if args.value("--step").is_some() {
+                return Err(Exit::new(2, "--step requires --resolve-defaults"));
+            }
             let qs = api::questions(&analysis, &answers).map_err(refused)?;
             let shown: Vec<Value> = if args.flag("--open") {
                 rules::open_questions(&qs, &answers)

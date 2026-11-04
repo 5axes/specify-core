@@ -98,5 +98,6 @@ jobs:
       - run: cargo build --locked --release -p specify-core-wasm --example parity_reference
       - run: node scripts/wasm-parity.mjs
       - run: node scripts/wasm-face-names.mjs
+      - run: node scripts/wasm-answers-export.mjs
       - run: node scripts/wasm-limits.mjs
       - run: node scripts/wasm-hostile.mjs

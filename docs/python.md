@@ -5,6 +5,28 @@ Bulk defaults cannot replace dropped answers; write rejects stale evidence. Plai
 remain compatible but cannot detect stale in-range face indices. See
 [answer files and changed geometry](answers.md).
 
+## Export complete answers
+
+`api.export_answers(step, analysis, answers)` accepts PMI defaults to a fixed point and
+returns a complete dict with `_specify.evidence` for the selected part. `step` can be a
+path or a `LoadedPart`; the analysis binding selects an assembly part. It writes no STEP.
+Missing required answers or unresolved carry blocks raise `IncompleteError`; stale
+saved evidence or a mismatched analysis raises `ValueError`.
+
+```python
+import json
+from pathlib import Path
+from specify_core import api
+
+analysis = api.analyse("plate_v1.step")
+complete = api.export_answers("plate_v1.step", analysis, {"part.material": "6061-T6"})
+Path("plate.answers.json").write_text(json.dumps(complete, indent=2) + "\n", encoding="utf-8")
+api.write("plate_v1.step", api.apply(analysis, complete), "plate.pmi.step", answers=complete)
+```
+
+Keys are sorted recursively; arrays keep their order. The resulting map is accepted by
+all answer-taking operations, including `api.diff`. See [answer files](answers.md).
+
 ## Limit dimensions and combined ISO 2768 classes
 
 Size and distance answers (`extra.<id>` with `kind: "size"` or `"distance"`) accept

@@ -268,6 +268,9 @@ impl Session {
         payload: Option<&Value>,
         bom: bool,
     ) -> Result<Value, String> {
+        // A complete old sidecar may also contain feature IDs that disappeared. Diagnose
+        // its geometry evidence before interpreting any of those IDs on this part.
+        specify_core::answer_file::check(&self.loaded, answers)?;
         input::answers(&self.analysis, answers).map_err(|e| e.to_string())?;
         let mut intent =
             api::preview(&self.analysis, answers).map_err(|error| error.to_string())?;
@@ -328,6 +331,17 @@ impl Session {
         answers: &Map<String, Value>,
     ) -> Result<Map<String, Value>, String> {
         crate::accept_defaults(&self.analysis, answers)
+    }
+
+    /// A complete answer file with accepted defaults and this part's evidence. Unlike
+    /// accept_defaults, refuses incomplete sets; never writes or changes the session.
+    pub fn export_answers(
+        &self,
+        answers: &Map<String, Value>,
+    ) -> Result<Map<String, Value>, String> {
+        specify_core::answer_file::check(&self.loaded, answers)?;
+        input::answers(&self.analysis, answers).map_err(|e| e.to_string())?;
+        api::export_answers(&self.loaded, &self.analysis, answers).map_err(|e| e.to_string())
     }
 
     /// The review settled to the default path (`specify_core::tolerancing::settle`), with the
