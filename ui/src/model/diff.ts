@@ -178,8 +178,8 @@ const handed = (file: unknown): Handed | null => {
 
 /**
  * The STEP file `?open=` names, if it is one this computer serves (`specify-core open`,
- * scripts/dw-open.mjs): http on 127.0.0.1, localhost or [::1], named .step or .stp (or either
- * gzipped). Nothing elsewhere is fetched this way, so a link can't make the editor fetch a file
+ * scripts/dw-open.mjs): http on 127.0.0.1 or localhost, at /<32 hex>/<name>, named .step or .stp
+ * (or either gzipped), with no query. Nothing elsewhere is fetched this way, so a link can't make the editor fetch a file
  * from a site, only from the computer it runs on.
  */
 export function loopbackFile(search: string): { url: string; name: string } | null {
@@ -187,9 +187,13 @@ export function loopbackFile(search: string): { url: string; name: string } | nu
   if (!given) return null;
   let url: URL;
   try { url = new URL(given); } catch { return null; }
-  if (url.protocol !== 'http:' || !['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname) || url.username || url.password) return null;
+  if (url.protocol !== 'http:' || !['127.0.0.1', 'localhost'].includes(url.hostname) || url.username || url.password) return null;
+  // Only a command's one-off address, /<token>/<name>, and no query: a link can't make the editor
+  // ask anything else of a server on this computer.
+  const path = url.pathname.match(/^\/[0-9a-f]{32}\/([^/]+)$/);
+  if (!path || url.search || url.hash) return null;
   let name = '';
-  try { name = decodeURIComponent(url.pathname.split('/').pop() ?? ''); } catch { return null; }
+  try { name = decodeURIComponent(path[1]!); } catch { return null; }
   return /\.(step|stp)(\.gz)?$/i.test(name) ? { url: url.href, name: name.slice(0, 200) } : null;
 }
 

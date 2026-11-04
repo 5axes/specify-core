@@ -182,11 +182,13 @@ test('the editor takes one STEP file another page hands it, and nothing else', (
 
 test('?open= fetches a STEP this computer serves, and nothing from anywhere else', () => {
   const at = u => loopbackFile(`?open=${encodeURIComponent(u)}`);
-  assert.deepEqual(at('http://127.0.0.1:5123/ab12/My%20part.step'), { url: 'http://127.0.0.1:5123/ab12/My%20part.step', name: 'My part.step' });
-  assert.equal(at('http://localhost:9/x/part.stp.gz').name, 'part.stp.gz');
-  assert.equal(at('http://[::1]:9/x/part.step').name, 'part.step');
-  for (const u of ['https://example.com/part.step', 'http://127.0.0.1.example.com/part.step', 'https://127.0.0.1/part.step',
-    'http://user:pw@127.0.0.1/part.step', 'http://127.0.0.1:9/x/project.dw-editor.json', 'file:///part.step', 'not a url']) {
+  const token = 'ab'.repeat(16);
+  assert.deepEqual(at(`http://127.0.0.1:5123/${token}/My%20part.step`), { url: `http://127.0.0.1:5123/${token}/My%20part.step`, name: 'My part.step' });
+  assert.equal(at(`http://localhost:9/${token}/part.stp.gz`).name, 'part.stp.gz');
+  for (const u of ['https://example.com/part.step', `http://127.0.0.1.example.com/${token}/part.step`, `https://127.0.0.1/${token}/part.step`,
+    `http://user:pw@127.0.0.1/${token}/part.step`, `http://127.0.0.1:9/${token}/project.dw-editor.json`, `file:///${token}/part.step`, 'not a url',
+    // Not a command's one-off address: another path, a query, or [::1] (which the CSP doesn't allow).
+    'http://127.0.0.1:9/part.step', 'http://127.0.0.1:9/api/delete/part.step', `http://127.0.0.1:9/${token}/part.step?x=1`, `http://[::1]:9/${token}/part.step`]) {
     assert.equal(at(u), null, u);
   }
   assert.equal(loopbackFile('?other=1'), null);
