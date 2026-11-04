@@ -258,8 +258,10 @@ fn the_spool_is_written_verified_and_read_back() {
     // `datum.A.flatness` was dropped silently; it is now reported.
     assert_eq!(
         report.not_written,
-        ["datum.A.flatness is not asked of this part given the other answers, so its answer \
-          was not written"]
+        [
+            "datum.A.flatness is not asked of this part given the other answers, so its answer \
+          was not written"
+        ]
     );
     assert!(report.warnings.is_empty());
 

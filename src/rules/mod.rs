@@ -1318,7 +1318,10 @@ fn unasked(
     let locating = answer(answers, qs, "part.locating").and_then(Value::as_str);
     let other = match locating {
         Some(current) => {
+            // Without the unasked answers themselves: they are not read while unasked, and a
+            // value the other mode's options refuse must not hide that mode's question.
             let mut flipped = answers.clone();
+            flipped.retain(|id, _| !ids.contains(&id));
             let to = LOCATING
                 .iter()
                 .find(|l| **l != current)
