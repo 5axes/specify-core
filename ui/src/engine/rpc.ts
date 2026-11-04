@@ -20,7 +20,8 @@ export class WorkerClient {
       clearTimeout(pending.timer);
       this.pending.delete(data.id);
       if (data.ok) pending.resolve(data.result);
-      else pending.reject(new Error(data.error));
+      // An engine's refusal code, where it gives one, rides on the error (counted, never shown).
+      else pending.reject(Object.assign(new Error(data.error), typeof data.code === 'string' ? { code: data.code } : {}));
       if (data.fatal) this.restart(new Error('The engine panicked and was restarted.'));
     };
     this.worker.onerror = event => this.restart(new Error(event.message || 'The engine worker stopped.'));

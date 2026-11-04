@@ -113,7 +113,8 @@ self.onmessage = ({ data: { id, operation, args } }) => {
       }
       self.postMessage({ id, ok: true, result });
     } catch (error) {
-      self.postMessage({ id, ok: false, error: error instanceof Error ? error.message : String(error), fatal: error instanceof WebAssembly.RuntimeError });
+      const fatal = error instanceof WebAssembly.RuntimeError;
+      self.postMessage({ id, ok: false, error: error instanceof Error ? error.message : String(error), code: fatal ? 'panic' : undefined, fatal });
     }
   });
 };
