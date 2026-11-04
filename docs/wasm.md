@@ -132,6 +132,15 @@ names both the answer and frame. This covers hole positions, explicit ± hole lo
 Accepting or answering the missing datums removes the warning and enables the control.
 Preview items retain their `default` field for API stability; it is always `false`.
 
+`problems` also states each sealed interior void (an analysis `interior_voids` feature) as
+a fact: `severity: "info"`, `code: "interior_void"`, `feature` (its feature ID), `faces`
+(its faces) and `about: ""`, with the message "Closed internal cavity ⌀d × l long: no
+opening to the outside; can't be drilled, tapped or moulded as modelled." A cylinder closed
+by caps square to its axis adds `diameter` and `length` (mm); any other void adds the
+kernel's `estimated_volume` (mm³) instead, quoted in the message. No answer changes it and
+no question is asked about a void. The same list reaches serve (`questions`), Python
+`problems` and both WASM `review`s; revision diffs leave `info` problems out, as before.
+
 An optional project is written through `writer::write_bytes_with` as an `AttributeSet` with
 `name: "draftwright editor project"`, `on: None`, one text item with that same name and the
 supplied base64 text, and `description`/`general_property` both `None`. The editor's check is

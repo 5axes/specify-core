@@ -10,6 +10,9 @@
 //! circular    an added orientation on the faces of the datum it cites
 //! sized twice two sizes on one diameter, both of which would be written
 //! ```
+//!
+//! It also states, as `info`, a fact about the part no answer changes: each sealed interior
+//! void (`interior_void`), a cavity with no opening that no tool can reach as modelled.
 
 // Capture indexing below follows successful matches with mandatory groups; optional groups use get().
 use std::collections::{BTreeMap, BTreeSet, HashSet};
@@ -283,7 +286,102 @@ pub fn problems(analysis: &Value, answers: &Map<String, Value>) -> Result<Vec<Va
             ));
         }
     }
+    out.extend(interior_voids(analysis));
     Ok(out)
+}
+
+/// Each sealed interior void as an `info` fact (`code: "interior_void"`), with its feature,
+/// faces and size: `diameter` and `length` for a cylinder closed by caps square to its axis,
+/// otherwise the kernel's `estimated_volume`. A void asks no question; this only states it.
+fn interior_voids(analysis: &Value) -> Vec<Value> {
+    let faces = analysis["faces"].as_array().map_or(&[][..], Vec::as_slice);
+    let face = |id: i64| faces.iter().find(|f| f["id"].as_i64() == Some(id));
+    let mut out = Vec::new();
+    for feature in analysis["features"].as_array().into_iter().flatten() {
+        if feature["family"] != "interior_voids" {
+            continue;
+        }
+        let ids = face_ids(feature.get("faces"));
+        let size = cylinder_size(&ids, face);
+        let what = match size {
+            Some((diameter, length)) => format!(" ⌀{} × {} long", g(diameter), g(length)),
+            None => String::new(),
+        };
+        let mut fact = problem(
+            "info",
+            format!(
+                "Closed internal cavity{what}: no opening to the outside; can't be drilled, \
+                 tapped or moulded as modelled."
+            ),
+            Value::from(ids.clone()),
+            "",
+        );
+        fact["code"] = Value::from("interior_void");
+        fact["feature"] = feature["id"].clone();
+        match size {
+            Some((diameter, length)) => {
+                fact["diameter"] = Value::from(diameter);
+                fact["length"] = Value::from(length);
+            }
+            None => {
+                if let Some(volume) = feature["record"]["estimated_volume"].as_f64() {
+                    fact["estimated_volume"] = Value::from(volume);
+                    fact["message"] = Value::from(format!(
+                        "Closed internal cavity (about {} mm³): no opening to the outside; \
+                         can't be drilled, tapped or moulded as modelled.",
+                        g(round_sig(volume, 3))
+                    ));
+                }
+            }
+        }
+        out.push(fact);
+    }
+    out
+}
+
+/// A void's diameter and length when its faces are one cylinder (possibly split into
+/// coaxial pieces of one radius) and planar caps square to its axis.
+fn cylinder_size<'a>(ids: &[i64], face: impl Fn(i64) -> Option<&'a Value>) -> Option<(f64, f64)> {
+    let vec3 =
+        |v: &Value| -> Option<[f64; 3]> { Some([v[0].as_f64()?, v[1].as_f64()?, v[2].as_f64()?]) };
+    let dot = |a: [f64; 3], b: [f64; 3]| a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    let (mut axis, mut radius, mut caps) = (None::<[f64; 3]>, None::<f64>, Vec::new());
+    for &id in ids {
+        let f = face(id)?;
+        let direction = vec3(&f["direction"])?;
+        match f["kind"].as_str()? {
+            "cylinder" => {
+                let r = f["radius"].as_f64()?;
+                if let (Some(a), Some(r0)) = (axis, radius)
+                    && (dot(a, direction).abs() < 1.0 - 1e-9 || (r - r0).abs() > 1e-6)
+                {
+                    return None;
+                }
+                axis = Some(direction);
+                radius = Some(r);
+            }
+            "plane" => caps.push((direction, vec3(&f["centroid"])?)),
+            _ => return None,
+        }
+    }
+    let (axis, radius) = (axis?, radius?);
+    if caps.len() < 2 || caps.iter().any(|(n, _)| dot(*n, axis).abs() < 1.0 - 1e-9) {
+        return None;
+    }
+    let along: Vec<f64> = caps.iter().map(|(_, c)| dot(*c, axis)).collect();
+    let length = along.iter().copied().fold(f64::NEG_INFINITY, f64::max)
+        - along.iter().copied().fold(f64::INFINITY, f64::min);
+    let micron = |x: f64| (x * 1e6).round() / 1e6;
+    (length > 1e-9).then_some((micron(2.0 * radius), micron(length)))
+}
+
+/// `x` to `digits` significant figures.
+fn round_sig(x: f64, digits: i32) -> f64 {
+    if x == 0.0 || !x.is_finite() {
+        return x;
+    }
+    let scale = 10f64.powi(digits - 1 - x.abs().log10().floor() as i32);
+    (x * scale).round() / scale
 }
 
 /// A datum item's letter.
