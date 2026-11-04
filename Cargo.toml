@@ -5,7 +5,7 @@ resolver = "3"
 
 [package]
 name = "specify-core"
-version = "0.1.9"
+version = "0.1.10"
 edition = "2024"
 license = "Apache-2.0"
 description = "Interview-driven AP242 PMI authoring for STEP parts (Rust port of specify-core)"
