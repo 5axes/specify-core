@@ -18,6 +18,11 @@ can read, and verifies the file by reading it back. The answers are stored in th
 the part changes, Specify carries them to the new revision and says what changed. An answer it
 can't place is listed, never silently moved.
 
+Specify captures manufacturing intent; it is not a DFM (design-for-manufacturability) checker.
+It does not judge whether a part can be made, or how cheaply: wall thickness, tool access,
+draft, internal radii or cost. The facts it reports — the features it recognises — can inform
+that judgement, made by an engineer or an AI.
+
 It is deterministic (rules and standards tables, no AI) and pure Rust: no OpenCascade, no
 Python. Feature recognition and the STEP/AP242 kernel come from
 [pzfreo/quiddity](https://github.com/pzfreo/quiddity).
