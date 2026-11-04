@@ -26,11 +26,14 @@ pub fn validate(answers: &Map<String, Value>) -> Result<(), String> {
     Ok(())
 }
 
-// These question IDs keep their meaning across revisions. Feature IDs encode old face
-// indices and may already name a different feature in the destination. Extra requirements
-// have no defaultable question; their failed supports remain in the diff report too.
+// These IDs keep their meaning across revisions. Feature IDs encode old face indices and
+// may already name a different feature in the destination. An added requirement's
+// `extra.<name>` is the person's own name, so its block is kept: writing must not drop a
+// requirement they added because its faces did not carry.
 fn stable_question(id: &str) -> bool {
-    id.starts_with("datum.") || id.starts_with("part.") || id.starts_with("bom.")
+    ["datum.", "part.", "bom.", crate::extras::PREFIX]
+        .iter()
+        .any(|prefix| id.starts_with(prefix))
 }
 
 /// The refusal for an unanswered, revision-stable question. Never shadow a reused feature ID,
@@ -47,9 +50,23 @@ pub fn blocked(answers: &Map<String, Value>, id: &str) -> bool {
     block_reason(answers, id).is_some()
 }
 
-pub fn require_resolved(answers: &Map<String, Value>) -> rules::Result<()> {
+/// Whether a block on *id* applies whatever is asked: an added requirement (`extra.*`) has no
+/// question to be asked, so its block always refuses until it is answered again (#123-#125).
+pub fn always_applies(id: &str) -> bool {
+    id.starts_with(crate::extras::PREFIX)
+}
+
+/// Refuses the unanswered carry blocks whose question `applies`: a block applies only while
+/// its question is asked (#126). One on a question not asked under the current answers is
+/// reported in `not_written` instead, and applies again once the question returns. A block
+/// on an added requirement always applies ([`always_applies`]).
+pub fn require_resolved_where(
+    answers: &Map<String, Value>,
+    applies: impl Fn(&str) -> bool,
+) -> rules::Result<()> {
     validate(answers).map_err(rules::Error::Invalid)?;
-    let reasons = unresolved(answers);
+    let mut reasons = unresolved(answers);
+    reasons.retain(|id, _| always_applies(id) || applies(id));
     if reasons.is_empty() {
         return Ok(());
     }
@@ -61,7 +78,8 @@ pub fn require_resolved(answers: &Map<String, Value>) -> rules::Result<()> {
     Err(error.into())
 }
 
-fn unresolved(answers: &Map<String, Value>) -> Map<String, Value> {
+/// The carry blocks still unanswered, with their diff reasons.
+pub(crate) fn unresolved(answers: &Map<String, Value>) -> Map<String, Value> {
     answers
         .get(META)
         .and_then(|m| m.get("unresolved"))

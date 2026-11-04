@@ -156,8 +156,8 @@ checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
 
 [[package]]
 name = "haecceity"
-version = "0.4.6"
-source = "git+https://github.com/pzfreo/quiddity?tag=v0.4.6#1ebf8cb6bb48a53787a902769871f0f0963b3385"
+version = "0.4.7"
+source = "git+https://github.com/pzfreo/quiddity?tag=v0.4.7#dcba9d38c2b769d416b9d3cc086401b008dfe8fd"
 dependencies = [
  "flate2",
  "i_overlay",
@@ -429,8 +429,8 @@ dependencies = [
 
 [[package]]
 name = "quiddity"
-version = "0.4.6"
-source = "git+https://github.com/pzfreo/quiddity?tag=v0.4.6#1ebf8cb6bb48a53787a902769871f0f0963b3385"
+version = "0.4.7"
+source = "git+https://github.com/pzfreo/quiddity?tag=v0.4.7#dcba9d38c2b769d416b9d3cc086401b008dfe8fd"
 dependencies = [
  "flate2",
  "haecceity",
@@ -570,7 +570,7 @@ dependencies = [
 
 [[package]]
 name = "specify-core"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "base64",
  "flate2",
@@ -588,7 +588,7 @@ dependencies = [
 
 [[package]]
 name = "specify-core-py"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "pyo3",
  "serde_json",
@@ -597,7 +597,7 @@ dependencies = [
 
 [[package]]
 name = "specify-core-wasm"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "console_error_panic_hook",
  "haecceity",

@@ -18,6 +18,11 @@ can read, and verifies the file by reading it back. The answers are stored in th
 the part changes, Specify carries them to the new revision and says what changed. An answer it
 can't place is listed, never silently moved.
 
+Specify captures manufacturing intent; it is not a DFM (design-for-manufacturability) checker.
+It does not judge whether a part can be made, or how cheaply: wall thickness, tool access,
+draft, internal radii or cost. The facts it reports — the features it recognises — can inform
+that judgement, made by an engineer or an AI.
+
 It is deterministic (rules and standards tables, no AI) and pure Rust: no OpenCascade, no
 Python. Feature recognition and the STEP/AP242 kernel come from
 [pzfreo/quiddity](https://github.com/pzfreo/quiddity).
@@ -48,7 +53,7 @@ One engine, one set of answers and files, whichever way you call it:
 | **In the browser** | nothing: [draftwright.io/specify](https://draftwright.io/specify) and [draftwright.io/diff](https://draftwright.io/diff) | |
 | **Command line** | a [release](https://github.com/pzfreo/specify-core/releases) binary, or `cargo build --release` | [below](#command-line) |
 | **Python** | `pip install specify-core` (CPython 3.12+, no dependencies) | [below](#python), [package README](crates/specify-core-py/README.md) |
-| **Rust** | `specify-core = { git = "https://github.com/pzfreo/specify-core", tag = "v0.1.8" }` | [below](#rust), [docs/library.md](docs/library.md) |
+| **Rust** | `specify-core = { git = "https://github.com/pzfreo/specify-core", tag = "v0.1.9" }` | [below](#rust), [docs/library.md](docs/library.md) |
 | **Browser** (WebAssembly) | `specify-core-wasm-<version>.tgz` on each release | [docs/wasm.md](docs/wasm.md) |
 | **Host process** (JSON lines) | `specify-core serve` | [below](#host-process) |
 | **GitHub pull requests** | `uses: pzfreo/specify-core/step-diff@main` | [step-diff/README.md](step-diff/README.md) |
@@ -79,7 +84,9 @@ specify-core write plate.step plate.analysis.json plate.complete.answers.json -o
 ```
 
 `write` refuses until every question has an answer, or `--accept-defaults` supplies the rest.
-It prints a JSON report with `output`, `written`, `not_written` and `warnings`.
+It prints a JSON report with `output`, `written`, `not_written` and `warnings`. `not_written`
+gives each reason, including an answer whose question is not asked given the other answers
+([answers](docs/answers.md#answers-to-questions-not-asked)).
 
 Exit codes:
 - **0:** done.
@@ -104,7 +111,7 @@ intent = api.apply(analysis, answers, accept_defaults=True)
 report = api.write("plate.step", intent, "plate-pmi.step", answers=answers)
 
 print(report.written)       # ['datum A', 'Ø8 H7 on holes:9', 'position 0.05 on holes:9', ...]
-print(report.not_written)   # anything not written, with the reason
+print(report.not_written)   # anything not written, with the reason (an unasked answer too)
 ```
 
 The other functions are listed in the [package README](crates/specify-core-py/README.md):
@@ -208,7 +215,7 @@ Each [release](https://github.com/pzfreo/specify-core/releases) has the command 
 (x86_64), macOS (Apple silicon) and Windows (x86_64), each with a SHA-256 checksum:
 
 ```bash
-v=v0.1.8; t=aarch64-apple-darwin   # or x86_64-unknown-linux-gnu
+v=v0.1.9; t=aarch64-apple-darwin   # or x86_64-unknown-linux-gnu
 gh release download $v -R pzfreo/specify-core -p "specify-core-$v-$t.tar.gz*"
 shasum -a 256 -c specify-core-$v-$t.tar.gz.sha256 && tar -xzf specify-core-$v-$t.tar.gz
 ./specify-core-$v-$t/specify-core --help
@@ -249,7 +256,7 @@ Every file is read back and checked before it is kept.
 
 ## Status
 
-**0.1.8** (2026-11-02). Until 1.0:
+**0.1.9** (2026-11-04). Until 1.0:
 - a minor release (0.2, 0.3) may change the command line, the JSON formats or answer ids, and its
   [CHANGELOG](CHANGELOG.md) entry says how to upgrade;
 - a patch release doesn't.

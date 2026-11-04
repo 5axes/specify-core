@@ -136,6 +136,7 @@ fn write_report_exemptions_are_additive_and_use_written_entity_ids() {
         geometry_carrier_exemptions: vec![],
         presentation_warnings: vec![],
         preserved_normalizations: vec![],
+        retained_shared: vec![],
     };
     assert!(
         report
@@ -145,6 +146,9 @@ fn write_report_exemptions_are_additive_and_use_written_entity_ids() {
     );
     assert!(report.to_dict().get("presentation_warnings").is_none());
     assert!(report.to_dict().get("preserved_normalizations").is_none());
+    assert!(report.to_dict().get("retained_shared").is_none());
+    report.retained_shared.push(301);
+    assert_eq!(report.to_dict()["retained_shared"], json!([301]));
     report
         .presentation_warnings
         .push("feature note glyphs could not be drawn".into());

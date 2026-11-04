@@ -35,10 +35,70 @@ fn bad(id: &str, why: impl Into<String>) -> Error {
     }
 }
 
+/// The `part.*` answer names.
+const PART_NAMES: [&str; 8] = [
+    "material",
+    "general_tolerance",
+    "locating",
+    "surface_finish",
+    "coating",
+    "heat_treatment",
+    "edges",
+    "notes",
+];
+/// The kinds of feature-scoped answer IDs (`kind:feature`).
+const FEATURE_KINDS: [&str; 7] = [
+    "hole.function",
+    "hole.full_thread",
+    "hole.frame",
+    "hole.position",
+    "hole.location",
+    "diameter.fit",
+    "diameter.runout",
+];
+
+/// Whether some question, added requirement or reserved transport member can have `id`.
+/// A BOM key is checked with its value (`bom::validate`), keeping that message.
+pub fn known_id(id: &str) -> bool {
+    if id == crate::answer_file::META
+        || id == crate::bom::CARRY
+        || id == crate::characteristics::CARRY
+        || id.starts_with("bom.")
+    {
+        return true;
+    }
+    if let Some(name) = id.strip_prefix("part.") {
+        return PART_NAMES.contains(&name);
+    }
+    if let Some(suffix) = id.strip_prefix("datum.") {
+        let (letter, control) = suffix.split_once('.').unwrap_or((suffix, ""));
+        return matches!(letter, "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H")
+            && (control.is_empty()
+                || suffix == "A.flatness"
+                || matches!(suffix, "B.control" | "C.control"));
+    }
+    if let Some((kind, feature)) = id.split_once(':') {
+        return FEATURE_KINDS.contains(&kind) && !feature.is_empty();
+    }
+    id.starts_with("extra.") && id.len() > "extra.".len()
+}
+
+/// Refuses an answer ID no question can have, with the same error as [`answers_shape`].
+/// The rules call this on every entry, so no front end can have such an answer ignored.
+pub fn ids(answers: &Map<String, Value>) -> Result<(), Error> {
+    match answers.keys().find(|id| !known_id(id)) {
+        Some(id) => Err(bad(id, "unknown answer ID")),
+        None => Ok(()),
+    }
+}
+
 /// Shape checks also apply to editor calls that have no analysis with which to resolve ids.
 pub fn answers_shape(answers: &Map<String, Value>) -> Result<(), Error> {
     for (id, value) in answers {
         let invalid = |why| bad(id, why);
+        if !known_id(id) {
+            return Err(invalid("unknown answer ID"));
+        }
         if id == crate::answer_file::META {
             crate::answer_file::validate(answers).map_err(|why| bad(id, why))?;
         } else if id == crate::bom::CARRY {
@@ -59,35 +119,14 @@ pub fn answers_shape(answers: &Map<String, Value>) -> Result<(), Error> {
                 {
                     return Err(invalid("an answer must be a list of text notes"));
                 }
-            } else if [
-                "material",
-                "general_tolerance",
-                "locating",
-                "surface_finish",
-                "coating",
-                "heat_treatment",
-                "edges",
-            ]
-            .contains(&name)
+            } else if !matches!(name, "material" | "coating" | "heat_treatment")
+                && !value.is_string()
             {
                 // Text answers retain the core rules' Python truthiness and str_of semantics.
-                if !matches!(name, "material" | "coating" | "heat_treatment") && !value.is_string()
-                {
-                    return Err(invalid("an answer must be text"));
-                }
-            } else {
-                return Err(invalid("unknown answer ID"));
+                return Err(invalid("an answer must be text"));
             }
         } else if let Some(suffix) = id.strip_prefix("datum.") {
-            let (letter, control) = suffix.split_once('.').unwrap_or((suffix, ""));
-            if !matches!(letter, "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H")
-                || !(control.is_empty()
-                    || suffix == "A.flatness"
-                    || matches!(suffix, "B.control" | "C.control"))
-            {
-                return Err(invalid("unknown answer ID"));
-            }
-            if control.is_empty() {
+            if !suffix.contains('.') {
                 if !value
                     .as_array()
                     .is_some_and(|v| v.iter().all(|x| x.as_u64().is_some()))
@@ -97,30 +136,13 @@ pub fn answers_shape(answers: &Map<String, Value>) -> Result<(), Error> {
             } else if !value.is_string() {
                 return Err(invalid("an answer must be text"));
             }
-        } else if let Some((kind, feature)) = id.split_once(':') {
-            if ![
-                "hole.function",
-                "hole.full_thread",
-                "hole.frame",
-                "hole.position",
-                "hole.location",
-                "diameter.fit",
-                "diameter.runout",
-            ]
-            .contains(&kind)
-                || feature.is_empty()
-            {
-                return Err(invalid("unknown answer ID"));
-            }
+        } else if id.contains(':') {
             if !value.is_string() {
                 return Err(invalid("an answer must be text"));
             }
-        } else if id.starts_with("extra.") && id.len() > "extra.".len() {
-            if !value.is_object() {
-                return Err(invalid("an added requirement must be an object"));
-            }
-        } else {
-            return Err(invalid("unknown answer ID"));
+        } else if !value.is_object() {
+            // known_id leaves only an added requirement (`extra.*`).
+            return Err(invalid("an added requirement must be an object"));
         }
     }
     Ok(())

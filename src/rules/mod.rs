@@ -484,6 +484,9 @@ fn all_questions(
     answers: &Map<String, Value>,
     propose: &str,
 ) -> Result<Vec<Question>> {
+    // Every front end reaches the rules here: an ID no question can have is refused, never
+    // ignored (#126).
+    crate::input::ids(answers).map_err(|e| Error::Invalid(e.to_string()))?;
     if let Some(notes) = answers.get("part.notes") {
         note_strings(notes)?;
     }
@@ -923,8 +926,16 @@ pub fn with_all_defaults(
     analysis: &Value,
     answers: &Map<String, Value>,
 ) -> Result<Map<String, Value>> {
-    crate::answer_file::require_resolved(answers)?;
-    Ok(settled(&Ctx::new(analysis)?, answers)?.0)
+    crate::answer_file::validate(answers).map_err(Error::Invalid)?;
+    let (merged, qs) = settled(&Ctx::new(analysis)?, answers)?;
+    // Defaults never answer a block; it refuses once its question is asked (#126).
+    crate::answer_file::require_resolved_where(answers, |id| asks(&qs, id))?;
+    Ok(merged)
+}
+
+/// Whether `id` is among the questions `qs`.
+fn asks(qs: &[Question], id: &str) -> bool {
+    qs.iter().any(|q| q.id == id)
 }
 
 /// `with_all_defaults`, with the questions of the answers it settles on (which `preview` and
@@ -947,9 +958,10 @@ fn settled(
 
 /// Turn a complete set of answers into intent. Refuses while any question is open.
 pub fn apply(analysis: &Value, answers: &Map<String, Value>) -> Result<Intent> {
-    crate::answer_file::require_resolved(answers)?;
+    crate::answer_file::validate(answers).map_err(Error::Invalid)?;
     let ctx = Ctx::new(analysis)?;
     let qs = questions_in(&ctx, answers)?;
+    crate::answer_file::require_resolved_where(answers, |id| asks(&qs, id))?;
     let missing: Vec<String> = open_questions(&qs, answers)
         .iter()
         .map(|q| q.id.clone())
@@ -957,7 +969,22 @@ pub fn apply(analysis: &Value, answers: &Map<String, Value>) -> Result<Intent> {
     if !missing.is_empty() {
         return Err(IncompleteError::new(missing, None).into());
     }
-    intent(&ctx, answers, &qs, IntentMode::Apply)
+    let mut intent = intent(&ctx, answers, &qs, IntentMode::Apply)?;
+    // Reported where intent is written, not on every preview (#126).
+    intent.requirements.extend(unasked(&ctx, answers, &qs)?);
+    Ok(intent)
+}
+
+/// The `unasked` rows [`apply`] adds to its intent, for a caller that writes another intent
+/// (the editor writes its preview): one per answer, or carry block, whose question is not
+/// asked given the other answers (#126).
+pub fn unasked_rows(
+    analysis: &Value,
+    answers: &Map<String, Value>,
+) -> Result<Vec<Map<String, Value>>> {
+    let ctx = Ctx::new(analysis)?;
+    let qs = questions_in(&ctx, answers)?;
+    unasked(&ctx, answers, &qs)
 }
 
 /// `api.apply`: intent from `answers`; with `accept_defaults`, unanswered defaults are taken
@@ -1277,6 +1304,93 @@ fn intent(
             .retain(|r| r.get("stored") != Some(&Value::Bool(true)));
     }
     Ok(intent)
+}
+
+/// The kind of the intent rows for answers no question takes (see [`unasked`]).
+pub const UNASKED: &str = "unasked";
+
+/// Answers valid in form whose question is not asked given the other answers (#126): a
+/// dependent question such as `datum.A.flatness` or `hole.position:*` disappears when
+/// `part.locating` changes, say. They contribute no PMI, so each becomes a faceless row with a
+/// `not_written_reason`, which every writer lists in `not_written`. The answers themselves are
+/// kept (stored, exported, carried), so the question takes them again if it returns.
+///
+/// Which IDs are asked comes from the rules (`qs`), not a list: only answers the intent reads
+/// directly, whether or not they are asked (`part.*`, `bom.*`, `extra.*` and reserved `_`
+/// members), are exempt.
+fn unasked(
+    ctx: &Ctx<'_>,
+    answers: &Map<String, Value>,
+    qs: &[Question],
+) -> Result<Vec<Map<String, Value>>> {
+    let ids: Vec<&String> = answers
+        .keys()
+        .filter(|id| {
+            !(id.starts_with("part.")
+                || id.starts_with("bom.")
+                || id.starts_with(extras::PREFIX)
+                || id.starts_with('_'))
+                && !asks(qs, id)
+        })
+        .collect();
+    // A carry block whose question is not asked does not refuse (#126); it is reported too.
+    let blocks: Vec<(String, String)> = crate::answer_file::unresolved(answers)
+        .into_iter()
+        .filter(|(id, _)| !crate::answer_file::always_applies(id) && !asks(qs, id))
+        .map(|(id, why)| (id, why.as_str().unwrap_or_default().to_string()))
+        .collect();
+    if ids.is_empty() && blocks.is_empty() {
+        return Ok(Vec::new());
+    }
+    // Would the question be asked under the other way of locating holes? One more question
+    // pass, only when some answer is unasked.
+    let locating = answer(answers, qs, "part.locating").and_then(Value::as_str);
+    let other = match locating {
+        Some(current) => {
+            // Without the unasked answers themselves: they are not read while unasked, and a
+            // value the other mode's options refuse must not hide that mode's question.
+            let mut flipped = answers.clone();
+            flipped.retain(|id, _| !ids.contains(&id));
+            let to = LOCATING
+                .iter()
+                .find(|l| **l != current)
+                .unwrap_or(&LOCATING[0]);
+            flipped.insert("part.locating".into(), Value::from(*to));
+            questions_in(ctx, &flipped).ok()
+        }
+        None => None,
+    };
+    let mut rows = Vec::with_capacity(ids.len() + blocks.len());
+    let carried = blocks.iter().map(|(id, why)| (id, Some(why)));
+    for (id, block) in ids.into_iter().map(|id| (id, None)).chain(carried) {
+        let letter = id
+            .strip_prefix("datum.")
+            .filter(|l| l.len() == 1)
+            .and_then(|l| l.chars().next());
+        let why = if let Some(letter) = letter.filter(|&l| ctx.file_datum(l).is_some()) {
+            format!("is not asked: the file already states datum {letter}")
+        } else if let (Some(current), Some(other)) = (locating, &other)
+            && asks(other, id)
+        {
+            format!("is not asked when part.locating is '{current}'")
+        } else {
+            "is not asked of this part given the other answers".to_string()
+        };
+        let reason = match block {
+            None => format!("{id} {why}, so its answer was not written"),
+            Some(carry) => format!(
+                "{id} was carried (carried answer could not be applied: {carry}) but {why}, \
+                 so nothing was written for it"
+            ),
+        };
+        rows.push(object([
+            ("kind", Value::from(UNASKED)),
+            ("answer", Value::from(id.as_str())),
+            ("faces", Value::Array(Vec::new())),
+            ("not_written_reason", Value::from(reason)),
+        ]));
+    }
+    Ok(rows)
 }
 
 /// A one-character datum letter, or None.

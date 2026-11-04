@@ -88,7 +88,7 @@ the resume correspondence rule below handles feature-ID changes.
 ## Dependency plan
 
 - `quiddity` and `haecceity` by git from `https://github.com/pzfreo/quiddity`,
-  pinned to tag `v0.4.6` (`1ebf8cb6`) in both manifests and Cargo.lock.
+  pinned to tag `v0.4.7` (`dcba9d38`) in both manifests and Cargo.lock.
   Update only these packages with `cargo update -p quiddity -p haecceity`, then run
   the named local profile below and the full suite in CI, and rejudge any departures from the frozen Python captures with
   independent evidence. `correspondence::recognise` returns published file-coordinate records (#92);
@@ -100,11 +100,11 @@ the resume correspondence rule below handles feature-ID changes.
   Specify keeps its own analysis schema and binding because face numbering
   is unchanged. Derived PMI geometry is followed through its deriving faces by
   `existing::faces_of`; Specify reads PMI anew from STEP, never persists the upstream
-  PMI JSON (version 2, now reader binding `haecceity-pmi-read/15`; older readings must be reread).
+  PMI JSON (version 2, now reader binding `haecceity-pmi-read/17`; older readings must be reread).
   It builds its own write report, so upstream parts/write-report version 2 and the
   graphic-only `Accounting::presentation` do not change its existing keys. The v0.4.6
   `geometry_carrier_exemptions`, `presentation_warnings` and `preserved_normalizations`
-  pass through as optional report fields.
+  and the v0.4.7 `retained_shared` pass through as optional report fields.
 - **Cargo.toml and Cargo.lock across parallel streams.** A stream that adds a crate adds its
   line in alphabetical order within its table (`[dependencies]` or `[dev-dependencies]`) and
   regenerates the lock with `cargo update -p <crate>` only (never a bare `cargo update`, which
@@ -177,7 +177,9 @@ except where a hash is taken (resume fingerprint, `pyjson.rs`).
   for faces and features: the analysis may come from either engine and from older versions.
 - Mesh: `{format: "pmi-assist-mesh", version: 2, binding, bbox, positions, indices, faces,
   missing, edges}`.
-- Write report: `{output, written, not_written, warnings}`.
+- Write report: `{output, written, not_written, warnings}`. An answer whose question the rules
+  do not ask is an intent row of kind `unasked` with a `not_written_reason`, listed in
+  `not_written` (#126; docs/answers.md).
 - Errors: `IncompleteError { missing, part }`, invalid answer (`ValueError` in Python) as a typed
   `Invalid(String)`, `SpecError`, verification and write failures; the CLI and `serve` map them to
   Python's exit codes and error codes (`incomplete`, `invalid`, `failed`).

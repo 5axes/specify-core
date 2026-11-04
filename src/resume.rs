@@ -53,6 +53,48 @@ pub const SCHEMAS: [i64; 3] = [1, 2, SCHEMA];
 /// before specify-core was renamed so that older files still resume.
 pub const NAME: &str = "pmi-assist answers";
 
+/// The payload member holding carry blocks on questions not asked when written (#126):
+/// `{question ID: diff reason}`, beside `answers` and never inside it, as older builds refuse
+/// `_specify` among answers (and ignore unknown payload members). On resume they return as the
+/// answers' `_specify.unresolved`, so a block applies again once its question is asked.
+pub const UNRESOLVED: &str = "unresolved";
+
+/// Stored answers whose ID no question can have (a STEP written before such IDs were
+/// refused, #126) are left open with a reason rather than resumed, so the rules, which refuse
+/// them, can still open the part.
+fn without_unknown(out: &mut Resumed) {
+    let unknown: Vec<(String, Value)> = out
+        .answers
+        .iter()
+        .filter(|(id, _)| !crate::input::known_id(id))
+        .map(|(id, answer)| (id.clone(), answer.clone()))
+        .collect();
+    out.answers.retain(|id, _| crate::input::known_id(id));
+    for (id, answer) in unknown {
+        out.unresolved.push(UnresolvedAnswer {
+            id,
+            feature: None,
+            answer,
+            reason: "unknown answer ID: no question has it, so it was not resumed".into(),
+            automatic: false,
+        });
+    }
+}
+
+/// The payload's carry blocks ([`UNRESOLVED`]) as answers' metadata, when well formed.
+fn restore_blocks(payload: &Map<String, Value>, answers: &mut Map<String, Value>) {
+    if let Some(blocks) = payload.get(UNRESOLVED).and_then(Value::as_object)
+        && !blocks.is_empty()
+        && blocks.values().all(Value::is_string)
+        && !answers.contains_key(crate::answer_file::META)
+    {
+        answers.insert(
+            crate::answer_file::META.into(),
+            json!({ UNRESOLVED: blocks }),
+        );
+    }
+}
+
 /// Add-mode payloads scope replacement to provenance-marked requirements. Absence keeps
 /// legacy resume semantics, including 0.1.7 Add-mode files with no stored answers.
 pub(crate) fn scoped(doc: &Document, part: usize) -> bool {
@@ -377,6 +419,8 @@ pub fn answers_for(loaded: &LoadedPart) -> Result<Option<Map<String, Value>>, Fe
         }
     };
     if let Some(answers) = &mut answers {
+        answers.retain(|id, _| crate::input::known_id(id));
+        restore_blocks(&payload, answers);
         answers.extend(crate::bom::answered_in(&doc, &loaded.definition));
     }
     Ok(answers)
@@ -497,8 +541,8 @@ fn ordinary_report_for_parsed(
     let Some(answers) = payload.get("answers").and_then(Value::as_object) else {
         return Ok(None);
     };
-    if schema_of(&payload) == Some(3) {
-        return Ok(Some(
+    let mut out = if schema_of(&payload) == Some(3) {
+        Some(
             rematch_answers(
                 loaded,
                 features,
@@ -507,13 +551,19 @@ fn ordinary_report_for_parsed(
                 None,
             )
             .unwrap_or_else(|error| open(answers, &error.to_string(), true)),
-        ));
+        )
+    } else {
+        match check(loaded, &payload, form)? {
+            Check::Verified => Some(rematch(answers, features)),
+            Check::Legacy => Some(by_id(answers, features, loaded, LEGACY)),
+            Check::Mismatch => None,
+        }
+    };
+    if let Some(out) = &mut out {
+        without_unknown(out);
+        restore_blocks(&payload, &mut out.answers);
     }
-    Ok(match check(loaded, &payload, form)? {
-        Check::Verified => Some(rematch(answers, features)),
-        Check::Legacy => Some(by_id(answers, features, loaded, LEGACY)),
-        Check::Mismatch => None,
-    })
+    Ok(out)
 }
 
 /// Evidence kept beside external answers. Unnamed parts keep `{schema:2, face_count, faces}`.

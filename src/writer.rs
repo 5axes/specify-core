@@ -138,6 +138,7 @@ struct KernelWriteReport {
     geometry_carrier_exemptions: Vec<GeometryCarrierExemption>,
     presentation_warnings: Vec<String>,
     preserved_normalizations: Vec<PreservedNormalization>,
+    retained_shared: Vec<u64>,
 }
 
 /// What a write did (Python's `WriteReport`; `to_dict`'s keys and order).
@@ -158,6 +159,9 @@ pub struct WriteReport {
     pub presentation_warnings: Vec<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub preserved_normalizations: Vec<PreservedNormalization>,
+    /// Ids of auxiliary support Replace kept because PMI it could not read still uses it.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub retained_shared: Vec<u64>,
 }
 
 impl WriteReport {
@@ -177,6 +181,9 @@ impl WriteReport {
         }
         if !self.preserved_normalizations.is_empty() {
             report["preserved_normalizations"] = json!(self.preserved_normalizations);
+        }
+        if !self.retained_shared.is_empty() {
+            report["retained_shared"] = json!(self.retained_shared);
         }
         report
     }
@@ -450,8 +457,20 @@ fn check_jobs(jobs: &[Job<'_>]) -> Result<(), WriteError> {
         check_binding(loaded, intent)?;
         if let Some(answers) = answers {
             crate::answer_file::check(loaded, answers).map_err(WriteError::Invalid)?;
-            crate::answer_file::require_resolved(answers)
+            // A carry block applies only while its question is asked (#126). Which are asked
+            // is derived from these answers on this part, never taken from the intent: only
+            // when there is a block, as that needs the part's analysis.
+            crate::answer_file::validate(answers).map_err(WriteError::Invalid)?;
+            if !crate::answer_file::unresolved(answers).is_empty() {
+                let analysis =
+                    crate::api::analyse(loaded).map_err(|e| WriteError::Failed(e.to_string()))?;
+                let asked = crate::rules::questions(&analysis, answers)
+                    .map_err(|e| WriteError::Invalid(e.to_string()))?;
+                crate::answer_file::require_resolved_where(answers, |id| {
+                    asked.iter().any(|q| q.id == id)
+                })
                 .map_err(|e| WriteError::Invalid(e.to_string()))?;
+            }
         }
     }
     Ok(())
@@ -703,6 +722,12 @@ fn write_verified(
                 saved.remove(crate::bom::CARRY);
                 saved.retain(|key, _| !key.starts_with("bom."));
                 let mut payload = resume::payload(loaded, &saved).map_err(failed)?;
+                // Carry blocks on questions not asked now (#126) are kept beside the answers,
+                // never inside them: older builds refuse `_specify` among answers.
+                let blocks = crate::answer_file::unresolved(answers);
+                if !blocks.is_empty() {
+                    payload[resume::UNRESOLVED] = Json::Object(blocks);
+                }
                 if mode == Mode::Add || scoped.contains(&loaded.binding.part) {
                     payload["pmi_scope"] = Json::String(PMI_PROVENANCE.into());
                 }
@@ -830,6 +855,7 @@ fn write_verified(
         geometry_carrier_exemptions: kernel_report.geometry_carrier_exemptions,
         presentation_warnings: kernel_report.presentation_warnings,
         preserved_normalizations: kernel_report.preserved_normalizations,
+        retained_shared: kernel_report.retained_shared,
     };
     for p in planned {
         let prefix = if jobs.len() > 1 {
@@ -966,6 +992,7 @@ fn write_by_modes(
                     normalization: normalization.into(),
                 }),
         );
+        report.retained_shared.extend(kernel_report.retained_shared);
         // AddPreservation is a refusal, never a reason to retry with Replace:
         // Replace would re-author the caller's foreign PMI.
         if mode == Mode::Replace {

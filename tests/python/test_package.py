@@ -370,6 +370,7 @@ def test_write_report_optional_geometry_carrier_exemptions():
         "geometry_carrier_exemptions": additions,
         "presentation_warnings": ["feature note glyphs could not be drawn"],
         "preserved_normalizations": [{"id": 77, "normalization": "legacy-endpoint-retirement"}],
+        "retained_shared": [301],
     }
     assert WriteReport.from_dict(extended).to_dict() == extended
 

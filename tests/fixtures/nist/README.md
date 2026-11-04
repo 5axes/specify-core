@@ -22,7 +22,7 @@ analysis binding's `source_sha256` is that of the decompressed bytes below.
 
 `solid-edge-ctc01.step.gz` is the Solid Edge 2026 re-export of NIST CTC-01 from
 quiddity-rust v0.4.5 (`845a8919`), `tests/fixtures/ap242/reexport/09-NIST-reexported-by-SE.stp.gz`.
-It loses datum B's establishing feature. Reader /15 reports B as Unresolved and
+It loses datum B's establishing feature. Reader /17 (as /15 did) reports B as Unresolved and
 omits that datum, retaining A and C. This tests Specify's existing-PMI and CLI
 finding output, rather than inventing a valid support for the lost datum.
 
@@ -45,3 +45,10 @@ there is no fallback after refusal and no Specify oracle expectation to change.
 The AP214 `PRODUCT_TYPE` case is also repaired by Replace when PMI-less. A
 synthetic foreign-PMI AP214 regression in `src/writer/tests.rs` verifies that an
 Add refusal naming its keyword rewrite reaches Specify without a Replace retry.
+
+With v0.4.7 the same six inputs need exactly the same repairs; R3 (INTEGER items
+written as integral REALs) is required by none of them, and the test's exact
+repair lists are unchanged. Reader /17 reports CTC-04's projected zone #18897,
+whose projection end #18894 has no geometry, as a `fact` finding (it was a
+nonconformance); CTC-01's dimensions with no stated value (#24, #25, #126, #127)
+no longer produce a nonconformance finding.

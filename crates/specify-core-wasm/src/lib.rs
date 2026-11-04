@@ -102,6 +102,7 @@ export interface WriteReport {
   geometry_carrier_exemptions?: GeometryCarrierExemption[];
   presentation_warnings?: string[];
   preserved_normalizations?: PreservedNormalization[];
+  retained_shared?: number[];
 }
 /** JSON returned by evidence(), also embedded alongside stored answers. */
 export interface AnswerEvidence {

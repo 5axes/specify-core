@@ -133,7 +133,7 @@ This lets Add save usable answers even when an unmarked legacy frame has a stale
 fingerprint. That older frame and its complete entity text are retained; files with only
 legacy frames keep their existing first-frame selection rule.
 
-With the v0.4.6 pin, neutral per-face geometry carriers can be shared by foreign and
+Since the v0.4.6 pin, neutral per-face geometry carriers can be shared by foreign and
 Specify-owned requirements. `without_owned` protects the complete forward graph
 of each foreign root, even if a protected carrier itself has Specify's marker.
 Removing the owned control must retain that carrier at its original id and text;
@@ -168,3 +168,12 @@ normalization}` records) and `presentation_warnings` (strings); both are omitted
 when empty. Skipped normalizations are `legacy-text-rechunking`,
 `kept-usage-factoring`, `functional-sar-isolation`, `functional-sar-unwrapping`
 and `legacy-endpoint-retirement`.
+
+With the v0.4.7 pin, Replace keeps auxiliary support (such as datum features)
+that PMI the reader cannot read still uses, rebinding it only to equal replacement
+datums; reports list those ids in the optional `retained_shared`. Upgrade repair R3
+(INTEGER items written as integral REALs) joins R1 and R2: in Add it is refused like
+them, naming the ids. Dimensions with no stated value are written through unchanged,
+and a projected zone with no end geometry is read as a `fact` finding, not a
+nonconformance. Specify's read-back check compares findings before and after a
+write by value, so a `fact` the input already had is not reported as new.
