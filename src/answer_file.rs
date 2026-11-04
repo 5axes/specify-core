@@ -50,16 +50,23 @@ pub fn blocked(answers: &Map<String, Value>, id: &str) -> bool {
     block_reason(answers, id).is_some()
 }
 
+/// Whether a block on *id* applies whatever is asked: an added requirement (`extra.*`) has no
+/// question to be asked, so its block always refuses until it is answered again (#123-#125).
+pub fn always_applies(id: &str) -> bool {
+    id.starts_with(crate::extras::PREFIX)
+}
+
 /// Refuses the unanswered carry blocks whose question `applies`: a block applies only while
 /// its question is asked (#126). One on a question not asked under the current answers is
-/// reported in `not_written` instead, and applies again once the question returns.
+/// reported in `not_written` instead, and applies again once the question returns. A block
+/// on an added requirement always applies ([`always_applies`]).
 pub fn require_resolved_where(
     answers: &Map<String, Value>,
     applies: impl Fn(&str) -> bool,
 ) -> rules::Result<()> {
     validate(answers).map_err(rules::Error::Invalid)?;
     let mut reasons = unresolved(answers);
-    reasons.retain(|id, _| applies(id));
+    reasons.retain(|id, _| always_applies(id) || applies(id));
     if reasons.is_empty() {
         return Ok(());
     }
