@@ -6,6 +6,16 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+### Added
+
+- Review `problems` state each sealed interior void (an `interior_voids` feature whose
+  kernel record is a `closed_shell` measurement) as an `info` fact with
+  `code: "interior_void"`, its `feature`, `faces`, the kernel's `estimated_volume` and,
+  for a capped cylinder, `diameter` and `length`: "Closed internal cavity ⌀2.5 × 12
+  long: no opening to the outside; can't be drilled, tapped or moulded as modelled."
+  Grid-sampled chambers behind openings are not stated. Shared by native review, serve,
+  Python `problems` and WASM `review`; no question is added or removed.
+
 ### Changed
 
 - Move native, WASM and Python builds from quiddity/haecceity v0.4.6 to v0.4.7
