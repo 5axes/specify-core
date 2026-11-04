@@ -132,3 +132,39 @@ A newly saved scoped answer frame supersedes older frames for the same part in f
 This lets Add save usable answers even when an unmarked legacy frame has a stale face
 fingerprint. That older frame and its complete entity text are retained; files with only
 legacy frames keep their existing first-frame selection rule.
+
+With the v0.4.6 pin, neutral per-face geometry carriers can be shared by foreign and
+Specify-owned requirements. `without_owned` protects the complete forward graph
+of each foreign root, even if a protected carrier itself has Specify's marker.
+Removing the owned control must retain that carrier at its original id and text;
+`removing_owned_control_keeps_its_carrier_when_foreign_control_uses_it` covers it.
+Complex datum/composite carriers use the same inherited `SHAPE_ASPECT.description`
+marker as simple carriers. Replace stamps new complex roots after the kernel edit.
+
+Haecceity v0.4.6 itself preserves every original entity's bytes in Add, including
+legacy endpoint wrappers, usages, controls and presentation. Specify's former
+`preserve_add` restoration workaround is removed. Ownership stamping and
+`without_owned` remain necessary: the kernel does not infer Specify's scoped
+answer ownership, and shared inverse GISU support must survive owned-item removal.
+
+Adding a datum to a kept carrier now emits an independent `.T.` datum feature;
+it never specializes the original aspect. CTC-01 datum D on face 24 is tested
+through write, reopen and edited write, retaining NIST's perpendicularity and all
+original entity spans. Actual preserved-carrier exceptions are reported as
+`kept-carrier-datum-feature` (a single face), `kept-carrier-datum-composite`,
+`kept-carrier-datum-member` or `kept-carrier-independent-feature` in
+`geometry_carrier_exemptions`. These names come from the released code; the
+release summary mentions only the member and independent-feature forms.
+
+Add upgrades requiring source repairs return `AddPreservation`, naming the ids
+and required repairs. Specify reports this as a refused write to CLI/Python/WASM
+callers and never retries with Replace: that would re-author foreign PMI.
+PMI-less inputs already select Replace before writing. The six AP203 NIST
+repair cases therefore continue to write in Specify; see the per-case audit in
+[the NIST fixture README](../tests/fixtures/nist/README.md).
+
+Reports additionally expose optional `preserved_normalizations` (`{id,
+normalization}` records) and `presentation_warnings` (strings); both are omitted
+when empty. Skipped normalizations are `legacy-text-rechunking`,
+`kept-usage-factoring`, `functional-sar-isolation`, `functional-sar-unwrapping`
+and `legacy-endpoint-retirement`.

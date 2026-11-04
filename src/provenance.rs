@@ -41,6 +41,13 @@ pub fn dimension(doc: &Document, ids: &[u64]) -> bool {
 /// transfer authorship to a foreign requirement.
 pub fn marked(doc: &Document, ids: &[u64], kind: &str) -> bool {
     ids.iter().any(|&id| {
+        if kind == "feature"
+            && let Some(RawEntity::Complex { parts, .. }) = doc.get(id)
+        {
+            return parts
+                .iter()
+                .any(|p| p.name == "SHAPE_ASPECT" && string(p.attributes.get(1), MARKER));
+        }
         let Some(RawEntity::Simple {
             name, attributes, ..
         }) = doc.get(id)
@@ -96,6 +103,21 @@ pub fn mark_new(before: &Document, after: &Document) -> Edit {
     let mut edit = Edit::new();
     for (&id, entity) in &after.graph().entities {
         if before.get(id).is_some() {
+            continue;
+        }
+        if let RawEntity::Complex { parts, .. } = entity {
+            if parts
+                .iter()
+                .any(|p| p.name == "SHAPE_ASPECT" && string(p.attributes.get(1), ""))
+            {
+                let mut record = entity.clone();
+                if let RawEntity::Complex { parts, .. } = &mut record {
+                    for p in parts.iter_mut().filter(|p| p.name == "SHAPE_ASPECT") {
+                        p.attributes[1] = Attribute::String(MARKER.into());
+                    }
+                }
+                edit.replace(id, record);
+            }
             continue;
         }
         let RawEntity::Simple {
@@ -232,15 +254,50 @@ pub(crate) fn without_owned(
         }
     }
     let mut pending: Vec<_> = protected.iter().copied().collect();
-    while let Some(id) = pending.pop() {
-        if let Some(e) = doc.get(id) {
-            haecceity::p21::visit_attributes(e, &mut |a| {
-                if let Attribute::EntityRef(target) = a
-                    && protected.insert(*target)
-                {
-                    pending.push(*target);
+    loop {
+        while let Some(id) = pending.pop() {
+            if let Some(e) = doc.get(id) {
+                haecceity::p21::visit_attributes(e, &mut |a| {
+                    if let Attribute::EntityRef(target) = a
+                        && protected.insert(*target)
+                    {
+                        pending.push(*target);
+                    }
+                });
+            }
+        }
+        // A carrier's geometry is attached through inverse GISU/composition links.
+        // Forward references alone protect the aspect but would delete its face
+        // support when a foreign control uses a Specify-authored shared carrier.
+        for prov in &read.provenance.parts {
+            for ids in &prov.features {
+                let used = ids.iter().any(|id| {
+                    protected.contains(id)
+                        && match doc.get(*id) {
+                            Some(RawEntity::Simple { name, .. }) => matches!(
+                                name.as_str(),
+                                "SHAPE_ASPECT"
+                                    | "DATUM_FEATURE"
+                                    | "COMPOSITE_SHAPE_ASPECT"
+                                    | "COMPOSITE_GROUP_SHAPE_ASPECT"
+                            ),
+                            Some(RawEntity::Complex { parts, .. }) => {
+                                parts.iter().any(|p| p.name == "SHAPE_ASPECT")
+                            }
+                            _ => false,
+                        }
+                });
+                if used {
+                    for &id in ids {
+                        if protected.insert(id) {
+                            pending.push(id);
+                        }
+                    }
                 }
-            });
+            }
+        }
+        if pending.is_empty() {
+            break;
         }
     }
     seeds.retain(|id| !protected.contains(id));
