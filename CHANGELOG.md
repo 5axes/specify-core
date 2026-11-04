@@ -6,6 +6,8 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+## 0.1.10 (2026-11-04)
+
 ### Added
 
 - Review `problems` state each sealed interior void (an `interior_voids` feature whose

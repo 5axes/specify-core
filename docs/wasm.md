@@ -48,7 +48,7 @@ README. Nothing is published to npm. Pin an exact release and verify the archive
 extracting it:
 
 ```sh
-version=0.1.9 # choose a release that includes the WASM assets
+version=0.1.10 # choose a release that includes the WASM assets
 archive="specify-core-wasm-${version}.tgz"
 gh release download "v${version}" --repo pzfreo/specify-core \
   --pattern "$archive" --pattern "$archive.sha256"
