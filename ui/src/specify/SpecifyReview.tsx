@@ -9,7 +9,7 @@ import { addedOf, CALL_OUTS, describe, kindsFor, MAY_HAVE_DATUM, nextKey } from 
 import { codeOf } from './choose';
 import { appliedByRule, chosenForYou, type Chosen } from './chosen';
 import { datumChips, freeLetter, removal } from './datums';
-import { drawnShown, drawnViews, hasFileGraphics, partCentre, withoutNotesBlock, type DrawnPmi } from './drawn';
+import { drawnShown, drawnViews, hasFileGraphics, partCentre, type DrawnPmi } from './drawn';
 import { optionHint } from './hints';
 import { balloonsBySource, type Characteristic, characteristics, ranges, toCsv } from './characteristics';
 import { CharacteristicsTable, ExtraEditor, PurposeChoice, SpecBox, SuggestBox, SuggestionCard, TOLERANCE_PICKS, type ExtraDraft } from './inputs';
@@ -42,7 +42,7 @@ function asError(error: unknown): PmiLabError {
   return { code: 'failed', message: String(error) };
 }
 
-export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, onExport, gated, after, onPick, showFaces, tints, externalAnswers, externalReview, disabled, focusRequest, toReview, onKeep, drawn: scenePmi = null }: {
+export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, onExport, gated, after, onPick, showFaces, tints, externalAnswers, externalReview, disabled, focusRequest, toReview, onKeep, drawn: drawnPmi = null }: {
   engine: SpecifyEngine; session: PmiLabSession; slots: SpecifySlots;
   /** The question the queue's selected row is about: what the question slot shows. */
   slotQuestion?: string | null;
@@ -64,7 +64,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   toReview?: readonly string[];
   /** Keeps suggestions as they stand, the editor's way: accepted, as in its list, not answered. */
   onKeep?: (ids: readonly string[]) => void;
-  /** The PMI as drawn (Specify's pmiScene), when it has any graphics. */
+  /** The PMI as drawn (Specify's pmiScene, less its notes block), when it has any graphics. */
   drawn?: DrawnPmi | null;
 }) {
   const stage = useRef<HTMLDivElement>(null);
@@ -91,8 +91,6 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   // 'drawn'), or both. Until one is chosen, Graphical when the file has its own graphical PMI,
   // Semantic otherwise. The choice lasts while the part is open; it is not saved.
   const [chosenShowing, setShowing] = useState<'semantic' | 'drawn' | 'both' | null>(null);
-  // The part's notes are in the notes panel, not drawn as a block in 3D.
-  const drawnPmi = useMemo(() => (scenePmi ? withoutNotesBlock(scenePmi) : null), [scenePmi]);
   const showing = chosenShowing ?? (drawnPmi && hasFileGraphics(drawnPmi) ? 'drawn' : 'semantic');
   // A face clicked that no question is about shows what the general tolerance says of it.
   const [peek, setPeek] = useState<number | null>(null);
@@ -143,8 +141,15 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   const chars = useMemo(
     () => characteristics(preview, session.analysis, titles), [preview, session.analysis, titles],
   );
-  // The part's notes, as a drawing's notes block says them: on the view, where they stay put.
-  const partNotes = chars.filter((c) => c.source.startsWith('part:'));
+  // The part's notes, as Specify's notes block says them (its stated settings, not those that are
+  // none, then the notes written in words): on the view, where they stay put.
+  const freeNotes = answers['part.notes'];
+  const partNotes = [
+    ...chars.filter((c) => c.source.startsWith('part:') && !/^[^:]+: None\b/.test(c.text))
+      .map((c) => ({ key: c.source, text: c.text, question: `part.${c.source.slice('part:'.length)}` })),
+    ...(Array.isArray(freeNotes) ? freeNotes : []).filter((n): n is string => typeof n === 'string' && n.trim() !== '')
+      .map((text, i) => ({ key: `notes:${i}`, text, question: 'part.notes' })),
+  ];
   const balloons = useMemo(() => balloonsBySource(chars), [chars]);
 
   // The slot shows the selected row's question whatever else moved ``current``: the session
@@ -784,7 +789,15 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
         {partNotes.length > 0 && (
           <details className="pmi-lab-partnotes" open>
             <summary title="The part's notes">General notes ({partNotes.length})</summary>
-            <ol>{partNotes.map((c) => <li key={c.source}>{c.text}</li>)}</ol>
+            <ol>
+              {partNotes.map((n) => (
+                <li key={n.key}>
+                  {questions.some((q) => q.id === n.question)
+                    ? <button type="button" title="Open its question" onClick={() => { setView('review'); setCurrent(n.question); }}>{n.text}</button>
+                    : n.text}
+                </li>
+              ))}
+            </ol>
           </details>
         )}
         <div className="pmi-lab-status">
