@@ -15,6 +15,11 @@ All notable changes to specify-core-rust. The format follows
   long: no opening to the outside; can't be drilled, tapped or moulded as modelled."
   Grid-sampled chambers behind openings are not stated. Shared by native review, serve,
   Python `problems` and WASM `review`; no question is added or removed.
+- `specify-core open STEP` opens a STEP file in draftwright.io/specify (`--editor`: /editor)
+  with nothing to click and nothing uploaded: the file is served once on 127.0.0.1 at a
+  random one-off address, to the editor's origin only (with Chrome's Private Network Access
+  preflight), and the command exits once it is fetched or after 10 minutes. `--site ORIGIN`
+  points it at another deployment; `--no-browser` prints the address instead of opening it.
 
 ### Changed
 

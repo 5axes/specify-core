@@ -21,6 +21,8 @@ pub mod locations;
 pub mod materials;
 pub mod mates;
 pub mod mesh;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod open;
 pub mod part;
 pub mod pmi_origin;
 pub mod pmi_scene;

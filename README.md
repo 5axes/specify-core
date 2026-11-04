@@ -96,6 +96,13 @@ Exit codes:
 `specify-core mesh plate.step -o plate.mesh.json` writes the part's triangles grouped by face,
 for a face picker.
 
+`specify-core open plate.step` opens the file in [draftwright.io/specify](https://draftwright.io/specify)
+in your browser, with nothing to click and nothing uploaded: it serves the file once on
+127.0.0.1, to the editor's origin only, and exits once the page has fetched it (or after 10
+minutes). `--editor` opens the full editor instead, `--site ORIGIN` another deployment, and
+`--no-browser` only prints the address. The first time, Chrome may ask whether draftwright.io
+may reach devices on your local network: that is the file on 127.0.0.1.
+
 ### Python
 
 ```python
