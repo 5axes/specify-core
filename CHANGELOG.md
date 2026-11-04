@@ -60,7 +60,8 @@ All notable changes to specify-core-rust. The format follows
   verdict. A face with no match leaves it `orphaned`, several `ambiguous`. A carried
   answer the new part refuses (a size whose two holes now differ) is listed as
   `unresolved` with the refusal instead of raising, so the rest of the report is
-  returned. Dropped `extra.*` answers are `_specify.unresolved` carry blocks: write
+  returned. A refusal naming no answer is pinned only on one whose removal clears it;
+  otherwise the answers stay carried and the report adds a `carry_refused` problem. Dropped `extra.*` answers are `_specify.unresolved` carry blocks: write
   and bulk defaults refuse until the requirement is answered again or its entry removed.
 - Diff refuses stale answer evidence with exit 2 and asks for the matching old part,
   instead of suggesting `diff` again while already comparing revisions.

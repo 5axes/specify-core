@@ -1482,50 +1482,71 @@ impl Matching<'_> {
     }
 }
 
-/// Move each carried answer the new part refuses to *unresolved* (class `unresolved`, with
-/// the refusal), until review accepts the rest; review of what remains is returned. An answer
-/// whose faces mapped can still not fit the new part: a size on two holes, one since resized,
-/// or a datum's faces that are no longer coplanar. The refusal names the answer it is about
-/// where it can; else the answer whose removal changes the refusal is the one refused.
-fn refuse_unfit(
+/// The new part's review of *answers*: the review, or the rules' refusal (`Err`, as the
+/// rules' error). Any other failure is the diff's own.
+fn review_of(
     analysis: &Value,
+    answers: &Map<String, Value>,
+) -> Result<std::result::Result<Value, crate::rules::Error>> {
+    match api::review(analysis, answers) {
+        Ok(review) => Ok(Ok(review)),
+        Err(api::Error::Rules(refusal)) => Ok(Err(refusal)),
+        Err(other) => Err(other),
+    }
+}
+
+/// Whether *message* is a refusal of the answer *id* (`extra.x: …`, `datum A: …`).
+fn names(message: &str, id: &str) -> bool {
+    message.starts_with(&format!("{id}: "))
+        || id
+            .strip_prefix("datum.")
+            .is_some_and(|letter| message.starts_with(&format!("datum {letter}: ")))
+}
+
+/// Move each carried answer the new part refuses to *unresolved* (class `unresolved`, with
+/// the refusal), until *review* accepts the rest; that review is returned. An answer whose
+/// faces mapped can still not fit the new part: a size on two holes, one since resized, or a
+/// datum's faces that are no longer coplanar.
+///
+/// The answer a refusal names is the one refused. One it names no answer for is pinned on an
+/// answer only when removing that answer alone clears it, or leaves a refusal naming another
+/// carried answer (which the next round then refuses). Removing a sound answer can change
+/// the refusal too (a required answer now missing), so that is no evidence. When no answer
+/// qualifies, nothing is guessed: the answers stay carried and the refusal is returned
+/// (`Err`), for the report to state; writing them is then refused by write's own checks.
+fn refuse_unfit(
     carried: &mut Map<String, Value>,
     given_as: &BTreeMap<String, (String, Value)>,
     unresolved: &mut Vec<Unresolved>,
-) -> Result<Value> {
-    let refusal = |answers: &Map<String, Value>| match api::review(analysis, answers) {
-        Ok(review) => Ok(std::result::Result::Ok(review)),
-        Err(api::Error::Rules(crate::rules::Error::Invalid(message))) => Ok(Err(message)),
-        Err(other) => Err(other),
-    };
+    review: impl Fn(&Map<String, Value>) -> Result<std::result::Result<Value, crate::rules::Error>>,
+) -> Result<std::result::Result<Value, String>> {
     loop {
-        let message = match refusal(carried)? {
-            Ok(review) => return Ok(review),
-            Err(message) => message,
+        let message = match review(carried)? {
+            Ok(review) => return Ok(Ok(review)),
+            Err(crate::rules::Error::Invalid(message)) => message,
+            // Not a refusal of one answer (questions left open): stated, never pinned.
+            Err(other) => return Ok(Err(other.to_string())),
         };
-        let names = |id: &str| {
-            message.starts_with(&format!("{id}: "))
-                || id
-                    .strip_prefix("datum.")
-                    .is_some_and(|letter| message.starts_with(&format!("datum {letter}: ")))
-        };
-        let ids: Vec<String> = carried
-            .keys()
-            .filter(|id| names(id))
-            .chain(carried.keys().filter(|id| !names(id)))
-            .cloned()
-            .collect();
-        let mut refused = None;
-        for id in ids {
-            let mut without = carried.clone();
-            without.remove(&id);
-            if refusal(&without)?.err().as_deref() != Some(message.as_str()) {
-                refused = Some(id);
-                break;
+        let mut refused = carried.keys().find(|id| names(&message, id)).cloned();
+        if refused.is_none() {
+            for id in carried.keys() {
+                let mut without = carried.clone();
+                without.remove(id);
+                let narrower = match review(&without)? {
+                    Ok(_) => true,
+                    Err(crate::rules::Error::Invalid(m)) => {
+                        without.keys().any(|other| names(&m, other))
+                    }
+                    Err(_) => false,
+                };
+                if narrower {
+                    refused = Some(id.clone());
+                    break;
+                }
             }
         }
         let Some(id) = refused else {
-            return Err(api::Error::Rules(crate::rules::Error::Invalid(message)));
+            return Ok(Err(message));
         };
         let value = carried
             .remove(&id)
@@ -1825,7 +1846,9 @@ pub fn diff_with_options(
     }
     // The new part may refuse an answer its faces carried to (#123): an added size on two
     // holes, one since resized. Each is left unresolved with the refusal, never raised.
-    let mut new_review = refuse_unfit(&new_analysis, &mut carried, &given_as, &mut unresolved)?;
+    let mut new_review = refuse_unfit(&mut carried, &given_as, &mut unresolved, |a| {
+        review_of(&new_analysis, a)
+    })?;
     migrated.retain(|(_, now)| carried.contains_key(now));
     check.retain(|c| carried.contains_key(&c.id));
     // A datum's settings (`datum.A.flatness`) follow it: they stay open with an open datum.
@@ -1847,8 +1870,15 @@ pub fn diff_with_options(
         for (id, _) in &settings {
             carried.remove(id);
         }
-        new_review = api::review(&new_analysis, &carried)?;
+        if new_review.is_ok() {
+            new_review = review_of(&new_analysis, &carried)?.map_err(|e| e.to_string());
+        }
     }
+    // A refusal pinned on no answer: the answers stay carried, and the new part's questions,
+    // problems and planned PMI are read without them; the report states the refusal.
+    let refused = new_review.as_ref().err().cloned();
+    let none = Map::new();
+    let readable = if refused.is_some() { &none } else { &carried };
     for (id, class) in settings {
         let answer = given_as
             .get(&id)
@@ -1906,8 +1936,9 @@ pub fn diff_with_options(
         .into_iter()
         .map(|(id, _)| rename(&id))
         .collect();
-    let questions: Vec<OpenQuestion> = open(&new_analysis, &carried)?
+    let questions: Vec<OpenQuestion> = open(&new_analysis, readable)?
         .into_iter()
+        .filter(|_| refused.is_none())
         .filter(|(id, _)| !before.contains(id))
         .map(|(id, title)| OpenQuestion { id, title })
         .collect();
@@ -1935,7 +1966,19 @@ pub fn diff_with_options(
     };
     let (was, now) = (
         warnings(&api::review(&old_analysis, answers)?),
-        warnings(&new_review),
+        match &new_review {
+            Ok(review) => warnings(review),
+            Err(message) => vec![serde_json::json!({
+                "severity": "warning",
+                "code": "carry_refused",
+                "message": format!(
+                    "The new part refuses the carried answers, and no one answer can be \
+                     told to be the cause: {message}. Review them before writing."
+                ),
+                "faces": [],
+                "about": "",
+            })],
+        },
     );
     let (was_keys, now_keys): (BTreeSet<_>, BTreeSet<_>) = (
         was.iter().map(|p| key(p, true)).collect(),
@@ -2019,7 +2062,7 @@ pub fn diff_with_options(
     gone.dedup();
 
     // The PMI: Specify's in the new file against the answers carried, and the files' own.
-    let new_prompts: BTreeMap<String, String> = api::questions(&new_analysis, &carried)?
+    let new_prompts: BTreeMap<String, String> = api::questions(&new_analysis, readable)?
         .into_iter()
         .map(|q| (q.id, q.prompt))
         .collect();
@@ -2059,7 +2102,11 @@ pub fn diff_with_options(
         new,
         (&old_analysis, &new_analysis),
         (!given.is_empty()).then_some(given),
-        &pmi_answers,
+        if refused.is_some() {
+            &none
+        } else {
+            &pmi_answers
+        },
         (
             &geometric_faces,
             corr.alignment.found.then_some(&corr.alignment.rotation),

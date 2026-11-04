@@ -81,7 +81,11 @@ the old part (a hole, a pattern, a boss, a slot, a fillet) is then:
   - **stale:** the old part had no such feature either;
   - **unresolved:** its faces carried, but the new part refuses it as answered (the reason
     says why): a size on two holes, one since resized, is no longer one diameter. The report
-    is still returned; one answer that no longer fits never costs the rest.
+    is still returned; one answer that no longer fits never costs the rest. A refusal is
+    pinned on an answer only when it names one, or removing that answer alone clears it
+    (or leaves a refusal naming another carried answer). Otherwise nothing is guessed: the
+    answers stay carried, the report adds a `carry_refused` problem with the new part's
+    refusal, and write refuses the answers until they are reviewed.
 - **Requirements to check** belong to a feature that changed. They're applied, but a fit or a
   clearance chosen for the old size may be wrong for the new one.
 - **Requirements to specify** are decisions needed for new features.
