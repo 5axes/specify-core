@@ -291,14 +291,19 @@ pub fn problems(analysis: &Value, answers: &Map<String, Value>) -> Result<Vec<Va
 }
 
 /// Each sealed interior void as an `info` fact (`code: "interior_void"`), with its feature,
-/// faces and size: `diameter` and `length` for a cylinder closed by caps square to its axis,
-/// otherwise the kernel's `estimated_volume`. A void asks no question; this only states it.
+/// faces, the kernel's shell volume (`estimated_volume`) and, for a cylinder closed by caps
+/// square to its axis, its `diameter` and `length`. A void asks no question; this only states
+/// it. Sealed means the kernel measured it as a closed shell (`volume_method: "closed_shell"`,
+/// quiddity >= 0.4.7); an `interior_voids` chamber the air-sampling grid found behind an
+/// opening (`six_axis_grid`, non-empty `openings`) is not sealed and is not stated.
 fn interior_voids(analysis: &Value) -> Vec<Value> {
     let faces = analysis["faces"].as_array().map_or(&[][..], Vec::as_slice);
     let face = |id: i64| faces.iter().find(|f| f["id"].as_i64() == Some(id));
     let mut out = Vec::new();
     for feature in analysis["features"].as_array().into_iter().flatten() {
-        if feature["family"] != "interior_voids" {
+        if feature["family"] != "interior_voids"
+            || feature["record"]["volume_method"] != "closed_shell"
+        {
             continue;
         }
         let ids = face_ids(feature.get("faces"));
@@ -318,21 +323,23 @@ fn interior_voids(analysis: &Value) -> Vec<Value> {
         );
         fact["code"] = Value::from("interior_void");
         fact["feature"] = feature["id"].clone();
-        match size {
-            Some((diameter, length)) => {
+        let volume = feature["record"]["estimated_volume"].as_f64();
+        if let Some(volume) = volume {
+            fact["estimated_volume"] = Value::from(volume);
+        }
+        match (size, volume) {
+            (Some((diameter, length)), _) => {
                 fact["diameter"] = Value::from(diameter);
                 fact["length"] = Value::from(length);
             }
-            None => {
-                if let Some(volume) = feature["record"]["estimated_volume"].as_f64() {
-                    fact["estimated_volume"] = Value::from(volume);
-                    fact["message"] = Value::from(format!(
-                        "Closed internal cavity (about {} mm³): no opening to the outside; \
-                         can't be drilled, tapped or moulded as modelled.",
-                        g(round_sig(volume, 3))
-                    ));
-                }
+            (None, Some(volume)) => {
+                fact["message"] = Value::from(format!(
+                    "Closed internal cavity (about {} mm³): no opening to the outside; \
+                     can't be drilled, tapped or moulded as modelled.",
+                    g(round_sig(volume, 3))
+                ));
             }
+            (None, None) => {}
         }
         out.push(fact);
     }
