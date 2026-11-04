@@ -17,9 +17,9 @@ All notable changes to specify-core-rust. The format follows
   sets or unresolved carries. Existing partial-default operations keep their shape.
   WASM export and write check evidence before feature IDs, so a full old map with
   disappeared features reports stale geometry rather than an unknown feature.
-- Add Amy's cadgen PMI plate (gist, MIT) as a fixture with cadgen's own AP242 semantic PMI. Tests check
-  that it reads once as foreign PMI: ISO 2768-mK general tolerance, basic 30/50, and no extra Specify
-  size or location requirement beside its dimensions.
+- Add Amy's cadgen PMI plate (gist, MIT) as a fixture with cadgen's own AP242 semantic
+  PMI. Tests check that it reads once as foreign PMI: ISO 2768-mK general tolerance, basic
+  30/50, and no extra Specify size or location requirement beside its dimensions.
 
 ### Changed
 
@@ -29,14 +29,14 @@ All notable changes to specify-core-rust. The format follows
   gets a separate `.T.` datum feature. Add upgrades requiring source repairs
   refuse with entity ids and repair details, without a Replace retry. PMI-less
   inputs continue selecting Replace before writing.
-- Share per-face geometry carriers and reference datum features directly (#181).
+- Share per-face geometry carriers and reference datum features directly (quiddity#181).
   Specify stamps new complex carriers and protects carriers and face support shared
   with foreign requirements during owned-item removal; characteristic numbers stay stable.
 - Adopt reader `haecceity-pmi-read/15` in place of /14, including authored standalone
   members named `haecceity.feature/1`. A datum whose feature reaches no face is an
   `Unresolved` finding, surfaced as a new `PMI unresolved datum …` analysis/CLI warning.
 - Refresh cross-engine STEP byte goldens and four no-BOM hashes for shared-carrier
-  and direct-datum links and #184's notes placement clear of drawn ink. Per-case
+  and direct-datum links and quiddity#184's notes placement clear of drawn ink. Per-case
   reasons are documented in the fixture README. All fourteen independent Python
   semantic readbacks remain identical; both part-index refusals stay fixed.
 - Add optional `geometry_carrier_exemptions` (`{part, condition, aspect, feature}`),
@@ -71,7 +71,8 @@ All notable changes to specify-core-rust. The format follows
   metadata-free `changes/answers.json` cannot reveal dropped answers, so the literal
   old-file `write --accept-defaults` repro still exits 0 on updated tools.
   Older Specify/editor WASM builds reject new `_specify` maps as `unknown answer ID`;
-  old plain files remain compatible with new tools.
+  older CLI and Python installs may accept and ignore `_specify`, without its evidence and
+  carry-block checks. Old plain files remain compatible with new tools.
 - For #123, #124, #125: diff maps an added requirement's (`extra.*`) `faces` and
   `reference` through the same face matching as datums, on unnamed parts as on named
   ones, instead of keeping old indices that could name another feature under an `ok`
