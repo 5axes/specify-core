@@ -17,7 +17,7 @@ for c in ["corpus/nist/nist_ctc_02_asme1_rc", "corpus/nist/nist_ctc_04_asme1_rd"
 e("*", "existing[key=dimension|DimensionPresentation|*", "presentation read as a dimension", "rust-correct",
   "OpenCascade's reader turns a presentation-only callout (DRAUGHTING_CALLOUT / annotation occurrence with no semantic dimension; specify-core's own thread and knurl callouts, NIST's graphic PMI) into a 'DimensionPresentation' dimension of value 0.0. It states no size; haecceity reads semantic PMI only (every Python item of this type has value 0.0).")
 e("nist/nist_ctc_01_asme1_ap242*", "existing[key=dimension|Location_None|[41]|[37]#1]", "a location dimension the file states without a value", "rust-correct",
-  "#24=DIMENSIONAL_LOCATION('linear distance',$,#324,#325) has no dimensional_characteristic_representation (haecceity's finding: nonconformance, §5.2.1). Rust reports Location_LinearDistance, as named, with no value; OpenCascade falls back to its default type Location_None and invents 0.0.")
+  "#24=DIMENSIONAL_LOCATION('linear distance',$,#324,#325) has no dimensional_characteristic_representation (§5.2.1; haecceity reported it as a nonconformance until v0.4.7, which preserves it without a finding). Rust reports Location_LinearDistance, as named, with no value; OpenCascade falls back to its default type Location_None and invents 0.0.")
 e("nist/nist_ctc_01_asme1_ap242*", "existing[key=dimension|Location_LinearDistance|[41]|[37]#1]", "the same dimension, as Rust reads it", "rust-correct", "See the Location_None entry for [41]/[37] (#24).")
 e("nist/nist_ctc_01_asme1_ap242*", "existing[key=dimension|Location_None|[88]|[84]#1]", "a location dimension the file states without a value", "rust-correct",
   "#25=DIMENSIONAL_LOCATION('linear distance',$,#328,#329) has no dimensional_characteristic_representation: Rust reports Location_LinearDistance with no value; OpenCascade Location_None 0.0.")
@@ -54,7 +54,8 @@ e("nist/nist_ctc_05_asme1_ap242", "existing[key=dimension|*].value", "inch value
 e("parts/*@written*", "findings.not-modelled", "specify-core's stored answers are not PMI", "not-applicable",
   "haecceity reports Python's PROPERTY_DEFINITION('pmi-assist answers') as a property it does not model; it is specify-core's stored answers, read by resume (resume.rs), not existing PMI.")
 for kind, why in [
-    ("nonconformance", "haecceity reads through constructs that break the PMI practice and says so (e.g. a datum feature that identifies no face, a dimension with no value, a shape aspect naming no face); OpenCascade's reader is silent. Reporting is the honest form (R10)."),
+    ("nonconformance", "haecceity reads through constructs that break the PMI practice and says so (e.g. a datum feature that identifies no face, a shape aspect naming no face); OpenCascade's reader is silent. Reporting is the honest form (R10)."),
+    ("fact", "haecceity states a fact about a construct it reads and preserves (v0.4.7, quiddity #188: CTC-04's projected zone #18897 whose projection end #18894 has no geometry, formerly a nonconformance); OpenCascade is silent."),
     ("not-modelled", "haecceity reports what it consumes without holding (CATIA geometric sets, 'designed' qualifiers, unknown properties); OpenCascade is silent."),
     ("unconsumed", "haecceity lists semantic-PMI instances no part's PMI reaches (CTC-04's usage of an aspect naming the solid, CTC-05's unused qualifiers); OpenCascade is silent."),
     ("unresolved-reference", "haecceity reports a feature it cannot anchor (CTC-04: an aspect naming the MANIFOLD_SOLID_BREP); OpenCascade is silent."),

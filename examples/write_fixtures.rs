@@ -15,10 +15,11 @@
 //! /Users/paul/repos/specify-core/.venv/bin/python tools/capture.py cross-engine tests/fixtures/cross_engine
 //! ```
 //!
-//! **For quiddity-rust 0.4.6 (`1ebf8cb6`).** Regenerate all sixteen cases and independently
-//! recapture with Python 3.12.13 and frozen reference 7e2125d (`--rust-only`). All fourteen
-//! successes are checked byte for byte after the v0.4.5 carrier-link refresh;
-//! per-case regeneration results belong in the fixture README. The kernel now
+//! **For quiddity 0.4.7 (`dcba9d38`).** The sixteen cases still match their v0.4.6 bytes
+//! exactly (`tests/cross_engine.rs`), so nothing was regenerated or recaptured; the
+//! fixture README records why. When a pin changes written bytes, regenerate all sixteen
+//! cases and independently recapture with Python 3.12.13 and frozen reference 7e2125d
+//! (`--rust-only`), recording per-case results in the fixture README. The kernel
 //! preserves Add bytes itself, including legacy endpoints; Specify retains its
 //! ownership stamping. Recapture independent Python reads if any STEP bytes change.
 //!

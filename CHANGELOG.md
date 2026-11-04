@@ -6,6 +6,27 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+### Changed
+
+- Move native, WASM and Python builds from quiddity/haecceity v0.4.6 to v0.4.7
+  (`dcba9d38`). Sealed interior voids are reported only as `interior_voids` (each
+  sealed shell gets an exact `closed_shell` record), no longer also as holes.
+  Dimensions with no stated value are written through unchanged; a projected zone
+  with no end geometry is read as a `fact` finding. An Add needing the new R3
+  integer-literal repair is refused with its ids, as R1/R2 are. Recognition `/6`, fingerprints
+  `/3` and both packaged schemas are unchanged.
+- Adopt reader `haecceity-pmi-read/17` in place of /15.
+- Add optional `retained_shared` (ids of auxiliary support Replace kept for PMI it
+  cannot read) to native/CLI, Python and WASM write reports.
+- Known differences: NIST CTC-04's projected zone #18897 is a `fact` finding (formerly
+  nonconformance); cgb217's void shell (faces 361-363, from `BREP_WITH_VOIDS`) is a
+  Rust-only interior void, and its two former cylindrical-profile entries are kept as
+  `resolved`. Cross-engine byte goldens, readbacks and no-BOM hashes are unchanged.
+
+### WASM API
+
+- `WriteReport` adds optional `retained_shared: number[]`, absent when empty.
+
 ## 0.1.9 (2026-11-04)
 
 ### Added
