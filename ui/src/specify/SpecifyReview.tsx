@@ -11,7 +11,7 @@ import { appliedByRule, chosenForYou, type Chosen } from './chosen';
 import { datumChips, freeLetter, removal } from './datums';
 import { drawnShown, drawnViews, hasFileGraphics, partCentre, type DrawnPmi } from './drawn';
 import { optionHint } from './hints';
-import { balloonsBySource, type Characteristic, characteristics, ranges, toCsv } from './characteristics';
+import { balloonsBySource, type Characteristic, characteristics, noteStatements, ranges, toCsv } from './characteristics';
 import { CharacteristicsTable, ExtraEditor, PurposeChoice, SpecBox, SuggestBox, SuggestionCard, TOLERANCE_PICKS, type ExtraDraft } from './inputs';
 import type { PmiLabel } from './labels';
 import type { Picker } from './picker';
@@ -141,12 +141,11 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   const chars = useMemo(
     () => characteristics(preview, session.analysis, titles), [preview, session.analysis, titles],
   );
-  // The part's notes, as Specify's notes block says them (its stated settings, not those that are
-  // none, then the notes written in words): on the view, where they stay put.
+  // The part's notes as a drawing's notes block states them, then the notes written in words, as
+  // written: on the view, where they stay put.
   const freeNotes = answers['part.notes'];
   const partNotes = [
-    ...chars.filter((c) => c.source.startsWith('part:') && !/^[^:]+: None\b/.test(c.text))
-      .map((c) => ({ key: c.source, text: c.text, question: `part.${c.source.slice('part:'.length)}` })),
+    ...noteStatements(preview, session.analysis),
     ...(Array.isArray(freeNotes) ? freeNotes : []).filter((n): n is string => typeof n === 'string' && n.trim() !== '')
       .map((text, i) => ({ key: `notes:${i}`, text, question: 'part.notes' })),
   ];
@@ -788,7 +787,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
         </div>
         {partNotes.length > 0 && (
           <details className="pmi-lab-partnotes" open>
-            <summary title="The part's notes">General notes ({partNotes.length})</summary>
+            <summary title="The part's notes">Notes (unless otherwise specified):</summary>
             <ol>
               {partNotes.map((n) => (
                 <li key={n.key}>

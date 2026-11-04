@@ -247,6 +247,37 @@ export function characteristics(
 }
 
 /** The rows under each balloon, in order. */
+/**
+ * The part's notes as a drawing's notes block states them, in PART_NOTES' order: the wording in
+ * capitals, values (a material, ISO 2768-mK, Ra 3.2) as written, since their case is notation;
+ * a setting that is none left out. ``question`` is the Specify question each answers.
+ */
+export function noteStatements(
+  intent: PmiIntent | null, analysis: PmiAnalysis,
+): { key: string; text: string; question: string }[] {
+  const part = { ...analysis.part, ...intent?.part };
+  const out: { key: string; text: string; question: string }[] = [];
+  for (const [key] of PART_NOTES) {
+    const value = part[key]?.trim();
+    if (!value || /^(none|no edge note)\b/i.test(value)) continue;
+    const label = STATEMENT[key];
+    out.push({
+      key: `part:${key}`, question: `part.${key}`,
+      // Edges and treatments are said in words; the rest are a label and a value as written.
+      text: label ? `${label} ${value}` : capitals(value),
+    });
+  }
+  return out;
+}
+
+/** Words in capitals, but units and roughness parameters as their notation writes them. */
+const capitals = (text: string) => text.replace(/\S+/g, (w) => (/^(mm|µm|um|Ra|Rz)[,.;)]?$/.test(w) ? w : w.toUpperCase()));
+
+/** The capitals a notes block puts before a value (none: the value is the note, in capitals). */
+const STATEMENT: Readonly<Record<string, string>> = {
+  material: 'MATERIAL', general_tolerance: 'GENERAL TOLERANCES', surface_finish: 'SURFACE FINISH',
+};
+
 export function byBalloon(rows: readonly Characteristic[]): Characteristic[][] {
   const out: Characteristic[][] = [];
   for (const r of rows) {
