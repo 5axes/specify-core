@@ -265,3 +265,76 @@ fn serve_refuses_an_unknown_id() {
         "{reply}"
     );
 }
+
+/// A #121 carry block on `datum.A.flatness`, with the datum itself re-answered.
+fn blocked(locating: &str) -> Map<String, Value> {
+    let mut answers = revised(locating);
+    answers.remove("datum.A.flatness");
+    answers.insert(
+        "_specify".into(),
+        json!({"unresolved": {"datum.A.flatness": "its datum datum.A is unresolved"}}),
+    );
+    answers
+}
+
+/// A block applies only while its question is asked: under ± dimensions it does not stop
+/// write (nor export, nor the editor's preview write) and is reported instead.
+#[test]
+fn a_carry_block_on_an_unasked_question_is_reported_not_refused() {
+    let answers = blocked("± dimensions");
+    let report = write(&answers, "blocked-dimensions");
+    let line = "datum.A.flatness was carried (carried answer could not be applied: its datum \
+                datum.A is unresolved) but is not asked when part.locating is '± dimensions', \
+                so nothing was written for it";
+    assert!(
+        report.not_written.contains(&line.to_string()),
+        "{:?}",
+        report.not_written
+    );
+    let analysis = api::analyse_file(&plate(), None).unwrap();
+    let complete = specify_core::rules::with_all_defaults(&analysis, &answers).unwrap();
+    let intent = api::preview(&analysis, &complete).unwrap();
+    let bytes = std::fs::read(plate()).unwrap();
+    let (_, report) = api::write_bytes(bytes, &[(intent, Some(complete))]).unwrap();
+    assert!(report.not_written.contains(&line.to_string()));
+    // The export keeps the block, so it applies again if the question returns.
+    let loaded = specify_core::part::load(&plate(), None).unwrap();
+    let saved = api::export_answers(&loaded, &analysis, &answers).unwrap();
+    assert_eq!(
+        saved["_specify"]["unresolved"]["datum.A.flatness"],
+        "its datum datum.A is unresolved"
+    );
+}
+
+/// Switching back to position tolerances asks the question again: the block applies again,
+/// shows as required and stops bulk defaults and write, as #121 decided.
+#[test]
+fn a_carry_block_applies_again_when_its_question_returns() {
+    let analysis = api::analyse_file(&plate(), None).unwrap();
+    api::apply(&analysis, &blocked("± dimensions"), true).unwrap();
+    let answers = blocked("position tolerances");
+    let flatness = api::questions(&analysis, &answers)
+        .unwrap()
+        .into_iter()
+        .find(|q| q.id == "datum.A.flatness")
+        .unwrap();
+    assert_eq!(flatness.attention, "required");
+    assert_eq!(flatness.default, None);
+    let refused = api::apply(&analysis, &answers, true)
+        .unwrap_err()
+        .to_string();
+    assert!(refused.contains("datum.A.flatness"), "{refused}");
+    assert!(
+        refused.contains("carried answer could not be applied"),
+        "{refused}"
+    );
+    // Nor can a preview intent write past it.
+    let intent = api::preview(&analysis, &answers).unwrap();
+    let out = temp("blocked-position").join("out.step");
+    let refused = api::write_file(&plate(), &intent, &out, Some(&answers)).unwrap_err();
+    assert!(
+        refused.to_string().contains("datum.A.flatness"),
+        "{refused}"
+    );
+    assert!(!out.exists());
+}

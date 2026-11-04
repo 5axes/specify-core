@@ -48,8 +48,19 @@ pub fn blocked(answers: &Map<String, Value>, id: &str) -> bool {
 }
 
 pub fn require_resolved(answers: &Map<String, Value>) -> rules::Result<()> {
+    require_resolved_where(answers, |_| true)
+}
+
+/// [`require_resolved`] for the blocks whose question `applies`: a block applies only while
+/// its question is asked (#126). One on a question not asked under the current answers is
+/// reported in `not_written` instead, and applies again once the question returns.
+pub fn require_resolved_where(
+    answers: &Map<String, Value>,
+    applies: impl Fn(&str) -> bool,
+) -> rules::Result<()> {
     validate(answers).map_err(rules::Error::Invalid)?;
-    let reasons = unresolved(answers);
+    let mut reasons = unresolved(answers);
+    reasons.retain(|id, _| applies(id));
     if reasons.is_empty() {
         return Ok(());
     }
@@ -61,7 +72,8 @@ pub fn require_resolved(answers: &Map<String, Value>) -> rules::Result<()> {
     Err(error.into())
 }
 
-fn unresolved(answers: &Map<String, Value>) -> Map<String, Value> {
+/// The carry blocks still unanswered, with their diff reasons.
+pub(crate) fn unresolved(answers: &Map<String, Value>) -> Map<String, Value> {
     answers
         .get(META)
         .and_then(|m| m.get("unresolved"))

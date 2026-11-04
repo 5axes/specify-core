@@ -450,7 +450,14 @@ fn check_jobs(jobs: &[Job<'_>]) -> Result<(), WriteError> {
         check_binding(loaded, intent)?;
         if let Some(answers) = answers {
             crate::answer_file::check(loaded, answers).map_err(WriteError::Invalid)?;
-            crate::answer_file::require_resolved(answers)
+            // A block whose question the rules did not ask is an `unasked` row (#126).
+            let unasked = |id: &str| {
+                intent.requirements.iter().any(|r| {
+                    r.get("kind").and_then(Json::as_str) == Some(crate::rules::UNASKED)
+                        && r.get("answer").and_then(Json::as_str) == Some(id)
+                })
+            };
+            crate::answer_file::require_resolved_where(answers, |id| !unasked(id))
                 .map_err(|e| WriteError::Invalid(e.to_string()))?;
         }
     }

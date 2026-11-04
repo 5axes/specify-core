@@ -926,8 +926,16 @@ pub fn with_all_defaults(
     analysis: &Value,
     answers: &Map<String, Value>,
 ) -> Result<Map<String, Value>> {
-    crate::answer_file::require_resolved(answers)?;
-    Ok(settled(&Ctx::new(analysis)?, answers)?.0)
+    crate::answer_file::validate(answers).map_err(Error::Invalid)?;
+    let (merged, qs) = settled(&Ctx::new(analysis)?, answers)?;
+    // Defaults never answer a block; it refuses once its question is asked (#126).
+    crate::answer_file::require_resolved_where(answers, |id| asks(&qs, id))?;
+    Ok(merged)
+}
+
+/// Whether `id` is among the questions `qs`.
+fn asks(qs: &[Question], id: &str) -> bool {
+    qs.iter().any(|q| q.id == id)
 }
 
 /// `with_all_defaults`, with the questions of the answers it settles on (which `preview` and
@@ -950,9 +958,10 @@ fn settled(
 
 /// Turn a complete set of answers into intent. Refuses while any question is open.
 pub fn apply(analysis: &Value, answers: &Map<String, Value>) -> Result<Intent> {
-    crate::answer_file::require_resolved(answers)?;
+    crate::answer_file::validate(answers).map_err(Error::Invalid)?;
     let ctx = Ctx::new(analysis)?;
     let qs = questions_in(&ctx, answers)?;
+    crate::answer_file::require_resolved_where(answers, |id| asks(&qs, id))?;
     let missing: Vec<String> = open_questions(&qs, answers)
         .iter()
         .map(|q| q.id.clone())
@@ -1307,10 +1316,16 @@ fn unasked(
                 || id.starts_with("bom.")
                 || id.starts_with(extras::PREFIX)
                 || id.starts_with('_'))
-                && !qs.iter().any(|q| &q.id == *id)
+                && !asks(qs, id)
         })
         .collect();
-    if ids.is_empty() {
+    // A carry block whose question is not asked does not refuse (#126); it is reported too.
+    let blocks: Vec<(String, String)> = crate::answer_file::unresolved(answers)
+        .into_iter()
+        .filter(|(id, _)| !asks(qs, id))
+        .map(|(id, why)| (id, why.as_str().unwrap_or_default().to_string()))
+        .collect();
+    if ids.is_empty() && blocks.is_empty() {
         return Ok(Vec::new());
     }
     // Would the question be asked under the other way of locating holes? One more question
@@ -1331,29 +1346,34 @@ fn unasked(
         }
         None => None,
     };
-    let mut rows = Vec::with_capacity(ids.len());
-    for id in ids {
+    let mut rows = Vec::with_capacity(ids.len() + blocks.len());
+    let carried = blocks.iter().map(|(id, why)| (id, Some(why)));
+    for (id, block) in ids.into_iter().map(|id| (id, None)).chain(carried) {
         let letter = id
             .strip_prefix("datum.")
             .filter(|l| l.len() == 1)
             .and_then(|l| l.chars().next());
         let why = if let Some(letter) = letter.filter(|&l| ctx.file_datum(l).is_some()) {
-            format!("{id} is not asked: the file already states datum {letter}")
+            format!("is not asked: the file already states datum {letter}")
         } else if let (Some(current), Some(other)) = (locating, &other)
-            && other.iter().any(|q| &q.id == id)
+            && asks(other, id)
         {
-            format!("{id} is not asked when part.locating is '{current}'")
+            format!("is not asked when part.locating is '{current}'")
         } else {
-            format!("{id} is not asked of this part given the other answers")
+            "is not asked of this part given the other answers".to_string()
+        };
+        let reason = match block {
+            None => format!("{id} {why}, so its answer was not written"),
+            Some(carry) => format!(
+                "{id} was carried (carried answer could not be applied: {carry}) but {why}, \
+                 so nothing was written for it"
+            ),
         };
         rows.push(object([
             ("kind", Value::from(UNASKED)),
             ("answer", Value::from(id.as_str())),
             ("faces", Value::Array(Vec::new())),
-            (
-                "not_written_reason",
-                Value::from(format!("{why}, so its answer was not written")),
-            ),
+            ("not_written_reason", Value::from(reason)),
         ]));
     }
     Ok(rows)

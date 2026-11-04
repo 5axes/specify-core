@@ -98,9 +98,12 @@ the datum. `apply` does not refuse these answers: callers revising answers acros
 of `part.locating` keep both modes' answers, and the question takes its answer again when it
 returns. The answer is still stored in the STEP with the others, exported unchanged by
 `questions --resolve-defaults` (dropping it would lose it, and refusing would break the same
-callers), and carried by `diff` like any other answer. A carry block on such a question
-(`datum.A.flatness` after its datum A is lost, say) still blocks until answered or removed,
-although `questions` does not show it while it is not asked. Its value is checked against the
+callers), and carried by `diff` like any other answer. A carry block applies only while
+its question is asked: a block on `datum.A.flatness` under `"± dimensions"` does not stop
+`write`, export or bulk defaults, and is listed in `not_written` ("datum.A.flatness was
+carried (carried answer could not be applied: …) but is not asked when part.locating is
+'± dimensions', so nothing was written for it"). It stays in `_specify.unresolved`, so once
+later answers ask the question again it shows as required and refuses again. Its value is checked against the
 question's options only while the question is asked. `part.*`, `bom.*` and `extra.*` answers
 are read whether or not asked, so they never appear here.
 
@@ -169,6 +172,9 @@ remove its acceptable suggestion (`default: null`), and put
 `carried answer could not be applied: <diff reason>` in the existing `reason` field. This
 presentation is shared by CLI, serve, Python and WASM. Review can still show partial
 answers; the editor's automatic defaults skip blocked IDs.
+
+A block whose question is not asked under the current answers does not refuse; see
+[Answers to questions not asked](#answers-to-questions-not-asked).
 
 Supply an explicit valid answer for that ID to acknowledge its refusal (for the split
 bottom, `"datum.A":[4,8]`). This overrides its unresolved entry; future diff output removes
