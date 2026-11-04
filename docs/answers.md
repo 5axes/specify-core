@@ -98,7 +98,9 @@ the datum. `apply` does not refuse these answers: callers revising answers acros
 of `part.locating` keep both modes' answers, and the question takes its answer again when it
 returns. The answer is still stored in the STEP with the others, exported unchanged by
 `questions --resolve-defaults` (dropping it would lose it, and refusing would break the same
-callers), and carried by `diff` like any other answer. Its value is checked against the
+callers), and carried by `diff` like any other answer. A carry block on such a question
+(`datum.A.flatness` after its datum A is lost, say) still blocks until answered or removed,
+although `questions` does not show it while it is not asked. Its value is checked against the
 question's options only while the question is asked. `part.*`, `bom.*` and `extra.*` answers
 are read whether or not asked, so they never appear here.
 
