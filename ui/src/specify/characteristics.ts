@@ -259,7 +259,7 @@ export function noteStatements(
   const out: { key: string; text: string; question: string }[] = [];
   for (const [key] of PART_NOTES) {
     const value = part[key]?.trim();
-    if (!value || /^(none|no edge note)\b/i.test(value)) continue;
+    if (!value || /^(none|no edge note|no coating|no treatment|as machined|bare)\b/i.test(value)) continue;
     const label = STATEMENT[key];
     out.push({
       key: `part:${key}`, question: `part.${key}`,
@@ -270,8 +270,12 @@ export function noteStatements(
   return out;
 }
 
-/** Words in capitals, but units and roughness parameters as their notation writes them. */
-const capitals = (text: string) => text.replace(/\S+/g, (w) => (/^(mm|µm|um|Ra|Rz)[,.;)]?$/.test(w) ? w : w.toUpperCase()));
+/**
+ * Words in capitals, but notation as written: a word with a figure in it (10µm, H7/g6, 0.5mm),
+ * and units and roughness parameters standing alone.
+ */
+const capitals = (text: string) => text.replace(/\S+/g, (w) =>
+  (/\d/.test(w) || /^\(?(mm|µm|um|h|min|s|Ra|Rz)[,.;)]?$/.test(w) ? w : w.toUpperCase()));
 
 /** The capitals a notes block puts before a value (none: the value is the note, in capitals). */
 const STATEMENT: Readonly<Record<string, string>> = {

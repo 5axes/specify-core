@@ -91,6 +91,9 @@ test("the part's notes are stated as a drawing's notes block states them", async
     ['CASE HARDEN 0.5 mm', 'part.heat_treatment'],
     ['REMOVE ALL BURRS AND BREAK SHARP EDGES', 'part.edges'],
   ]);
+  // Notation in words typed in is kept as written; a typed 'none' is left out too.
+  const typed = noteStatements({ part: { coating: 'Anodise 10µm, seal 1 h', heat_treatment: 'No treatment', edges: 'Fit H7/g6 edges' } }, { part: {} });
+  assert.deepEqual(typed.map(n => n.text), ['ANODISE 10µm, SEAL 1 h', 'FIT H7/g6 EDGES']);
   // The answers given win over the file's.
   assert.equal(noteStatements({ part: { edges: 'No edge note' } }, { part }).some(n => n.question === 'part.edges'), false);
 });

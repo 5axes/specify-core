@@ -135,12 +135,15 @@
 .pmi-lab-partnotes { position: absolute; left: 14px; bottom: 38px; z-index: 9; max-width: min(380px, calc(100% - 200px));
   max-height: 40%; overflow: auto; color: #2f6fb5; font: 12px/1.35 'IBM Plex Mono', ui-monospace, monospace;
   letter-spacing: .2px; font-variant-numeric: tabular-nums;
-  text-shadow: 0 0 3px #fff, 0 0 3px #fff, 0 0 2px #fff, 0 0 2px #fff; }
+  text-shadow: 0 0 3px #fff, 0 0 3px #fff, 0 0 2px #fff, 0 0 2px #fff;
+  /* The part shows through it, and is turned from it, but for its heading and notes' links. */
+  pointer-events: none; }
+.pmi-lab-partnotes summary, .pmi-lab .pmi-lab-partnotes li button { pointer-events: auto; }
 /* The heading in capitals; the notes come in capitals but for their values (noteStatements). */
 .pmi-lab-partnotes summary { padding: 2px 0 6px; cursor: pointer; list-style: none; text-transform: uppercase; }
 .pmi-lab-partnotes summary::-webkit-details-marker { display: none; }
-.pmi-lab-partnotes summary::after { content: ' ▾'; }
-.pmi-lab-partnotes:not([open]) summary::after { content: ' ▸'; }
+.pmi-lab-partnotes summary::after { content: ' ▾' / ''; }
+.pmi-lab-partnotes:not([open]) summary::after { content: ' ▸' / ''; }
 .pmi-lab-partnotes ol { margin: 0; padding: 0 0 0 3.2ch; display: grid; gap: 7px; }
 .pmi-lab-partnotes li { padding-left: 1ch; }
 .pmi-lab .pmi-lab-partnotes li button { border: 0; padding: 0; background: none; text-align: left; color: inherit; font: inherit; text-shadow: inherit; }
