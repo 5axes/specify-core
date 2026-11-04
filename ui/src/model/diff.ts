@@ -181,11 +181,14 @@ export const OPEN_READY = 'draftwright:open-ready';
 
 /**
  * The file in a message another page posts the editor, or null if it is not one:
- * `{ type: 'draftwright:open', file: { name, data } }`, `data` as for /diff's two.
+ * `{ type: 'draftwright:open', file: { name, data } }`, `data` as for /diff's two, named
+ * `.step` or `.stp` (or either gzipped).
  */
 export function handedFile(message: unknown): Handed | null {
   if (!message || typeof message !== 'object' || (message as { type?: unknown }).type !== 'draftwright:open') return null;
-  return handed((message as { file?: unknown }).file);
+  const file = handed((message as { file?: unknown }).file);
+  // A STEP file only: the name decides how the editor reads what it opens.
+  return file && /\.(step|stp)(\.gz)?$/i.test(file.name) ? file : null;
 }
 
 /**

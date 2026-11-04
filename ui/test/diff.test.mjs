@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { gzipSync } from 'node:zlib';
-import { changedSteps, diffQuery, fileAt, githubLink, handedFiles, reportHtml, stepBytes } from '../src/model/diff.ts';
+import { changedSteps, diffQuery, fileAt, githubLink, handedFile, handedFiles, reportHtml, stepBytes } from '../src/model/diff.ts';
 
 const sha = 'a8622c3f0e1d2c3b4a5968778695a4b3c2d1e0f9';
 
@@ -167,4 +167,15 @@ test('a section the page lists itself (its PMI changes) is left out of the repor
   assert.doesNotMatch(html, /#13 changed|>PMI</);
   assert.match(html, /a face moved/);
   assert.match(html, /Answers not carried/);
+});
+
+test('the editor takes one STEP file another page hands it, and nothing else', () => {
+  const blob = new Blob(['ISO-10303-21;']);
+  assert.equal(handedFile({ type: 'draftwright:open', file: { name: 'dir/part.STEP', data: blob } }).name, 'part.STEP');
+  assert.equal(handedFile({ type: 'draftwright:open', file: { name: 'part.stp.gz', data: blob } }).name, 'part.stp.gz');
+  // A project (.json) or anything else is not opened this way: the name decides how it is read.
+  for (const name of ['project.dw-editor.json', 'part.step.txt', 'part']) {
+    assert.equal(handedFile({ type: 'draftwright:open', file: { name, data: blob } }), null, name);
+  }
+  assert.equal(handedFile({ type: 'draftwright:diff', file: { name: 'part.step', data: blob } }), null);
 });
