@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { gzipSync } from 'node:zlib';
-import { changedSteps, diffQuery, fileAt, githubLink, handedFiles, reportHtml, stepBytes } from '../src/model/diff.ts';
+import { changedSteps, diffQuery, fileAt, githubLink, handedFile, handedFiles, loopbackFile, reportHtml, stepBytes } from '../src/model/diff.ts';
 
 const sha = 'a8622c3f0e1d2c3b4a5968778695a4b3c2d1e0f9';
 
@@ -167,4 +167,29 @@ test('a section the page lists itself (its PMI changes) is left out of the repor
   assert.doesNotMatch(html, /#13 changed|>PMI</);
   assert.match(html, /a face moved/);
   assert.match(html, /Answers not carried/);
+});
+
+test('the editor takes one STEP file another page hands it, and nothing else', () => {
+  const blob = new Blob(['ISO-10303-21;']);
+  assert.equal(handedFile({ type: 'draftwright:open', file: { name: 'dir/part.STEP', data: blob } }).name, 'part.STEP');
+  assert.equal(handedFile({ type: 'draftwright:open', file: { name: 'part.stp.gz', data: blob } }).name, 'part.stp.gz');
+  // A project (.json) or anything else is not opened this way: the name decides how it is read.
+  for (const name of ['project.dw-editor.json', 'part.step.txt', 'part']) {
+    assert.equal(handedFile({ type: 'draftwright:open', file: { name, data: blob } }), null, name);
+  }
+  assert.equal(handedFile({ type: 'draftwright:diff', file: { name: 'part.step', data: blob } }), null);
+});
+
+test('?open= fetches a STEP this computer serves, and nothing from anywhere else', () => {
+  const at = u => loopbackFile(`?open=${encodeURIComponent(u)}`);
+  const token = 'ab'.repeat(16);
+  assert.deepEqual(at(`http://127.0.0.1:5123/${token}/My%20part.step`), { url: `http://127.0.0.1:5123/${token}/My%20part.step`, name: 'My part.step' });
+  assert.equal(at(`http://localhost:9/${token}/part.stp.gz`).name, 'part.stp.gz');
+  for (const u of ['https://example.com/part.step', `http://127.0.0.1.example.com/${token}/part.step`, `https://127.0.0.1/${token}/part.step`,
+    `http://user:pw@127.0.0.1/${token}/part.step`, `http://127.0.0.1:9/${token}/project.dw-editor.json`, `file:///${token}/part.step`, 'not a url',
+    // Not a command's one-off address: another path, a query, or [::1] (which the CSP doesn't allow).
+    'http://127.0.0.1:9/part.step', 'http://127.0.0.1:9/api/delete/part.step', `http://127.0.0.1:9/${token}/part.step?x=1`, `http://[::1]:9/${token}/part.step`]) {
+    assert.equal(at(u), null, u);
+  }
+  assert.equal(loopbackFile('?other=1'), null);
 });

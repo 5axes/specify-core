@@ -177,6 +177,42 @@ const handed = (file: unknown): Handed | null => {
 };
 
 /**
+ * The STEP file `?open=` names, if it is one this computer serves (`specify-core open`,
+ * scripts/dw-open.mjs): http on 127.0.0.1 or localhost, at /<32 hex>/<name>, named .step or .stp
+ * (or either gzipped), with no query. Nothing elsewhere is fetched this way, so a link can't make the editor fetch a file
+ * from a site, only from the computer it runs on.
+ */
+export function loopbackFile(search: string): { url: string; name: string } | null {
+  const given = new URLSearchParams(search).get('open');
+  if (!given) return null;
+  let url: URL;
+  try { url = new URL(given); } catch { return null; }
+  if (url.protocol !== 'http:' || !['127.0.0.1', 'localhost'].includes(url.hostname) || url.username || url.password) return null;
+  // Only a command's one-off address, /<token>/<name>, and no query: a link can't make the editor
+  // ask anything else of a server on this computer.
+  const path = url.pathname.match(/^\/[0-9a-f]{32}\/([^/]+)$/);
+  if (!path || url.search || url.hash) return null;
+  let name = '';
+  try { name = decodeURIComponent(path[1]!); } catch { return null; }
+  return /\.(step|stp)(\.gz)?$/i.test(name) ? { url: url.href, name: name.slice(0, 200) } : null;
+}
+
+/** What the editor (/, /specify) posts the page that opened it, once it listens. */
+export const OPEN_READY = 'draftwright:open-ready';
+
+/**
+ * The file in a message another page posts the editor, or null if it is not one:
+ * `{ type: 'draftwright:open', file: { name, data } }`, `data` as for /diff's two, named
+ * `.step` or `.stp` (or either gzipped).
+ */
+export function handedFile(message: unknown): Handed | null {
+  if (!message || typeof message !== 'object' || (message as { type?: unknown }).type !== 'draftwright:open') return null;
+  const file = handed((message as { file?: unknown }).file);
+  // A STEP file only: the name decides how the editor reads what it opens.
+  return file && /\.(step|stp)(\.gz)?$/i.test(file.name) ? file : null;
+}
+
+/**
  * The two files in a message another page posts /diff, or null if it is not one:
  * `{ type: 'draftwright:diff', before: { name, data }, after: { name, data } }`, each `data`
  * a Blob (or File), an ArrayBuffer or a typed array, of a STEP file or a gzipped one.
