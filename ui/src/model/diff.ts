@@ -176,6 +176,23 @@ const handed = (file: unknown): Handed | null => {
   return blob ? { name: name.split(/[\\/]/).pop()!.slice(0, 200), data: blob } : null;
 };
 
+/**
+ * The STEP file `?open=` names, if it is one this computer serves (`specify-core open`,
+ * scripts/dw-open.mjs): http on 127.0.0.1, localhost or [::1], named .step or .stp (or either
+ * gzipped). Nothing elsewhere is fetched this way, so a link can't make the editor fetch a file
+ * from a site, only from the computer it runs on.
+ */
+export function loopbackFile(search: string): { url: string; name: string } | null {
+  const given = new URLSearchParams(search).get('open');
+  if (!given) return null;
+  let url: URL;
+  try { url = new URL(given); } catch { return null; }
+  if (url.protocol !== 'http:' || !['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname) || url.username || url.password) return null;
+  let name = '';
+  try { name = decodeURIComponent(url.pathname.split('/').pop() ?? ''); } catch { return null; }
+  return /\.(step|stp)(\.gz)?$/i.test(name) ? { url: url.href, name: name.slice(0, 200) } : null;
+}
+
 /** What the editor (/, /specify) posts the page that opened it, once it listens. */
 export const OPEN_READY = 'draftwright:open-ready';
 

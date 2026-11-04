@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { gzipSync } from 'node:zlib';
-import { changedSteps, diffQuery, fileAt, githubLink, handedFile, handedFiles, reportHtml, stepBytes } from '../src/model/diff.ts';
+import { changedSteps, diffQuery, fileAt, githubLink, handedFile, handedFiles, loopbackFile, reportHtml, stepBytes } from '../src/model/diff.ts';
 
 const sha = 'a8622c3f0e1d2c3b4a5968778695a4b3c2d1e0f9';
 
@@ -178,4 +178,16 @@ test('the editor takes one STEP file another page hands it, and nothing else', (
     assert.equal(handedFile({ type: 'draftwright:open', file: { name, data: blob } }), null, name);
   }
   assert.equal(handedFile({ type: 'draftwright:diff', file: { name: 'part.step', data: blob } }), null);
+});
+
+test('?open= fetches a STEP this computer serves, and nothing from anywhere else', () => {
+  const at = u => loopbackFile(`?open=${encodeURIComponent(u)}`);
+  assert.deepEqual(at('http://127.0.0.1:5123/ab12/My%20part.step'), { url: 'http://127.0.0.1:5123/ab12/My%20part.step', name: 'My part.step' });
+  assert.equal(at('http://localhost:9/x/part.stp.gz').name, 'part.stp.gz');
+  assert.equal(at('http://[::1]:9/x/part.step').name, 'part.step');
+  for (const u of ['https://example.com/part.step', 'http://127.0.0.1.example.com/part.step', 'https://127.0.0.1/part.step',
+    'http://user:pw@127.0.0.1/part.step', 'http://127.0.0.1:9/x/project.dw-editor.json', 'file:///part.step', 'not a url']) {
+    assert.equal(at(u), null, u);
+  }
+  assert.equal(loopbackFile('?other=1'), null);
 });
