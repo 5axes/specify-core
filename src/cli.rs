@@ -15,6 +15,9 @@
 //!                    to the new one (revision.rs), or of an assembly, part by part
 //!                    (revision/assembly.rs)
 //! specify-core serve                             JSON-line requests on stdin (serve.rs)
+//! specify-core open STEP [--editor] [--site ORIGIN] [--no-browser]
+//!                    the file opened in draftwright.io/specify, served once on 127.0.0.1
+//!                    (open.rs)
 //! ```
 //!
 //! Arguments, outputs, exit codes and messages are specify-core's, so a host can run either
@@ -29,9 +32,10 @@
 //! that positionals are matched a run at a time between options, so `write S A B -o OUT C D`
 //! leaves `C D` unrecognised).
 //!
-//! `diff` is this port's own, with no Python counterpart: it is taken as a command but left out
-//! of the top-level help and of argparse's list of choices, which stay Python's texts
-//! (`tests/cli.rs` compares them with Python's). `specify-core diff -h` gives its help.
+//! `diff` and `open` are this port's own, with no Python counterpart: they are taken as commands
+//! but left out of the top-level help and of argparse's list of choices, which stay Python's
+//! texts (`tests/cli.rs` compares them with Python's). `specify-core diff -h` and
+//! `specify-core open -h` give their help.
 //!
 //! Where Python fails with an uncaught exception (a file that cannot be read or loaded, an
 //! output that cannot be written) it exits 1 with a traceback; this exits 1 with `error:` and
@@ -221,6 +225,32 @@ options:
 ",
 };
 
+const OPEN: Command = Command {
+    name: "open",
+    positionals: &[("step", false)],
+    options: &[
+        (None, "--editor", false, false),
+        (None, "--site", true, false),
+        (None, "--no-browser", false, false),
+    ],
+    help: "usage: specify-core open [-h] [--editor] [--site SITE] [--no-browser] step
+
+Open a STEP file in draftwright.io/specify in your browser, without uploading it: the
+file is served once on 127.0.0.1 and the page fetches it from there. Stops once it is
+fetched, or after 10 minutes.
+
+positional arguments:
+  step          a .step or .stp file, or either gzipped
+
+options:
+  -h, --help    show this help message and exit
+  --editor      open the full editor (/editor) instead of /specify
+  --site SITE   another deployment's origin, such as http://localhost:5173, opened
+                and answered as well as draftwright.io
+  --no-browser  print the address to open instead of opening a browser
+",
+};
+
 const SERVE: Command = Command {
     name: "serve",
     positionals: &[],
@@ -351,6 +381,7 @@ fn parse(argv: &[String]) -> Result<Parsed, Exit> {
         "write" => &WRITE,
         "diff" => &DIFF,
         "serve" => &SERVE,
+        "open" => &OPEN,
         other => {
             let choices: Vec<String> = COMMANDS.iter().map(|c| format!("'{c}'")).collect();
             return Err(Exit::usage(
@@ -646,6 +677,7 @@ fn run(command: &Command, args: &Args, out: &mut impl Write) -> Result<(), Exit>
         }
         "write" => write(&positional(0), &args.positionals[1..], args, out),
         "diff" => diff(&positional(0), &positional(1), args, out),
+        "open" => open(&positional(0), args, out),
         other => unreachable!("{other} is not a command"),
     }
 }
@@ -757,6 +789,30 @@ fn part_arg(step: &Path, args: &Args) -> Result<Option<usize>, Exit> {
             )))
         }
     }
+}
+
+/// `open`: the file served once on 127.0.0.1 and the browser opened at the editor's page for
+/// it (or, with `--no-browser`, only the page's address printed). Exit 2 for a name the
+/// editor does not open or a bad `--site`; exit 1 when nothing fetched it in 10 minutes.
+fn open(step: &Path, args: &Args, out: &mut impl Write) -> Result<(), Exit> {
+    use crate::open::{Error as OpenError, Handoff, TIMEOUT, launch_browser};
+    let failed = |e: OpenError| match e {
+        OpenError::Refused(m) => Exit::new(2, format!("cannot open: {m}")),
+        other => Exit::error(other),
+    };
+    let handoff =
+        Handoff::new(step, args.value("--site"), args.flag("--editor")).map_err(failed)?;
+    let page = handoff.page().to_string();
+    print(out, &format!("Open {}: {page}", handoff.name()))?;
+    out.flush().map_err(Exit::error)?;
+    if !args.flag("--no-browser")
+        && let Err(e) = launch_browser(&page)
+    {
+        eprintln!("warning: cannot open a browser ({e}); open the address above");
+    }
+    handoff.serve(TIMEOUT).map_err(failed)?;
+    let target = page.split('?').next().unwrap_or(&page);
+    print(out, &format!("Opened in {target}."))
 }
 
 /// `diff`: what changed from OLD to NEW, the answers carried to NEW, and NEW's picture.
