@@ -26,11 +26,14 @@ pub fn validate(answers: &Map<String, Value>) -> Result<(), String> {
     Ok(())
 }
 
-// These question IDs keep their meaning across revisions. Feature IDs encode old face
-// indices and may already name a different feature in the destination. Extra requirements
-// have no defaultable question; their failed supports remain in the diff report too.
+// These IDs keep their meaning across revisions. Feature IDs encode old face indices and
+// may already name a different feature in the destination. An added requirement's
+// `extra.<name>` is the person's own name, so its block is kept: writing must not drop a
+// requirement they added because its faces did not carry.
 fn stable_question(id: &str) -> bool {
-    id.starts_with("datum.") || id.starts_with("part.") || id.starts_with("bom.")
+    ["datum.", "part.", "bom.", crate::extras::PREFIX]
+        .iter()
+        .any(|prefix| id.starts_with(prefix))
 }
 
 /// The refusal for an unanswered, revision-stable question. Never shadow a reused feature ID,
