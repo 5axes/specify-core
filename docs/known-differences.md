@@ -20,9 +20,9 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | [iso286](#iso286) | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | [mates](#mates) | 1 | 0 | 0 | 0 | 3 | 0 | 4 |
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 0 | 40 |
-| [rules](#rules) | 118 | 0 | 615 | 0 | 0 | 0 | 733 |
+| [rules](#rules) | 114 | 0 | 615 | 0 | 0 | 0 | 729 |
 | [writer](#writer) | 1091 | 0 | 0 | 0 | 15 | 0 | 1106 |
-| **all** | 5030 | 1434 | 1221 | 2487 | 1101 | 1901 | 13174 |
+| **all** | 5026 | 1434 | 1221 | 2487 | 1101 | 1901 | 13170 |
 
 ## analysis
 
@@ -1072,7 +1072,7 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 
 ## rules
 
-### rules: rust-correct (118 entries)
+### rules: rust-correct (114 entries)
 
 - **Combined ISO 2768-1 and ISO 2768-2 class choices** (24 entries, 1 case glob)
 
@@ -1125,10 +1125,6 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 - **axis-first turned datum defaults and their dependent questions and intent** (15 entries, 15 case globs)
 
   The evidence is stated per entry (2 distinct; all in `rules.json`). The first, for `corpus/cadgenbench/flanged_spool_132/*` at `*`: Axis-first turned datums: plain recognised principal cylinder with greatest total area (diameter breaks ties), excluding thread/knurl answers, recognition and PMI; interrupted shafts may use dominant bosses. Then a perpendicular contact/largest shoulder excluding recess walls unless the sole perpendicular face. Axial holes use diametral position to A alone; other holes keep the full frame. Runout uses A and is not offered on the datum diameter itself. A mostly prismatic body or different principal axes keeps plane datums. tests/turned_defaults.rs checks captured and live corpus geometry, overrides, offsets, cross holes and shoulder contacts. tests/fixtures/rule_defaults_oracle.json.gz is an additional exact regression guard on EVERY changed path and both values (including question ordering and all other rules); rules_oracle asserts that complete list before applying these verdict entries, so these scopes cannot hide further differences. See docs/turned-defaults.md.
-
-- **Sealed interior void stated as an info fact** (4 entries, 3 case globs)
-
-  Rust states each sealed interior void (analysis interior_voids feature) as an info problem with code interior_void, its feature, faces and size; archived Python has no such fact (maintainer-approved, ADR P3 facts not judgements). Appended after every other problem, so the earlier problems are unchanged. Only the void facts are added; tests/interior_voids.rs checks the shape on the synthetic sealed_cavities fixture. rule_defaults_oracle.json.gz pins each exact value; original Python captures are unchanged.
 
 - **blind tapped-hole help exposes full-thread syntax and summaries show computed depth** (4 entries, 1 case glob)
 
