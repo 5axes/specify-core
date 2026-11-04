@@ -94,11 +94,19 @@ fn grm03_tap_thread_and_knurl_do_not_add_datums_or_position() {
     check_suggestions(&analysis, &Map::new());
     check_suggestions(&analysis, &given);
     let verbatim = api::preview(&analysis, &given).unwrap();
+    // #126: the stale hole id is not asked, so its answer is reported as not written (one
+    // `unasked` row) rather than ignored; it still contributes no PMI.
+    let (unasked, made): (Vec<_>, Vec<_>) = verbatim
+        .requirements
+        .iter()
+        .partition(|r| r["kind"] == specify_core::rules::UNASKED);
     assert_eq!(
-        verbatim.requirements.len(),
+        made.len(),
         2,
         "the issue's stale hole id must not accept the tap suggestion"
     );
+    assert_eq!(unasked.len(), 1);
+    assert_eq!(unasked[0]["answer"], "hole.function:holes:14");
     let hole = api::questions(&analysis, &given)
         .unwrap()
         .into_iter()
@@ -114,14 +122,15 @@ fn grm03_tap_thread_and_knurl_do_not_add_datums_or_position() {
     given.insert(hole.id, json!("tapped:M2"));
     check_suggestions(&analysis, &given);
     let intent = api::preview(&analysis, &given).unwrap();
-    assert_eq!(intent.requirements.len(), 3, "{intent:?}");
+    // The stale holes:14 answer is still given, so its `unasked` row (#126) follows the PMI.
+    assert_eq!(intent.requirements.len(), 4, "{intent:?}");
     assert_eq!(
         intent
             .requirements
             .iter()
             .map(|r| r["kind"].as_str().unwrap())
             .collect::<Vec<_>>(),
-        ["thread", "knurl", "thread"]
+        ["thread", "knurl", "thread", specify_core::rules::UNASKED]
     );
     let (bytes, _) = specify_core::writer::write_bytes(&loaded, &intent, Some(&given)).unwrap();
     let reopened = part::load_bytes("grm03.step", bytes).unwrap();
