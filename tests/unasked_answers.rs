@@ -101,14 +101,19 @@ fn a_full_thread_depth_of_a_through_hole_is_listed() {
     );
 }
 
-/// The editor writes its preview intent (WASM `writePmi`); the row reaches that report too, and
-/// the answer stays stored so the question takes it again when it returns.
+/// The editor writes its preview intent plus `rules::unasked_rows` (WASM `writePmi`); the row
+/// reaches that report too, and the answer stays stored so the question takes it again when it
+/// returns. Preview itself leaves the rows out, so reviews do not pay for them.
 #[test]
 fn a_preview_write_lists_it_and_keeps_the_answer() {
     let analysis = api::analyse_file(&plate(), None).unwrap();
     let mut answers =
         specify_core::rules::with_all_defaults(&analysis, &revised("± dimensions")).unwrap();
-    let intent = api::preview(&analysis, &answers).unwrap();
+    let mut intent = api::preview(&analysis, &answers).unwrap();
+    assert!(!intent.requirements.iter().any(|r| r["kind"] == "unasked"));
+    intent
+        .requirements
+        .extend(specify_core::rules::unasked_rows(&analysis, &answers).unwrap());
     let bytes = std::fs::read(plate()).unwrap();
     let (written, report) = api::write_bytes(bytes, &[(intent, Some(answers.clone()))]).unwrap();
     assert!(
@@ -129,7 +134,7 @@ fn a_preview_write_lists_it_and_keeps_the_answer() {
 }
 
 /// Export keeps an unasked answer: dropping it would lose it silently, and refusing would break
-/// callers that revise answers across a change of mode.
+/// callers that revise answers across a change of mode. A regression guard: main already kept it.
 #[test]
 fn export_keeps_an_unasked_answer() {
     let analysis = api::analyse_file(&plate(), None).unwrap();
@@ -293,7 +298,10 @@ fn a_carry_block_on_an_unasked_question_is_reported_not_refused() {
     );
     let analysis = api::analyse_file(&plate(), None).unwrap();
     let complete = specify_core::rules::with_all_defaults(&analysis, &answers).unwrap();
-    let intent = api::preview(&analysis, &complete).unwrap();
+    let mut intent = api::preview(&analysis, &complete).unwrap();
+    intent
+        .requirements
+        .extend(specify_core::rules::unasked_rows(&analysis, &complete).unwrap());
     let bytes = std::fs::read(plate()).unwrap();
     let (_, report) = api::write_bytes(bytes, &[(intent, Some(complete))]).unwrap();
     assert!(report.not_written.contains(&line.to_string()));
@@ -337,4 +345,100 @@ fn a_carry_block_applies_again_when_its_question_returns() {
         "{refused}"
     );
     assert!(!out.exists());
+}
+
+/// The review's sequence: write under ± dimensions with a block on `datum.A.flatness`, reopen
+/// the STEP, switch to position tolerances, accept defaults. The block survives the STEP (beside
+/// its stored answers, not among them) and refuses, rather than flatness taking "none".
+#[test]
+fn a_carry_block_survives_the_step_and_refuses_when_asked_again() {
+    let report = write(&blocked("± dimensions"), "blocked-roundtrip");
+    let out = report.output.clone();
+    assert!(
+        report
+            .not_written
+            .iter()
+            .any(|l| l.starts_with("datum.A.flatness was carried"))
+    );
+    // The stored answers hold no `_specify`, which older builds refuse; the block is beside them.
+    let stored = specify_core::resume::stored(&std::fs::read(&out).unwrap());
+    let payload = Value::Object(stored[&0].clone());
+    assert!(payload["answers"].get("_specify").is_none(), "{payload}");
+    assert_eq!(
+        payload["unresolved"],
+        json!({"datum.A.flatness": "its datum datum.A is unresolved"})
+    );
+    let reopened = api::analyse_file(&out, None).unwrap();
+    let mut answers = reopened["resume"]["answers"].as_object().unwrap().clone();
+    assert_eq!(
+        answers["_specify"]["unresolved"]["datum.A.flatness"],
+        "its datum datum.A is unresolved"
+    );
+    answers.insert("part.locating".into(), json!("position tolerances"));
+    let refused = api::apply(&reopened, &answers, true)
+        .unwrap_err()
+        .to_string();
+    assert!(
+        refused.contains("datum.A.flatness")
+            && refused.contains("carried answer could not be applied"),
+        "{refused}"
+    );
+    let flatness = api::questions(&reopened, &answers)
+        .unwrap()
+        .into_iter()
+        .find(|q| q.id == "datum.A.flatness")
+        .unwrap();
+    assert_eq!(flatness.attention, "required");
+}
+
+/// A STEP written before unknown IDs were refused stores them verbatim. It still reopens and
+/// diffs: the unknown ID is left open with a warning naming it, never resumed.
+#[test]
+fn a_stored_unknown_id_is_left_open_with_a_warning() {
+    let dir = temp("stored-unknown");
+    let answers = map(json!({"part.material": "6082-T6"}));
+    let written = write(&answers, "stored-unknown-source").output;
+    // As main wrote it: the stored answers carry the unknown ID verbatim. Inject it into this
+    // write's stored payload (same faces, so the same evidence).
+    let text = String::from_utf8(std::fs::read(&written).unwrap()).unwrap();
+    let mut payload = Value::Object(specify_core::resume::stored(text.as_bytes())[&0].clone());
+    let before = specify_core::resume::encode(&payload);
+    payload["answers"]["bogus.question"] = json!("x");
+    let after = specify_core::resume::encode(&payload);
+    assert_eq!(text.matches(&before).count(), 1);
+    let bytes = text.replace(&before, &after).into_bytes();
+    let out = dir.join("main.step");
+    std::fs::write(&out, &bytes).unwrap();
+    assert_eq!(
+        specify_core::resume::stored(&bytes)[&0]["answers"]["bogus.question"],
+        "x"
+    );
+
+    let reopened = specify_core::part::load(&out, None).unwrap();
+    let (analysis, warnings) = api::analyse_reporting(&reopened).unwrap();
+    let resumed = analysis["resume"]["answers"].as_object().unwrap();
+    assert!(!resumed.contains_key("bogus.question"), "{resumed:?}");
+    assert_eq!(resumed["part.material"], "6082-T6");
+    assert_eq!(analysis["resume"]["unresolved"][0]["id"], "bogus.question");
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.starts_with("saved answer bogus.question: unknown answer ID")),
+        "{warnings:?}"
+    );
+    api::questions(&analysis, resumed).unwrap();
+    // diff OLD NEW without --answers reads the stored answers.
+    let run = Command::new(env!("CARGO_BIN_EXE_specify-core"))
+        .arg("diff")
+        .arg(&out)
+        .arg(&out)
+        .arg("-o")
+        .arg(dir.join("changes"))
+        .output()
+        .unwrap();
+    assert!(
+        run.status.success(),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
 }

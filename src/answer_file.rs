@@ -47,11 +47,7 @@ pub fn blocked(answers: &Map<String, Value>, id: &str) -> bool {
     block_reason(answers, id).is_some()
 }
 
-pub fn require_resolved(answers: &Map<String, Value>) -> rules::Result<()> {
-    require_resolved_where(answers, |_| true)
-}
-
-/// [`require_resolved`] for the blocks whose question `applies`: a block applies only while
+/// Refuses the unanswered carry blocks whose question `applies`: a block applies only while
 /// its question is asked (#126). One on a question not asked under the current answers is
 /// reported in `not_written` instead, and applies again once the question returns.
 pub fn require_resolved_where(

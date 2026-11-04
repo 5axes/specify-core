@@ -969,7 +969,22 @@ pub fn apply(analysis: &Value, answers: &Map<String, Value>) -> Result<Intent> {
     if !missing.is_empty() {
         return Err(IncompleteError::new(missing, None).into());
     }
-    intent(&ctx, answers, &qs, IntentMode::Apply)
+    let mut intent = intent(&ctx, answers, &qs, IntentMode::Apply)?;
+    // Reported where intent is written, not on every preview (#126).
+    intent.requirements.extend(unasked(&ctx, answers, &qs)?);
+    Ok(intent)
+}
+
+/// The `unasked` rows [`apply`] adds to its intent, for a caller that writes another intent
+/// (the editor writes its preview): one per answer, or carry block, whose question is not
+/// asked given the other answers (#126).
+pub fn unasked_rows(
+    analysis: &Value,
+    answers: &Map<String, Value>,
+) -> Result<Vec<Map<String, Value>>> {
+    let ctx = Ctx::new(analysis)?;
+    let qs = questions_in(&ctx, answers)?;
+    unasked(&ctx, answers, &qs)
 }
 
 /// `api.apply`: intent from `answers`; with `accept_defaults`, unanswered defaults are taken
@@ -1288,7 +1303,6 @@ fn intent(
             .requirements
             .retain(|r| r.get("stored") != Some(&Value::Bool(true)));
     }
-    intent.requirements.extend(unasked(ctx, answers, qs)?);
     Ok(intent)
 }
 

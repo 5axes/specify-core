@@ -84,9 +84,11 @@ Dependent questions come and go: with `part.locating` `"± dimensions"` there is
 depth is asked only of a blind tapped hole; a datum the file already states is not asked.
 Which IDs are asked is the rules' question list, the same as `questions` returns.
 
-Such an answer contributes no PMI, and is **never dropped silently**. `apply` and `preview`
-add a faceless intent row `{"kind":"unasked","answer":ID,"faces":[],"not_written_reason":…}`,
-and every write report (CLI, serve, Python, WASM) lists it in `not_written`:
+Such an answer contributes no PMI, and is **never dropped silently**. `apply` adds a
+faceless intent row `{"kind":"unasked","answer":ID,"faces":[],"not_written_reason":…}`, and
+every write report (CLI, serve, Python, WASM) lists it in `not_written`. `preview` leaves
+these rows out, so reviews do not pay for them; the editor's WASM write, which writes its
+preview, adds them with Rust `rules::unasked_rows`:
 
 ```text
 datum.A.flatness is not asked when part.locating is '± dimensions', so its answer was not written
@@ -103,14 +105,27 @@ its question is asked: a block on `datum.A.flatness` under `"± dimensions"` doe
 `write`, export or bulk defaults, and is listed in `not_written` ("datum.A.flatness was
 carried (carried answer could not be applied: …) but is not asked when part.locating is
 '± dimensions', so nothing was written for it"). It stays in `_specify.unresolved`, so once
-later answers ask the question again it shows as required and refuses again. Its value is checked against the
-question's options only while the question is asked. `part.*`, `bom.*` and `extra.*` answers
+later answers ask the question again it shows as required and refuses again. Write derives
+which blocks apply from its own answers on the part, not from the intent's rows.
+
+Through a STEP, the write stores such blocks in the stored-answers payload's own
+`unresolved` member (`{ID: reason}`), never inside its `answers`, which older builds would
+refuse. Reopening restores them as the resumed answers' `_specify.unresolved`, so the block
+applies again when its question returns. Older Specify and editor builds ignore the extra
+payload member: they reopen and write the STEP normally, but without the block, so on them
+an accepted default can replace it.
+
+An unasked answer's value is checked against the question's options only while the question
+is asked. `part.*`, `bom.*` and `extra.*` answers
 are read whether or not asked, so they never appear here.
 
 An ID that **no** question can have, such as `bogus.question`, is refused with
 `Invalid answers: bogus.question: unknown answer ID` by every entry point: Rust `api`,
 CLI, serve, Python and WASM. `extra.*` requirements and the reserved `_specify*` members
-remain accepted.
+remain accepted. Answers stored in a STEP by earlier versions, which kept such IDs verbatim,
+are not refused on reopening: the unknown ID is left out of the resumed answers, listed in
+`resume.unresolved` with its value, and named in an analysis warning
+(`saved answer bogus.question: unknown answer ID: …`), so `questions` and `diff` still work.
 
 ## Specify metadata
 
