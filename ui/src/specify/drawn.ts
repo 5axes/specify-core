@@ -285,6 +285,27 @@ export const hasGraphics = (pmi: DrawnPmi): boolean =>
 export const hasFileGraphics = (pmi: DrawnPmi): boolean =>
   [...pmi.presentation.unlinked, ...Object.values(pmi.presentation.items).flat()].some((g) => g.source === 'file');
 
+/** Specify's general-notes block: in the 3D view a fixed panel shows the part's notes instead. */
+export const NOTES_BLOCK = 'generated:general-notes';
+
+/**
+ * The drawn PMI without Specify's general-notes block, and without the view it generates for it:
+ * notes on a plane in 3D turn away as the part turns, and the panel already says them.
+ */
+export function withoutNotesBlock(pmi: DrawnPmi): DrawnPmi {
+  const keep = (g: DrawnGraphic) => g.id !== NOTES_BLOCK;
+  const { presentation } = pmi;
+  return {
+    ...pmi,
+    presentation: {
+      ...presentation,
+      items: Object.fromEntries(Object.entries(presentation.items).map(([item, gs]) => [item, gs.filter(keep)])),
+      unlinked: presentation.unlinked.filter(keep),
+      views: presentation.views.filter((v) => !(v.graphics.length && v.graphics.every((id) => id === NOTES_BLOCK))),
+    },
+  };
+}
+
 /** What the Show menu says of the drawn PMI, as it says it of the labels: which kinds are shown. */
 export interface DrawnShow {
   /** "Defaults to check": items Specify defaulted. */

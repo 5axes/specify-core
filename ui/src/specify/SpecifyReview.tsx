@@ -9,7 +9,7 @@ import { addedOf, CALL_OUTS, describe, kindsFor, MAY_HAVE_DATUM, nextKey } from 
 import { codeOf } from './choose';
 import { appliedByRule, chosenForYou, type Chosen } from './chosen';
 import { datumChips, freeLetter, removal } from './datums';
-import { drawnShown, drawnViews, hasFileGraphics, partCentre, type DrawnPmi } from './drawn';
+import { drawnShown, drawnViews, hasFileGraphics, partCentre, withoutNotesBlock, type DrawnPmi } from './drawn';
 import { optionHint } from './hints';
 import { balloonsBySource, type Characteristic, characteristics, ranges, toCsv } from './characteristics';
 import { CharacteristicsTable, ExtraEditor, PurposeChoice, SpecBox, SuggestBox, SuggestionCard, TOLERANCE_PICKS, type ExtraDraft } from './inputs';
@@ -42,7 +42,7 @@ function asError(error: unknown): PmiLabError {
   return { code: 'failed', message: String(error) };
 }
 
-export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, onExport, gated, after, onPick, showFaces, tints, externalAnswers, externalReview, disabled, focusRequest, toReview, onKeep, drawn: drawnPmi = null }: {
+export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, onExport, gated, after, onPick, showFaces, tints, externalAnswers, externalReview, disabled, focusRequest, toReview, onKeep, drawn: scenePmi = null }: {
   engine: SpecifyEngine; session: PmiLabSession; slots: SpecifySlots;
   /** The question the queue's selected row is about: what the question slot shows. */
   slotQuestion?: string | null;
@@ -91,6 +91,8 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   // 'drawn'), or both. Until one is chosen, Graphical when the file has its own graphical PMI,
   // Semantic otherwise. The choice lasts while the part is open; it is not saved.
   const [chosenShowing, setShowing] = useState<'semantic' | 'drawn' | 'both' | null>(null);
+  // The part's notes are in the notes panel, not drawn as a block in 3D.
+  const drawnPmi = useMemo(() => (scenePmi ? withoutNotesBlock(scenePmi) : null), [scenePmi]);
   const showing = chosenShowing ?? (drawnPmi && hasFileGraphics(drawnPmi) ? 'drawn' : 'semantic');
   // A face clicked that no question is about shows what the general tolerance says of it.
   const [peek, setPeek] = useState<number | null>(null);
@@ -141,6 +143,8 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   const chars = useMemo(
     () => characteristics(preview, session.analysis, titles), [preview, session.analysis, titles],
   );
+  // The part's notes, as a drawing's notes block says them: on the view, where they stay put.
+  const partNotes = chars.filter((c) => c.source.startsWith('part:'));
   const balloons = useMemo(() => balloonsBySource(chars), [chars]);
 
   // The slot shows the selected row's question whatever else moved ``current``: the session
@@ -777,6 +781,12 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
             />
           </label>
         </div>
+        {partNotes.length > 0 && (
+          <details className="pmi-lab-partnotes" open>
+            <summary title="The part's notes">General notes ({partNotes.length})</summary>
+            <ol>{partNotes.map((c) => <li key={c.source}>{c.text}</li>)}</ol>
+          </details>
+        )}
         <div className="pmi-lab-status">
           {status || (picker.current?.missing.length ? `faces ${picker.current.missing.join(', ')} could not be shown` : '')}
         </div>
