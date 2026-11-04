@@ -5,7 +5,7 @@ resolver = "3"
 
 [package]
 name = "specify-core"
-version = "0.1.9"
+version = "0.1.10"
 edition = "2024"
 license = "Apache-2.0"
 description = "Interview-driven AP242 PMI authoring for STEP parts (Rust port of specify-core)"
@@ -17,10 +17,10 @@ path = "src/main.rs"
 
 [dependencies]
 # pzfreo/quiddity: feature recognition (quiddity) and the geometry kernel with STEP import and
-# AP242 semantic PMI (haecceity). Both use tagged v0.4.6.
+# AP242 semantic PMI (haecceity). Both use tagged v0.4.7.
 # See docs/design.md, "Dependency plan".
-quiddity = { git = "https://github.com/pzfreo/quiddity", tag = "v0.4.6" }
-haecceity = { git = "https://github.com/pzfreo/quiddity", tag = "v0.4.6", features = ["json"] }
+quiddity = { git = "https://github.com/pzfreo/quiddity", tag = "v0.4.7" }
+haecceity = { git = "https://github.com/pzfreo/quiddity", tag = "v0.4.7", features = ["json"] }
 # The kernel's own unit reader also converts planner supplemental points into file units.
 step-io = "0.3.0"
 base64 = "0.22.1"

@@ -228,6 +228,7 @@ export interface WriteReport {
   output: string;
   presentation_warnings?: string[];
   preserved_normalizations?: PreservedNormalization[];
+  retained_shared?: number[];
   warnings: string[];
   written: string[];
 }

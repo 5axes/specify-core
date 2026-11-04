@@ -15,14 +15,14 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | [anchors](#anchors) | 4 | 0 | 2 | 1 | 2 | 0 | 9 |
 | [cli](#cli) | 262 | 0 | 52 | 0 | 2 | 1 | 317 |
 | [cross_engine](#cross_engine) | 54 | 2 | 0 | 1 | 1 | 20 | 78 |
-| [existing](#existing) | 30 | 0 | 0 | 0 | 7 | 0 | 37 |
-| [features](#features) | 3460 | 1415 | 543 | 2481 | 1066 | 1878 | 10843 |
+| [existing](#existing) | 31 | 0 | 0 | 0 | 7 | 0 | 38 |
+| [features](#features) | 3459 | 1415 | 543 | 2481 | 1066 | 1880 | 10844 |
 | [iso286](#iso286) | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | [mates](#mates) | 1 | 0 | 0 | 0 | 3 | 0 | 4 |
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 0 | 40 |
 | [rules](#rules) | 114 | 0 | 615 | 0 | 0 | 0 | 729 |
 | [writer](#writer) | 1091 | 0 | 0 | 0 | 15 | 0 | 1106 |
-| **all** | 5026 | 1434 | 1221 | 2487 | 1101 | 1899 | 13168 |
+| **all** | 5026 | 1434 | 1221 | 2487 | 1101 | 1901 | 13170 |
 
 ## analysis
 
@@ -266,7 +266,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## existing
 
-### existing: rust-correct (30 entries)
+### existing: rust-correct (31 entries)
 
 - **presentation read as a dimension** (`*` at `existing[key=dimension|DimensionPresentation|*`)
 
@@ -274,7 +274,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 - **a location dimension the file states without a value** (2 entries, 1 case glob)
 
-  The evidence is stated per entry (2 distinct; all in `existing.json`). The first, for `nist/nist_ctc_01_asme1_ap242*` at `existing[key=dimension|Location_None|[41]|[37]#1]`: #24=DIMENSIONAL_LOCATION('linear distance',$,#324,#325) has no dimensional_characteristic_representation (haecceity's finding: nonconformance, §5.2.1). Rust reports Location_LinearDistance, as named, with no value; OpenCascade falls back to its default type Location_None and invents 0.0.
+  The evidence is stated per entry (2 distinct; all in `existing.json`). The first, for `nist/nist_ctc_01_asme1_ap242*` at `existing[key=dimension|Location_None|[41]|[37]#1]`: #24=DIMENSIONAL_LOCATION('linear distance',$,#324,#325) has no dimensional_characteristic_representation (§5.2.1; haecceity reported it as a nonconformance until v0.4.7, which preserves it without a finding). Rust reports Location_LinearDistance, as named, with no value; OpenCascade falls back to its default type Location_None and invents 0.0.
 
 - **the same dimension, as Rust reads it** (2 entries, 1 case glob)
 
@@ -338,7 +338,11 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 - **haecceity reports nonconformance findings** (`*nist*` at `findings.nonconformance`)
 
-  haecceity reads through constructs that break the PMI practice and says so (e.g. a datum feature that identifies no face, a dimension with no value, a shape aspect naming no face); OpenCascade's reader is silent. Reporting is the honest form (R10).
+  haecceity reads through constructs that break the PMI practice and says so (e.g. a datum feature that identifies no face, a shape aspect naming no face); OpenCascade's reader is silent. Reporting is the honest form (R10).
+
+- **haecceity reports fact findings** (`*nist*` at `findings.fact`)
+
+  haecceity states a fact about a construct it reads and preserves (v0.4.7, quiddity #188: CTC-04's projected zone #18897 whose projection end #18894 has no geometry, formerly a nonconformance); OpenCascade is silent.
 
 - **haecceity reports not-modelled findings** (`*nist*` at `findings.not-modelled`)
 
@@ -372,7 +376,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## features
 
-### features: rust-correct (3460 entries)
+### features: rust-correct (3459 entries)
 
 - **quiddity #134: boss end treatment** (8 entries, 4 case globs)
 
@@ -394,9 +398,13 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   The evidence is stated per entry (239 distinct; all in `features.json`). The first, for `corpus/cadgenbench_inputs/cgb202` at `features[id=blends:1527]`: At v0.2.3: quiddity #127: former inside blends become concave fillets. face 1527: native cylinder R4 mm, inward/concave, sweep 90°, transverse plane tangency residuals (face, mm) [[2106,0.0],[1648,1.5700152289355174e-10]]. The same defining support is now fillets:1527 R4.0 concave. The old blend payload is absent; the faces remain recognised. Exact comparison: Python {"id":"blends:1527","family":"blends","record":{"radius":4.0,"side":"concave","path":{"at":[-204.357,-163.5,3.146],"direction":[0.872239,0.0,0.489079]}},"faces":[1527]}; Rust null.
 
-- **quiddity #127: cylindrical profile surfaces reported by Rust only** (197 entries, 20 case globs)
+- **quiddity #127: cylindrical profile surfaces reported by Rust only** (195 entries, 20 case globs)
 
-  The evidence is stated per entry (197 distinct; all in `features.json`). The first, for `corpus/cadgenbench/flanged_spool_132` at `features[id=cylindrical_profiles:40]`: At v0.2.3: quiddity #127: cylindrical profile surfaces reported by Rust only. face 40: native cylinder R10 mm, outward/convex, sweep 113.4873679°. These measured sub-180° cylindrical portions have no accepted hole or edge-round claim; they are residual profile surfaces, not an inferred machining operation. Exact comparison: Python null; Rust {"id":"cylindrical_profiles:40","family":"cylindrical_profiles","record":{"radius":10.0,"axis":"z","axis_point":[45.0,0.0,134.0],"side":"convex","sweep":1.9807282292912012,"faces":[40]},"faces":[40]}.
+  The evidence is stated per entry (195 distinct; all in `features.json`). The first, for `corpus/cadgenbench/flanged_spool_132` at `features[id=cylindrical_profiles:40]`: At v0.2.3: quiddity #127: cylindrical profile surfaces reported by Rust only. face 40: native cylinder R10 mm, outward/convex, sweep 113.4873679°. These measured sub-180° cylindrical portions have no accepted hole or edge-round claim; they are residual profile surfaces, not an inferred machining operation. Exact comparison: Python null; Rust {"id":"cylindrical_profiles:40","family":"cylindrical_profiles","record":{"radius":10.0,"axis":"z","axis_point":[45.0,0.0,134.0],"side":"convex","sweep":1.9807282292912012,"faces":[40]},"faces":[40]}.
+
+- **interior_voids reported by Rust only** (`corpus/cadgenbench_inputs/cgb217` at `features[id=interior_voids:361.362.363]`)
+
+  quiddity #189 at v0.4.7: every sealed shell gets an exact closed_shell record. The file states #15=BREP_WITH_VOIDS('',#16,(#31910)) whose void #31910=ORIENTED_CLOSED_SHELL('',\*,#31911,.F.) closes #31911=CLOSED_SHELL of three faces (#31912,#32177,#32253), faces 361, 362 and 363. Rust reports it with no openings and closed_shell volume 27.096 mm³; Python quiddity's six-axis air-sampling grid (pitch about 2.07 mm on this body) has no sample inside so small a cavity and reports nothing on these faces. Volume not checked against an independent reference.
 
 - **quiddity #123: turned bodies reported by Rust only** (6 entries, 6 case globs)
 
@@ -802,11 +810,15 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   The evidence is stated per entry (7 distinct; all in `features.json`). The first, for `corpus/mfcadpp/1007` at `features[id=oriented_chamfers:2]`: quiddity #92 family merge at ada4a044: oriented_chamfers:2 is now chamfers:2 on the same physical faces [2]. tests/schema6.rs::merged_families_keep_the_frozen_oriented_feature_geometry checks all 20 renamed supports against the frozen geometry: same chamfer points, leg/span pairs (allowing paired swaps and reversed run sense), lengths and angles, or the same slot end planes/width. mfcadpp/10252 additionally checks the actual bevel plane and overlapping support-edge intervals. This is a namespace/representation change, not lost or newly invented recognition. Remaining body-key integral differences, where present, are below 1e-9 relative; this verdict concerns cross-family representation, not a claim of exact integral equality.  Exact alpha.2 candidate observation: {"case":"corpus/mfcadpp/1007","path":"features[id=oriented_chamfers:2]","python":{"id":"oriented_chamfers:2","family":"oriented_chamfers","record":{"run":[0.0,0.963429,0.267965],"length":1.315,"at":[6.876,11.184,16.322],"corner":[6.926,11.197,16.274],"leg1":0.1,"leg2":0.1,"leg1_direction":[-1.0,0.0,0.0],"leg2_direction":[0.0,-0.267965,0.963429],"support_spans":[[-0.715,0.715],[-0.658,0.658]],"angle":45.0,"body_key":[0.0,0.0,0.0,11.999845,37.829959,20.147884,5672.85285361,2527.96466244]},"faces":[2]},"rust":null}.
 
-### features: resolved (1878 entries)
+### features: resolved (1880 entries)
 
 - **quiddity #134: turned fillet side** (190 entries, 5 case globs)
 
   The evidence is stated per entry (190 distinct; all in `features.json`). The first, for `corpus/cadgenbench_inputs/cgb202` at `features[id=fillets:0].record.side`: At v0.2.5: quiddity-rust#134. Native torus face 0: major radius 93 mm, minor radius 3 mm, trimmed UV sweeps 7.017314593°/90°. At 25%, 50%, 75% of the trimmed domain, outward-normal dot tube-radial vector is [-3, -3, -3] mm. All three negative signs prove material outside the tube (a concave root round). Defining faces and radius are unchanged; the old turned path hard-coded convex. Exact comparison: Python "convex"; Rust "concave". At v0.4.2, quiddity-rust#167/#159 merges interrupted torus patches: this former run-local id/field is retired, not recaptured. The new exact grouped-id entries retain the original face supports and their material-side evidence; returning this old path is a regression.
+
+- **quiddity #127: cylindrical profile surfaces reported by Rust only** (2 entries, 1 case glob)
+
+  The evidence is stated per entry (2 distinct; all in `features.json`). The first, for `corpus/cadgenbench_inputs/cgb217` at `features[id=cylindrical_profiles:362]`: At v0.2.3: quiddity #127: cylindrical profile surfaces reported by Rust only. face 362: native cylinder R4.4 mm, inward/concave, sweep 118.3204272°. These measured sub-180° cylindrical portions have no accepted hole or edge-round claim; they are residual profile surfaces, not an inferred machining operation. Exact comparison: Python null; Rust {"id":"cylindrical_profiles:362","family":"cylindrical_profiles","record":{"radius":4.4,"axis":"z","axis_point":[-13.153,27.982,11.46],"side":"concave","sweep":2.0650810262405472,"faces":[362]},"faces":[362]}. Resolved by quiddity #189 at v0.4.7: faces 361, 362 and 363 are the file's void shell (#15=BREP_WITH_VOIDS with #31910=ORIENTED_CLOSED_SHELL of #31911=CLOSED_SHELL, three faces), now published as interior void interior_voids:361.362.363 (closed_shell, no openings), so these faces are no longer residual profile surfaces. This retained entry asserts absence; any returning departure fails even if another active entry matches it.
 
 - **a drilled hole's point cone is constituent, not defining** (`*` at `features[id=holes:*].faces+cone`)
 
