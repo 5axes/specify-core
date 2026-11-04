@@ -6,6 +6,21 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+## 0.1.9 (2026-11-04)
+
+### Added
+
+- Export the complete answer set before writing with `questions --resolve-defaults
+  --step STEP`, serve `export_answers`, Python `api.export_answers` and WASM
+  `engine.exportAnswers`. Accepted defaults are explicit, including dependent questions;
+  sidecars carry verified `_specify.evidence`, sort keys recursively and refuse incomplete
+  sets or unresolved carries. Existing partial-default operations keep their shape.
+  WASM export and write check evidence before feature IDs, so a full old map with
+  disappeared features reports stale geometry rather than an unknown feature.
+- Add Amy's cadgen PMI plate (gist, MIT) as a fixture with cadgen's own AP242 semantic PMI. Tests check
+  that it reads once as foreign PMI: ISO 2768-mK general tolerance, basic 30/50, and no extra Specify
+  size or location requirement beside its dimensions.
+
 ### Changed
 
 - Move native, WASM and Python builds from quiddity/haecceity v0.4.4 to v0.4.6
@@ -44,14 +59,6 @@ All notable changes to specify-core-rust. The format follows
   older builds ignore it. Unknown IDs stored by earlier versions are left out on reopening
   with a warning, not refused. `preview` no longer computes these rows; the editor's write
   adds them. For #126.
-- Export the complete answer set before writing with `questions --resolve-defaults
-  --step STEP`, serve `export_answers`, Python `api.export_answers` and WASM
-  `engine.exportAnswers`. Accepted defaults are explicit, including dependent questions;
-  sidecars carry verified `_specify.evidence`, sort keys recursively and refuse incomplete
-  sets or unresolved carries. Existing partial-default operations keep their shape.
-  WASM export and write check evidence before feature IDs, so a full old map with
-  disappeared features reports stale geometry rather than an unknown feature.
-
 - Preserve dropped revision-stable datum/part/BOM answers as `_specify.unresolved`
   carry blocks: CLI, serve, Python and WASM bulk defaults cannot silently replace them.
   Failed feature carries remain report-only: old face-based IDs may name a different
@@ -72,7 +79,8 @@ All notable changes to specify-core-rust. The format follows
   answer the new part refuses (a size whose two holes now differ) is listed as
   `unresolved` with the refusal instead of raising, so the rest of the report is
   returned. A refusal naming no answer is pinned only on one whose removal clears it;
-  otherwise the answers stay carried and the report adds a `carry_refused` problem. Dropped `extra.*` answers are `_specify.unresolved` carry blocks: write
+  otherwise the answers stay carried and the report adds a `carry_refused` problem.
+  Dropped `extra.*` answers are `_specify.unresolved` carry blocks: write
   and bulk defaults refuse until the requirement is answered again or its entry removed.
 - Diff refuses stale answer evidence with exit 2 and asks for the matching old part,
   instead of suggesting `diff` again while already comparing revisions.
@@ -90,10 +98,8 @@ All notable changes to specify-core-rust. The format follows
 
 - Add `IntentEngine.exportAnswers(answers: string): string` for complete, deterministic
   answer sidecars with geometry evidence; incomplete sets and carry blocks throw.
-
 - Add `AnswerFileMetadata` for optional `_specify.evidence` and `_specify.unresolved`
   in answer maps; default acceptance and writes enforce carry blocks and face evidence.
-
 - `PmiSceneMetadata` adds optional `basic: true` for a basic (theoretically exact) dimension.
 - Add `WriteReport`, `GeometryCarrierExemption` and `PreservedNormalization`
   interfaces, with optional `geometry_carrier_exemptions`, `presentation_warnings`
@@ -104,9 +110,6 @@ All notable changes to specify-core-rust. The format follows
 
 ### Added
 
-- Add Amy's cadgen PMI plate (gist, MIT) as a fixture with cadgen's own AP242 semantic PMI. Tests check
-  that it reads once as foreign PMI: ISO 2768-mK general tolerance, basic 30/50, and no extra Specify
-  size or location requirement beside its dimensions.
 - Preserve answered and imported limit dimensions through STEP, resume, scene labels and
   diff reports; size and distance answers accept lower/upper slash bounds. Analysis and
   Python existing-PMI records expose optional absolute limits alongside derived deviations.

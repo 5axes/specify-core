@@ -117,7 +117,7 @@ A part with no saved requirements still gets the comment: what changed, the pict
 ```yaml
       - uses: pzfreo/specify-core/step-diff@main
         with:
-          version: v0.1.8         # the specify-core release to run
+          version: v0.1.9         # the specify-core release to run
           token: ${{ secrets.MY_TOKEN }}
 ```
 
