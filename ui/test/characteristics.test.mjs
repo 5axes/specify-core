@@ -75,3 +75,25 @@ test('a tolerance the file states with no value is drawn without one, never as 0
   const rows = characteristics(intent([]), stated, new Map());
   assert.deepEqual(rows.map((r) => r.text), ['⌖ 0.75', '⌖ no value stated']);
 });
+
+test("the part's notes are stated as a drawing's notes block states them", async () => {
+  const { noteStatements } = await import('../src/specify/characteristics.ts');
+  const part = {
+    material: 'Alu_G6061_T6', general_tolerance: 'ISO 2768-mK', surface_finish: 'Ra 3.2',
+    coating: 'None (as machined)', heat_treatment: 'Case harden 0.5 mm', edges: 'Remove all burrs and break sharp edges',
+  };
+  assert.deepEqual(noteStatements(null, { part }).map(n => [n.text, n.question]), [
+    // Values as written: their case is notation (mK, Ra, Alu_G6061_T6).
+    ['MATERIAL Alu_G6061_T6', 'part.material'],
+    ['GENERAL TOLERANCES ISO 2768-mK', 'part.general_tolerance'],
+    ['SURFACE FINISH Ra 3.2', 'part.surface_finish'],
+    // Said in words, in capitals, but a unit as written; a setting that is none left out.
+    ['CASE HARDEN 0.5 mm', 'part.heat_treatment'],
+    ['REMOVE ALL BURRS AND BREAK SHARP EDGES', 'part.edges'],
+  ]);
+  // Notation in words typed in is kept as written; a typed 'none' is left out too.
+  const typed = noteStatements({ part: { coating: 'Anodise 10µm, seal 1 h', heat_treatment: 'No treatment', edges: 'Fit H7/g6 edges' } }, { part: {} });
+  assert.deepEqual(typed.map(n => n.text), ['ANODISE 10µm, SEAL 1 h', 'FIT H7/g6 EDGES']);
+  // The answers given win over the file's.
+  assert.equal(noteStatements({ part: { edges: 'No edge note' } }, { part }).some(n => n.question === 'part.edges'), false);
+});
