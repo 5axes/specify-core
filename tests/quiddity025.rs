@@ -61,6 +61,14 @@ fn v024_boss_answers_and_pmi_resume_after_chamfer_and_round_height_corrections()
         // For #95, revision carry migrates legacy value signatures to structural history.
         assert_eq!(numbers["schema"], 2);
         assert_eq!(numbers["faces"], base["evidence"]["faces"]);
+        // Sidecars now add the same face evidence as the in-STEP interview.
+        let metadata = unchanged.answers.shift_remove("_specify").unwrap();
+        assert_eq!(
+            metadata,
+            json!({
+                "evidence": resume::evidence(&loaded).unwrap(), "unresolved": {},
+            })
+        );
         assert_eq!(&unchanged.answers, answers);
         assert!(unchanged.unresolved.is_empty());
         assert!(unchanged.check.is_empty());

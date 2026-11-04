@@ -559,3 +559,143 @@ fn a_payload_must_have_a_name_of_its_own() {
     }
     assert!(carried::attributes_encoded(&source, PROJECT, "not base64!").is_err());
 }
+
+#[test]
+fn a_dropped_carry_stays_blocked_across_default_paths_and_repeated_diffs() {
+    let old = part::load(&fixture("revisions/plate_split.old.step.gz"), None).unwrap();
+    let new = part::load(&fixture("revisions/plate_split.new.step.gz"), None).unwrap();
+    let analysis = api::analyse(&new).unwrap();
+    let given = object(json!({"part.material":"6061-T6", "datum.A":[4]}));
+    let revised = specify_core::revision::diff(&old, &new, &given).unwrap();
+    let reason = &revised
+        .unresolved
+        .iter()
+        .find(|u| u.id == "datum.A")
+        .unwrap()
+        .reason;
+    for defaults in [false, true] {
+        let error = api::apply(&analysis, &revised.answers, defaults).unwrap_err();
+        assert!(
+            error.to_string().contains(&format!(
+                "datum.A (carried answer could not be applied: {reason})"
+            )),
+            "{error}"
+        );
+    }
+    let qs = api::questions(&analysis, &revised.answers).unwrap();
+    let blocked = qs.iter().find(|q| q.id == "datum.A").unwrap();
+    assert_eq!(blocked.default, None);
+    assert_eq!(blocked.attention, "required");
+    assert_eq!(
+        blocked.reason,
+        format!("carried answer could not be applied: {reason}")
+    );
+    let review = api::review(&analysis, &revised.answers).unwrap();
+    let shown = review["questions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|q| q["id"] == "datum.A")
+        .unwrap();
+    assert_eq!(shown["default"], json!(null));
+    assert_eq!(shown["reason"], blocked.reason);
+    assert!(!specify_core::rules::with_defaults(&qs, &revised.answers).contains_key("datum.A"));
+    assert!(specify_core::rules::with_all_defaults(&analysis, &revised.answers).is_err());
+    let again = specify_core::revision::diff(&new, &new, &revised.answers).unwrap();
+    assert!(api::apply(&analysis, &again.answers, true).is_err());
+    assert_eq!(again.answers["_specify"]["unresolved"]["datum.A"], *reason);
+    let mut explicit = revised.answers.clone();
+    explicit.insert("datum.A".into(), json!([4, 8]));
+    api::apply(&analysis, &explicit, true).unwrap();
+    let accepted = specify_core::rules::with_all_defaults(&analysis, &explicit).unwrap();
+    assert_eq!(accepted["datum.A"], json!([4, 8]));
+}
+
+#[test]
+fn dropped_answers_of_every_class_block_and_explicit_answers_clear_them() {
+    let loaded = part::load(&fixture("parts/plate.step"), None).unwrap();
+    let analysis = api::analyse(&loaded).unwrap();
+    for reason in [
+        "face 4 has no match in the new part",
+        "several faces match",
+        "unmatched feature",
+    ] {
+        let mut answers =
+            object(json!({"part.material":"steel", "_specify":{"unresolved":{"datum.A":reason}}}));
+        let error = api::apply(&analysis, &answers, true).unwrap_err();
+        assert!(error.to_string().contains(reason));
+        answers.insert("datum.A".into(), json!([4]));
+        api::apply(&analysis, &answers, true).unwrap();
+    }
+}
+
+#[test]
+fn writer_checks_answer_evidence_against_geometry_even_with_a_fresh_intent() {
+    let old = part::load(&fixture("revisions/plate_split.old.step.gz"), None).unwrap();
+    let new = part::load(&fixture("revisions/plate_split.new.step.gz"), None).unwrap();
+    let given = object(json!({"part.material":"6061-T6", "datum.A":[4]}));
+    let answers = specify_core::revision::diff(&old, &old, &given)
+        .unwrap()
+        .answers;
+    let intent = api::apply(&api::analyse(&old).unwrap(), &answers, true).unwrap();
+    writer::write_bytes(&old, &intent, Some(&answers)).unwrap();
+    let fresh = api::apply(&api::analyse(&new).unwrap(), &given, true).unwrap();
+    let error = writer::write_bytes(&new, &fresh, Some(&answers)).unwrap_err();
+    assert!(matches!(error, writer::WriteError::Invalid(_)));
+    assert!(error.to_string().contains("stale answers"), "{error}");
+    assert!(error.to_string().contains("diff"), "{error}");
+}
+
+#[test]
+fn same_face_count_still_requires_the_saved_fingerprint_and_metadata_must_be_valid() {
+    let old = part::load(&fixture("revisions/plate_thickened.old.step.gz"), None).unwrap();
+    let new = part::load(&fixture("revisions/plate_thickened.new.step.gz"), None).unwrap();
+    assert_eq!(old.binding.face_count, new.binding.face_count);
+    let given = object(json!({"part.material":"steel", "datum.A":[4]}));
+    let saved = specify_core::revision::diff(&old, &old, &given)
+        .unwrap()
+        .answers;
+    let intent = api::apply(&api::analyse(&new).unwrap(), &given, true).unwrap();
+    let error = writer::write_bytes(&new, &intent, Some(&saved)).unwrap_err();
+    assert!(error.to_string().contains("stale answers"), "{error}");
+    for meta in [
+        json!(null),
+        json!({"unresolved":[]}),
+        json!({"unresolved":{"datum.A":null}}),
+        json!({"evidence":{}}),
+        json!({"evidence":{"schema":99,"face_count":8,"faces":"bad"}}),
+    ] {
+        let mut malformed = given.clone();
+        malformed.insert("_specify".into(), meta);
+        assert!(api::apply(&api::analyse(&old).unwrap(), &malformed, true).is_err());
+    }
+}
+
+#[test]
+fn editor_rematching_keeps_embedded_evidence_and_carry_blocks() {
+    let old = part::load(&fixture("revisions/plate_split.old.step.gz"), None).unwrap();
+    let new = part::load(&fixture("revisions/plate_split.new.step.gz"), None).unwrap();
+    let analysis = api::analyse(&new).unwrap();
+    let given = object(json!({"part.material":"steel", "datum.A":[4]}));
+    let saved = specify_core::revision::diff(&old, &old, &given)
+        .unwrap()
+        .answers;
+    let resumed = resume::rematch_answers(&new, &features(&analysis), &saved, None, None).unwrap();
+    assert!(!resumed.answers.contains_key("datum.A"));
+    assert_eq!(
+        resumed.answers["_specify"]["evidence"],
+        resume::evidence(&new).unwrap()
+    );
+    assert!(api::apply(&analysis, &resumed.answers, true).is_err());
+    let blocked =
+        object(json!({"_specify":{"unresolved":{"part.locating":"its feature was unmatched"}}}));
+    let (_, state) = specify_core::tolerancing::settle(
+        &analysis,
+        &specify_core::tolerancing::State {
+            answers: blocked,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert!(!state.answers.contains_key("part.locating"));
+}

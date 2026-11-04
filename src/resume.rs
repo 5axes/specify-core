@@ -557,6 +557,38 @@ impl std::fmt::Display for RematchError {
 }
 impl std::error::Error for RematchError {}
 
+/// Validate the evidence shared by STEP payloads and external answer maps.
+pub fn validate_evidence(evidence: &Value) -> Result<&Map<String, Value>, RematchError> {
+    let payload = evidence
+        .as_object()
+        .ok_or_else(|| RematchError::Evidence("not an object".into()))?;
+    if schema_of(payload).is_none() {
+        return Err(RematchError::Evidence(format!(
+            "schema must be one of {SCHEMAS:?}"
+        )));
+    }
+    if !payload.get("face_count").is_some_and(Value::is_u64)
+        || !payload.get("faces").is_some_and(Value::is_string)
+    {
+        return Err(RematchError::Evidence(
+            "face_count must be a count and faces a fingerprint".into(),
+        ));
+    }
+    Ok(payload)
+}
+
+/// Whether saved face indices still denote this part's ordered faces. Unlike rematching,
+/// a write never migrates indices by name, nor trusts a legacy mismatching fingerprint.
+pub fn evidence_matches(loaded: &LoadedPart, evidence: &Value) -> Result<bool, RematchError> {
+    let payload = validate_evidence(evidence)?;
+    Ok(
+        check(loaded, payload, false).map_err(RematchError::Faces)? == Check::Verified
+            && (schema_of(payload) != Some(3)
+                || payload.get("face_names")
+                    == Some(&json!(names::identities(&loaded.face_names)))),
+    )
+}
+
 /// Answers held outside the STEP (a saved project's), matched to `features`, this part's as
 /// now recognised, as answers stored in the file are on opening ([`report_for_parsed`]).
 ///
@@ -585,24 +617,22 @@ pub fn rematch_answers(
     evidence: Option<&Value>,
     automatic: Option<&[String]>,
 ) -> Result<Resumed, RematchError> {
+    crate::answer_file::validate(answers).map_err(RematchError::Evidence)?;
+    let metadata = answers.get(crate::answer_file::META);
+    let evidence = evidence.or_else(|| metadata.and_then(|m| m.get("evidence")));
+    let mut ordinary;
+    let given = answers;
+    let answers = if metadata.is_some() {
+        ordinary = answers.clone();
+        ordinary.remove(crate::answer_file::META);
+        &ordinary
+    } else {
+        answers
+    };
     let mut out = match evidence {
         None => by_id(answers, features, loaded, NO_EVIDENCE),
         Some(evidence) => {
-            let payload = evidence
-                .as_object()
-                .ok_or_else(|| RematchError::Evidence("not an object".into()))?;
-            if schema_of(payload).is_none() {
-                return Err(RematchError::Evidence(format!(
-                    "schema must be one of {SCHEMAS:?}"
-                )));
-            }
-            if !payload.get("face_count").is_some_and(Value::is_u64)
-                || !payload.get("faces").is_some_and(Value::is_string)
-            {
-                return Err(RematchError::Evidence(
-                    "face_count must be a count and faces a fingerprint".into(),
-                ));
-            }
+            let payload = validate_evidence(evidence)?;
             if schema_of(payload) == Some(3) {
                 rematch_named(loaded, features, answers, payload)?
             } else {
@@ -630,6 +660,17 @@ pub fn rematch_answers(
                 })
                 .collect(),
         );
+    }
+    if metadata.is_some() {
+        crate::answer_file::attach(
+            loaded,
+            &mut out.answers,
+            given,
+            out.unresolved
+                .iter()
+                .map(|u| (u.id.clone(), u.reason.clone())),
+        )
+        .map_err(RematchError::Evidence)?;
     }
     Ok(out)
 }

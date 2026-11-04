@@ -175,9 +175,20 @@ def with_all_defaults(analysis: dict[str, Any], answers: dict[str, Any]) -> dict
 
 
 class IncompleteError(ValueError):
-    def __init__(self, missing: list[str], part: int | None = None) -> None:
+    def __init__(
+        self, missing: list[str], part: int | None = None,
+        carried: dict[str, str] | None = None,
+    ) -> None:
         # In an assembly, which part's questions they are.
         of = f"part {part}: " if part is not None else ""
-        super().__init__(f"{of}{len(missing)} question(s) unanswered: {', '.join(missing)}")
+        self.carried = carried or {}
+        if self.carried:
+            shown = [
+                f"{key} (carried answer could not be applied: {self.carried[key]})"
+                if key in self.carried else key for key in missing
+            ]
+            super().__init__(of + ", ".join(shown))
+        else:
+            super().__init__(f"{of}{len(missing)} question(s) unanswered: {', '.join(missing)}")
         self.missing = missing
         self.part = part

@@ -388,10 +388,10 @@ fn write_parts(request: &Map<String, Value>) -> Handled {
             .clone();
         let answers = answers(p.get("answers"))?;
         let mut intent = api::apply(analysis, &answers, defaults).map_err(|e| match e {
-            Error::Rules(rules::Error::Incomplete(e)) => Failure::Incomplete(IncompleteError::new(
-                e.missing,
-                Some(part.as_u64().unwrap_or(0) as usize),
-            )),
+            Error::Rules(rules::Error::Incomplete(mut e)) => {
+                e.part = Some(part.as_u64().unwrap_or(0) as usize);
+                Failure::Incomplete(e)
+            }
             Error::Rules(rules::Error::Invalid(m)) => {
                 Failure::Invalid(format!("part {}: {m}", python_str(&part)))
             }

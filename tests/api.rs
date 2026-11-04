@@ -497,6 +497,7 @@ fn apply_refuses_open_questions_and_takes_defaults_when_asked() {
         Err(Error::Rules(rules::Error::Incomplete(IncompleteError {
             missing,
             part: None,
+            ..
         }))) => {
             assert!(missing.contains(&"part.general_tolerance".to_string()))
         }

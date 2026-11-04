@@ -373,10 +373,20 @@ fn specified_answers_resume_per_name_and_refuse_cadgens_added_hole_renames() {
             );
         }
         assert!(resumed.answers.keys().all(|id| answers.contains_key(id)));
-        assert!(
-            diff.answers
-                .keys()
-                .all(|id| answers.contains_key(id) || id == characteristics::CARRY)
+        assert!(diff.answers.keys().all(|id| answers.contains_key(id)
+            || id == characteristics::CARRY
+            || id == specify_core::answer_file::META));
+        // Only revision-stable datum questions may block defaults. Missing feature supports
+        // remain reported above; their old IDs must never shadow the new revision's bores.
+        assert_eq!(
+            diff.answers[specify_core::answer_file::META],
+            json!({
+                "evidence": resume::evidence(&rev3).unwrap(),
+                "unresolved": {
+                    "datum.A": expected_unresolved[2].1,
+                    "datum.A.flatness": expected_unresolved[3].1,
+                },
+            })
         );
         // Both bores are still recognisable, and the old hole even has the same
         // face index; neither that fact nor geometry may bypass the missing name.

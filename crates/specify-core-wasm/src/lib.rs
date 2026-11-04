@@ -111,6 +111,11 @@ export interface AnswerEvidence {
   face_names?: (string | null)[];
   geometry?: unknown;
 }
+/** Optional reserved `_specify` member of an otherwise ordinary answer map. */
+export interface AnswerFileMetadata {
+  evidence?: AnswerEvidence;
+  unresolved?: Record<string, string>;
+}
 export interface PmiItemChange {
   class: "added" | "removed" | "changed" | "renumbered";
   number?: number;

@@ -1495,6 +1495,8 @@ pub fn diff_with_options(
     given: &Map<String, Value>,
     options: DiffOptions,
 ) -> Result<Revised> {
+    crate::answer_file::check_for_diff(old, given)
+        .map_err(|why| api::Error::Rules(crate::rules::Error::Invalid(why)))?;
     // One recognition of each part, for both its analysis and its fingerprints.
     let old_q = qc::recognise(&old.part);
     let new_q = qc::recognise(&new.part);
@@ -1703,6 +1705,7 @@ pub fn diff_with_options(
     let asked = |id: &str| prompts.get(id).cloned().unwrap_or_default();
     let results: Vec<_> = answers
         .iter()
+        .filter(|(id, _)| id.as_str() != crate::answer_file::META)
         .map(|(id, answer)| (id, answer, matching.answer(id, answer)))
         .collect();
     let mut reached: BTreeMap<&str, usize> = BTreeMap::new();
@@ -2135,6 +2138,13 @@ pub fn diff_with_options(
     }
     carried = pmi_answers;
     crate::bom::carry(old, &mut carried).map_err(api::Error::Analysis)?;
+    crate::answer_file::attach(
+        new,
+        &mut carried,
+        answers,
+        unresolved.iter().map(|u| (u.id.clone(), u.reason.clone())),
+    )
+    .map_err(api::Error::Analysis)?;
     let alignment = corr.alignment.clone();
     let mut revised = Revised {
         pmi_graphics,

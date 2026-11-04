@@ -74,7 +74,7 @@ pub fn default_path_answers(
         let Some(id) = question["id"].as_str() else {
             continue;
         };
-        if answers.contains_key(id) {
+        if answers.contains_key(id) || crate::answer_file::blocked(answers, id) {
             continue;
         }
         if id == LOCATING {

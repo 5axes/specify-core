@@ -54,7 +54,7 @@ fn incomplete(e: &rules::IncompleteError) -> PyErr {
             py,
             "specify_core.rules",
             "IncompleteError",
-            (e.missing.clone(), e.part),
+            (e.missing.clone(), e.part, e.carried.clone()),
         )
     })
 }

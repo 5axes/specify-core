@@ -166,7 +166,9 @@ except where a hash is taken (resume fingerprint, `pyjson.rs`).
   `description` text for turned bodies, face grooves, cylindrical profiles and concave
   fillets. The measured record and source-face indices remain the matching/PMI inputs;
   these descriptions introduce no feature questions.
-- Answers: `{question id: JSON value}` (strings, face lists, `extra.*` objects).
+- Answers: `{question id: JSON value}` (strings, face lists, `extra.*` objects), with
+  optional reserved `_specify` evidence and unresolved carry blocks. See
+  [answer files](answers.md) for validation and plain-map limitations.
 - `Question` (to_dict order and omissions as Python's), `Intent { schema: 1, rules_version: 3,
   binding, part, datums, requirements, general }` with requirements as JSON objects whose kinds
   are `size`, `location`, `position`, `flatness`, `perpendicularity`, `parallelism`, `profile`,

@@ -1,5 +1,9 @@
 # The Python specify-core
 
+Answer maps accept optional `_specify` geometry evidence and unresolved carry blocks.
+Bulk defaults cannot replace dropped answers; write rejects stale evidence. Plain maps
+remain compatible but cannot detect stale in-range face indices. See
+[answer files and changed geometry](answers.md).
 
 ## Limit dimensions and combined ISO 2768 classes
 

@@ -39,7 +39,9 @@ fn bad(id: &str, why: impl Into<String>) -> Error {
 pub fn answers_shape(answers: &Map<String, Value>) -> Result<(), Error> {
     for (id, value) in answers {
         let invalid = |why| bad(id, why);
-        if id == crate::bom::CARRY {
+        if id == crate::answer_file::META {
+            crate::answer_file::validate(answers).map_err(|why| bad(id, why))?;
+        } else if id == crate::bom::CARRY {
             if !value.is_object() {
                 return Err(invalid("BOM transport must be an object"));
             }

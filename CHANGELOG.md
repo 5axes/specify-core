@@ -33,6 +33,21 @@ All notable changes to specify-core-rust. The format follows
 
 ### Fixed
 
+- Preserve dropped revision-stable datum/part/BOM answers as `_specify.unresolved`
+  carry blocks: CLI, serve, Python and WASM bulk defaults cannot silently replace them.
+  Failed feature carries remain report-only: old face-based IDs may name a different
+  feature in the destination. Explicit answers clear stable question blocks, which
+  `questions` and review now show as required, with no default and the diff reason.
+  Diff answer maps also carry the in-STEP face evidence; write refuses
+  stale evidence before output, naming CLI answer files and directing callers to diff.
+  Plain maps remain compatible and cannot detect changed in-range face identities.
+  **Re-run `diff` to regenerate changes files from released v0.1.8 and earlier**: their
+  metadata-free `changes/answers.json` cannot reveal dropped answers, so the literal
+  old-file `write --accept-defaults` repro still exits 0 on updated tools.
+  Older Specify/editor WASM builds reject new `_specify` maps as `unknown answer ID`;
+  old plain files remain compatible with new tools.
+- Diff refuses stale answer evidence with exit 2 and asks for the matching old part,
+  instead of suggesting `diff` again while already comparing revisions.
 - Diff folds a thread's own `thread manufacturing` note into its thread item when
   owner id, faces and drawing wording agree. Added, removed and changed threads
   appear once; manufacturing-only edits still change the thread item with its
@@ -44,6 +59,9 @@ All notable changes to specify-core-rust. The format follows
   haecceity as basic but reported as plain untoleranced dimensions.
 
 ### WASM API
+
+- Add `AnswerFileMetadata` for optional `_specify.evidence` and `_specify.unresolved`
+  in answer maps; default acceptance and writes enforce carry blocks and face evidence.
 
 - `PmiSceneMetadata` adds optional `basic: true` for a basic (theoretically exact) dimension.
 - Add `WriteReport`, `GeometryCarrierExemption` and `PreservedNormalization`
