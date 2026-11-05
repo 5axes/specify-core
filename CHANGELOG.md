@@ -15,10 +15,10 @@ All notable changes to specify-core-rust. The format follows
   added by accepted defaults. A printing-class material suggests its printed process
   (attention `check`). The process sets defaults only: printed parts default to a ± general
   tolerance from vendor figures (written as a part note, as the kernel's general tolerance is an
-  ISO 2768 class), clearance holes with `heat-set insert` and `printed thread` offered
-  (written as hole notes) and ± locations, and are not asked roughness, edges or coating;
+  ISO 2768 class), clearance holes without an H11 fit, with `heat-set insert` and
+  `printed thread` offered (written as hole notes) and ± locations, and are not asked roughness, edges or coating;
   sheet metal, moulded and cast parts are not asked roughness. An answer such a process leaves
-  unasked is an `unasked` row (#126). Stored as the CAx-IF UDA set `specify process`
+  unasked, or only another process offers, is an `unasked` row (#126). Stored as the CAx-IF UDA set `specify process`
   (`manufacturing_process`) on each product definition, with the BOM's
   `default.manufacturing_process` marker for an accepted suggestion; read back as answered,
   file (another tool's) or default, and a stated value is not asked. Bought parts are asked

@@ -1310,6 +1310,34 @@ fn face_ids(faces: Option<&Json>) -> Option<Vec<usize>> {
 
 /// What of a requirement names no faces (`the size on holes:16`), if anything does: such a
 /// requirement has nothing in the file to be written on (question Q17).
+/// Whether `before` already states the hole note `req` asks for, on the same faces.
+fn hole_note_stated(before: &PartPmi, req: &Map<String, Json>) -> bool {
+    let (Some(words), Some(faces)) = (
+        req.get("text").and_then(Json::as_str),
+        face_ids(req.get("faces")),
+    ) else {
+        return false;
+    };
+    let mut wanted = faces;
+    wanted.sort_unstable();
+    wanted.dedup();
+    before.attributes.iter().any(|a| {
+        let Some(NoteOwner::Feature(g)) = a.on else {
+            return false;
+        };
+        a.name == SEMANTIC_TEXT
+            && a.items.iter().any(|(name, v)| {
+                name == HOLE_NOTE && matches!(v, AttributeValue::Text(t) if t == words)
+            })
+            && {
+                let mut have = crate::existing::faces_of(before, &[g]);
+                have.sort_unstable();
+                have.dedup();
+                have == wanted
+            }
+    })
+}
+
 fn faceless(kind: &str, req: &Map<String, Json>) -> Option<String> {
     let name = py_str(req.get("feature").unwrap_or(&Json::Null));
     let none = |key: &str| face_ids(req.get(key)).is_none();
@@ -1642,12 +1670,17 @@ fn part_pmi_observed(
         intent
     };
     // A finish on a printed, moulded or cast part is as made: no material is removed for it.
-    let removal = if intent
+    // The process is the questions' own: the answer, else (where the file's PMI stays, in Add
+    // mode) the one the file states.
+    let stated_process = crate::process::read_pmi(before)
+        .filter(|f| f.source != "default" && mode == Mode::Add)
+        .and_then(|f| f.value.as_str().and_then(crate::process::normalised));
+    let current_process = intent
         .part
         .get(crate::process::INTENT_KEY)
         .and_then(Json::as_str)
-        .is_some_and(crate::process::removes_no_material)
-    {
+        .or(stated_process);
+    let removal = if current_process.is_some_and(crate::process::removes_no_material) {
         MaterialRemoval::NotAllowed
     } else {
         MaterialRemoval::AnyProcessAllowed
@@ -2093,6 +2126,13 @@ fn part_pmi_observed(
                     }
                 }
             }
+            "note" if mode == Mode::Add && hole_note_stated(before, req) => {
+                lines.warnings.push(format!(
+                    "note {} on {} is already stated in the file; not written again",
+                    text(req, "text")?,
+                    feature_name()
+                ));
+            }
             "note" => {
                 let words = text(req, "text")?;
                 let on = f.of(req.get("faces"), &format!("the note on {}", feature_name()))?;
@@ -2367,12 +2407,33 @@ fn part_pmi_observed(
             ));
         }
         let suggested = truthy(intent.part.get(crate::process::INTENT_DEFAULT_KEY));
-        p.attributes
-            .push(crate::process::attribute_set(process, suggested));
-        lines.written.push(format!(
-            "process {process}{}",
-            if suggested { " (suggested)" } else { "" }
-        ));
+        // One set per part. Add mode keeps the file's PMI, Specify's own set among it when no
+        // answers were stored to scope it, so the same process is not written again and
+        // another is refused rather than written beside it.
+        let old = crate::process::specify_set(before).filter(|_| add);
+        let write = match old {
+            Some(old) if old == process => {
+                lines.warnings.push(format!(
+                    "process {process} is already stated in the file; not written again"
+                ));
+                false
+            }
+            Some(old) => {
+                return invalid(format!(
+                    "the part already states process {old}, written without stored answers, \
+                     so it cannot be replaced; adding {process} would give it two"
+                ));
+            }
+            None => true,
+        };
+        if write {
+            p.attributes
+                .push(crate::process::attribute_set(process, suggested));
+            lines.written.push(format!(
+                "process {process}{}",
+                if suggested { " (suggested)" } else { "" }
+            ));
+        }
     }
     p.features = features;
     Ok((p, lines))

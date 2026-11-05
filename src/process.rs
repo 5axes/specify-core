@@ -13,7 +13,7 @@
 //! reader cannot read back).
 
 use haecceity::p21::{Attribute, Document, RawEntity};
-use haecceity::pmi::{AttributeSet, AttributeValue};
+use haecceity::pmi::{AttributeSet, AttributeValue, PartPmi};
 use serde_json::{Map, Value, json};
 
 use crate::bom::Field;
@@ -150,7 +150,6 @@ pub fn guess(material: Option<&str>) -> (&'static str, String) {
 /// UDA property sets on the product definition and its shape are read; an item's name is
 /// matched ignoring case, spaces and hyphens, and a value that is not a process is ignored.
 pub fn read(doc: &Document, product_definition: u64) -> Option<Field> {
-    let (mut answered, mut file, mut suggested) = (None, None, None);
     let shapes: Vec<u64> = doc
         .referrers(product_definition)
         .iter()
@@ -161,42 +160,65 @@ pub fn read(doc: &Document, product_definition: u64) -> Option<Field> {
                     && matches!(attributes.get(2), Some(Attribute::EntityRef(pd)) if *pd == product_definition))
         })
         .collect();
-    for owner in std::iter::once(product_definition).chain(shapes) {
-        for (set, items) in crate::bom::properties(doc, owner) {
-            let key = |name: &str| name.trim().to_lowercase().replace([' ', '-'], "_");
-            let found = |wanted: &str| {
-                items
-                    .iter()
-                    .find(|(name, _)| key(name) == wanted)
-                    .and_then(|(_, v)| v.as_str())
-                    .and_then(normalised)
-            };
-            // OpenCascade writes its metadata back as one item named after the set: Specify's
-            // set so rewritten has lost its marker, and is another tool's statement.
-            let (value, rewritten) = match (found(ITEM), found(&key(PROPERTY))) {
-                (Some(v), _) => (v, false),
-                (None, Some(v)) if set == PROPERTY => (v, true),
-                _ => continue,
-            };
-            if rewritten {
-                file.get_or_insert(value);
-            } else if set == PROPERTY {
-                // The last of Specify's sets is current, as the BOM's.
-                // Specify writes the marker as text 'true' (haecceity writes no boolean
-                // items); the BOM's boolean form is read too.
-                let marked = matches!(items.get(DEFAULT_ITEM), Some(Value::Bool(true)))
-                    || items
-                        .get(DEFAULT_ITEM)
-                        .and_then(Value::as_str)
-                        .is_some_and(|t| t.trim().eq_ignore_ascii_case("true"));
-                if marked {
-                    suggested = Some(value);
-                } else {
-                    answered = Some(value);
-                }
-            } else if file.is_none() {
-                file = Some(value);
+    classify(
+        std::iter::once(product_definition)
+            .chain(shapes)
+            .flat_map(|owner| crate::bom::properties(doc, owner)),
+    )
+}
+
+/// [`read`] of a part's PMI as the kernel reads it: its part-level attribute sets.
+pub fn read_pmi(pmi: &PartPmi) -> Option<Field> {
+    classify(pmi.attributes.iter().filter(|s| s.on.is_none()).map(|set| {
+        let items = set
+            .items
+            .iter()
+            .filter_map(|(name, v)| match v {
+                AttributeValue::Text(t) => Some((name.clone(), Value::from(t.as_str()))),
+                AttributeValue::Boolean(b) => Some((name.clone(), Value::Bool(*b))),
+                _ => None,
+            })
+            .collect();
+        (set.name.clone(), items)
+    }))
+}
+
+/// The process of a part's property sets `(name, items)`, with its source (see [`read`]).
+fn classify(sets: impl Iterator<Item = (String, Map<String, Value>)>) -> Option<Field> {
+    let (mut answered, mut file, mut suggested) = (None, None, None);
+    for (set, items) in sets {
+        let key = |name: &str| name.trim().to_lowercase().replace([' ', '-'], "_");
+        let found = |wanted: &str| {
+            items
+                .iter()
+                .find(|(name, _)| key(name) == wanted)
+                .and_then(|(_, v)| v.as_str())
+                .and_then(normalised)
+        };
+        // OpenCascade writes its metadata back as one item named after the set: Specify's
+        // set so rewritten has lost its marker, and is another tool's statement.
+        let (value, rewritten) = match (found(ITEM), found(&key(PROPERTY))) {
+            (Some(v), _) => (v, false),
+            (None, Some(v)) if set == PROPERTY => (v, true),
+            _ => continue,
+        };
+        if rewritten {
+            file.get_or_insert(value);
+        } else if set == PROPERTY {
+            // The last of Specify's sets is current, as the BOM's. Specify writes the marker
+            // as text 'true' (haecceity writes no boolean items); the BOM's boolean is read too.
+            let marked = matches!(items.get(DEFAULT_ITEM), Some(Value::Bool(true)))
+                || items
+                    .get(DEFAULT_ITEM)
+                    .and_then(Value::as_str)
+                    .is_some_and(|t| t.trim().eq_ignore_ascii_case("true"));
+            if marked {
+                suggested = Some(value);
+            } else {
+                answered = Some(value);
             }
+        } else if file.is_none() {
+            file = Some(value);
         }
     }
     let (value, source) = match (answered, file, suggested) {
@@ -209,6 +231,20 @@ pub fn read(doc: &Document, product_definition: u64) -> Option<Field> {
         value: json!(value),
         source: source.into(),
     })
+}
+
+/// Specify's own process set in a part's PMI (the last), if any: its value.
+pub(crate) fn specify_set(pmi: &PartPmi) -> Option<&'static str> {
+    pmi.attributes
+        .iter()
+        .filter(|s| s.on.is_none() && s.name == PROPERTY)
+        .filter_map(|s| {
+            s.items.iter().find_map(|(name, v)| match v {
+                AttributeValue::Text(t) if name == ITEM => normalised(t),
+                _ => None,
+            })
+        })
+        .next_back()
 }
 
 /// The attribute set written for a part's process; `suggested` marks an accepted suggestion.
@@ -296,8 +332,8 @@ pub(crate) fn applies(ctx: &Ctx<'_>, answers: &Map<String, Value>) -> bool {
 }
 
 /// The process question, unless the part is bought or its file states the process. Its
-/// default is Specify's accepted suggestion stored in the file, else the guess from the
-/// material; any but machined is marked `check`.
+/// default is the guess from the current material (worded as the accepted suggestion stored in
+/// the file when that agrees); any but machined is marked `check`.
 pub(crate) fn question(ctx: &Ctx<'_>, answers: &Map<String, Value>) -> Option<Question> {
     if bought(ctx, answers) || stated(ctx).is_some() {
         return None;
@@ -309,12 +345,15 @@ pub(crate) fn question(ctx: &Ctx<'_>, answers: &Map<String, Value>) -> Option<Qu
         .and_then(|f| f.get("value"))
         .and_then(Value::as_str)
         .and_then(normalised);
+    // The stored suggestion stands only while the current material still suggests it: a
+    // changed material makes its own suggestion.
+    let (guessed, why) = guess(material(ctx, answers));
     let (default, basis) = match stored {
-        Some(p) => (
+        Some(p) if p == guessed => (
             p,
             format!("{p} was suggested and accepted when the file was last written."),
         ),
-        None => guess(material(ctx, answers)),
+        _ => (guessed, why),
     };
     // A printed (or stored) suggestion needs a person; machined is what no answer means.
     let (attention, reason) = if default == MACHINED {
@@ -412,4 +451,48 @@ pub fn of(
         .and_then(|d| d.as_str().map(String::from))
         .unwrap_or_else(|| MACHINED.into());
     Ok(Some(field(&default, "default")))
+}
+
+/// Answers only another process offers, which lapse under the current one: a heat-set insert
+/// or printed thread on a part not printed in plastic, a ± general tolerance on a part whose
+/// process offers none. Each with why, as an `unasked` row says it; the answer is kept.
+pub(crate) fn lapsed(ctx: &Ctx<'_>, answers: &Map<String, Value>) -> Vec<(String, String)> {
+    let process = current(ctx, answers);
+    let mut out = Vec::new();
+    for (id, value) in answers {
+        let Some(text) = value.as_str() else {
+            continue;
+        };
+        let lapses = if id.starts_with("hole.function:") {
+            crate::choices::PRINTED_HOLES.contains(&text) && !printed_plastic(process)
+        } else if id == "part.general_tolerance" {
+            crate::general::plus_minus(text).is_some() && general_tolerance(process).is_none()
+        } else {
+            false
+        };
+        if lapses {
+            out.push((
+                id.clone(),
+                format!(
+                    "{id} '{text}' is not offered when part.process is '{process}', so its \
+                     answer was not written"
+                ),
+            ));
+        }
+    }
+    out
+}
+
+/// `answers` without the `lapsed` ones, which the rules do not read.
+pub(crate) fn without_lapsed<'a>(
+    ctx: &Ctx<'_>,
+    answers: &'a Map<String, Value>,
+) -> std::borrow::Cow<'a, Map<String, Value>> {
+    let lapsed = lapsed(ctx, answers);
+    if lapsed.is_empty() {
+        return std::borrow::Cow::Borrowed(answers);
+    }
+    let mut kept = answers.clone();
+    kept.retain(|id, _| !lapsed.iter().any(|(l, _)| l == id));
+    std::borrow::Cow::Owned(kept)
 }

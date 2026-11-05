@@ -651,3 +651,407 @@ fn a_process_answer_is_checked_and_round_trips_through_the_answer_file() {
     let exported = api::export_answers(&loaded, &analysis, &given).unwrap();
     assert_eq!(exported[process::QUESTION], json!("cast"));
 }
+
+/// The surface textures written in `bytes` for part `None`, as the kernel reads them.
+fn textures(bytes: &[u8]) -> Vec<haecceity::pmi::SurfaceTexture> {
+    let loaded = part::File::of_bytes(Path::new("t.step"), bytes.to_vec())
+        .unwrap()
+        .load(None)
+        .unwrap();
+    existing::read(&loaded)
+        .unwrap()
+        .model()
+        .surface_textures
+        .clone()
+}
+
+fn count(bytes: &[u8], needle: &str) -> usize {
+    String::from_utf8_lossy(bytes).matches(needle).count()
+}
+
+#[test]
+fn a_printed_plastic_clearance_hole_has_no_fit_but_sheet_and_metal_keep_h11() {
+    let loaded = plate();
+    let analysis = api::analyse(&loaded).unwrap();
+    for (process, h11) in [
+        (FDM, false),
+        (POWDER, false),
+        ("sheet metal", true),
+        (METAL, true),
+    ] {
+        let given = answers(json!({"part.material": "steel", "part.process": process}));
+        let qs = api::questions(&analysis, &given).unwrap();
+        let grid = qs
+            .iter()
+            .find(|q| q.id.starts_with("hole.function:hole_patterns"))
+            .unwrap();
+        assert_eq!(grid.default, Some(json!("clearance:M6")), "{process}");
+        let intent = api::apply(&analysis, &given, true).unwrap();
+        let fitted = intent.requirements.iter().any(|r| {
+            r.get("fit") == Some(&json!("H11")) && r.get("clearance_for") == Some(&json!("M6"))
+        });
+        assert_eq!(fitted, h11, "{process}");
+        let (_, report) = writer::write_bytes(&loaded, &intent, Some(&given)).unwrap();
+        assert_eq!(
+            report.written.iter().any(|w| w.contains("H11")),
+            h11,
+            "{process}: {:?}",
+            report.written
+        );
+    }
+}
+
+#[test]
+fn sheet_metal_and_metal_printing_defaults() {
+    let loaded = plate();
+    let analysis = api::analyse(&loaded).unwrap();
+    let sheet = api::questions(
+        &analysis,
+        &answers(json!({"part.material": "steel", "part.process": "sheet metal"})),
+    )
+    .unwrap();
+    assert_eq!(
+        question(&sheet, "part.edges").default,
+        Some(json!("Deburr only"))
+    );
+    assert_eq!(
+        question(&sheet, "part.coating").default,
+        Some(json!("None"))
+    );
+    assert!(!ids(&sheet).contains(&"part.surface_finish"));
+    assert_eq!(
+        question(&sheet, "part.locating").default,
+        Some(json!("± dimensions"))
+    );
+    assert_eq!(
+        question(&sheet, "part.general_tolerance").default,
+        Some(json!("ISO 2768-m"))
+    );
+    let machined = api::questions(&analysis, &answers(json!({"part.material": "steel"}))).unwrap();
+    let tapped = machined
+        .iter()
+        .find(|q| {
+            q.id.starts_with("hole.function:")
+                && q.default
+                    .as_ref()
+                    .unwrap()
+                    .as_str()
+                    .unwrap()
+                    .starts_with("tapped")
+        })
+        .unwrap();
+    assert_eq!(
+        question(&sheet, &tapped.id).default,
+        Some(json!("clearance"))
+    );
+    assert!(
+        question(&sheet, &tapped.id).options.contains(
+            &tapped
+                .default
+                .clone()
+                .unwrap()
+                .as_str()
+                .unwrap()
+                .to_string()
+        )
+    );
+    assert!(
+        !question(&sheet, &tapped.id)
+            .options
+            .contains(&"heat-set insert".to_string())
+    );
+
+    let metal = api::questions(
+        &analysis,
+        &answers(json!({"part.material": "AlSi10Mg (DMLS)", "part.process": METAL})),
+    )
+    .unwrap();
+    assert_eq!(question(&metal, &tapped.id).default, tapped.default);
+    assert_eq!(
+        question(&metal, "part.surface_finish").default,
+        Some(json!("Ra 3.2"))
+    );
+    assert!(ids(&metal).contains(&"part.heat_treatment"));
+    assert_eq!(
+        question(&metal, "part.general_tolerance").default,
+        Some(json!("±0.1 mm or ±0.2 % (metal)"))
+    );
+}
+
+#[test]
+fn a_tap_drill_hole_on_a_printed_part_is_a_clearance_hole_for_no_smaller_screw() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/oracle/corpus/nist/nist_ftc_10_asme1_rb/analysis.json.gz");
+    let analysis: Value = serde_json::from_reader(flate2::read::GzDecoder::new(
+        std::fs::File::open(path).unwrap(),
+    ))
+    .unwrap();
+    let machined = api::questions(&analysis, &answers(json!({"part.material": "steel"}))).unwrap();
+    let m3: Vec<&Question> = machined
+        .iter()
+        .filter(|q| q.default == Some(json!("tapped:M3")))
+        .collect();
+    assert!(!m3.is_empty(), "an M3 tap-drill hole");
+    let given = answers(json!({"part.material": "PLA (FDM)", "part.process": FDM}));
+    let printed = api::questions(&analysis, &given).unwrap();
+    for q in m3 {
+        let p = question(&printed, &q.id);
+        // ⌀2.5 also passes an M2, but it is no M2 clearance hole.
+        assert_eq!(p.default, Some(json!("clearance")), "{}", q.id);
+        assert!(p.options.contains(&"clearance".to_string()));
+    }
+}
+
+#[test]
+fn a_stored_suggestion_yields_to_a_changed_material() {
+    let loaded = plate();
+    let analysis = api::analyse(&loaded).unwrap();
+    let given = answers(json!({"part.material": "PA12 (MJF)"}));
+    let intent = api::apply(&analysis, &given, true).unwrap();
+    let (bytes, _) = writer::write_bytes(&loaded, &intent, Some(&given)).unwrap();
+    let back = part::File::of_bytes(Path::new("p.step"), bytes)
+        .unwrap()
+        .load(None)
+        .unwrap();
+    let resumed = api::analyse(&back).unwrap();
+    assert_eq!(resumed["process"]["source"], json!("default"));
+    let mut changed = resumed["resume"]["answers"].as_object().unwrap().clone();
+    changed.insert("part.material".into(), json!("Aluminium 5754-H22"));
+    let qs = api::questions(&resumed, &changed).unwrap();
+    assert_eq!(
+        question(&qs, process::QUESTION).default,
+        Some(json!(MACHINED))
+    );
+    let intent = api::apply(&resumed, &changed, true).unwrap();
+    assert!(!intent.part.contains_key("process"));
+    let complete = rules::with_all_defaults(&resumed, &changed).unwrap();
+    assert!(!complete.contains_key(process::QUESTION));
+    assert_eq!(complete["part.surface_finish"], json!("Ra 3.2"));
+}
+
+#[test]
+fn specifys_process_set_is_never_written_twice() {
+    let loaded = plate();
+    let analysis = api::analyse(&loaded).unwrap();
+    let fdm = answers(json!({"part.material": "PLA (FDM)", "part.process": FDM}));
+    let intent = api::apply(&analysis, &fdm, true).unwrap();
+    // Written without answers: the file states the process, and is added to (Add mode).
+    let (bytes, _) = writer::write_bytes(&loaded, &intent, None).unwrap();
+    let back = part::File::of_bytes(Path::new("p.step"), bytes.clone())
+        .unwrap()
+        .load(None)
+        .unwrap();
+    let stated = api::analyse(&back).unwrap();
+    assert_eq!(stated["part"]["process"], json!(FDM));
+    let mut direct = intent.clone();
+    direct.binding = stated["binding"].clone();
+    let (again, report) = writer::write_bytes(&back, &direct, Some(&fdm)).unwrap();
+    assert_eq!(process_owners(&again).len(), 1);
+    assert!(
+        report
+            .warnings
+            .iter()
+            .any(|w| w.contains("process 3D printed: FDM is already stated"))
+    );
+    let resin = answers(json!({"part.material": "PLA (FDM)", "part.process": RESIN}));
+    let other = api::apply(&stated, &resin, true).unwrap();
+    let err = writer::write_bytes(&back, &other, Some(&resin)).unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("already states process 3D printed: FDM"),
+        "{err}"
+    );
+
+    // Stored answers scope Specify's own PMI: a rewrite replaces the set.
+    let foreign = foreign_uda(
+        loaded.bytes.as_ref().clone(),
+        loaded.definition.product_definition,
+        "supplier",
+        "ACME",
+    );
+    let first = part::File::of_bytes(Path::new("f.step"), foreign)
+        .unwrap()
+        .load(None)
+        .unwrap();
+    let analysis = api::analyse(&first).unwrap();
+    let intent = api::apply(&analysis, &fdm, true).unwrap();
+    let (bytes, _) = writer::write_bytes(&first, &intent, Some(&fdm)).unwrap();
+    assert_eq!(process_owners(&bytes).len(), 1);
+    let back = part::File::of_bytes(Path::new("f.step"), bytes)
+        .unwrap()
+        .load(None)
+        .unwrap();
+    let resumed = api::analyse(&back).unwrap();
+    let intent = api::apply(&resumed, &resin, true).unwrap();
+    let (rewritten, _) = writer::write_bytes(&back, &intent, Some(&resin)).unwrap();
+    assert_eq!(process_owners(&rewritten).len(), 1);
+    assert_eq!(read_back(&rewritten, None).unwrap().value, json!(RESIN));
+}
+
+#[test]
+fn a_hole_note_is_read_back_and_not_written_twice() {
+    let loaded = plate();
+    let analysis = api::analyse(&loaded).unwrap();
+    let fdm = answers(json!({"part.material": "PLA (FDM)", "part.process": FDM}));
+    let qs = api::questions(&analysis, &fdm).unwrap();
+    let hole = qs
+        .iter()
+        .find(|q| q.id.starts_with("hole.function:") && q.default == Some(json!("clearance")))
+        .unwrap()
+        .id
+        .clone();
+    let mut given = fdm.clone();
+    given.insert(hole.clone(), json!("heat-set insert"));
+    let intent = api::apply(&analysis, &given, true).unwrap();
+    let (bytes, _) = writer::write_bytes(&loaded, &intent, None).unwrap();
+    assert_eq!(count(&bytes, "'hole note'"), 1);
+    let back = part::File::of_bytes(Path::new("p.step"), bytes)
+        .unwrap()
+        .load(None)
+        .unwrap();
+    let again = api::analyse(&back).unwrap();
+    assert!(
+        again["existing"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|e| e["type"] == json!("heat-set insert")),
+        "{}",
+        again["existing"]
+    );
+    // The hole is stated, so it is not asked again with a clearance default.
+    let qs = api::questions(&again, &fdm).unwrap();
+    assert!(!ids(&qs).contains(&hole.as_str()));
+    // Writing the same note again (Add mode) does not repeat it.
+    let mut direct = intent.clone();
+    direct.binding = again["binding"].clone();
+    let (rewritten, report) = writer::write_bytes(&back, &direct, Some(&given)).unwrap();
+    assert_eq!(count(&rewritten, "'hole note'"), 1);
+    assert!(
+        report
+            .warnings
+            .iter()
+            .any(|w| w.contains("note heat-set insert"))
+    );
+}
+
+#[test]
+fn a_finish_on_a_printed_moulded_or_cast_part_removes_no_material() {
+    use haecceity::pmi::MaterialRemoval;
+    let loaded = plate();
+    let analysis = api::analyse(&loaded).unwrap();
+    let finish = json!({"kind": "finish", "faces": [0], "value": "Ra 1.6"});
+    for (process, expected) in [
+        (FDM, MaterialRemoval::NotAllowed),
+        ("moulded", MaterialRemoval::NotAllowed),
+        ("cast", MaterialRemoval::NotAllowed),
+        (METAL, MaterialRemoval::AnyProcessAllowed),
+        (MACHINED, MaterialRemoval::AnyProcessAllowed),
+    ] {
+        let given = answers(json!({
+            "part.material": "steel", "part.process": process, "extra.1": finish,
+        }));
+        let intent = api::apply(&analysis, &given, true).unwrap();
+        let (bytes, _) = writer::write_bytes(&loaded, &intent, Some(&given)).unwrap();
+        let written = textures(&bytes);
+        assert!(!written.is_empty(), "{process}");
+        assert!(
+            written.iter().all(|t| t.material_removal == expected),
+            "{process}"
+        );
+    }
+    // A process the file states counts as the questions count it.
+    let moulded = uda_set(
+        loaded.bytes.as_ref().clone(),
+        loaded.definition.product_definition,
+        "Exporter attributes",
+        "manufacturing_process",
+        "moulded",
+    );
+    let back = part::File::of_bytes(Path::new("m.step"), moulded)
+        .unwrap()
+        .load(None)
+        .unwrap();
+    let stated = api::analyse(&back).unwrap();
+    let given = answers(json!({"part.material": "steel", "extra.1": finish}));
+    let intent = api::apply(&stated, &given, true).unwrap();
+    assert!(!intent.part.contains_key("process"));
+    let (bytes, _) = writer::write_bytes(&back, &intent, Some(&given)).unwrap();
+    let written = textures(&bytes);
+    assert!(!written.is_empty());
+    assert!(
+        written
+            .iter()
+            .all(|t| t.material_removal == MaterialRemoval::NotAllowed)
+    );
+}
+
+#[test]
+fn answers_only_another_process_offers_lapse_when_the_process_changes() {
+    let loaded = plate();
+    let analysis = api::analyse(&loaded).unwrap();
+    let qs = api::questions(
+        &analysis,
+        &answers(json!({"part.material": "PLA (FDM)", "part.process": FDM})),
+    )
+    .unwrap();
+    let hole = qs
+        .iter()
+        .find(|q| q.id.starts_with("hole.function:") && q.default == Some(json!("clearance")))
+        .unwrap()
+        .id
+        .clone();
+    let given = answers(json!({
+        "part.material": "steel",
+        "part.process": MACHINED,
+        "part.general_tolerance": "±0.2 mm",
+        hole.clone(): "heat-set insert",
+    }));
+    let qs = api::questions(&analysis, &given).unwrap();
+    assert_eq!(
+        question(&qs, "part.general_tolerance").default,
+        Some(json!("ISO 2768-m"))
+    );
+    let intent = api::apply(&analysis, &given, true).unwrap();
+    assert!(!intent.part.contains_key("general_tolerance"));
+    assert!(intent.requirements.iter().all(|r| r["kind"] != "note"));
+    let reasons: Vec<&str> = intent
+        .requirements
+        .iter()
+        .filter(|r| r["kind"] == rules::UNASKED)
+        .map(|r| r["not_written_reason"].as_str().unwrap())
+        .collect();
+    assert!(reasons.contains(
+        &"part.general_tolerance '±0.2 mm' is not offered when part.process is 'machined', \
+          so its answer was not written"
+    ));
+    let note = format!(
+        "{hole} 'heat-set insert' is not offered when part.process is 'machined', so its \
+         answer was not written"
+    );
+    assert!(reasons.contains(&note.as_str()), "{reasons:?}");
+    let (_, report) = writer::write_bytes(&loaded, &intent, Some(&given)).unwrap();
+    assert!(report.not_written.contains(&note));
+}
+
+#[test]
+fn another_tools_general_tolerance_text_is_not_the_parts_tolerance() {
+    let loaded = plate();
+    let bytes = uda_set(
+        loaded.bytes.as_ref().clone(),
+        loaded.definition.product_definition,
+        "semantic text",
+        "general tolerance",
+        "±0.5 mm",
+    );
+    let back = part::File::of_bytes(Path::new("g.step"), bytes)
+        .unwrap()
+        .load(None)
+        .unwrap();
+    let analysis = api::analyse(&back).unwrap();
+    assert!(
+        analysis["part"].get("general_tolerance").is_none(),
+        "{}",
+        analysis["part"]
+    );
+}

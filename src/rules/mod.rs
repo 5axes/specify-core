@@ -490,6 +490,9 @@ fn all_questions(
     if let Some(notes) = answers.get("part.notes") {
         note_strings(notes)?;
     }
+    // An answer only another process offers lapses (see `unasked`).
+    let kept = crate::process::without_lapsed(ctx, answers);
+    let answers: &Map<String, Value> = &kept;
     // How the part is made sets the defaults below; machined unless answered or stated.
     let process = crate::process::current(ctx, answers);
     let mut out = part_questions_for(process);
@@ -1147,6 +1150,8 @@ fn intent(
     let Some(binding) = ctx.analysis.get("binding") else {
         return invalid("the analysis has no 'binding'");
     };
+    let kept = crate::process::without_lapsed(ctx, answers);
+    let answers: &Map<String, Value> = &kept;
     let mut intent = Intent::new(binding.clone());
     let mut bom = Map::new();
     for (id, value) in answers {
@@ -1232,7 +1237,7 @@ fn intent(
                     };
                     ctx.feature(first)?
                 };
-                for mut req in holes::hole_requirements(value, bores, feature, hole)? {
+                for mut req in holes::hole_requirements(value, bores, feature, hole, process)? {
                     if req.get("kind").and_then(Value::as_str) == Some("thread")
                         && !py::is_str(hole.get("bottom")?, "through")
                         && let Some(drill) = hole.optional_number("depth")?
@@ -1447,7 +1452,8 @@ fn unasked(
         .filter(|(id, _)| !crate::answer_file::always_applies(id) && !asks(qs, id))
         .map(|(id, why)| (id, why.as_str().unwrap_or_default().to_string()))
         .collect();
-    if ids.is_empty() && blocks.is_empty() {
+    let offered = crate::process::lapsed(ctx, answers);
+    if ids.is_empty() && blocks.is_empty() && offered.is_empty() {
         return Ok(Vec::new());
     }
     // Would the question be asked under the other way of locating holes? One more question
@@ -1498,6 +1504,14 @@ fn unasked(
         rows.push(object([
             ("kind", Value::from(UNASKED)),
             ("answer", Value::from(id.as_str())),
+            ("faces", Value::Array(Vec::new())),
+            ("not_written_reason", Value::from(reason)),
+        ]));
+    }
+    for (id, reason) in offered {
+        rows.push(object([
+            ("kind", Value::from(UNASKED)),
+            ("answer", Value::from(id)),
             ("faces", Value::Array(Vec::new())),
             ("not_written_reason", Value::from(reason)),
         ]));

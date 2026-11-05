@@ -575,7 +575,17 @@ impl Reading {
                 GeneralTolerance::Class { text, .. } => Some(text.clone()),
                 GeneralTolerance::Table { .. } => None,
             })
-            .or_else(|| general_tolerance_note(pmi))
+            .or_else(|| {
+                // Only Specify's own ± note: another tool's 'general tolerance' text is not
+                // read as the part's tolerance.
+                pmi.attributes
+                    .iter()
+                    .position(is_general_tolerance_note)
+                    .filter(|&i| {
+                        provenance::marked(&self.doc, &self.provenance.attributes[i], "attribute")
+                    })
+                    .and_then(|_| general_tolerance_note(pmi))
+            })
         {
             out.insert("general_tolerance".into(), Value::String(text));
         }
@@ -772,6 +782,28 @@ fn notes(
             provenance::marked(doc, &prov.knurls[i], "knurl"),
             crate::characteristics::on(doc, &prov.knurls[i], "product_definition_shape"),
         );
+    }
+    // A hole note as the Rust writer writes it (a heat-set insert or printed thread,
+    // docs/process.md): semantic text on the hole, read back so the hole is not asked again.
+    for (i, set) in pmi.attributes.iter().enumerate() {
+        let Some(pmi::NoteOwner::Feature(f)) = set.on else {
+            continue;
+        };
+        if set.name != crate::writer::SEMANTIC_TEXT {
+            continue;
+        }
+        for (name, v) in &set.items {
+            if let pmi::AttributeValue::Text(words) = v
+                && name == crate::writer::HOLE_NOTE
+            {
+                add(
+                    words,
+                    &faces_of(pmi, &[f]),
+                    provenance::marked(doc, &prov.attributes[i], "attribute"),
+                    None,
+                );
+            }
+        }
     }
     // A finish on faces as the Rust writer writes it: a surface texture on them (question Q3).
     for (i, t) in pmi.surface_textures.iter().enumerate() {

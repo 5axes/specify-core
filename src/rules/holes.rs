@@ -10,7 +10,9 @@ use super::records::{Ctx, Datums, Faces, Feature};
 use super::{Characteristic, Error, GENERAL, NONE, Question, Result, invalid};
 use crate::choices;
 use crate::locations;
-use crate::standards::{self, CLEARANCE, HOLE_FITS, PITCH, TAP_DRILL};
+use crate::standards::{
+    self, CLEARANCE, CLEARANCE_COARSE, CLEARANCE_FINE, HOLE_FITS, PITCH, TAP_DRILL,
+};
 
 /// What a hole question is asked about: one hole, a pattern (its members less any chosen as a
 /// datum), or several identical ones merged (`groups`, each keeping its own `parts`).
@@ -178,13 +180,28 @@ pub(crate) fn hole_questions(
         standards::lookup(&TAP_DRILL, size).is_some_and(|drill| (diameter - drill).abs() < 1e-6)
     });
     let chosen = if printed {
-        // Where a machined part's hole would be tapped, a printed one is a clearance hole.
-        match bolts.first() {
-            Some(bolt) => format!("clearance:{bolt}"),
-            None if tapped.is_some() && options.iter().any(|o| o == "clearance") => {
+        // Where a machined part's hole would be tapped, a printed one is a clearance hole:
+        // for the screw whose clearance hole it is, never a smaller screw that also passes
+        // through a tap-drill-sized hole; else for a screw not stated.
+        let own = bolts.iter().find(|bolt| {
+            [&CLEARANCE_FINE, &CLEARANCE, &CLEARANCE_COARSE]
+                .iter()
+                .any(|table| standards::match_size(diameter, table) == Some(**bolt))
+        });
+        match (tapped, own, bolts.first()) {
+            (_, Some(bolt), _) => format!("clearance:{bolt}"),
+            (Some(_), None, _) => {
+                if !options.iter().any(|o| o == "clearance") {
+                    let at = options
+                        .iter()
+                        .take_while(|o| !o.starts_with("fit:"))
+                        .count();
+                    options.insert(at, "clearance".to_string());
+                }
                 "clearance".to_string()
             }
-            None => GENERAL.to_string(),
+            (None, None, Some(bolt)) => format!("clearance:{bolt}"),
+            (None, None, None) => GENERAL.to_string(),
         }
     } else if let Some(size) = exact_tap {
         // Exact tap-drill evidence wins over a smaller screw which also fits
@@ -550,6 +567,7 @@ pub(crate) fn hole_requirements(
     bores: &[i64],
     feature: &Feature<'_>,
     hole: &Feature<'_>,
+    process: &str,
 ) -> Result<Vec<Map<String, Value>>> {
     if py::is_str(Some(value), GENERAL) {
         return Ok(Vec::new());
@@ -629,6 +647,10 @@ pub(crate) fn hole_requirements(
             req.insert(key.into(), v);
         }
         return Ok(vec![req]);
+    }
+    // A printed plastic part's clearance hole has no fit: the general tolerance covers it.
+    if kind == "clearance" && crate::process::printed_plastic(process) {
+        return Ok(Vec::new());
     }
     // Clearance: the hole as drawn is the nominal; H11 bounds it.
     let (upper, lower) = limits("H11")?;

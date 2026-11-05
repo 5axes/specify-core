@@ -49,13 +49,18 @@ suggestion first, on its own, then that process's defaults.
   not offered as defaults, and a machined, sheet metal, moulded or cast part's general
   tolerance stays an ISO 2768 class (whose typed forms are read as before).
 - **Holes.** Where a machined part's hole would be tapped, a printed plastic or sheet metal
-  part's is a clearance hole. A `heat-set insert` or `printed thread` answer is written as a note on the
-  hole (a `semantic text` set on the hole feature with a `hole note` item). No fit is a
-  default; fits stay offered.
+  part's is a clearance hole: for the screw whose clearance hole it is, else for a screw not
+  stated (`clearance`), never a smaller screw that also passes a tap-drill-sized hole. A
+  printed plastic part's clearance hole has no fit: no H11 size is written, and the general
+  tolerance covers it (sheet metal and metal printing keep H11). A `heat-set insert` or `printed thread` answer is written as a note on the
+  hole (a `semantic text` set on the hole feature with a `hole note` item), read back as the
+  hole's existing note, so the hole is not asked again; an Add-mode write does not repeat a
+  note already stated. No fit is a default; fits stay offered.
 - **Locating.** The default of `part.locating` is `± dimensions`, which removes the position,
   frame and datum-control questions; answering `position tolerances` brings them back.
 - **Surface finish.** A finish written for a printed plastic, moulded or cast part (a face
-  finish added as an extra requirement) has material removal **not allowed**.
+  finish added as an extra requirement) has material removal **not allowed**, whether the
+  process is answered or stated by the file.
 
 ## Answers the process leaves unasked
 
@@ -65,6 +70,12 @@ A part answer whose question the process does not ask (`part.surface_finish`, `p
 written", exactly as a dependent answer does when `part.locating` changes (#126). The answer is
 stored and carried, and written again if the process changes back. The other `part.*`
 answers, which the intent reads whether or not they are asked, stay exempt.
+
+An answer only another process offers lapses the same way rather than being refused: a
+`heat-set insert` or `printed thread` hole on a part no longer printed in plastic, or a ± general
+tolerance on a part whose process offers none ("part.general_tolerance '±0.2 mm' is not offered
+when part.process is 'machined', so its answer was not written"). The question shows its
+default meanwhile.
 
 ## Assemblies
 
@@ -82,7 +93,9 @@ options. An accepted suggestion also carries `default.manufacturing_process`, th
 marker, as the text item `'true'` (haecceity's writer writes no boolean items, as its reader
 cannot read them back; the BOM's boolean `.T.` form is read too); an answer has no marker. It is written only when the
 process is answered or a suggestion is accepted, in the same edit as the part's PMI, and
-replaced with it on a rewrite.
+replaced with it on a rewrite. A part only ever has one: where Specify's set is in a file
+written without stored answers (so Add mode keeps it), the same process is not written again
+and a different one is refused.
 
 ```step
 #100=DESCRIPTIVE_REPRESENTATION_ITEM('manufacturing_process','3D printed: FDM');
@@ -100,7 +113,11 @@ values are ignored. Precedence is answer > file > guess, with the source reporte
 (Specify's marked set, else the guess). Analysis reports the file's value as
 `analysis.process = {value, source}`, and a stated value (Specify's unmarked set or another
 tool's) as `analysis.part.process`: the question is then not asked, as other `part.*` values the
-file states are not. A resumed Specify file's answer comes back with its other answers.
+file states are not. A resumed Specify file's answer comes back with its other answers. An
+accepted suggestion stored in the file is the question's default only while the current
+material still suggests it; it is not an answer, so `apply` without accept-defaults on the
+resumed part leaves it machined until the suggestion is accepted again. A `general tolerance`
+note is read as the part's general tolerance only when Specify wrote it.
 `specify_core::process::of(analysis, answers)` gives the current value and source (none for a
 bought part); `process::read(&Document, product_definition)` reads a file's.
 
