@@ -237,7 +237,9 @@ const OPEN: Command = Command {
 
 Open a STEP file in draftwright.io/specify in your browser, without uploading it: the
 file is served once on 127.0.0.1 and the page fetches it from there. Stops once it is
-fetched, or after 10 minutes.
+fetched, or after 10 minutes. The first time, Chrome asks once whether draftwright.io
+may \"access other apps and services on this device\": Allow lets the page fetch the file
+(run the command again if it did not open while the prompt was up).
 
 positional arguments:
   step          a .step or .stp file, or either gzipped
