@@ -375,6 +375,14 @@ fn gramil_acceptance() {
             "bought"
         };
         assert_eq!(row.make_buy.value, expected, "{name}");
+        // Bought hardware (grub screw, washers, pan-head screws) is proposed from stock.
+        let stock = if expected == "bought" {
+            "from stock"
+        } else {
+            "to be made"
+        };
+        assert_eq!(row.stock.value, stock, "{name}");
+        assert_eq!(row.stock.source, "default", "{name}");
     }
     let a: Vec<_> = source
         .parts()
@@ -870,4 +878,56 @@ fn explicit_bom_suggestions_are_not_answers_and_current_file_data_wins() {
     assert_eq!(rows[0].description.source, "file");
     assert_eq!(rows[0].revision.value, "B");
     assert_eq!(rows[0].revision.source, "file");
+}
+
+#[test]
+fn the_stock_proposal_follows_make_buy() {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/bom/gramil.step.gz");
+    let source = part::File::read(&path).unwrap();
+    let screw = source
+        .parts()
+        .iter()
+        .position(|p| p.name.to_lowercase().contains("screw"))
+        .expect("gramil has a screw");
+    let p = source.load(Some(screw)).unwrap();
+    let analysis = api::analyse_reporting_in(&source, &p).unwrap().0;
+    let suggestion = |id: &str| {
+        api::questions(&analysis, &Map::new())
+            .unwrap()
+            .into_iter()
+            .find(|q| q.id == id)
+            .unwrap()
+            .suggestions[0]
+            .clone()
+    };
+    assert_eq!(suggestion("bom.make_buy"), "bought");
+    assert_eq!(suggestion("bom.stock"), "from stock");
+
+    let accepted = |answers: Map<String, Value>| {
+        let mut intent = api::preview(&analysis, &answers).unwrap();
+        bom::accept_suggestions(&analysis, &answers, &mut intent).unwrap();
+        intent.part["bom"]["stock"].clone()
+    };
+    assert_eq!(accepted(Map::new()), "from stock");
+    // An explicit make/buy answer decides the stock proposal; not known proposes none.
+    let made = json!({"bom.make_buy": "made"}).as_object().unwrap().clone();
+    assert_eq!(accepted(made), "to be made");
+    let unknown = json!({"bom.make_buy": "not known"})
+        .as_object()
+        .unwrap()
+        .clone();
+    assert_eq!(accepted(unknown), Value::Null);
+    // An explicit stock answer is never replaced.
+    let chosen = json!({"bom.make_buy": "made", "bom.stock": "from stock"})
+        .as_object()
+        .unwrap()
+        .clone();
+    let mut intent = api::preview(&analysis, &chosen).unwrap();
+    bom::accept_suggestions(&analysis, &chosen, &mut intent).unwrap();
+    assert!(
+        !intent.part["bom_suggestions"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("stock"))
+    );
 }

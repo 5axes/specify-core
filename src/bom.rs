@@ -176,6 +176,16 @@ fn properties(doc: &Document, owner: u64) -> Vec<(String, Map<String, Value>)> {
     out
 }
 
+/// The stock proposal that follows make/buy: bought parts come from stock, made parts are
+/// to be made, and an unknown source proposes nothing.
+fn stock_for(make_buy: &Value) -> Value {
+    match make_buy.as_str() {
+        Some("bought") => json!("from stock"),
+        Some("made") => json!("to be made"),
+        _ => Value::Null,
+    }
+}
+
 fn guessed(name: &str) -> (&'static str, &'static str) {
     let tokens: Vec<_> = name
         .split(|c: char| !c.is_alphanumeric())
@@ -307,7 +317,7 @@ pub(crate) fn read_rows(
             })),
             quantity: field(def.placements.len(), "file"),
             optional: field(false, "default"),
-            stock: field("to be made", "default"),
+            stock: field(Value::Null, "default"),
         };
         let occurrences_here = occurrences(doc, pd);
         let native_numbers: Option<Vec<u64>> = occurrences_here
@@ -385,6 +395,9 @@ pub(crate) fn read_rows(
         if row.make_buy.value.is_null() {
             row.make_buy = field(guessed(&def.name).0, "default");
         }
+        if row.stock.value.is_null() {
+            row.stock = field(stock_for(&row.make_buy.value), "default");
+        }
         if row.description.value.is_null() {
             row.description = field(def.name.clone(), "default");
         }
@@ -415,6 +428,7 @@ pub(crate) fn questions(analysis: &Map<String, Value>) -> Vec<Question> {
         return vec![];
     };
     let mut out = Vec::new();
+    let mut make_buy = Value::Null;
     for (key, prompt, default, options) in [
         (
             "make_buy",
@@ -439,7 +453,7 @@ pub(crate) fn questions(analysis: &Map<String, Value>) -> Vec<Question> {
         (
             "stock",
             "Is this item from stock or to be made?",
-            json!("to be made"),
+            Value::Null,
             vec!["from stock", "to be made"],
         ),
     ] {
@@ -486,7 +500,16 @@ pub(crate) fn questions(analysis: &Map<String, Value>) -> Vec<Question> {
             q.default = Some(json!("made"));
             q.basis = "Recognition found machined pockets/keyways beyond a standard fastener; propose made and review it.".into();
         }
-        if let Some(value) = q.default.take() {
+        if key == "make_buy" {
+            make_buy = q.default.clone().unwrap_or_default();
+        }
+        if key == "stock" && bom[key]["source"] == "default" {
+            q.default = Some(stock_for(&make_buy));
+            q.basis =
+                "Follows the make/buy proposal: bought parts from stock, made parts to be made."
+                    .into();
+        }
+        if let Some(value) = q.default.take().filter(|v| !v.is_null()) {
             q.suggestions.push(value);
         }
         q.attention = "check";
@@ -516,12 +539,19 @@ pub fn accept_suggestions(
     let mut suggested = Vec::new();
     for q in questions(object) {
         let key = q.id.strip_prefix("bom.").unwrap_or("");
+        // An explicit make/buy answer decides the stock proposal over the analysed one.
+        let value = match answers.get("bom.make_buy") {
+            Some(answer) if key == "stock" && analysis["bom"][key]["source"] == "default" => {
+                Some(stock_for(answer)).filter(|v| !v.is_null())
+            }
+            _ => q.suggestions.first().cloned(),
+        };
         if !answers.contains_key(&q.id)
             && analysis["bom"][key]["source"] != "answered"
-            && let Some(value) = q.suggestions.first()
+            && let Some(value) = value
             && !value.as_str().is_some_and(|s| s.trim().is_empty())
         {
-            fields.insert(key.into(), value.clone());
+            fields.insert(key.into(), value);
             suggested.push(key.to_owned());
         }
     }
@@ -1338,7 +1368,8 @@ mod tests {
         assert_eq!(rows[0].stock, field("from stock", "file"));
         assert_eq!(rows[0].make_buy, field("bought", "file"));
         assert_eq!(rows[0].optional, field(true, "file"));
-        assert_eq!(rows[1].stock, field("to be made", "default"));
+        // Unusable stock text is ignored; the proposal follows the bought make/buy guess.
+        assert_eq!(rows[1].stock, field("from stock", "default"));
         assert_eq!(rows[1].make_buy, field("bought", "default"));
     }
     #[test]

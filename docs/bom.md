@@ -111,7 +111,9 @@ Hardware is proposed bought by whole tokens and the last noun, ignoring size suf
 screws, washers, dowels, bearings, nuts, bolts, rivets, circlips, pins, studs, fasteners.
 A project drawing number such as `GRM-03` or recognised pockets/keyways strongly suggests
 made, including bespoke screws. `bearing housing`, `leadscrew`, `minute` suggest made.
-Descriptions suggest the display name, optional suggests no, stock suggests to-be-made.
+Descriptions suggest the display name and optional suggests no. Stock follows make/buy: a
+bought part is proposed from stock and a made part to be made; `not known` proposes no stock.
+When suggestions are accepted, an explicit `bom.make_buy` answer decides the stock proposal.
 
 Only explicit BOM answers have source `answered`. Accepted suggestions have source
 `default`, marked by boolean `default.<field>` UDA items. Empty text is never stored.
