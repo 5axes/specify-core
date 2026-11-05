@@ -33,9 +33,11 @@ All notable changes to specify-core-rust. The format follows
   arguments, defaults and exit codes are unchanged (usage errors still exit 2), but help and
   usage errors are clap's text rather than argparse's, and `-h` and `--help` both give a
   command's full help. The top-level help now lists `diff`, `open` and `bom`, which were left
-  out to match Python's text. Positionals may follow an option: `write S A B -o OUT C D` writes
-  both pairs, where argparse left `C D` unrecognised. The WASM build leaves the command line
-  out (the root crate's default `cli` feature, off for `specify-core-wasm`).
+  out to match Python's text, and a prefix of `--help` at the top level (`--he`, `--h`) prints
+  the help (exit 0). Positionals after an option are taken: `write S A B -o OUT C D` writes both
+  pairs and `write S A -o OUT B` the pair `A B`, where argparse left `C D` and `B`
+  unrecognised. The WASM build leaves the command line out (the root crate's default `cli`
+  feature, off for `specify-core-wasm`).
 - `specify-core open`'s help and the README name the prompt Chrome shows the
   first time ("draftwright.io wants to access other apps and services on this device"): Allow
   lets the page fetch the file; if it did not open while the prompt was up, stop the command

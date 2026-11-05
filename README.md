@@ -111,7 +111,8 @@ draftwright.io's site settings.
 
 ```sh
 specify-core completions bash > ~/.local/share/bash-completion/completions/specify-core
-specify-core completions zsh > "${fpath[1]}/_specify-core"    # then restart zsh
+mkdir -p ~/.zfunc && specify-core completions zsh > ~/.zfunc/_specify-core
+# zsh: add `fpath=(~/.zfunc $fpath)` before `compinit` in ~/.zshrc, then restart zsh
 specify-core completions fish > ~/.config/fish/completions/specify-core.fish
 ```
 

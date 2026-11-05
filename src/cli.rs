@@ -44,7 +44,7 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
 use clap::error::ErrorKind;
-use clap::{ArgAction, CommandFactory, Parser, Subcommand};
+use clap::{ArgAction, CommandFactory, FromArgMatches, Parser, Subcommand};
 
 use crate::api::{self, Error};
 use crate::part;
@@ -93,7 +93,7 @@ enum Cmd {
         #[arg(short, long)]
         output: PathBuf,
         /// which part of an assembly (see parts)
-        #[arg(long, allow_negative_numbers = true, value_parser = part_number)]
+        #[arg(long, value_parser = part_number)]
         part: Option<i64>,
     },
     /// answer JSON-line requests on stdin (for a host process)
@@ -105,7 +105,7 @@ enum Cmd {
         #[arg(short, long)]
         output: PathBuf,
         /// which part of an assembly (see parts)
-        #[arg(long, allow_negative_numbers = true, value_parser = part_number)]
+        #[arg(long, value_parser = part_number)]
         part: Option<i64>,
     },
     /// list the questions, given answers so far
@@ -157,7 +157,7 @@ enum Cmd {
         #[arg(long)]
         answers: Option<PathBuf>,
         /// compare one part of an assembly (see parts)
-        #[arg(long, allow_negative_numbers = true, value_parser = part_number)]
+        #[arg(long, value_parser = part_number)]
         part: Option<i64>,
         /// the report's title (the new file's name)
         #[arg(long)]
@@ -227,15 +227,24 @@ impl Exit {
     }
 }
 
+/// The command line's clap command. Every command takes a value that looks like a negative
+/// number (`--part -1`, `--title -5`, `parts -1`) as a value, as argparse did, rather than as
+/// an unknown option; other values starting with `-` stay unknown options.
+fn command() -> clap::Command {
+    Cli::command().mut_subcommands(|c| c.allow_negative_numbers(true))
+}
+
 /// The arguments parsed, or clap's error (help included, exit 0) to print.
 fn parse(argv: &[String]) -> Result<Cmd, clap::Error> {
-    let cli = Cli::try_parse_from(std::iter::once(PROG).chain(argv.iter().map(String::as_str)))?;
+    let mut matches = command()
+        .try_get_matches_from(std::iter::once(PROG).chain(argv.iter().map(String::as_str)))?;
+    let cli = Cli::from_arg_matches_mut(&mut matches)?;
     if let Cmd::Write { pairs, .. } = &cli.command
         && !pairs.len().is_multiple_of(2)
     {
-        let mut command = Cli::command();
-        command.build();
-        let write = command.find_subcommand_mut("write").expect("a command");
+        let mut parser = command();
+        parser.build();
+        let write = parser.find_subcommand_mut("write").expect("a command");
         return Err(write.error(
             ErrorKind::WrongNumberOfValues,
             "write takes an analysis and its answers for each part",
@@ -266,15 +275,15 @@ pub fn main(argv: &[String]) -> u8 {
     }
 }
 
-fn run(command: Cmd, out: &mut impl Write) -> Result<(), Exit> {
-    match command {
+fn run(cmd: Cmd, out: &mut impl Write) -> Result<(), Exit> {
+    match cmd {
         Cmd::Serve => {
             let stdin = io::stdin().lock();
             serve::serve(stdin, out).map_err(Exit::error)
         }
         Cmd::Completions { shell } => {
             let mut script = Vec::new();
-            clap_complete::generate(shell, &mut Cli::command(), PROG, &mut script);
+            clap_complete::generate(shell, &mut command(), PROG, &mut script);
             if shell == clap_complete::Shell::Bash {
                 // clap_complete 4.6 names the subcommands' cases with the program name's `-`
                 // escaped as a subcommand separator (`specify__subcmd__core__subcmd__write`) but

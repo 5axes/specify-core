@@ -1987,13 +1987,39 @@ fn arguments_are_parsed_as_clap_parses_them() {
             2,
             "error: write takes an analysis and its answers for each part",
         ),
-        // Positionals continue after an option (argparse left `c d` unrecognised here, a
-        // run at a time): the pairs are `a b c d`, so the first analysis is read and found
-        // missing.
+        // Positionals continue after an option (argparse left `c d`, and below `b`,
+        // unrecognised here, a run at a time): the pairs are `a b c d` (and `a b`), so the
+        // first analysis is read and found missing.
         (
             &["write", "S", "a", "b", "-o", "OUT", "c", "d"],
             1,
             "error: a: ",
+        ),
+        (&["write", "S", "a", "-o", "OUT", "b"], 1, "error: a: "),
+        // A value that looks like a negative number is a value, for every option and
+        // positional (as on main, where these reached the files and failed reading them);
+        // other `-` arguments stay unknown options.
+        (
+            &["diff", "A", "B", "-o", "D", "--title", "-5"],
+            1,
+            "error: cannot read STEP file A",
+        ),
+        (
+            &["analyse", "X", "-o", "-1"],
+            1,
+            "error: cannot read STEP file X",
+        ),
+        (
+            &["analyse", "X", "--output", "-1"],
+            1,
+            "error: cannot read STEP file X",
+        ),
+        (&["parts", "-1"], 1, "error: cannot read STEP file -1"),
+        (&["write", "S", "-1", "-2", "-o", "O"], 1, "error: -1: "),
+        (
+            &["analyse", "X", "-x"],
+            2,
+            "error: unexpected argument '-x' found",
         ),
         // The last value of a repeated option wins, as argparse's `store` does.
         (
