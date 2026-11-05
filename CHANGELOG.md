@@ -6,6 +6,16 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+### Fixed
+
+- The BOM `stock` proposal follows make/buy: bought parts (such as the gramil grub screw,
+  washers and pan-head screws) are proposed `from stock`, made parts `to be made`, and
+  `not known` proposes nothing. Before, every part was proposed `to be made`, so accepted
+  BOM suggestions marked bought hardware as made in-house. Applies to `bom` rows, the
+  `bom.stock` suggestion and `accept_suggestions` (where an explicit `bom.make_buy` answer
+  decides it); explicit and file stock values are unchanged. A stock suggestion accepted
+  into a file before this fix is re-proposed from make/buy when the BOM is read.
+
 ## 0.1.10 (2026-11-04)
 
 ### Added
