@@ -268,7 +268,8 @@ pub fn part_settings_provenance(loaded: &LoadedPart) -> Result<Map<String, Value
 }
 
 impl Reading {
-    pub(crate) fn model(&self) -> &PartPmi {
+    /// The part's PMI as read.
+    pub fn model(&self) -> &PartPmi {
         &self.pmi
     }
 
@@ -482,7 +483,12 @@ impl Reading {
             .general
             .iter()
             .position(|g| matches!(g, GeneralTolerance::Class { .. }))
-            && owned(&prov.general[i], "general")
+        {
+            if owned(&prov.general[i], "general") {
+                out.insert("general_tolerance".into(), Value::from(provenance::MARKER));
+            }
+        } else if let Some(i) = p.attributes.iter().position(is_general_tolerance_note)
+            && owned(&prov.attributes[i], "attribute")
         {
             out.insert("general_tolerance".into(), Value::from(provenance::MARKER));
         }
@@ -562,11 +568,16 @@ impl Reading {
         if let Some(material) = &pmi.material {
             out.insert("material".into(), Value::String(material.id.clone()));
         }
-        if let Some(text) = pmi.general.iter().find_map(|g| match g {
-            GeneralTolerance::Class { text, .. } => Some(text),
-            GeneralTolerance::Table { .. } => None,
-        }) {
-            out.insert("general_tolerance".into(), Value::String(text.clone()));
+        if let Some(text) = pmi
+            .general
+            .iter()
+            .find_map(|g| match g {
+                GeneralTolerance::Class { text, .. } => Some(text.clone()),
+                GeneralTolerance::Table { .. } => None,
+            })
+            .or_else(|| general_tolerance_note(pmi))
+        {
+            out.insert("general_tolerance".into(), Value::String(text));
         }
         for (key, kind) in PART_NOTES {
             if key == "notes" {
@@ -619,6 +630,31 @@ impl Reading {
         }
         out
     }
+}
+
+/// Whether `set` is a ± general tolerance written as a note on the part (`docs/process.md`).
+fn is_general_tolerance_note(set: &pmi::AttributeSet) -> bool {
+    set.on.is_none()
+        && set.name == crate::writer::SEMANTIC_TEXT
+        && set.items.iter().any(|(name, v)| {
+            name == crate::writer::GENERAL_TOLERANCE_NOTE
+                && matches!(v, pmi::AttributeValue::Text(_))
+        })
+}
+
+/// The part's ± general tolerance written as a note, if it has one.
+pub(crate) fn general_tolerance_note(pmi: &PartPmi) -> Option<String> {
+    pmi.attributes
+        .iter()
+        .filter(|set| is_general_tolerance_note(set))
+        .find_map(|set| {
+            set.items.iter().find_map(|(name, v)| match v {
+                pmi::AttributeValue::Text(t) if name == crate::writer::GENERAL_TOLERANCE_NOTE => {
+                    Some(t.clone())
+                }
+                _ => None,
+            })
+        })
 }
 
 /// Only explicit edge-breaking prose, not a general manufacturing-note classifier.

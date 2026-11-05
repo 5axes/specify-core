@@ -490,7 +490,9 @@ fn all_questions(
     if let Some(notes) = answers.get("part.notes") {
         note_strings(notes)?;
     }
-    let mut out = part_questions();
+    // How the part is made sets the defaults below; machined unless answered or stated.
+    let process = crate::process::current(ctx, answers);
+    let mut out = part_questions_for(process);
     out.extend(crate::bom::questions(ctx.analysis));
     // A file with its own datums locates by them; the choice is for a bare part.
     if ctx.in_file.is_empty()
@@ -499,15 +501,28 @@ fn all_questions(
             .iter()
             .any(|f| f.family == "holes" || f.family == "hole_patterns")
     {
+        let (default, basis) = if crate::process::locates_by_dimensions(process) {
+            (
+                LOCATING[1],
+                format!(
+                    "± dimensions, as a {process} part's holes are usually located on the \
+                     drawing; choose position tolerances where they must line up."
+                ),
+            )
+        } else {
+            (
+                LOCATING[0],
+                "Position tolerances, as holes usually take parts that must line up.".to_string(),
+            )
+        };
         out.push(Question {
-            default: Some(Value::from(LOCATING[0])),
+            default: Some(Value::from(default)),
             options: LOCATING.map(String::from).to_vec(),
             why: "Position tolerances locate each hole from datums, for parts that must fit \
                   together. ± dimensions locate them on the drawing under the general \
                   tolerance. In both modes, datums say where the part is measured from."
                 .to_string(),
-            basis: "Position tolerances, as holes usually take parts that must line up."
-                .to_string(),
+            basis,
             ..Question::new(
                 "part.locating".into(),
                 "choice",
@@ -688,6 +703,7 @@ fn all_questions(
             answers,
             located_frames,
             planes.as_deref(),
+            process,
         )?);
     }
 
@@ -732,11 +748,58 @@ fn all_questions(
     }
     // Keep dependent depth edits after the existing questions, preserving their order.
     out.sort_by_key(|q| q.id.starts_with("hole.full_thread:"));
+    // Appended after every other question, so no existing question moves.
+    if let Some(q) = crate::process::question(ctx, answers) {
+        if let Some(value) = answers.get(&q.id) {
+            choices::check(&q.id, value, &q.options, None, None)?;
+        }
+        out.push(q);
+    }
     out.into_iter().map(|q| reviewed(q, &ctx.faces)).collect()
 }
 
-/// The material, general tolerance and notes questions.
+/// The material, general tolerance and notes questions of a machined part.
 pub(crate) fn part_questions() -> Vec<Question> {
+    part_questions_for(crate::process::MACHINED)
+}
+
+/// The material, general tolerance and notes questions of a part made by `process`: a
+/// printed part's general tolerance defaults to the process's ± figures, and what the process
+/// does not ask (roughness, edges, coating) is left out. A machined part's are unchanged.
+pub(crate) fn part_questions_for(process: &str) -> Vec<Question> {
+    use crate::process;
+    let mut out = machined_part_questions();
+    if process == process::MACHINED {
+        return out;
+    }
+    out.retain(|q| process::asks(process, q.id.strip_prefix("part.").unwrap_or(&q.id)));
+    for q in &mut out {
+        match q.id.as_str() {
+            "part.general_tolerance" => {
+                if let Some(figure) = process::general_tolerance(process) {
+                    q.options.insert(0, figure.to_string());
+                    q.default = Some(Value::from(figure));
+                    q.basis = format!(
+                        "{figure}, whichever is greater: a common vendor figure for \
+                         {process}, not a standard (none sets general tolerances for 3D \
+                         printing). Check it against the printer, or type your own ± figure."
+                    );
+                    q.attention = "check";
+                    q.reason = q.basis.clone();
+                }
+            }
+            "part.coating" => q.default = Some(Value::from("None")),
+            "part.edges" if process == process::SHEET_METAL => {
+                q.default = Some(Value::from(EDGES[2]));
+                q.basis = "Deburring the cut edges is the usual note for sheet metal.".into();
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+fn machined_part_questions() -> Vec<Question> {
     let choice =
         |id: &str, prompt: &str, default: &str, options: &[&str], why: &str, basis: &str| {
             Question {
@@ -900,15 +963,31 @@ pub fn open_questions<'q>(qs: &'q [Question], answers: &Map<String, Value>) -> V
         .filter(|q| {
             !q.id.starts_with("hole.full_thread:")
                 && !q.id.starts_with("bom.")
+                && q.id != crate::process::QUESTION
                 && !answers.contains_key(&q.id)
         })
         .collect()
 }
 
 /// `answers` plus the default of every unanswered question that has one.
+///
+/// The process is settled first, on its own, as its default changes the others'. A machined
+/// default is what an unanswered part already is, so it is not added (nor stored or written).
 pub fn with_defaults(qs: &[Question], answers: &Map<String, Value>) -> Map<String, Value> {
     let mut merged = answers.clone();
+    if let Some(q) = qs.iter().find(|q| q.id == crate::process::QUESTION)
+        && let Some(default) = &q.default
+        && default.as_str() != Some(crate::process::MACHINED)
+        && !merged.contains_key(&q.id)
+        && !crate::answer_file::blocked(answers, &q.id)
+    {
+        merged.insert(q.id.clone(), default.clone());
+        return merged;
+    }
     for q in qs {
+        if q.id == crate::process::QUESTION {
+            continue;
+        }
         if let Some(default) = &q.default
             && !q.id.starts_with("bom.")
             && !merged.contains_key(&q.id)
@@ -996,7 +1075,16 @@ pub fn apply_with_defaults(
 ) -> Result<Intent> {
     if accept_defaults {
         let merged = with_all_defaults(analysis, answers)?;
-        apply(analysis, &merged)
+        let mut intent = apply(analysis, &merged)?;
+        // An accepted suggestion is written marked as one, as the BOM's are.
+        if !answers.contains_key(crate::process::QUESTION)
+            && intent.part.contains_key(crate::process::INTENT_KEY)
+        {
+            intent
+                .part
+                .insert(crate::process::INTENT_DEFAULT_KEY.into(), Value::Bool(true));
+        }
+        Ok(intent)
     } else {
         apply(analysis, answers)
     }
@@ -1071,7 +1159,12 @@ fn intent(
         intent.part.insert("bom".into(), Value::Object(bom));
     }
 
+    let process = crate::process::current(ctx, answers);
     for key in ["material", "general_tolerance"].into_iter().chain(NOTES) {
+        // What the process does not ask is not written (see `unasked`).
+        if !crate::process::asks(process, key) {
+            continue;
+        }
         let id = format!("part.{key}");
         if key == "notes" {
             if let Some(value) = answers.get(&id)
@@ -1090,6 +1183,13 @@ fn intent(
                 answers.get(&id).cloned().unwrap_or_default(),
             );
         }
+    }
+    if crate::process::applies(ctx, answers)
+        && let Some(answer) = answers.get(crate::process::QUESTION)
+    {
+        intent
+            .part
+            .insert(crate::process::INTENT_KEY.into(), answer.clone());
     }
     // Questions may use suggested datums to propose dependent tolerances. Only existing or
     // answered datums belong in PMI, so do not supply question defaults here.
@@ -1323,10 +1423,18 @@ fn unasked(
     answers: &Map<String, Value>,
     qs: &[Question],
 ) -> Result<Vec<Map<String, Value>>> {
+    // A part answer the process leaves unasked lapses, as a dependent question's does.
+    let process = crate::process::current(ctx, answers);
+    let lapsed = |id: &str| {
+        id.strip_prefix("part.").is_some_and(|key| {
+            !crate::process::asks(process, key)
+                || (id == crate::process::QUESTION && !crate::process::applies(ctx, answers))
+        })
+    };
     let ids: Vec<&String> = answers
         .keys()
         .filter(|id| {
-            !(id.starts_with("part.")
+            !((id.starts_with("part.") && !lapsed(id))
                 || id.starts_with("bom.")
                 || id.starts_with(extras::PREFIX)
                 || id.starts_with('_'))
@@ -1369,6 +1477,10 @@ fn unasked(
             .and_then(|l| l.chars().next());
         let why = if let Some(letter) = letter.filter(|&l| ctx.file_datum(l).is_some()) {
             format!("is not asked: the file already states datum {letter}")
+        } else if id == crate::process::QUESTION {
+            "is not asked of a bought part".to_string()
+        } else if id.starts_with("part.") && lapsed(id) {
+            format!("is not asked when part.process is '{process}'")
         } else if let (Some(current), Some(other)) = (locating, &other)
             && asks(other, id)
         {

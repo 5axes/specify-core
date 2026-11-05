@@ -762,10 +762,17 @@ fn pmi_is_added_to_a_part_that_has_some() {
         assert!(!ids.contains(&stated), "{stated} asked again");
     }
     // What the first pass wrote is read back, its notes too (Q3); "no coating" and "no heat
-    // treatment" and an empty free-text note list write nothing, so they are offered again.
+    // treatment" and an empty free-text note list write nothing, so they are offered again;
+    // so is the unanswered process (machined, which writes nothing; docs/process.md).
     for q in ids.iter().filter(|i| i.starts_with("part.")) {
         assert!(
-            ["part.coating", "part.heat_treatment", "part.notes"].contains(q),
+            [
+                "part.coating",
+                "part.heat_treatment",
+                "part.notes",
+                "part.process"
+            ]
+            .contains(q),
             "{q}"
         );
     }
@@ -874,6 +881,8 @@ fn a_nist_part_keeps_all_its_pmi() {
         "part.notes",
         "datum.B.control",
         "datum.C.control",
+        // Appended for every made part (docs/process.md); NIST's PMI states no process.
+        "part.process",
     ];
     assert!(
         asked.iter().all(|a| allowed.contains(&a.as_str())),

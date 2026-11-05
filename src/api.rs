@@ -320,6 +320,14 @@ fn analyse_with(
                     analysis.insert("dimensioning_stated".into(), json!(stated));
                 }
             }
+            if let Ok(doc) = &doc {
+                crate::process::analysis_entries(
+                    doc,
+                    loaded.definition.product_definition,
+                    Some(&resumed.answers),
+                    &mut analysis,
+                );
+            }
             if let Some(why) = &resumed.unverified {
                 warnings.push(format!("saved answers: {why}"));
             }
@@ -338,6 +346,7 @@ fn analyse_with(
             let unreadable =
                 |e: &dyn fmt::Display| refused(&existing::ExistingError::Unreadable(e.to_string()));
             let doc = doc.map_err(|e| unreadable(&e))?;
+            let process = crate::process::read(&doc, loaded.definition.product_definition);
             let read_here;
             let definitions = match definitions {
                 Some(d) => d,
@@ -368,6 +377,7 @@ fn analyse_with(
                 serde_json::to_value(existing).map_err(|e| refused(&e))?,
             );
             analysis.insert("part".into(), Value::Object(settings));
+            crate::process::stated_entries(process, None, &mut analysis);
         }
     }
     let numbers = crate::characteristics::read(loaded).map_err(Error::Analysis)?;

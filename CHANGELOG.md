@@ -6,6 +6,25 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+### Added
+
+- How a part is made: `part.process` (`machined`, `3D printed: FDM`, `resin`, `powder`,
+  `metal`, `sheet metal`, `moulded`, `cast`), asked last of every made part, after all
+  existing questions, and never blocking a write. With no answer and no file value a part is
+  machined and every question, default and write is unchanged; the machined default is never
+  added by accepted defaults. A printing-class material suggests its printed process
+  (attention `check`). The process sets defaults only: printed parts default to a ± general
+  tolerance from vendor figures (written as a part note, as the kernel's general tolerance is an
+  ISO 2768 class), clearance holes with `heat-set insert` and `printed thread` offered
+  (written as hole notes) and ± locations, and are not asked roughness, edges or coating;
+  sheet metal, moulded and cast parts are not asked roughness. An answer such a process leaves
+  unasked is an `unasked` row (#126). Stored as the CAx-IF UDA set `specify process`
+  (`manufacturing_process`) on each product definition, with the BOM's
+  `default.manufacturing_process` marker for an accepted suggestion; read back as answered,
+  file (another tool's) or default, and a stated value is not asked. Bought parts are asked
+  no process. Shared by native/CLI, serve, Python and WASM questions, apply and write; an older
+  Specify refuses an answer file holding `part.process`. See `docs/process.md`.
+
 ### Changed
 
 - `specify-core open`'s help and the README name the prompt Chrome shows the

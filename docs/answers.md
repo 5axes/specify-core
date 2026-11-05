@@ -82,7 +82,10 @@ Dependent questions come and go: with `part.locating` `"± dimensions"` there is
 `datum.A.flatness`, `datum.B.control`/`datum.C.control`, `hole.position:*`, `hole.frame:*` or
 `diameter.runout:*`, and with `"position tolerances"` no `hole.location:*`; a full-thread
 depth is asked only of a blind tapped hole; a datum the file already states is not asked.
-Which IDs are asked is the rules' question list, the same as `questions` returns.
+`part.process` leaves some part questions unasked (a printed part's `part.surface_finish`,
+`part.edges`, `part.coating`; see [process.md](process.md)), and a bought part has no
+`part.process`: these part answers lapse in the same way. Other `part.*` answers are read
+whether or not they are asked. Which IDs are asked is the rules' question list, the same as `questions` returns.
 
 Such an answer contributes no PMI, and is **never dropped silently**. `apply` adds a
 faceless intent row `{"kind":"unasked","answer":ID,"faces":[],"not_written_reason":…}`, and

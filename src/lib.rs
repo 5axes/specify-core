@@ -27,6 +27,7 @@ pub mod part;
 pub mod pmi_origin;
 pub mod pmi_scene;
 pub mod problems;
+pub mod process;
 mod provenance;
 pub mod pyfmt;
 pub mod pyjson;

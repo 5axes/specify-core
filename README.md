@@ -290,6 +290,7 @@ that implementation wrote. The `specify-core` Python package is now this engine;
 | [crates/specify-core-py/README.md](crates/specify-core-py/README.md) | the Python package |
 | [step-diff/README.md](step-diff/README.md) | the pull request action |
 | [docs/part-notes.md](docs/part-notes.md) | part notes in the STEP file |
+| [docs/process.md](docs/process.md) | how a part is made (`part.process`) and its defaults |
 | [docs/python.md](docs/python.md) | building the Python package; compatibility with the Python implementation |
 | [docs/design.md](docs/design.md) | design and status |
 | [docs/questions.md](docs/questions.md) | decisions taken and open |

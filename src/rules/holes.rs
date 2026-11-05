@@ -141,6 +141,7 @@ pub(crate) fn hole_questions(
     answers: &Map<String, Value>,
     frames: &[String],
     planes: Option<&[Vec<i64>]>,
+    process: &str,
 ) -> Result<Vec<Question>> {
     let diameter = hole.number("diameter")?;
     let bores = bores(&target.faces, diameter, &ctx.faces)?;
@@ -167,10 +168,25 @@ pub(crate) fn hole_questions(
         options.push("clearance".to_string());
     }
     options.extend(HOLE_FITS.iter().map(|fit| format!("fit:{fit}")));
+    // A printed plastic hole is a clearance hole by default, or takes a heat-set insert or a
+    // printed thread rather than a tap.
+    if crate::process::printed_plastic(process) {
+        options.extend(choices::PRINTED_HOLES.map(String::from));
+    }
+    let printed = crate::process::clearance_holes(process);
     let exact_tap = tapped.filter(|size| {
         standards::lookup(&TAP_DRILL, size).is_some_and(|drill| (diameter - drill).abs() < 1e-6)
     });
-    let chosen = if let Some(size) = exact_tap {
+    let chosen = if printed {
+        // Where a machined part's hole would be tapped, a printed one is a clearance hole.
+        match bolts.first() {
+            Some(bolt) => format!("clearance:{bolt}"),
+            None if tapped.is_some() && options.iter().any(|o| o == "clearance") => {
+                "clearance".to_string()
+            }
+            None => GENERAL.to_string(),
+        }
+    } else if let Some(size) = exact_tap {
         // Exact tap-drill evidence wins over a smaller screw which also fits
         // through the bore. Explicit clearance answers remain available.
         format!("tapped:{size}")
@@ -181,6 +197,16 @@ pub(crate) fn hole_questions(
         GENERAL.to_string()
     };
     let mut basis = function_basis(&chosen, diameter, tapped)?;
+    if printed && chosen != GENERAL {
+        let insert = if crate::process::printed_plastic(process) {
+            "; a screw goes into a heat-set insert or a printed thread rather than a tapped one"
+        } else {
+            ""
+        };
+        basis = format!("{basis} A {process} part's hole is a clearance hole by default{insert}.")
+            .trim_start()
+            .to_string();
+    }
     let mut default = Value::from(chosen);
     let mut mate = String::new();
     if let Some(mated) = suggestion(ctx.mates, &bores)? {
@@ -535,6 +561,15 @@ pub(crate) fn hole_requirements(
             py::repr(value)
         ));
     };
+    // A heat-set insert or printed thread has no semantic PMI of its own: a note on the hole.
+    if choices::PRINTED_HOLES.contains(&value.as_str()) {
+        return Ok(vec![object([
+            ("kind", Value::from("note")),
+            ("feature", Value::from(feature.id)),
+            ("faces", Value::from(bores.to_vec())),
+            ("text", Value::from(choices::code(value))),
+        ])]);
+    }
     let (kind, spec, full) = choices::split(value);
     let d = hole.number("diameter")?;
     let mut req = object([

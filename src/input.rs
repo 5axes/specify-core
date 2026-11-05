@@ -36,7 +36,7 @@ fn bad(id: &str, why: impl Into<String>) -> Error {
 }
 
 /// The `part.*` answer names.
-const PART_NAMES: [&str; 8] = [
+const PART_NAMES: [&str; 9] = [
     "material",
     "general_tolerance",
     "locating",
@@ -45,6 +45,7 @@ const PART_NAMES: [&str; 8] = [
     "heat_treatment",
     "edges",
     "notes",
+    "process",
 ];
 /// The kinds of feature-scoped answer IDs (`kind:feature`).
 const FEATURE_KINDS: [&str; 7] = [
@@ -118,6 +119,13 @@ pub fn answers_shape(answers: &Map<String, Value>) -> Result<(), Error> {
                     .is_some_and(|v| v.iter().all(Value::is_string))
                 {
                     return Err(invalid("an answer must be a list of text notes"));
+                }
+            } else if name == "process" {
+                if !value
+                    .as_str()
+                    .is_some_and(|v| crate::process::PROCESSES.contains(&v))
+                {
+                    return Err(invalid("not a process"));
                 }
             } else if !matches!(name, "material" | "coating" | "heat_treatment")
                 && !value.is_string()
