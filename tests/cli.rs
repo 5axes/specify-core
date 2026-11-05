@@ -1322,48 +1322,14 @@ fn command_lines(dir: &Path) -> Vec<Difference> {
         let ran = run(&args);
         let scrub = |t: &str| t.replace(&tmp_s, "{tmp}");
         let (stdout, stderr) = (scrub(&ran.stdout), scrub(&ran.stderr));
-        // For #79: these three exact Python usage captures differ only by the
-        // documented opt-in flag and the PMI-only default wording. Keep every
-        // other byte (including argument errors) under an exact assertion.
-        // Export adds exactly two questions flags; keep all other usage/help bytes exact.
-        let export_usage = |python: &str| {
-            assert!(python.contains(
-                "usage: specify-core questions [-h] [--answers ANSWERS] [--open] analysis"
-            ));
-            python.replace("[--open] analysis", "[--open]\n                              [--resolve-defaults --step STEP] analysis")
-                // As argparse does, the longer flag widens every option row by one column.
-                .replace("  -h, --help         show", "  -h, --help          show")
-                .replace("  --answers ANSWERS  answers", "  --answers ANSWERS   answers")
-                .replace("  --open             only unanswered questions\n", "  --open              only unanswered questions\n  --resolve-defaults  export complete answers with defaults and face evidence as JSON\n  --step STEP         matching STEP part for export (required with --resolve-defaults)\n")
-        };
-        let bom_usage = |python: &str| {
-            assert!(python.contains("[--accept-defaults] [--intent INTENT]"));
-            python.replace("[--accept-defaults] [--intent INTENT]", "[--accept-defaults] [--bom] [--intent INTENT]")
-                .replace("  --accept-defaults    take defaults for the rest\n", "  --accept-defaults    take PMI defaults for the rest\n  --bom                explicitly accept optional BOM suggestions\n")
-        };
-        match name.as_str() {
-            "cli/usage/08 questions" => {
-                assert_eq!(stderr, export_usage(r["stderr"].as_str().unwrap()))
-            }
-            "cli/usage/20 questions -h" => {
-                assert_eq!(stdout, export_usage(r["stdout"].as_str().unwrap()))
-            }
-            "cli/usage/09 write tests/fixtures/parts/plate.step"
-            | "cli/usage/15 write tests/fixtures/parts/plate.step a b -o {tmp}/o.step --intent" => {
-                assert_eq!(
-                    stderr,
-                    bom_usage(r["stderr"].as_str().unwrap()),
-                    "{name}: only BOM usage may differ"
-                );
-            }
-            "cli/usage/21 write -h" => {
-                assert_eq!(
-                    stdout,
-                    bom_usage(r["stdout"].as_str().unwrap()),
-                    "{name}: only BOM help may differ"
-                );
-            }
-            _ => {}
+        // Python specify-core is retired and the command line is parsed by clap, so help and
+        // usage errors are clap's text, not argparse's: the captures' stdout and stderr differ
+        // (explained by `cli/usage/*` in known_differences/cli.json). What matters is checked
+        // here instead: the exit code (compared with Python's below, as for every run), a usage
+        // error's message on stderr naming the argument at fault with nothing on stdout, and
+        // help on stdout.
+        if let Some(rest) = name.strip_prefix("cli/usage/") {
+            usage_or_help(rest, r["exit"].as_i64().unwrap(), &stdout, &stderr);
         }
 
         out.extend(same_text(
@@ -1902,12 +1868,15 @@ fn exit_codes_say_what_happened() {
     );
     assert_eq!(ran.stdout, "");
 
+    // Help and usage errors are clap's (Python specify-core is retired): exit 2 and the
+    // message, not argparse's `specify-core: error:` line.
     let ran = run(&["write", &s(&plate), &s(&a), "-o", &s(&dir.join("o.step"))]);
     assert_eq!(ran.code, 2);
     assert!(
-        ran.stderr.ends_with(
-            "specify-core: error: write takes an analysis and its answers for each part\n"
-        )
+        ran.stderr
+            .starts_with("error: write takes an analysis and its answers for each part\n"),
+        "{}",
+        ran.stderr
     );
 
     let ran = run(&["analyse", &s(&part("assembly")), "-o", &s(&a)]);
@@ -1919,76 +1888,219 @@ fn exit_codes_say_what_happened() {
 
     let ran = run(&["analyse", &s(&plate)]);
     assert_eq!(ran.code, 2);
-    assert_eq!(
-        ran.stderr,
-        "usage: specify-core analyse [-h] -o OUTPUT [--part PART] step\nspecify-core analyse: error: the following arguments are required: -o/--output\n"
+    assert_eq!(ran.stdout, "");
+    assert!(
+        ran.stderr.starts_with(
+            "error: the following required arguments were not provided:\n  --output <OUTPUT>\n"
+        ),
+        "{}",
+        ran.stderr
     );
 
     let ran = run(&["parts", "-h"]);
     assert_eq!(ran.code, 0);
     assert!(
         ran.stdout
-            .starts_with("usage: specify-core parts [-h] step\n")
+            .starts_with("list an assembly's parts\n\nUsage: specify-core parts <STEP>\n"),
+        "{}",
+        ran.stdout
     );
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// What a usage capture (`cli/usage/NN args`) must show under clap: exit 2 with stdout empty
+/// and stderr naming what is missing, unknown or invalid; or help (exit 0) on stdout.
+fn usage_or_help(case: &str, exit: i64, stdout: &str, stderr: &str) {
+    let named: &[&str] = match &case[..2] {
+        // No command: the commands are listed.
+        "00" => &["Usage: specify-core <COMMAND>", "parts", "write"],
+        "01" => &["unrecognized subcommand 'bogus'"],
+        "02" | "06" => &["required arguments were not provided", "--output", "<STEP>"],
+        "03" => &["required arguments were not provided", "--output"],
+        "04" => &["a value is required for '--output <OUTPUT>'"],
+        "05" => &["invalid value 'q' for '--part <PART>'"],
+        "07" => &["required arguments were not provided", "<STEP>"],
+        "08" => &["required arguments were not provided", "<ANALYSIS>"],
+        "09" => &[
+            "required arguments were not provided",
+            "<ANALYSIS ANSWERS>",
+            "--output",
+        ],
+        "10" | "11" => &["error: write takes an analysis and its answers for each part"],
+        "12" => &["unexpected argument 'extra'"],
+        "13" => &["unexpected argument 'z'"],
+        "14" => &["unexpected argument '--bogus'"],
+        "15" => &["a value is required for '--intent <INTENT>'"],
+        _ => &[],
+    };
+    if exit == 2 {
+        assert_eq!(stdout, "", "{case}: a usage error prints nothing on stdout");
+        assert!(
+            !named.is_empty(),
+            "{case}: no expectation for this usage error"
+        );
+        for text in named {
+            assert!(stderr.contains(text), "{case}: {text:?} not in {stderr}");
+        }
+    } else {
+        assert_eq!((exit, stderr), (0, ""), "{case}");
+        let command = case[3..].split(' ').find(|a| !a.starts_with('-'));
+        let usage = match command {
+            Some(c) => format!("Usage: specify-core {c}"),
+            None => "Usage: specify-core <COMMAND>".to_string(),
+        };
+        assert!(stdout.contains(&usage), "{case}: {stdout}");
+        assert!(stdout.contains("-h, --help"), "{case}: {stdout}");
+    }
+}
+
+/// Parsing corners no captured case covers, each with the exit code and a text stderr must
+/// hold. These pinned argparse's wording until the port to clap (Python specify-core is
+/// retired; help and usage errors are clap's): the usage errors keep exit 2 and name the
+/// argument at fault.
+#[test]
+fn arguments_are_parsed_as_clap_parses_them() {
+    let dir = scratch("argparse");
+    let pin = "tests/fixtures/parts/pin.step";
+    let mesh = s(&dir.join("m.json"));
+    let cases: &[(&[&str], i32, &str)] = &[
+        // Unknown options with non-ASCII characters (an en dash, a non-ASCII letter).
+        (
+            &["analyse", pin, "-\u{2013}output", "x.json"],
+            2,
+            "error: unexpected argument '-\u{2013}' found",
+        ),
+        (
+            &["analyse", "-\u{e9}"],
+            2,
+            "error: unexpected argument '-\u{e9}' found",
+        ),
+        // A flag takes no value.
+        (
+            &["write", "a", "b", "c", "--accept-defaults=1", "-o", "x"],
+            2,
+            "error: unexpected value '1' for '--accept-defaults' found; no more were expected",
+        ),
+        // Pairs given after `--` are still counted: an odd number is refused.
+        (
+            &["write", "S", "-o", "OUT", "a", "b", "--", "c"],
+            2,
+            "error: write takes an analysis and its answers for each part",
+        ),
+        // Positionals continue after an option (argparse left `c d` unrecognised here, a
+        // run at a time): the pairs are `a b c d`, so the first analysis is read and found
+        // missing.
+        (
+            &["write", "S", "a", "b", "-o", "OUT", "c", "d"],
+            1,
+            "error: a: ",
+        ),
+        // The last value of a repeated option wins, as argparse's `store` does.
+        (
+            &["analyse", pin, "-o", "x", "-o", "y", "--part", "z"],
+            2,
+            "error: invalid value 'z' for '--part <PART>'",
+        ),
+    ];
+    for (args, code, text) in cases {
+        let got = run(args);
+        assert_eq!(got.code, *code, "{args:?}: {}", got.stderr);
+        assert!(got.stderr.contains(text), "{args:?}: {}", got.stderr);
+    }
+    // `-o=VALUE` is `-o VALUE`, a long option may be shortened to a prefix only it has, and a
+    // repeated option's last value is the one used.
+    let got = run(&["mesh", pin, &format!("-o={mesh}")]);
+    assert_eq!(got.code, 0, "{}", got.stderr);
+    assert!(dir.join("m.json").is_file());
+    let first = s(&dir.join("first.json"));
+    let last = s(&dir.join("last.json"));
+    let got = run(&[
+        "mesh",
+        pin,
+        "--out",
+        &first,
+        "--pa",
+        "0",
+        &format!("--output={last}"),
+    ]);
+    assert_eq!(got.code, 0, "{}", got.stderr);
+    assert!(dir.join("last.json").is_file() && !dir.join("first.json").exists());
+    // `--part` takes a negative number, refused when the file is read (exit 1, as Python).
+    let got = run(&["mesh", pin, "-o", &mesh, "--part", "-1"]);
+    assert_eq!(got.code, 1, "{}", got.stderr);
+    assert!(got.stderr.contains("there is no part -1"), "{}", got.stderr);
+}
+
+/// `-h` gives help on stdout (exit 0) for every command, and `completions` a script that
+/// names the program for each shell.
+#[test]
+fn every_command_has_help_and_completions_are_printed() {
+    for command in [
+        "parts",
+        "analyse",
+        "serve",
+        "mesh",
+        "questions",
+        "write",
+        "diff",
+        "open",
+        "bom",
+        "completions",
+    ] {
+        for flag in ["-h", "--help"] {
+            let got = run(&[command, flag]);
+            assert_eq!((got.code, got.stderr.as_str()), (0, ""), "{command} {flag}");
+            assert!(
+                got.stdout
+                    .contains(&format!("Usage: specify-core {command}")),
+                "{command} {flag}: {}",
+                got.stdout
+            );
+        }
+    }
+    let got = run(&["-h"]);
+    assert_eq!(got.code, 0);
+    for command in ["parts", "write", "diff", "open", "bom", "completions"] {
+        assert!(
+            got.stdout.contains(&format!("  {command} ")),
+            "{}",
+            got.stdout
+        );
+    }
+    for shell in ["bash", "zsh", "fish", "powershell", "elvish"] {
+        let got = run(&["completions", shell]);
+        assert_eq!((got.code, got.stderr.as_str()), (0, ""), "{shell}");
+        assert!(got.stdout.contains("specify-core"), "{shell}");
+        assert!(got.stdout.contains("resolve-defaults"), "{shell}");
+    }
+    // Every subcommand bash selects has its case in the script (clap_complete's names for them
+    // disagree for a program name with a `-`; src/cli.rs mends them).
+    let bash = run(&["completions", "bash"]).stdout;
+    let selected: BTreeSet<&str> = bash
+        .lines()
+        .filter_map(|l| l.trim().strip_prefix("cmd=\""))
+        .filter_map(|l| l.strip_suffix('"'))
+        .filter(|cmd| !cmd.is_empty())
+        .collect();
+    assert!(selected.len() > 10, "{selected:?}");
+    for cmd in selected {
+        assert!(
+            bash.contains(&format!("\n        {cmd})\n")),
+            "no case for {cmd}"
+        );
+    }
+    let got = run(&["completions", "tcsh"]);
+    assert_eq!(got.code, 2);
+    assert!(
+        got.stderr.contains("invalid value 'tcsh'"),
+        "{}",
+        got.stderr
+    );
 }
 
 /// Non-ASCII is escaped in the files (as Python's `json.dumps` writes them) and kept on stdout
 /// (Python's `ensure_ascii=False`): the plate's interpret call-out has `×` and `⌀`, and the
 /// questions' prompts and the intent's general tolerance have `±`.
-/// argparse corners no captured case covers, each with the exit code and last stderr line
-/// Python 3.14's argparse gives (checked by hand against the venv's `specify_core.cli`).
-#[test]
-fn arguments_are_parsed_as_argparse_parses_them() {
-    let dir = scratch("argparse");
-    let pin = "tests/fixtures/parts/pin.step";
-    let mesh = s(&dir.join("m.json"));
-    let cases: &[(&[&str], i32, &str)] = &[
-        // A short option is its first two characters, not bytes (an en dash, a non-ASCII letter).
-        (
-            &["analyse", pin, "-\u{2013}output", "x.json"],
-            2,
-            "specify-core analyse: error: the following arguments are required: -o/--output",
-        ),
-        (
-            &["analyse", "-\u{e9}"],
-            2,
-            "specify-core analyse: error: the following arguments are required: step, -o/--output",
-        ),
-        // A value given to a flag is quoted as Python's repr quotes it.
-        (
-            &["write", "a", "b", "c", "--accept-defaults=1", "-o", "x"],
-            2,
-            "specify-core write: error: argument --accept-defaults: ignored explicit argument '1'",
-        ),
-        // Positionals are matched a run at a time between options.
-        (
-            &["write", "S", "a", "b", "-o", "OUT", "c", "d"],
-            2,
-            "specify-core: error: unrecognized arguments: c d",
-        ),
-        (
-            &["write", "S", "a", "-o", "OUT", "b"],
-            2,
-            "specify-core: error: unrecognized arguments: b",
-        ),
-        (
-            &["write", "S", "-o", "OUT", "a", "b", "--", "c"],
-            2,
-            "specify-core: error: write takes an analysis and its answers for each part",
-        ),
-    ];
-    for (args, code, last) in cases {
-        let got = run(args);
-        assert_eq!(got.code, *code, "{args:?}: {}", got.stderr);
-        assert_eq!(got.stderr.lines().last(), Some(*last), "{args:?}");
-    }
-    // `-o=VALUE` is `-o VALUE`, as argparse splits a short option at `=`.
-    let got = run(&["mesh", pin, &format!("-o={mesh}")]);
-    assert_eq!(got.code, 0, "{}", got.stderr);
-    assert!(dir.join("m.json").is_file());
-}
-
 #[test]
 fn files_escape_non_ascii_and_stdout_keeps_it() {
     let dir = scratch("ascii");

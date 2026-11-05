@@ -152,7 +152,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 - **BOM opt-in flag in exact CLI usage and help captures** (3 entries, 3 case globs)
 
-  The evidence is stated per entry (3 distinct; all in `cli.json`). The first, for `cli/usage/09 write tests/fixtures/parts/plate.step` at `stderr`: For #79, compared the archived Python CLI capture with the current command: the usage adds [--bom]; write help also adds its explicit optional-BOM description and clarifies that --accept-defaults accepts PMI defaults. tests/cli.rs::command_lines asserts this exact transformation for this individual capture before consulting the ledger: every other byte, argument-error wording and exit code remains checked. No datum-origin snapshot or other oracle value is changed. tests/bom_opt_in.rs verifies ordinary writes against main 8d5a040 with and without default acceptance. In this capture, missing ANALYSIS ANSWERS and -o/--output still produce exactly the Python argument error.
+  The evidence is stated per entry (3 distinct; all in `cli.json`). The first, for `cli/usage/09 write tests/fixtures/parts/plate.step` at `stderr`: For #79, compared the archived Python CLI capture with the current command: the usage adds [--bom]; write help also adds its explicit optional-BOM description and clarifies that --accept-defaults accepts PMI defaults. tests/cli.rs::command_lines asserts this exact transformation for this individual capture before consulting the ledger: every other byte, argument-error wording and exit code remains checked. No datum-origin snapshot or other oracle value is changed. tests/bom_opt_in.rs verifies ordinary writes against main 8d5a040 with and without default acceptance. In this capture, missing ANALYSIS ANSWERS and -o/--output still produce exactly the Python argument error. Since the port to clap (Python specify-core is retired; help and usage errors are clap's) this capture's text is clap's: the exact transformation assertion was retired with it and tests/cli.rs::usage_or_help checks the exit code and the argument named instead (see the cli/usage/\* entry).
 
 - **Exact tap-drill defaults and dependent question order** (13 entries, 3 case globs)
 
@@ -160,7 +160,11 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 - **Complete answer export flags in questions usage and help** (2 entries, 2 case globs)
 
-  questions now exports complete evidence-bearing sidecars with --resolve-defaults --step STEP. tests/cli.rs::command_lines asserts the exact usage/help transformation for this individual capture; every other byte and exit code stays checked. No oracle payload or existing known-difference entry changes.
+  questions now exports complete evidence-bearing sidecars with --resolve-defaults --step STEP. tests/cli.rs::command_lines asserts the exact usage/help transformation for this individual capture; every other byte and exit code stays checked. No oracle payload or existing known-difference entry changes. Since the port to clap (Python specify-core is retired; help and usage errors are clap's) this capture's text is clap's: the exact transformation assertion was retired with it and tests/cli.rs::usage_or_help checks the exit code and the argument named instead (see the cli/usage/\* entry).
+
+- **clap help and usage errors** (2 entries, 1 case glob)
+
+  The command line is parsed by clap since the port from the hand-written argparse-style parser (Python specify-core is retired; help and usage errors are clap's): help is clap's layout and a usage error is clap's 'error: ...' message with its usage line, not argparse's text. tests/cli.rs::usage_or_help checks every usage capture instead: the exit code equals Python's (0 for help, 2 for a usage error; compared for every run), a usage error prints nothing on stdout and names on stderr the argument missing, unknown or invalid, and help is on stdout. Real outputs, refusals and their exit codes are unaffected.
 
 - **how a part is made (part.process) is asked last** (2 entries, 2 case globs)
 

@@ -106,6 +106,15 @@ fetch the file from 127.0.0.1, and is remembered. If the file did not open while
 was up, stop the command (Ctrl-C) and run it again. If you chose Block, allow it again in
 draftwright.io's site settings.
 
+**Shell completion.** `specify-core completions SHELL` prints a completion script for `bash`,
+`zsh`, `fish`, `powershell` or `elvish`:
+
+```sh
+specify-core completions bash > ~/.local/share/bash-completion/completions/specify-core
+specify-core completions zsh > "${fpath[1]}/_specify-core"    # then restart zsh
+specify-core completions fish > ~/.config/fish/completions/specify-core.fish
+```
+
 ### Python
 
 ```python

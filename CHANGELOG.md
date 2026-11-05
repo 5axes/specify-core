@@ -24,9 +24,18 @@ All notable changes to specify-core-rust. The format follows
   file (another tool's) or default, and a stated value is not asked. Bought parts are asked
   no process. Shared by native/CLI, serve, Python and WASM questions, apply and write; an older
   Specify refuses an answer file holding `part.process`. See `docs/process.md`.
+- `specify-core completions SHELL` prints a shell completion script (bash, zsh, fish,
+  powershell or elvish) to stdout; the README gives the install one-liners.
 
 ### Changed
 
+- The command line is parsed by clap instead of a hand-written argparse-style parser. Commands,
+  arguments, defaults and exit codes are unchanged (usage errors still exit 2), but help and
+  usage errors are clap's text rather than argparse's, and `-h` and `--help` both give a
+  command's full help. The top-level help now lists `diff`, `open` and `bom`, which were left
+  out to match Python's text. Positionals may follow an option: `write S A B -o OUT C D` writes
+  both pairs, where argparse left `C D` unrecognised. The WASM build leaves the command line
+  out (the root crate's default `cli` feature, off for `specify-core-wasm`).
 - `specify-core open`'s help and the README name the prompt Chrome shows the
   first time ("draftwright.io wants to access other apps and services on this device"): Allow
   lets the page fetch the file; if it did not open while the prompt was up, stop the command
