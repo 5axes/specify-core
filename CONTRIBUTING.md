@@ -2,14 +2,18 @@
 
 Contributions are welcome: bug reports, fixes, features and documentation.
 
-Before review, run what CI runs (the corpus is [pzfreo/quiddity-corpus](https://github.com/pzfreo/quiddity-corpus); point
-`QUIDDITY_CORPUS` and `SPECIFY_CORPUS` at its checkout):
+Before review, run CI's main checks. The corpus is [pzfreo/quiddity-corpus](https://github.com/pzfreo/quiddity-corpus)
+at the revision `.github/workflows/ci.yml` pins; point `QUIDDITY_CORPUS` and `SPECIFY_CORPUS` at its checkout:
 
 ```sh
 cargo fmt --all --check
 cargo clippy --workspace --all-targets --release -- -D warnings
 QUIDDITY_CORPUS_REQUIRED=1 cargo test --workspace --release --locked
 ```
+
+A change to the WASM API also needs its `api.d.ts` snapshot and a CHANGELOG `### WASM API` entry
+(`python3 tools/check_wasm_api.py --base-ref origin/main`). CI's `wasm` job runs that and the size and
+parity checks; `.github/workflows/ci.yml` lists every step.
 
 A change that alters a recorded expectation (fixtures, oracle departures, known differences)
 says why for each change. Don't weaken a test to make it pass.
@@ -27,4 +31,4 @@ Signed-off-by: Your Name <you@example.com>
 ```
 
 A check on pull requests from forks confirms every commit is signed off. To sign off commits
-already made, `git rebase --signoff main` and force-push the branch.
+already made, `git fetch upstream && git rebase --signoff upstream/main` (with `upstream` this repository) and force-push the branch.
