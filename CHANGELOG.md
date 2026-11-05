@@ -6,6 +6,8 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+## 0.1.11 (2026-11-05)
+
 ### Fixed
 
 - The BOM `stock` proposal follows make/buy: bought parts (such as the gramil grub screw,
