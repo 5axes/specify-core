@@ -395,8 +395,11 @@ pub(crate) fn read_rows(
         if row.make_buy.value.is_null() {
             row.make_buy = field(guessed(&def.name).0, "default");
         }
-        if row.stock.value.is_null() {
-            row.stock = field(stock_for(&row.make_buy.value), "default");
+        // A defaulted stock, including one accepted before stock followed make/buy, is
+        // re-proposed from make/buy; an unknown make/buy leaves it as it is.
+        let proposed = stock_for(&row.make_buy.value);
+        if row.stock.source == "default" && (row.stock.value.is_null() || !proposed.is_null()) {
+            row.stock = field(proposed, "default");
         }
         if row.description.value.is_null() {
             row.description = field(def.name.clone(), "default");
@@ -1320,6 +1323,54 @@ mod tests {
             allocate(&mut h, &["renamed".into()], &[changed], &[None]).unwrap(),
             [1]
         );
+    }
+    #[test]
+    fn a_defaulted_stock_follows_make_buy_and_not_known_proposes_none() {
+        let f = File::read(
+            &Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/parts/assembly.step"),
+        )
+        .unwrap();
+        let doc = Document::parse(f.bytes().as_ref().clone()).unwrap();
+        let mut edit = Edit::new();
+        // Part 0: a "to be made" suggestion accepted before stock followed make/buy.
+        let owner = occurrences(&doc, f.definitions()[0].product_definition)[0];
+        uda(
+            &mut edit,
+            owner,
+            PROPERTY,
+            &Map::from_iter([
+                ("make_buy".into(), json!("bought")),
+                ("stock".into(), json!("to be made")),
+                ("default.stock".into(), json!(true)),
+            ]),
+        );
+        // Part 1: make/buy not known in the file.
+        uda(
+            &mut edit,
+            f.definitions()[1].shape,
+            "Exporter",
+            &Map::from_iter([("Make-Buy".into(), json!("not known"))]),
+        );
+        let rows = read_bytes(doc.apply(&edit).unwrap().bytes).unwrap();
+        assert_eq!(rows[0].make_buy, field("bought", "answered"));
+        assert_eq!(rows[0].stock, field("from stock", "default"));
+        assert_eq!(rows[1].make_buy, field("not known", "file"));
+        assert_eq!(rows[1].stock, field(Value::Null, "default"));
+    }
+    #[test]
+    fn a_pocketed_screw_proposed_made_is_proposed_to_be_made() {
+        let analysis = json!({
+            "bom": {
+                "name": {"value": "Grub screw M4x5", "source": "file"},
+                "make_buy": {"value": "bought", "source": "default"},
+                "stock": {"value": "from stock", "source": "default"},
+            },
+            "features": [{"family": "pockets"}],
+        });
+        let qs = questions(analysis.as_object().unwrap());
+        let suggestion = |id: &str| qs.iter().find(|q| q.id == id).unwrap().suggestions.clone();
+        assert_eq!(suggestion("bom.make_buy"), [json!("made")]);
+        assert_eq!(suggestion("bom.stock"), [json!("to be made")]);
     }
     #[test]
     fn foreign_keys_ignore_case_and_invalid_values() {
