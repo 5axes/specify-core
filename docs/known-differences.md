@@ -13,7 +13,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 |---|---:|---:|---:|---:|---:|---:|---:|
 | [analysis](#analysis) | 5 | 0 | 0 | 0 | 0 | 0 | 5 |
 | [anchors](#anchors) | 4 | 0 | 2 | 1 | 2 | 0 | 9 |
-| [cli](#cli) | 264 | 0 | 52 | 0 | 2 | 1 | 319 |
+| [cli](#cli) | 266 | 0 | 52 | 0 | 2 | 1 | 321 |
 | [cross_engine](#cross_engine) | 54 | 2 | 0 | 1 | 1 | 20 | 78 |
 | [existing](#existing) | 31 | 0 | 0 | 0 | 7 | 0 | 38 |
 | [features](#features) | 3459 | 1415 | 543 | 2481 | 1066 | 1880 | 10844 |
@@ -22,7 +22,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 0 | 40 |
 | [rules](#rules) | 114 | 0 | 615 | 0 | 0 | 0 | 729 |
 | [writer](#writer) | 1091 | 0 | 0 | 0 | 15 | 0 | 1106 |
-| **all** | 5028 | 1434 | 1221 | 2487 | 1101 | 1901 | 13172 |
+| **all** | 5030 | 1434 | 1221 | 2487 | 1101 | 1901 | 13174 |
 
 ## analysis
 
@@ -76,7 +76,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## cli
 
-### cli: rust-correct (264 entries)
+### cli: rust-correct (266 entries)
 
 - **Combined ISO 2768 class choices in CLI and serve** (36 entries, 3 case globs)
 
