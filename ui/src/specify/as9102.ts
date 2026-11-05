@@ -3,15 +3,17 @@
 // with its requirement and an empty result). Every requirement comes from the part's PMI, not
 // read off a drawing; what the part doesn't say (serial number, report number, supplier, the
 // results) is left for the inspector.
-import type { Sheet } from '../model/xlsx.ts';
+import type { Cell, Sheet } from '../model/xlsx.ts';
 import { type Characteristic, inspectKey } from './characteristics.ts';
 
 const round = (v: number) => Number(v.toFixed(6));
 
 /** A characteristic's limits, where a nominal and its deviations give them: "7.95–8.05". */
 function limits(c: Characteristic): string {
-  if (c.basic || c.nominal === null || c.upper === null || c.lower === null) return '';
-  return `${round(c.nominal + c.lower)}–${round(c.nominal + c.upper)}`;
+  if (c.basic || c.nominal === null || c.upper === null) return '';
+  // A lower deviation not given is the upper's, below: ±upper (characteristics.ts's limits).
+  const lower = c.lower ?? -c.upper;
+  return `${round(c.nominal + lower)}–${round(c.nominal + c.upper)}`;
 }
 
 export interface FaiPart { name: string; number?: string; revision?: string; drawing?: string }
@@ -20,6 +22,11 @@ export interface FaiPart { name: string; number?: string; revision?: string; dra
 export function as9102(part: FaiPart, rows: readonly Characteristic[], skipped: ReadonlySet<string>,
   notes: readonly { key: string; text: string }[]): Sheet[] {
   const listed = rows.filter((r) => !skipped.has(inspectKey(r)));
+  // Each form repeats the part it is about, as AS9102's do.
+  const heading = (width: number): Cell[][] => [
+    ['Part Number', part.number ?? '', 'Part Name', part.name, ...Array(Math.max(0, width - 4)).fill('')],
+    ['Serial Number', '', 'FAI Report Number', '', ...Array(Math.max(0, width - 4)).fill('')],
+  ];
   const form1: Sheet = {
     name: 'Form 1', header: 1, widths: [42, 48],
     rows: [
@@ -33,9 +40,10 @@ export function as9102(part: FaiPart, rows: readonly Characteristic[], skipped: 
     ],
   };
   const form2: Sheet = {
-    name: 'Form 2', header: 2, widths: [44, 26, 12, 22, 22, 22],
+    name: 'Form 2', header: 4, widths: [44, 26, 22, 22, 22, 22],
     rows: [
       ['Form 2: Product Accountability — Raw Material, Specifications and Special Processes, Functional Testing', '', '', '', '', ''],
+      ...heading(6),
       ['Material or Process Name', 'Specification Number', 'Code', 'Special Process Supplier Code', 'Customer Approval Verification', 'Certificate of Conformance Number'],
       // The part's material, finish and treatments as its notes state them; their specifications,
       // where a note names one, are in the name for the inspector to place.
@@ -43,12 +51,15 @@ export function as9102(part: FaiPart, rows: readonly Characteristic[], skipped: 
       // tolerance are requirements, on Form 3.
       ...notes.filter((n) => ['part:material', 'part:coating', 'part:heat_treatment'].includes(n.key))
         .map((n) => [n.text, '', '', '', '', '']),
+      ['', '', '', '', '', ''],
+      ['Functional Test Procedure Number', 'Acceptance Report Number', '', '', '', ''],
     ],
   };
   const form3: Sheet = {
-    name: 'Form 3', header: 2, widths: [9, 30, 14, 34, 16, 16, 16, 30],
+    name: 'Form 3', header: 4, widths: [16, 30, 18, 34, 16, 16, 16, 30],
     rows: [
       ['Form 3: Characteristic Accountability, Verification and Compatibility Evaluation', '', '', '', '', '', '', ''],
+      ...heading(8),
       ['Char. No.', 'Reference Location', 'Characteristic Designator', 'Requirement', 'Results', 'Designed / Qualified Tooling', 'Nonconformance Number', 'Limits / Comments'],
       ...listed.map((c) => [c.id, c.feature, '', c.text, '', '', '', [limits(c), c.datums ? `datums ${c.datums.split('|').join(' ')}` : '', c.basic ? 'basic' : ''].filter(Boolean).join('; ')]),
     ],

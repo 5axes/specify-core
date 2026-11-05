@@ -6,7 +6,7 @@ export interface Sheet { name: string; rows: readonly (readonly Cell[])[]; width
 
 const xml = (text: string) => text.replace(/[<>&"]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' })[c]!)
   // Characters XML 1.0 can't hold.
-  .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '');
+  .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\ufffe\uffff]/g, '');
 const column = (i: number): string => (i >= 26 ? column(Math.floor(i / 26) - 1) : '') + String.fromCharCode(65 + (i % 26));
 
 function sheetXml(sheet: Sheet): string {
