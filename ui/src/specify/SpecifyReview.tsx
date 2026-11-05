@@ -12,6 +12,8 @@ import { datumChips, freeLetter, removal } from './datums';
 import { drawnShown, drawnViews, hasFileGraphics, partCentre, type DrawnPmi } from './drawn';
 import { optionHint } from './hints';
 import { balloonsBySource, type Characteristic, characteristics, noteStatements, ranges, toCsv } from './characteristics';
+import { as9102 } from './as9102';
+import { xlsx } from '../model/xlsx';
 import { CharacteristicsTable, ExtraEditor, PurposeChoice, SpecBox, SuggestBox, SuggestionCard, TOLERANCE_PICKS, type ExtraDraft } from './inputs';
 import type { PmiLabel } from './labels';
 import type { Picker } from './picker';
@@ -647,6 +649,14 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     saveFile(new File([toCsv(csvRows.current.chars, csvRows.current.skipped)], `${stem}-characteristics.csv`, { type: 'text/csv' }));
     onSaved?.(`${stem}-characteristics.csv`);
   });
+  // The same list as AS9102's Forms 1–3, for a first article inspection report.
+  const faiNotes = useRef(noteStatements(preview, session.analysis)); faiNotes.current = noteStatements(preview, session.analysis);
+  const downloadFai = () => onExport(() => {
+    const stem = session.filename.replace(/\.(step|stp|p21)$/i, '');
+    const book = xlsx(as9102({ name: stem }, csvRows.current.chars, csvRows.current.skipped, faiNotes.current));
+    saveFile(new File([book as BlobPart], `${stem}-AS9102.xlsx`, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+    onSaved?.(`${stem}-AS9102.xlsx`);
+  });
 
   // A row: its head and summary, a check to confirm, and when open its questions.
   const questionItem = (q: PmiQuestion, g: QuestionGroup, titled = true) => (
@@ -1022,10 +1032,14 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
         ? <PartField key={`${q.id}:${JSON.stringify(answers[q.id])}`} q={q} answers={answers} error={errorAt(q.id)} onAnswer={(value) => answer(q, value)} />
         : questionItem(q, g, false)}</div>, slots.question);
     })()}
-    {slots.exports && createPortal(
+    {slots.exports && createPortal(<>
       <button type="button" onClick={downloadCsv} disabled={!chars.length} title="Every dimension and tolerance, numbered, with its nominal and limits">
         {gated ? 'Inspection list (CSV) · Sign in' : 'Inspection list (CSV)'}
-      </button>, slots.exports)}
+      </button>
+      <button type="button" onClick={downloadFai} disabled={!chars.length} title="AS9102 first article inspection Forms 1–3 as an Excel workbook: the part, its materials and processes, and each characteristic with its requirement, for the results">
+        {gated ? 'AS9102 FAI (Excel) · Sign in' : 'AS9102 FAI (Excel)'}
+      </button>
+    </>, slots.exports)}
   </>);
 }
 
