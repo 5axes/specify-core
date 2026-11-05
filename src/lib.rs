@@ -10,7 +10,7 @@ pub mod api;
 pub mod carried;
 pub mod characteristics;
 pub mod choices;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(feature = "cli", not(target_arch = "wasm32")))]
 pub mod cli;
 pub mod existing;
 pub mod extras;

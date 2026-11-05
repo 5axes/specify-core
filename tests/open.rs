@@ -576,7 +576,8 @@ fn a_name_the_editor_would_not_open_or_a_bad_site_is_refused_up_front() {
     assert!(
         String::from_utf8(help.stdout)
             .unwrap()
-            .starts_with("usage: specify-core open")
+            // clap's help (Python specify-core is retired): the paragraph, then the usage.
+            .starts_with("Open a STEP file in draftwright.io/specify in your browser")
     );
     let _ = std::fs::remove_dir_all(&dir);
 }

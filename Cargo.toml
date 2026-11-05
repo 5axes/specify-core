@@ -14,8 +14,18 @@ repository = "https://github.com/pzfreo/specify-core"
 [[bin]]
 name = "specify-core"
 path = "src/main.rs"
+required-features = ["cli"]
+
+[features]
+default = ["cli"]
+# The command line (src/cli.rs, the binary and the Python console script). The WASM build
+# turns it off so clap stays out of the browser bundle.
+cli = ["dep:clap", "dep:clap_complete"]
 
 [dependencies]
+# The command line's parser, and its shell completion scripts (`specify-core completions`).
+clap = { version = "4.6.1", features = ["derive"], optional = true }
+clap_complete = { version = "4.6", optional = true }
 # pzfreo/quiddity: feature recognition (quiddity) and the geometry kernel with STEP import and
 # AP242 semantic PMI (haecceity). Both use tagged v0.4.7.
 # See docs/design.md, "Dependency plan".
