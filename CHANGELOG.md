@@ -8,9 +8,10 @@ All notable changes to specify-core-rust. The format follows
 
 ### Changed
 
-- `specify-core open`'s help and the README name Chrome's one-time prompt ("draftwright.io
-  wants to access other apps and services on this device"): Allow lets the page fetch the
-  file, and if it did not open while the prompt was up, running the command again opens it.
+- `specify-core open`'s help and the README name the prompt Chrome shows the
+  first time ("draftwright.io wants to access other apps and services on this device"): Allow
+  lets the page fetch the file; if it did not open while the prompt was up, stop the command
+  and run it again; a Block is undone in draftwright.io's site settings.
 
 ## 0.1.11 (2026-11-05)
 

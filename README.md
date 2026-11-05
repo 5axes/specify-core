@@ -100,10 +100,11 @@ for a face picker.
 in your browser, with nothing to click and nothing uploaded: it serves the file once on
 127.0.0.1, to the editor's origin only, and exits once the page has fetched it (or after 10
 minutes). `--editor` opens the full editor instead, `--site ORIGIN` another deployment, and
-`--no-browser` only prints the address. The first time, Chrome asks once whether
+`--no-browser` only prints the address. The first time, Chrome asks whether
 "draftwright.io wants to access other apps and services on this device": Allow lets the page
-fetch the file from 127.0.0.1. If the file does not open while that prompt is up, run the
-command again.
+fetch the file from 127.0.0.1, and is remembered. If the file did not open while that prompt
+was up, stop the command (Ctrl-C) and run it again. If you chose Block, allow it again in
+draftwright.io's site settings.
 
 ### Python
 
