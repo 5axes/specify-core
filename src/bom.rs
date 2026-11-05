@@ -121,7 +121,7 @@ fn occurrences(doc: &Document, pd: u64) -> Vec<u64> {
 }
 
 /// UDA property -> representation -> text/integer/boolean values. No geometric loading.
-fn properties(doc: &Document, owner: u64) -> Vec<(String, Map<String, Value>)> {
+pub(crate) fn properties(doc: &Document, owner: u64) -> Vec<(String, Map<String, Value>)> {
     let mut out = Vec::new();
     for &id in doc.referrers(owner) {
         let Some(a) = attrs(doc, id, "PROPERTY_DEFINITION") else {

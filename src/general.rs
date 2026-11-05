@@ -92,8 +92,31 @@ pub const BOUNDS: [f64; 8] = [3.0, 6.0, 30.0, 120.0, 400.0, 1000.0, 2000.0, 4000
 /// Two plane levels closer than this are one.
 const LEVEL: f64 = 1e-4;
 
-/// The ± `general` (e.g. `ISO 2768-m`) allows `nominal`; None where the class sets none.
+/// A ± general tolerance figure (`±0.3 mm`, `±0.3 mm or ±0.3 %`, with a parenthesised
+/// note after it): millimetres and, if given, the percentage of the nominal, the greater of
+/// which applies. None for anything else, an ISO 2768 class among them.
+pub fn plus_minus(general: &str) -> Option<(f64, Option<f64>)> {
+    static FIGURE: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(
+            r"^±([0-9]+(?:\.[0-9]+)?) mm(?: or ±([0-9]+(?:\.[0-9]+)?) %)?(?: \([^()]*\))?$",
+        )
+        .expect("a valid pattern")
+    });
+    let caps = FIGURE.captures(general)?;
+    let mm: f64 = caps[1].parse().ok()?;
+    let percent = match caps.get(2) {
+        Some(p) => Some(p.as_str().parse().ok()?),
+        None => None,
+    };
+    (mm > 0.0 && percent.is_none_or(|p: f64| p > 0.0)).then_some((mm, percent))
+}
+
+/// The ± `general` (e.g. `ISO 2768-m`, or a ± figure) allows `nominal`; None where the class
+/// sets none.
 pub fn deviation(general: &str, nominal: f64) -> Option<f64> {
+    if let Some((mm, percent)) = plus_minus(general) {
+        return Some(percent.map_or(mm, |p| mm.max(nominal * p / 100.0)));
+    }
     let text = pyfmt::strip(general);
     let class = text.rsplit('-').next().unwrap_or(text).to_lowercase();
     let mut chars = class.chars();

@@ -13,7 +13,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 |---|---:|---:|---:|---:|---:|---:|---:|
 | [analysis](#analysis) | 5 | 0 | 0 | 0 | 0 | 0 | 5 |
 | [anchors](#anchors) | 4 | 0 | 2 | 1 | 2 | 0 | 9 |
-| [cli](#cli) | 262 | 0 | 52 | 0 | 2 | 1 | 317 |
+| [cli](#cli) | 264 | 0 | 52 | 0 | 2 | 1 | 319 |
 | [cross_engine](#cross_engine) | 54 | 2 | 0 | 1 | 1 | 20 | 78 |
 | [existing](#existing) | 31 | 0 | 0 | 0 | 7 | 0 | 38 |
 | [features](#features) | 3459 | 1415 | 543 | 2481 | 1066 | 1880 | 10844 |
@@ -22,7 +22,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 0 | 40 |
 | [rules](#rules) | 114 | 0 | 615 | 0 | 0 | 0 | 729 |
 | [writer](#writer) | 1091 | 0 | 0 | 0 | 15 | 0 | 1106 |
-| **all** | 5026 | 1434 | 1221 | 2487 | 1101 | 1901 | 13170 |
+| **all** | 5028 | 1434 | 1221 | 2487 | 1101 | 1901 | 13172 |
 
 ## analysis
 
@@ -76,7 +76,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## cli
 
-### cli: rust-correct (262 entries)
+### cli: rust-correct (264 entries)
 
 - **Combined ISO 2768 class choices in CLI and serve** (36 entries, 3 case globs)
 
@@ -161,6 +161,10 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 - **Complete answer export flags in questions usage and help** (2 entries, 2 case globs)
 
   questions now exports complete evidence-bearing sidecars with --resolve-defaults --step STEP. tests/cli.rs::command_lines asserts the exact usage/help transformation for this individual capture; every other byte and exit code stays checked. No oracle payload or existing known-difference entry changes.
+
+- **how a part is made (part.process) is asked last** (2 entries, 2 case globs)
+
+  Maintainer decision (5 November 2026, docs/process.md): part.process is appended after every other question of a made part, so no existing question moves; an unanswered part is machined and its other questions, defaults and writes are unchanged. Python has no such question. tests/process.rs covers the question, its defaults and the STEP attribute.
 
 ### cli: equivalent (52 entries)
 

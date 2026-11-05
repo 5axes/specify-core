@@ -226,7 +226,8 @@ fn modelled_thread_parts_still_analyse_interview_and_write() {
     // and Basic bolt circles, and consolidates General rows. Recognition
     // remains unchanged. Exact tap defaults add three depth questions,
     // replace the general bore-size rows, and resolve their conflicting proposal.
-    // Exact unsupported proposals stay visible.
+    // Exact unsupported proposals stay visible. Each count includes the appended
+    // part.process question (docs/process.md); nothing else in the interview changed.
     for (
         file,
         count,
@@ -242,7 +243,7 @@ fn modelled_thread_parts_still_analyse_interview_and_write() {
             "cadgenbench_inputs/cgb243.step.gz",
             4,
             66,
-            42,
+            43,
             56,
             44,
             3,
@@ -255,7 +256,7 @@ fn modelled_thread_parts_still_analyse_interview_and_write() {
             "cadgenbench/threaded_connector_109.step",
             1,
             4,
-            18,
+            19,
             0,
             17,
             2,

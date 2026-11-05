@@ -30,12 +30,22 @@ pub const GENERAL: &str = "general";
 pub const NONE: &str = "none";
 
 /// Purposes, in the order they are offered, for holes and for turned diameters.
-pub const HOLE_PURPOSES: [(&str, &str); 4] = [
+pub const HOLE_PURPOSES: [(&str, &str); 6] = [
     ("clearance", "A bolt passes through"),
     ("tapped", "A screw threads into it"),
     ("fit", "A pin, shaft or bearing fits in it"),
     (GENERAL, "Nothing in particular"),
+    (HEAT_SET_INSERT, "A threaded insert is melted into it"),
+    (
+        PRINTED_THREAD,
+        "A screw threads into a thread printed in it",
+    ),
 ];
+/// A printed plastic part's hole functions beside clearance, tapped and fit (see
+/// `docs/process.md`); each is written as a note on the hole.
+pub const HEAT_SET_INSERT: &str = "heat-set insert";
+pub const PRINTED_THREAD: &str = "printed thread";
+pub const PRINTED_HOLES: [&str; 2] = [HEAT_SET_INSERT, PRINTED_THREAD];
 pub const TURNED_PURPOSES: [(&str, &str); 4] = [
     ("fit", "It fits into a bore or bearing"),
     ("thread", "It is threaded"),
@@ -77,7 +87,7 @@ pub fn describe<S: AsRef<str>>(
         return Ok(Vec::new());
     }
     let hole = qid.starts_with("hole.function:");
-    let purposes = if hole {
+    let purposes: &[(&str, &str)] = if hole {
         &HOLE_PURPOSES
     } else {
         &TURNED_PURPOSES
@@ -206,6 +216,9 @@ pub fn callout(value: &str, d: f64, _hole: bool) -> Result<String, String> {
         }
         _ => {}
     }
+    if PRINTED_HOLES.contains(&value) {
+        return Ok(format!("⌀{} for a {value}", fmt3(d)));
+    }
     let fit = match kind {
         "clearance" => "H11",
         "fit" => spec,
@@ -294,6 +307,28 @@ pub fn interpret<S: AsRef<str>>(
         return refuse(format!("Measure from one of: {}.", joined()));
     }
     if qid == "part.general_tolerance" {
+        // A ± figure of the person's own where a ± figure is offered (a printed part's),
+        // written as the general tolerance note.
+        static FIGURE: LazyLock<Regex> = LazyLock::new(|| {
+            pattern(
+                r"^(?:±|\+-|\+/-){S}*([0-9]+(?:\.[0-9]+)?){S}*(?:mm)?(?:{S}*or{S}*(?:±|\+-|\+/-)?{S}*([0-9]+(?:\.[0-9]+)?){S}*%)?$",
+            )
+        });
+        let offered = options
+            .iter()
+            .any(|o| crate::general::plus_minus(o.as_ref()).is_some());
+        if offered && let Some(figure) = FIGURE.captures(&typed.to_lowercase()) {
+            let number = |m: &str| pyfmt::parse_float(m).map(pyfmt::g);
+            if let Some(mm) = number(&figure[1]) {
+                let named = match figure.get(2).and_then(|p| number(p.as_str())) {
+                    Some(percent) => format!("±{mm} mm or ±{percent} %"),
+                    None => format!("±{mm} mm"),
+                };
+                if crate::general::plus_minus(&named).is_some() {
+                    return Ok(named);
+                }
+            }
+        }
         static GRADE: LazyLock<Regex> =
             LazyLock::new(|| pattern(r"^(?:iso{S}*)?(?:2768{S}*-?{S}*)?([fmcv])([hkl])?$"));
         if let Some(grade) = GRADE.captures(&typed.to_lowercase()) {

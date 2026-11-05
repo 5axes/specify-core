@@ -409,6 +409,12 @@ fn check_extra(jobs: &[Job<'_>], extra: &[AttributeSet]) -> Result<(), WriteErro
     {
         return invalid("BOM attribute names are reserved; use BOM answers");
     }
+    if extra.iter().any(|set| set.name == crate::process::PROPERTY) {
+        return invalid(format!(
+            "extra attribute set name '{}' is reserved; answer part.process",
+            crate::process::PROPERTY
+        ));
+    }
     if extra
         .iter()
         .any(|set| set.name == crate::pmi_origin::PROPERTY)
@@ -1263,6 +1269,10 @@ fn face_list(v: Option<&Json>) -> String {
 
 /// The user defined attribute that carries a note in words (PMI practice §7.4).
 pub const SEMANTIC_TEXT: &str = "semantic text";
+/// The semantic text item of a hole note (a heat-set insert or printed thread).
+pub const HOLE_NOTE: &str = "hole note";
+/// The semantic text item of a ± general tolerance, written as a note on the part.
+pub const GENERAL_TOLERANCE_NOTE: &str = "general tolerance";
 
 /// One-based order of a free-text part note within its `semantic text` attribute set.
 pub const NOTE_INDEX: &str = "note index";
@@ -1300,6 +1310,34 @@ fn face_ids(faces: Option<&Json>) -> Option<Vec<usize>> {
 
 /// What of a requirement names no faces (`the size on holes:16`), if anything does: such a
 /// requirement has nothing in the file to be written on (question Q17).
+/// Whether `before` already states the hole note `req` asks for, on the same faces.
+fn hole_note_stated(before: &PartPmi, req: &Map<String, Json>) -> bool {
+    let (Some(words), Some(faces)) = (
+        req.get("text").and_then(Json::as_str),
+        face_ids(req.get("faces")),
+    ) else {
+        return false;
+    };
+    let mut wanted = faces;
+    wanted.sort_unstable();
+    wanted.dedup();
+    before.attributes.iter().any(|a| {
+        let Some(NoteOwner::Feature(g)) = a.on else {
+            return false;
+        };
+        a.name == SEMANTIC_TEXT
+            && a.items.iter().any(|(name, v)| {
+                name == HOLE_NOTE && matches!(v, AttributeValue::Text(t) if t == words)
+            })
+            && {
+                let mut have = crate::existing::faces_of(before, &[g]);
+                have.sort_unstable();
+                have.dedup();
+                have == wanted
+            }
+    })
+}
+
 fn faceless(kind: &str, req: &Map<String, Json>) -> Option<String> {
     let name = py_str(req.get("feature").unwrap_or(&Json::Null));
     let none = |key: &str| face_ids(req.get(key)).is_none();
@@ -1309,6 +1347,7 @@ fn faceless(kind: &str, req: &Map<String, Json>) -> Option<String> {
         "location" if none("reference") => Some(format!("the reference of the location of {name}")),
         "thread" if none("faces") => Some(format!("the thread on {name}")),
         "knurl" if none("faces") => Some(format!("the knurl on {name}")),
+        "note" if none("faces") => Some(format!("the note on {name}")),
         other if tolerance_kind(other).is_some() && none("faces") => {
             Some(format!("the {other} tolerance on {name}"))
         }
@@ -1629,6 +1668,22 @@ fn part_pmi_observed(
         &upgraded
     } else {
         intent
+    };
+    // A finish on a printed, moulded or cast part is as made: no material is removed for it.
+    // The process is the questions' own: the answer, else (where the file's PMI stays, in Add
+    // mode) the one the file states.
+    let stated_process = crate::process::read_pmi(before)
+        .filter(|f| f.source != "default" && mode == Mode::Add)
+        .and_then(|f| f.value.as_str().and_then(crate::process::normalised));
+    let current_process = intent
+        .part
+        .get(crate::process::INTENT_KEY)
+        .and_then(Json::as_str)
+        .or(stated_process);
+    let removal = if current_process.is_some_and(crate::process::removes_no_material) {
+        MaterialRemoval::NotAllowed
+    } else {
+        MaterialRemoval::AnyProcessAllowed
     };
     let has_points = intent
         .requirements
@@ -2071,6 +2126,27 @@ fn part_pmi_observed(
                     }
                 }
             }
+            "note" if mode == Mode::Add && hole_note_stated(before, req) => {
+                lines.warnings.push(format!(
+                    "note {} on {} is already stated in the file; not written again",
+                    text(req, "text")?,
+                    feature_name()
+                ));
+            }
+            "note" => {
+                let words = text(req, "text")?;
+                let on = f.of(req.get("faces"), &format!("the note on {}", feature_name()))?;
+                p.attributes.push(AttributeSet {
+                    description: None,
+                    general_property: None,
+                    name: SEMANTIC_TEXT.into(),
+                    on: Some(NoteOwner::Feature(on)),
+                    items: vec![(HOLE_NOTE.into(), AttributeValue::Text(words.into()))],
+                });
+                lines
+                    .written
+                    .push(format!("note {words} on {}", feature_name()));
+            }
             "finish" => {
                 let value = py_str(req.get("value").unwrap_or(&Json::Null));
                 let faces = face_list(req.get("faces"));
@@ -2080,7 +2156,7 @@ fn part_pmi_observed(
                         observe("surface_textures", p.surface_textures.len(), req);
                         p.surface_textures.push(SurfaceTexture {
                             on: Some(on),
-                            material_removal: MaterialRemoval::AnyProcessAllowed,
+                            material_removal: removal,
                             parameters: vec![parameter],
                         });
                         lines
@@ -2212,7 +2288,25 @@ fn part_pmi_observed(
                 GeneralTolerance::Table { .. } => None,
             })
             .filter(|_| add);
-        if stated("general tolerance", old, &text, &mut lines)? {
+        if crate::general::plus_minus(&text).is_some() {
+            // A ± figure is no ISO 2768 class, which the kernel's general tolerance carries:
+            // it is written as the part's general tolerance note.
+            let note = crate::existing::general_tolerance_note(before);
+            let old = note.as_deref().filter(|_| add).or(old);
+            if stated("general tolerance", old, &text, &mut lines)? {
+                p.attributes.push(AttributeSet {
+                    description: None,
+                    general_property: None,
+                    name: SEMANTIC_TEXT.into(),
+                    on: None,
+                    items: vec![(
+                        GENERAL_TOLERANCE_NOTE.into(),
+                        AttributeValue::Text(text.clone()),
+                    )],
+                });
+                lines.written.push(format!("general tolerance note {text}"));
+            }
+        } else if stated("general tolerance", old, &text, &mut lines)? {
             p.general.push(GeneralTolerance::Class {
                 standard: pmi::standards::Iso2768::recognise(&text),
                 text: text.clone(),
@@ -2280,7 +2374,7 @@ fn part_pmi_observed(
             };
             p.surface_textures.push(SurfaceTexture {
                 on: None,
-                material_removal: MaterialRemoval::AnyProcessAllowed,
+                material_removal: removal,
                 parameters: vec![parameter],
             });
         } else {
@@ -2297,6 +2391,49 @@ fn part_pmi_observed(
             });
         }
         lines.written.push(format!("{name} {words}"));
+    }
+    // How the part is made: a user defined attribute on its product definition, only when
+    // answered or a suggestion was accepted (an unanswered part is machined, and writes none).
+    if let Some(process) = intent
+        .part
+        .get(crate::process::INTENT_KEY)
+        .and_then(Json::as_str)
+    {
+        if crate::process::normalised(process) != Some(process) {
+            return invalid(format!(
+                "the intent's process {} is not one of {}",
+                pyfmt::repr_str(process),
+                crate::process::PROCESSES.join(", ")
+            ));
+        }
+        let suggested = truthy(intent.part.get(crate::process::INTENT_DEFAULT_KEY));
+        // One set per part. Add mode keeps the file's PMI, Specify's own set among it when no
+        // answers were stored to scope it, so the same process is not written again and
+        // another is refused rather than written beside it.
+        let old = crate::process::specify_set(before).filter(|_| add);
+        let write = match old {
+            Some(old) if old == process => {
+                lines.warnings.push(format!(
+                    "process {process} is already stated in the file; not written again"
+                ));
+                false
+            }
+            Some(old) => {
+                return invalid(format!(
+                    "the part already states process {old}, written without stored answers, \
+                     so it cannot be replaced; adding {process} would give it two"
+                ));
+            }
+            None => true,
+        };
+        if write {
+            p.attributes
+                .push(crate::process::attribute_set(process, suggested));
+            lines.written.push(format!(
+                "process {process}{}",
+                if suggested { " (suggested)" } else { "" }
+            ));
+        }
     }
     p.features = features;
     Ok((p, lines))

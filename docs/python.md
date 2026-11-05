@@ -150,6 +150,8 @@ Each of these is recorded with its reason (docs/known-differences.md, docs/quest
   `[]`), each a semantic `general note` with an explicit one-based `note index`. See the
   [STEP form and readback contract](part-notes.md). Drawing-only notes stay in the
   drawing Spec; no automatic migration is performed.
+- **How a part is made** (`part.process`) is Rust-only, asked last of every made part; an
+  unanswered part is machined and asked and written as before. See [process.md](process.md).
 - **Knurls are written as AP242's `turned_knurl`**, straight or diamond, which Python writes
   as text: the number of teeth, tooth depth, root fillet and a diamond's helix angle are
   derived from DIN 82 and stated in the intent with their sources, filled in with a warning
