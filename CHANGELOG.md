@@ -27,6 +27,13 @@ All notable changes to specify-core-rust. The format follows
 - Known differences: the frozen Python reader no longer reads a material written without a
   separate name (`material identification (no separate name)`) on single-part files; Rust
   still reads it.
+- The carried `specify-core original` record also stores the original `FILE_DESCRIPTION`
+  (`description`), because v0.4.8 writes add the PMI RP 4.1 reference to it (#193).
+  `original()` (native and WASM) restores it, so it again gives back the source exactly.
+  Without this, every new write returned `undefined`. A record without `description`, from an
+  earlier write, gains one when that file is rewritten. Readers that restore only
+  `FILE_SCHEMA` (the editor's `originalOf` fallback) now differ from the source in that
+  statement.
 
 ### WASM API
 

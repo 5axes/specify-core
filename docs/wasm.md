@@ -91,7 +91,7 @@ All structured inputs and outputs are **JSON strings**, except the constructor's
 | `engine.acceptDefaults(answersJson)` | Answers object with every unanswered default filled to a fixed point, using the same rules as CLI/serve `accept_defaults`. Preserves supplied answers; questions without defaults stay unanswered. |
 | `engine.writePmi(answersJson, projectBase64?, payloadJson?)` | `{bytes, source_sha256, report}`; `bytes` is an array of byte values. Writes and verifies answered PMI and stored answers in memory. Unanswered defaults remain suggestions. `report` is the upstream writer's report; its `output` is the constructor's name. `payloadJson` is `{name, value}`: any JSON value carried in the STEP under `name` (give the project or a payload, not both; see below). |
 | `engine.payload(name)` | The JSON text of the payload `name` the opened STEP carries, or `undefined`. |
-| `engine.original()` | `Uint8Array` of the part the opened STEP was first written from (without what the writer added, its `FILE_SCHEMA` restored), or `undefined` when it records none or the bytes do not hash to the recorded sha256. |
+| `engine.original()` | `Uint8Array` of the part the opened STEP was first written from (without what the writer added, its `FILE_SCHEMA` and `FILE_DESCRIPTION` restored), or `undefined` when it records none or the bytes do not hash to the recorded sha256. |
 | `engine.evidence()` | `{schema, face_count, faces}`: the face evidence to keep with answers saved outside the STEP. |
 | `engine.rematchAnswers(answersJson, evidenceJson?, automaticJson?)` | Saved answers matched to this part as now recognised: `{answers, unresolved?, migrated?, unverified?, automatic?}`. Does not change the session. See "Answers saved outside the STEP". |
 | `review(analysisJson, answersJson)` | Same review composition without a session or geometry anchors. Calls `specify_core::api::review`. |
@@ -155,9 +155,14 @@ value's compact UTF-8 JSON; for `name: "draftwright editor project"` that is exa
 item the editor's `readProject` and draftwright-mcp's `project::read` match, so files written
 either way read either way. A name must not be empty, `pmi-assist answers` or
 `specify-core original`. Either argument also stores a `specify-core original` attribute,
-`{schema: 1, sha256, header, from}`, from which `original()` gives back the part: it takes out
-every instance numbered `from` or more, restores the `FILE_SCHEMA` statement, and returns the
-bytes only if they hash to `sha256`. Rewriting a file that records its original carries the
+`{schema: 1, sha256, header, description, from}`, from which `original()` gives back the
+part: it takes out every instance numbered `from` or more, restores the `FILE_SCHEMA` and
+`FILE_DESCRIPTION` statements, and returns the bytes only if they hash to `sha256`. The
+original `FILE_DESCRIPTION` (`description`) is recorded since the v0.4.8 pin, whose writes add
+the PMI recommended-practice reference to it. A record from an earlier write has none, and
+gains it when that file is rewritten. Readers that restore only `FILE_SCHEMA` (the editor's
+`originalOf` and draftwright-mcp's legacy fallback) no longer recover a v0.4.8 write's part
+exactly; both use `original()` first. Rewriting a file that records its original carries the
 record forward, so `original()` remains the part first opened. `writePmi` without a project or
 payload drops what the opened file carried: the written file has no project, payload or
 original record, so resupply the project or payload on every write that should keep them.
