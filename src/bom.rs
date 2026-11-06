@@ -443,7 +443,7 @@ pub fn read_bytes(bytes: Vec<u8>) -> Result<Vec<Item>, String> {
 /// The BOM questions: optional, never blocking a write, and without a `default`, so accepting
 /// defaults never writes them; their proposals are `suggestions`, accepted only explicitly
 /// ([`accept_suggestions`]). Each is `routine`, except a make/buy proposal its name and its
-/// recognised features disagree on (`check`). Stock is not asked: it follows make/buy.
+/// recognised pockets disagree on (`check`). Stock is not asked: it follows make/buy.
 pub(crate) fn questions(analysis: &Map<String, Value>) -> Vec<Question> {
     let Some(bom) = analysis.get("bom") else {
         return vec![];
@@ -483,6 +483,10 @@ pub(crate) fn questions(analysis: &Map<String, Value>) -> Vec<Question> {
         q.why = "Shown in the drawing's parts list.".into();
         q.attention = "routine";
         let suggestion = match key {
+            "make_buy" if bom[key]["source"] == "answered" => {
+                q.reason = "Your answer".into();
+                value.clone()
+            }
             "make_buy" if bom[key]["source"] != "default" => {
                 q.reason = "From the file".into();
                 value.clone()
@@ -1398,9 +1402,29 @@ mod tests {
             "features": [{"family": "pockets"}],
         });
         let qs = questions(analysis.as_object().unwrap());
-        let suggestion = |id: &str| qs.iter().find(|q| q.id == id).unwrap().suggestions.clone();
-        assert_eq!(suggestion("bom.make_buy"), [json!("made")]);
-        assert_eq!(suggestion("bom.stock"), [json!("to be made")]);
+        let make_buy = qs.iter().find(|q| q.id == "bom.make_buy").unwrap();
+        assert_eq!(make_buy.suggestions, [json!("made")]);
+        // Stock is not asked; accepting the proposals makes it follow the made proposal.
+        assert!(qs.iter().all(|q| q.id != "bom.stock"));
+        let mut intent = crate::rules::Intent::new(json!({}));
+        accept_suggestions(&analysis, &Map::new(), &mut intent).unwrap();
+        assert_eq!(intent.part["bom"]["make_buy"], "made");
+        assert_eq!(intent.part["bom"]["stock"], "to be made");
+    }
+    #[test]
+    fn a_make_buy_answered_earlier_is_the_answer_not_the_file() {
+        let reason = |source: &str| {
+            let analysis = json!({"bom": {
+                "name": {"value": "plate", "source": "file"},
+                "make_buy": {"value": "bought", "source": source},
+            }});
+            let qs = questions(analysis.as_object().unwrap());
+            assert_eq!(qs[0].suggestions, [json!("bought")]);
+            assert_eq!(qs[0].attention, "routine");
+            qs[0].reason.clone()
+        };
+        assert_eq!(reason("answered"), "Your answer");
+        assert_eq!(reason("file"), "From the file");
     }
     #[test]
     fn foreign_keys_ignore_case_and_invalid_values() {
