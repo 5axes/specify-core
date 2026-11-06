@@ -54,10 +54,12 @@ function titleOf(q: PmiQuestion): string {
 export const answerOf = (q: PmiQuestion, answers: PmiAnswers): unknown =>
   (q.id in answers ? answers[q.id] : q.default);
 
-/** Whether ``q`` still needs a person: unanswered and required, or an unconfirmed check. */
+/** Whether ``q`` still needs a person: unanswered and required, or an unconfirmed check. An
+ * optional question is written with Specify's suggestion, so it asks for a check, not an answer. */
 export function needs(q: PmiQuestion, answers: PmiAnswers): 'required' | 'check' | null {
   if (q.id in answers) return null;
-  return q.attention === 'required' || q.attention === 'check' ? q.attention : null;
+  if (q.attention === 'required') return q.optional ? 'check' : 'required';
+  return q.attention === 'check' ? 'check' : null;
 }
 
 /** The row's state, most urgent first. */
@@ -90,7 +92,7 @@ export function display(q: PmiQuestion, value: unknown): string {
 export function summary(group: QuestionGroup, answers: PmiAnswers): string {
   // A datums row with nothing set is only refining the datums the file has.
   return group.questions.map((q) => display(q, answerOf(q, answers))).filter(Boolean).join(' · ')
-    || (group.key === 'datums' ? "the file's datums" : 'general tolerance');
+    || (group.key === 'datums' ? "the file's datums" : group.key === 'bom' ? "Specify's suggestions" : 'general tolerance');
 }
 
 /**

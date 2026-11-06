@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { groupQuestions } from '../src/specify/review.ts';
+import { groupQuestions, needs, summary } from '../src/specify/review.ts';
 import { optionHint } from '../src/specify/hints.ts';
 
 test('Specify row titles use typed titles despite edited or translated prompts', () => {
@@ -14,6 +14,11 @@ test('an assembly part\'s parts-list questions are one row, after the part and b
   const rows = groupQuestions([q('hole.function:h1', 'f:1'), q('bom.make_buy'), q('part.material'), q('bom.description'), q('datum.A')]);
   assert.deepEqual(rows.map(r => r.title), ['Part', 'Parts list', 'hole.function:h1', 'Datums']);
   assert.deepEqual(rows[1].questions.map(x => x.id), ['bom.make_buy', 'bom.description']);
+  assert.equal(summary(rows[1], {}), "Specify's suggestions", 'Unanswered, the row is written with Specify\'s suggestions');
+  // Optional: written with Specify's suggestion when not answered, so a check, not a required answer.
+  assert.equal(needs({ id: 'bom.make_buy', attention: 'required', optional: true }, {}), 'check');
+  assert.equal(needs({ id: 'part.material', attention: 'required' }, {}), 'required');
+  assert.equal(needs({ id: 'bom.make_buy', attention: 'required', optional: true }, { 'bom.make_buy': 'made' }), null);
 });
 test('Specify zone hints use typed characteristics despite edited or translated prompts', () => {
   for (const [characteristic, text] of [

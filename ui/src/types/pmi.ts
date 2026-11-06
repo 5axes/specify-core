@@ -99,6 +99,8 @@ export interface PmiQuestion {
   readonly choices?: readonly PmiChoice[];
   /** For a text question: common answers to offer as it is typed; any text is accepted. */
   readonly suggestions?: readonly PmiSuggestion[];
+  /** Specify writes its suggestion when it is not answered (an assembly part's parts-list row). */
+  readonly optional?: boolean;
 }
 
 /** One option of a question: what it is for, its code, and what it puts on the drawing. */
