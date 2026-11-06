@@ -567,7 +567,7 @@ packaged schemas are `specify_core/schema/haecceity.pmi-1.json` and
 `specify_core/schema/haecceity.presentation-1.json`.
 
 Scene export uses haecceity's serialise-only `json` feature in native, WASM and Python.
-`json-import` is not enabled. The Python package ships the v0.4.7 schemas as data; its
+`json-import` is not enabled. The Python package ships the v0.4.8 schemas as data; its
 smoke tests validate exports with Python's `jsonschema`, keeping schemas and import
 validation code out of the WASM binary.
 
@@ -578,7 +578,7 @@ Haecceity v0.4.4 adds optional `polyline_roles`, parallel to
 with x along `x_axis` and y along `normal × x_axis`. Hosts can fit and centre their
 own font in that box. File graphics omit roles/boxes unless known. These additive
 fields keep schema `/1`; strict `deny_unknown_fields` consumers must update their
-types. Specify passes both through unchanged. Native, WASM and Python builds pin the released v0.4.7 tag; no local path
+types. Specify passes both through unchanged. Native, WASM and Python builds pin the released v0.4.8 tag; no local path
 patch is needed.
 
 In the role array, `text` includes explicit ISO glyph strokes already represented
@@ -606,7 +606,7 @@ scope; their replacement rules do not guarantee preservation of foreign PMI. Use
 scoped writer for these rewrites. Existing 0.1.7 Add-mode files without saved answers keep
 their existing-PMI opening behavior in this engine.
 
-With v0.4.7, native/CLI, Python and WASM write reports expose these optional keys,
+With v0.4.8, native/CLI, Python and WASM write reports expose these optional keys,
 omitted when empty:
 
 - `geometry_carrier_exemptions`: `{part, condition, aspect, feature}` records, with
@@ -621,9 +621,12 @@ omitted when empty:
 - `presentation_warnings`: strings naming callout placement or glyph diagnostics.
 - `retained_shared`: ids of auxiliary support Replace kept because PMI it cannot
   read still uses it (v0.4.7); datum links are rebound only to equal replacements.
+- `saved_view_findings`: `{kind, part?, ids, entity, detail}` kernel findings about
+  the default AP242 Notes saved view (v0.4.8), for example why it was not written
+  (edition-1 Add, notes on several planes or with several text orientations).
 
 `PmiSceneGraphic.leader` is an optional model-space leader tip in millimetres.
-The packaged v0.4.7 presentation schema includes it; neither packaged schema changed from v0.4.6.
+The packaged v0.4.8 presentation schema includes it; neither packaged schema changed from v0.4.6.
 Specify passes the field through but does not yet accept a source-presentation companion.
 Add preserves original entities in the kernel. It can add a separate datum feature
 on a kept carrier; an upgrade requiring original-entity repairs instead fails with

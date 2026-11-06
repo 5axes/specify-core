@@ -222,6 +222,14 @@ export interface PreservedNormalization {
   normalization: string;
 }
 
+export interface SavedViewFinding {
+  detail: string;
+  entity: string;
+  ids: number[];
+  kind: string;
+  part?: number;
+}
+
 export interface WriteReport {
   geometry_carrier_exemptions?: GeometryCarrierExemption[];
   not_written: string[];
@@ -229,6 +237,7 @@ export interface WriteReport {
   presentation_warnings?: string[];
   preserved_normalizations?: PreservedNormalization[];
   retained_shared?: number[];
+  saved_view_findings?: SavedViewFinding[];
   warnings: string[];
   written: string[];
 }
