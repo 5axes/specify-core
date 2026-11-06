@@ -6,6 +6,8 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+## 0.1.12 (2026-11-06)
+
 ### Added
 
 - How a part is made: `part.process` (`machined`, `3D printed: FDM`, `resin`, `powder`,
@@ -30,7 +32,8 @@ All notable changes to specify-core-rust. The format follows
 ### Changed
 
 - The command line is parsed by clap instead of a hand-written argparse-style parser. Commands,
-  arguments, defaults and exit codes are unchanged (usage errors still exit 2), but help and
+  arguments and defaults are unchanged, and so are exit codes for everything that worked before
+  (usage errors still exit 2), but help and
   usage errors are clap's text rather than argparse's, and `-h` and `--help` both give a
   command's full help. The top-level help now lists `diff`, `open` and `bom`, which were left
   out to match Python's text, and a prefix of `--help` at the top level (`--he`, `--h`) prints
