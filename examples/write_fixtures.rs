@@ -15,6 +15,11 @@
 //! /Users/paul/repos/specify-core/.venv/bin/python tools/capture.py cross-engine tests/fixtures/cross_engine
 //! ```
 //!
+//! **For quiddity 0.4.8 (`449ab51d`).** Regenerated all sixteen cases. Fourteen goldens
+//! change only for #198's Notes saved view, material description and unique model names,
+//! and #193's RP 4.1 FILE_DESCRIPTION reference and curve-set names. They were recaptured
+//! `--rust-only` with reference `2cb6499`, and the fixture README lists every change.
+//!
 //! **For quiddity 0.4.7 (`dcba9d38`).** The sixteen cases still match their v0.4.6 bytes
 //! exactly (`tests/cross_engine.rs`), so nothing was regenerated or recaptured; the
 //! fixture README records why. When a pin changes written bytes, regenerate all sixteen

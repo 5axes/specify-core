@@ -303,9 +303,11 @@ fn unnamed_revision_keeps_pre87_payload_and_current_presentation_bytes() {
         .collect();
     // v0.4.1 regenerates the GENERAL NOTES graphic and generated plane views.
     // The schema-2 payload assertion above remains byte-identical to pre-#87.
+    // v0.4.8 adds #198's Notes saved view and material description and #193's RP 4.1
+    // FILE_DESCRIPTION reference and `note` curve-set name; nothing else changes.
     assert_eq!(
         sha,
-        "780b5c9b1867f02478ba8c46b8936b2cf15b4996aabffe7e156148b2e020e03d"
+        "f150377ff78ff19bd6bcd77cc61d9ff3b34fd59352806c1e86d91786b324f8cf"
     );
 }
 

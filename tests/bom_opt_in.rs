@@ -22,6 +22,11 @@ fn no_opt_in_matches_v046_presentation_through_api_and_cli() {
     // This moves the notes block in all four plate/assembly default/complete
     // cases below; only presentation changes. The six exact API/CLI byte
     // comparisons and all BOM opt-in guards remain enforced.
+    // v0.4.8 changes all four hashes, for these reasons only (checked against v0.4.7's
+    // bytes): #198 adds the default Notes saved view (one per file, on the first part of an
+    // assembly) and repeats the material id as its description; #193 adds the PMI RP 4.1
+    // reference to FILE_DESCRIPTION and names curve sets `note`/`label`; and on assemblies
+    // the second part's callout model is named `PMI callouts (2)`.
     // Keep #95/#96's history-schema projection: only schema/role/specification
     // text is normalized. Every other STEP byte, counter, support and numeric ID
     // remains pinned; API and CLI bytes must still match exactly.
@@ -30,37 +35,37 @@ fn no_opt_in_matches_v046_presentation_through_api_and_cli() {
             "plate",
             false,
             true,
-            "476d188c1b42527116bd9564c17c6e0b0f049f7f3d9ffc191f4acff04dee5b81",
+            "f382716c25ab150445d4c11cf0d5bade94913816e8e3f630f3887f0eecdbbf49",
         ),
         (
             "assembly",
             true,
             false,
-            "5eb56a396bed9761a277f2d99c9c7672b1ba3dc47ebd3a2f97002f99a96c27b8",
+            "a9ed9c8ca0bfb433e3b28b71b36c314c754031dab7ec89076452da2e5e6de08d",
         ),
         (
             "assembly",
             true,
             true,
-            "5eb56a396bed9761a277f2d99c9c7672b1ba3dc47ebd3a2f97002f99a96c27b8",
+            "a9ed9c8ca0bfb433e3b28b71b36c314c754031dab7ec89076452da2e5e6de08d",
         ),
         (
             "assembly",
             false,
             true,
-            "ec34b34e8972a6e85cd1ec4c464281f0bda0a025a5afaca71d6a7c176f7082eb",
+            "d9aca2bfdad4a407dfe6d0f3b1aaf623462550dc349df484d29d45ec58cf804c",
         ),
         (
             "plate",
             true,
             false,
-            "0d16d5c1cff1368017745881c9b45924ede847a76701eafca456e55ea8dc4285",
+            "98d4e965e40ed5acd747c1e446b227206193e6a9398bd19e5c940cdcfbfc0583",
         ),
         (
             "plate",
             true,
             true,
-            "0d16d5c1cff1368017745881c9b45924ede847a76701eafca456e55ea8dc4285",
+            "98d4e965e40ed5acd747c1e446b227206193e6a9398bd19e5c940cdcfbfc0583",
         ),
     ] {
         let path = Path::new(env!("CARGO_MANIFEST_DIR"))
