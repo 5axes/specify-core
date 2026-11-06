@@ -97,7 +97,7 @@ Exit codes:
 for a face picker.
 
 `-o -` writes `analyse`'s or `mesh`'s JSON to stdout (the summary goes to stderr), for a pipe.
-[`bridges/camlib`](bridges/camlib/README.md) uses it to turn a part's holes, counterbores and
+[step2cam](https://github.com/pzfreo/step2cam) uses it to turn a part's holes, counterbores and
 shape into [camlib](https://github.com/stevecad/camlib) toolpaths and G-code:
 `specify-core analyse part.step -o - | step2cam.py plan -`.
 
