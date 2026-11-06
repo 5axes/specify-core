@@ -1,3 +1,5 @@
+import { readCarried } from './carried';
+
 interface IntentModule {
   default(): Promise<unknown>;
   review(analysis: string, answers: string): string;
@@ -110,8 +112,7 @@ self.onmessage = ({ data: { id, operation, args } }) => {
         try { result = JSON.parse(one.snapshot()).mesh; } finally { one.free(); }
       } else if (operation === 'carried') {
         // What a STEP carries, read on an engine of its own: the open part's is kept.
-        const file = new module.IntentEngine(args.name, args.bytes);
-        try { result = { project: file.payload(args.payload) ?? null, original: file.original() ?? null }; } finally { file.free(); }
+        result = readCarried(module, args.name, args.bytes, args.payload, args.part);
       } else if (operation === 'answer-edit') {
         result = JSON.parse(module.answerEdit(JSON.stringify(args.state), JSON.stringify(args.answers)));
       } else if (operation === 'tolerancing-edit') {
