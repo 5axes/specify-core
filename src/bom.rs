@@ -777,6 +777,35 @@ fn uda(edit: &mut Edit, owner: u64, name: &str, values: &Map<String, Value>) {
     ));
 }
 
+/// The assembly's `PRODUCT_DEFINITION_SHAPE` a BOM is written under, or why a BOM cannot be
+/// written into `doc`: it needs a product definition that is not one of the parts
+/// (`definitions`), with a shape, and an assembly occurrence of every part. Questions about the
+/// BOM are asked only when this holds, so they are never asked of what cannot be written.
+pub(crate) fn assembly_shape(
+    doc: &Document,
+    definitions: &[haecceity::step::PartDefinition],
+) -> Result<u64, String> {
+    let leaf: BTreeSet<_> = definitions.iter().map(|d| d.product_definition).collect();
+    let owner = doc
+        .ids()
+        .find(|&id| attrs(doc, id, "PRODUCT_DEFINITION").is_some() && !leaf.contains(&id))
+        .ok_or("BOM writing requires an assembly product definition")?;
+    let shape = doc
+        .ids()
+        .find(|&id| {
+            attrs(doc, id, "PRODUCT_DEFINITION_SHAPE")
+                .is_some_and(|a| reference(a.get(2)) == Some(owner))
+        })
+        .ok_or("BOM assembly has no definition shape for history")?;
+    if let Some(i) = definitions
+        .iter()
+        .position(|d| occurrences(doc, d.product_definition).is_empty())
+    {
+        return Err(format!("BOM part {i} has no assembly occurrence"));
+    }
+    Ok(shape)
+}
+
 /// Pure append after the PMI candidate, before its final readback/atomic publication.
 pub(crate) fn append(bytes: Vec<u8>, jobs: &[crate::writer::Job<'_>]) -> Result<Vec<u8>, String> {
     if !jobs
@@ -849,22 +878,7 @@ pub(crate) fn append(bytes: Vec<u8>, jobs: &[crate::writer::Job<'_>]) -> Result<
             .map(|r| r.item_number.value.as_u64())
             .collect::<Vec<_>>(),
     )?;
-    let leaf: BTreeSet<_> = file
-        .definitions()
-        .iter()
-        .map(|d| d.product_definition)
-        .collect();
-    let owner = doc
-        .ids()
-        .find(|&id| attrs(&doc, id, "PRODUCT_DEFINITION").is_some() && !leaf.contains(&id))
-        .ok_or("BOM writing requires an assembly product definition")?;
-    let owner = doc
-        .ids()
-        .find(|&id| {
-            attrs(&doc, id, "PRODUCT_DEFINITION_SHAPE")
-                .is_some_and(|a| reference(a.get(2)) == Some(owner))
-        })
-        .ok_or("BOM assembly has no definition shape for history")?;
+    let owner = assembly_shape(&doc, file.definitions())?;
     let mut edit = Edit::new();
     let mut expected = BTreeMap::new();
     for (i, p) in parts.iter().enumerate() {

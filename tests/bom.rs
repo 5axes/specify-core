@@ -931,3 +931,66 @@ fn the_stock_proposal_follows_make_buy() {
             .contains(&json!("stock"))
     );
 }
+
+/// #149: several products and no NEXT_ASSEMBLY_USAGE_OCCURRENCE, so no BOM can be written.
+/// `two_parts_without_an_assembly.step` is `a_file_with_two_parts_must_say_which.step` with its
+/// assembly product and the two occurrences placing its parts removed.
+#[test]
+fn bom_is_not_asked_where_it_cannot_be_written() {
+    let f = part::File::read(
+        &Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/parts/two_parts_without_an_assembly.step"),
+    )
+    .unwrap();
+    // The read-only BOM still lists the products.
+    assert_eq!(bom::read(&f).unwrap().len(), 2);
+    let given = json!({"part.material":"6061-T6"})
+        .as_object()
+        .unwrap()
+        .clone();
+    let mut jobs = Vec::new();
+    let mut stale = Vec::new();
+    for p in f.load_all().unwrap() {
+        assert_eq!(p.part_count, 2);
+        let analysis = api::analyse_reporting_in(&f, &p).unwrap().0;
+        assert!(analysis.get("bom").is_none());
+        let questions = api::questions(&analysis, &given).unwrap();
+        assert!(questions.iter().all(|q| !q.id.starts_with("bom.")));
+        let complete = rules::with_all_defaults(&analysis, &given).unwrap();
+        assert!(complete.keys().all(|key| !key.starts_with("bom.")));
+        // `--bom` is refused as on a single part: there is nothing to accept.
+        let mut intent = api::apply(&analysis, &given, true).unwrap();
+        assert!(bom::accept_suggestions(&analysis, &given, &mut intent).is_err());
+        jobs.push((
+            api::apply(&analysis, &given, true).unwrap(),
+            Some(given.clone()),
+        ));
+        // A stale answer from before this fix is refused by the writer, not a panic.
+        let mut answers = given.clone();
+        answers.insert("bom.make_buy".into(), json!("made"));
+        stale.push((
+            api::apply(&analysis, &answers, true).unwrap(),
+            Some(answers),
+        ));
+    }
+    let bytes = api::write_bytes(f.bytes().as_ref().clone(), &jobs)
+        .unwrap()
+        .0;
+    assert!(!String::from_utf8_lossy(&bytes).contains(bom::PROPERTY));
+    let refused = api::write_bytes(f.bytes().as_ref().clone(), &stale)
+        .err()
+        .unwrap()
+        .to_string();
+    assert!(
+        refused.contains("BOM writing requires an assembly product definition"),
+        "{refused}"
+    );
+
+    // No regression: an assembly the BOM is written into still asks it of every part.
+    let f = fixture();
+    for p in f.load_all().unwrap() {
+        let analysis = api::analyse_reporting_in(&f, &p).unwrap().0;
+        let questions = api::questions(&analysis, &Map::new()).unwrap();
+        assert!(questions.iter().any(|q| q.id == "bom.make_buy"));
+    }
+}
