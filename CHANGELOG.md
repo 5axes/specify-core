@@ -6,6 +6,8 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+## 0.1.12 (2026-11-06)
+
 ### Added
 
 - How a part is made: `part.process` (`machined`, `3D printed: FDM`, `resin`, `powder`,
