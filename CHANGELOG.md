@@ -6,6 +6,15 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+### Added
+
+- `analyse` and `mesh` take `-o -`: the JSON goes to stdout and the one-line summary to stderr,
+  so the output can be piped into another program.
+- `bridges/camlib/step2cam.py`: a STEP part's recognised holes, counterbores and shape to
+  [camlib](https://github.com/stevecad/camlib) toolpaths and G-code, by pipe (specify-core's
+  JSON in, a CAM plan out, then camlib with your tool library). Not linked: neither loads the
+  other. See `bridges/camlib/README.md`.
+
 ## 0.1.12 (2026-11-06)
 
 ### Added

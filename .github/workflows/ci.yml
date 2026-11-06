@@ -80,6 +80,7 @@ jobs:
       - run: rustup target add wasm32-unknown-unknown
       - run: cargo install wasm-pack --version 0.15.0 --locked
       - run: python3 -m unittest discover -s tools -p 'test_*.py'
+      - run: python3 -m unittest discover -s bridges/camlib -p 'test_*.py'
       - run: wasm-pack build crates/specify-core-wasm --target web --profile wasm-release --locked
       - name: Check WASM API snapshot and changelog
         env:
