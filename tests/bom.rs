@@ -901,7 +901,13 @@ fn the_stock_proposal_follows_make_buy() {
             .clone()
     };
     assert_eq!(suggestion("bom.make_buy"), "bought");
-    assert_eq!(suggestion("bom.stock"), "from stock");
+    // Stock is not asked (#149) but still proposed with the rest, following make/buy.
+    assert!(
+        api::questions(&analysis, &Map::new())
+            .unwrap()
+            .iter()
+            .all(|q| q.id != "bom.stock")
+    );
 
     let accepted = |answers: Map<String, Value>| {
         let mut intent = api::preview(&analysis, &answers).unwrap();
@@ -994,4 +1000,115 @@ fn bom_is_not_asked_where_it_cannot_be_written() {
         let questions = api::questions(&analysis, &Map::new()).unwrap();
         assert!(questions.iter().any(|q| q.id == "bom.make_buy"));
     }
+}
+
+/// The BOM questions' attention, prompts and proposals (#149 follow-on).
+fn bom_questions(analysis: &Value) -> Vec<rules::Question> {
+    api::questions(analysis, &Map::new())
+        .unwrap()
+        .into_iter()
+        .filter(|q| q.id.starts_with("bom."))
+        .collect()
+}
+
+#[test]
+fn bom_questions_are_routine_with_their_proposal_as_the_reason() {
+    let f = fixture();
+    // A made part: its name is no standard part. Its part number is the file's, so not asked.
+    let plate = api::analyse_reporting_in(&f, &f.load(Some(0)).unwrap())
+        .unwrap()
+        .0;
+    let qs = bom_questions(&plate);
+    let ids: Vec<_> = qs.iter().map(|q| q.id.as_str()).collect();
+    assert_eq!(
+        ids,
+        [
+            "bom.make_buy",
+            "bom.description",
+            "bom.revision",
+            "bom.optional"
+        ]
+    );
+    for q in &qs {
+        assert_eq!(q.attention, "routine", "{}", q.id);
+        assert!(q.default.is_none(), "{}", q.id);
+        assert_eq!(q.why, "Shown in the drawing's parts list.");
+        assert_eq!(q.to_dict()["optional"], true);
+    }
+    let prompts: Vec<_> = qs.iter().map(|q| q.prompt.as_str()).collect();
+    assert_eq!(
+        prompts,
+        [
+            "Made or bought?",
+            "Description",
+            "Revision",
+            "Optional item?"
+        ]
+    );
+    assert_eq!(qs[0].suggestions, [json!("made")]);
+    assert_eq!(qs[0].reason, "Proposed: made (it isn't a standard part)");
+    assert_eq!(qs[1].suggestions, [json!("plate")]);
+    assert!(qs[2].suggestions.is_empty());
+    assert_eq!(qs[3].suggestions, [json!("no")]);
+    // No BOM field is written by accepting defaults.
+    let merged = rules::with_all_defaults(&plate, &Map::new()).unwrap();
+    assert!(merged.keys().all(|k| !k.starts_with("bom.")));
+
+    // A standard bolt: proposed bought, still routine.
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/bom/gramil.step.gz");
+    let gramil = part::File::read(&path).unwrap();
+    let bolt = gramil
+        .parts()
+        .iter()
+        .position(|p| p.name == "pan-head screw M2x6")
+        .unwrap();
+    let screw = api::analyse_reporting_in(&gramil, &gramil.load(Some(bolt)).unwrap())
+        .unwrap()
+        .0;
+    let qs = bom_questions(&screw);
+    assert!(qs.iter().all(|q| q.attention == "routine"));
+    assert_eq!(qs[0].suggestions, [json!("bought")]);
+    assert_eq!(qs[0].reason, "Proposed: bought (a standard screw)");
+    // A project part number.
+    let shaft = gramil
+        .parts()
+        .iter()
+        .position(|p| p.name == "GRM-02 shaft")
+        .unwrap();
+    let shaft = api::analyse_reporting_in(&gramil, &gramil.load(Some(shaft)).unwrap())
+        .unwrap()
+        .0;
+    assert_eq!(
+        bom_questions(&shaft)[0].reason,
+        "Proposed: made (the name carries a part number)"
+    );
+
+    // The one check: a standard-hardware name on a part recognised with machined pockets.
+    // Synthesised from a pocketed part's own analysis given the BOM row of a "hex bolt".
+    let pocketed = part::File::read(
+        &PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/parts/default_datum_a_takes_every_coplanar_face.step"),
+    )
+    .unwrap();
+    let mut conflict = api::analyse(&pocketed.load(None).unwrap()).unwrap();
+    assert!(
+        conflict["features"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|f| f["family"] == "pockets")
+    );
+    let mut row = plate["bom"].clone();
+    row["name"]["value"] = json!("hex bolt");
+    row["make_buy"]["value"] = json!("bought");
+    conflict["bom"] = row;
+    let qs = bom_questions(&conflict);
+    let checks: Vec<_> = qs.iter().filter(|q| q.attention == "check").collect();
+    assert_eq!(checks.len(), 1);
+    assert_eq!(checks[0].id, "bom.make_buy");
+    assert_eq!(checks[0].suggestions, [json!("made")]);
+    assert_eq!(
+        checks[0].reason,
+        "Its name says bolt, but it has machined pockets: made to your drawing, or bought?"
+    );
 }

@@ -86,9 +86,12 @@ are JSON null. Unnumbered files are not numbered merely by reading.
 
 ## Opt-in questions and writes
 
-Questions are `bom.make_buy`, `bom.description`, `bom.part_number`, `bom.revision`,
-`bom.optional`, `bom.stock`. They have `optional: true`, a null `default`, and a
-`suggestions` array with the proposed value and a `reason`. Existing part numbers and
+Questions are `bom.make_buy`, `bom.description`, `bom.part_number`, `bom.revision` and
+`bom.optional`. They have `optional: true`, a null `default`, attention `routine`, and a
+`suggestions` array with the proposed value (none for part number and revision); make/buy's
+`reason` is its proposal. Its one `check` is a standard-hardware name on a part recognised
+with pockets or keyways, proposed made. Stock is not asked: it follows make/buy, `--bom`
+proposes it with the rest, and an explicit `bom.stock` answer is written. Existing part numbers and
 revisions are not asked again. BOM questions never block a write and are excluded from
 `--accept-defaults` / `with_all_defaults`. Material remains `part.material`. They are asked
 only of a part of a file the BOM can be written into (`bom::assembly_shape`): an assembly

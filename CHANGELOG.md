@@ -6,6 +6,17 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+### Changed
+
+- The BOM questions are `routine`, not `required` (`reviewed()` no longer overrides them), with
+  short prompts (`Made or bought?`, `Description`, `Part number`, `Revision`, `Optional item?`),
+  `why` "Shown in the drawing's parts list." and the make/buy proposal as the `reason`
+  ("From the file", or "Proposed: made/bought (…)"). The one `check` is a standard-hardware
+  name on a part recognised with pockets or keyways (proposed made). Part number and revision
+  carry no suggestion. `bom.stock` is no longer asked: it follows make/buy, is still proposed
+  by `--bom` and an explicit answer is still written. Suggestions stay out of `default`, so
+  `--accept-defaults` writes no BOM field.
+
 ### Fixed
 
 - The `bom.*` questions are asked only of a file the BOM can be written into: an assembly

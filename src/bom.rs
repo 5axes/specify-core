@@ -189,7 +189,26 @@ fn stock_for(make_buy: &Value) -> Value {
     }
 }
 
-fn guessed(name: &str) -> (&'static str, &'static str) {
+/// What a part's name says about whether it is made or bought.
+enum Guess {
+    /// A project drawing/part number: made, including bespoke hardware.
+    PartNumber,
+    /// Its last noun names standard hardware (the noun).
+    Standard(String),
+    /// Anything else: made.
+    Other,
+}
+
+impl Guess {
+    fn value(&self) -> &'static str {
+        match self {
+            Guess::Standard(_) => "bought",
+            _ => "made",
+        }
+    }
+}
+
+fn guessed(name: &str) -> Guess {
     let tokens: Vec<_> = name
         .split(|c: char| !c.is_alphanumeric())
         .filter(|s| !s.is_empty())
@@ -201,32 +220,24 @@ fn guessed(name: &str) -> (&'static str, &'static str) {
             && p[0].chars().all(|c| c.is_ascii_uppercase())
             && p[1].chars().all(|c| c.is_ascii_digit())
     }) {
-        return (
-            "made",
-            "The name carries a project drawing/part number; propose made, including bespoke hardware.",
-        );
+        return Guess::PartNumber;
     }
     let words: Vec<_> = tokens.iter().map(|s| s.to_lowercase()).collect();
     // Ignore size/designation suffixes; the last noun determines the kind of part.
     let noun = words.iter().rev().find(|s| {
         !s.chars().any(|c| c.is_ascii_digit()) && !["mm", "iso", "din", "x"].contains(&s.as_str())
     });
-    if noun.is_some_and(|s| {
-        [
-            "screw", "washer", "dowel", "bearing", "nut", "fastener", "bolt", "rivet", "circlip",
-            "pin", "stud",
-        ]
-        .contains(&s.as_str())
-    }) {
-        (
-            "bought",
-            "The final noun identifies standard hardware; review against recognition and bespoke features.",
-        )
-    } else {
-        (
-            "made",
-            "The final noun does not identify standard hardware; propose a manufactured part and review it.",
-        )
+    match noun {
+        Some(noun)
+            if [
+                "screw", "washer", "dowel", "bearing", "nut", "fastener", "bolt", "rivet",
+                "circlip", "pin", "stud",
+            ]
+            .contains(&noun.as_str()) =>
+        {
+            Guess::Standard(noun.clone())
+        }
+        _ => Guess::Other,
     }
 }
 
@@ -396,7 +407,7 @@ pub(crate) fn read_rows(
             }
         }
         if row.make_buy.value.is_null() {
-            row.make_buy = field(guessed(&def.name).0, "default");
+            row.make_buy = field(guessed(&def.name).value(), "default");
         }
         // A defaulted stock, including one accepted before stock followed make/buy, is
         // re-proposed from make/buy; an unknown make/buy leaves it as it is.
@@ -429,39 +440,34 @@ pub fn read_bytes(bytes: Vec<u8>) -> Result<Vec<Item>, String> {
     read(&File::of_bytes(Path::new("bom.step"), bytes).map_err(|e| e.to_string())?)
 }
 
+/// The BOM questions: optional, never blocking a write, and without a `default`, so accepting
+/// defaults never writes them; their proposals are `suggestions`, accepted only explicitly
+/// ([`accept_suggestions`]). Each is `routine`, except a make/buy proposal its name and its
+/// recognised features disagree on (`check`). Stock is not asked: it follows make/buy.
 pub(crate) fn questions(analysis: &Map<String, Value>) -> Vec<Question> {
     let Some(bom) = analysis.get("bom") else {
         return vec![];
     };
+    let machined = analysis
+        .get("features")
+        .and_then(Value::as_array)
+        .is_some_and(|features| {
+            features
+                .iter()
+                .filter_map(|f| f.get("family").and_then(Value::as_str))
+                .any(|family| family.contains("pocket") || family.contains("keyway"))
+        });
     let mut out = Vec::new();
-    let mut make_buy = Value::Null;
-    for (key, prompt, default, options) in [
+    for (key, prompt, options) in [
         (
             "make_buy",
-            "Is this part made or bought?",
-            json!("not known"),
+            "Made or bought?",
             vec!["made", "bought", "not known"],
         ),
-        (
-            "description",
-            "What does this BOM item describe?",
-            json!(""),
-            vec![],
-        ),
-        ("part_number", "What is the part number?", json!(""), vec![]),
-        ("revision", "What is the part revision?", json!(""), vec![]),
-        (
-            "optional",
-            "Is this item optional (quantity 0–1)?",
-            json!("no"),
-            vec!["no", "yes"],
-        ),
-        (
-            "stock",
-            "Is this item from stock or to be made?",
-            Value::Null,
-            vec!["from stock", "to be made"],
-        ),
+        ("description", "Description", vec![]),
+        ("part_number", "Part number", vec![]),
+        ("revision", "Revision", vec![]),
+        ("optional", "Optional item?", vec!["no", "yes"]),
     ] {
         if matches!(key, "part_number" | "revision") && bom[key]["source"] == "file" {
             continue;
@@ -473,53 +479,43 @@ pub(crate) fn questions(analysis: &Map<String, Value>) -> Vec<Question> {
             prompt.into(),
             vec![],
         );
-        q.default = Some(if key == "optional" {
-            json!(if value == true { "yes" } else { "no" })
-        } else if value.is_null() {
-            default
-        } else {
-            value.clone()
-        });
         q.options = options.into_iter().map(String::from).collect();
-        q.why = "The STEP assembly is the BOM authority for drawings and CSV.".into();
-        q.basis = if bom[key]["source"] == "file" {
-            "Existing export data; preserved unless changed.".into()
-        } else if key == "make_buy" {
-            guessed(bom["name"]["value"].as_str().unwrap_or(""))
-                .1
-                .into()
-        } else {
-            "BOM setting; review against the manufacturing specification.".into()
+        q.why = "Shown in the drawing's parts list.".into();
+        q.attention = "routine";
+        let suggestion = match key {
+            "make_buy" if bom[key]["source"] != "default" => {
+                q.reason = "From the file".into();
+                value.clone()
+            }
+            "make_buy" => {
+                let guess = guessed(bom["name"]["value"].as_str().unwrap_or(""));
+                q.reason = match &guess {
+                    Guess::PartNumber => "Proposed: made (the name carries a part number)".into(),
+                    Guess::Standard(noun) if machined => {
+                        q.attention = "check";
+                        format!(
+                            "Its name says {noun}, but it has machined pockets: made to your \
+                             drawing, or bought?"
+                        )
+                    }
+                    Guess::Standard(noun) => format!("Proposed: bought (a standard {noun})"),
+                    Guess::Other => "Proposed: made (it isn't a standard part)".into(),
+                };
+                // The row's proposal (`read_rows`: the name's guess, or one accepted earlier).
+                if machined {
+                    json!("made")
+                } else {
+                    value.clone()
+                }
+            }
+            "description" => value.clone(),
+            "optional" => json!(if value == true { "yes" } else { "no" }),
+            _ => Value::Null,
         };
-        if key == "make_buy"
-            && bom[key]["source"] == "default"
-            && analysis
-                .get("features")
-                .and_then(Value::as_array)
-                .is_some_and(|features| {
-                    features
-                        .iter()
-                        .filter_map(|f| f.get("family").and_then(Value::as_str))
-                        .any(|family| family.contains("pocket") || family.contains("keyway"))
-                })
-        {
-            q.default = Some(json!("made"));
-            q.basis = "Recognition found machined pockets/keyways beyond a standard fastener; propose made and review it.".into();
+        if !suggestion.is_null() {
+            q.suggestions.push(suggestion);
         }
-        if key == "make_buy" {
-            make_buy = q.default.clone().unwrap_or_default();
-        }
-        if key == "stock" && bom[key]["source"] == "default" {
-            q.default = Some(stock_for(&make_buy));
-            q.basis =
-                "Follows the make/buy proposal: bought parts from stock, made parts to be made."
-                    .into();
-        }
-        if let Some(value) = q.default.take().filter(|v| !v.is_null()) {
-            q.suggestions.push(value);
-        }
-        q.attention = "check";
-        q.reason = q.basis.clone();
+        q.basis = q.reason.clone();
         out.push(q);
     }
     out
@@ -547,16 +543,27 @@ pub fn accept_suggestions(
         .cloned()
         .unwrap_or_default();
     let mut suggested = Vec::new();
-    for q in questions(object) {
-        let key = q.id.strip_prefix("bom.").unwrap_or("");
-        // An explicit make/buy answer decides the stock proposal over the analysed one.
-        let value = match answers.get("bom.make_buy") {
-            Some(answer) if key == "stock" && analysis["bom"][key]["source"] == "default" => {
-                Some(stock_for(answer)).filter(|v| !v.is_null())
-            }
-            _ => q.suggestions.first().cloned(),
-        };
-        if !answers.contains_key(&q.id)
+    let questions = questions(object);
+    // Stock is not asked but is proposed with the rest: from the file, or following make/buy
+    // (an explicit answer over the proposal).
+    let stock = if analysis["bom"]["stock"]["source"] == "default" {
+        let make_buy = answers.get("bom.make_buy").cloned().or_else(|| {
+            questions
+                .iter()
+                .find(|q| q.id == "bom.make_buy")
+                .and_then(|q| q.suggestions.first().cloned())
+        });
+        make_buy.map_or(Value::Null, |m| stock_for(&m))
+    } else {
+        analysis["bom"]["stock"]["value"].clone()
+    };
+    let proposals = questions
+        .iter()
+        .map(|q| (q.id.as_str(), q.suggestions.first().cloned()))
+        .chain([("bom.stock", Some(stock).filter(|v| !v.is_null()))]);
+    for (id, value) in proposals {
+        let key = id.strip_prefix("bom.").unwrap_or("");
+        if !answers.contains_key(id)
             && analysis["bom"][key]["source"] != "answered"
             && let Some(value) = value
             && !value.as_str().is_some_and(|s| s.trim().is_empty())
@@ -1462,7 +1469,7 @@ mod tests {
             "leadscrew",
             "minute",
         ] {
-            assert_eq!(guessed(name).0, "made", "{name}");
+            assert_eq!(guessed(name).value(), "made", "{name}");
         }
         for name in [
             "ISO 4762 screw M2x6",
@@ -1479,7 +1486,7 @@ mod tests {
             "bearing",
             "dowel",
         ] {
-            assert_eq!(guessed(name).0, "bought", "{name}");
+            assert_eq!(guessed(name).value(), "bought", "{name}");
         }
         assert_eq!(normalised("stock", &json!("unusable text")), None);
         assert_eq!(
