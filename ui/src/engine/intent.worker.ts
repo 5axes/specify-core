@@ -69,8 +69,17 @@ self.onmessage = ({ data: { id, operation, args } }) => {
         }
         if (operation === 'write') {
           // A part of an assembly is written with its parts-list row: Specify's suggestions for what
-          // was not answered, and every part numbered.
-          const document = JSON.parse(engine.writePmi(accepted(args.answers), args.project, undefined, args.part !== undefined));
+          // was not answered, and every part numbered. A file of several parts not placed in an
+          // assembly (no assembly product definition) has no parts list to write them to: Specify
+          // 0.1.12 still asks them, so they are left out and the part written without.
+          const write = (answers: Record<string, unknown>, bom: boolean) =>
+            JSON.parse(engine!.writePmi(accepted(answers), args.project, undefined, bom));
+          let document;
+          try { document = write(args.answers ?? {}, args.part !== undefined); }
+          catch (error) {
+            if (args.part === undefined || !String(error).includes('requires an assembly product definition')) throw error;
+            document = write(Object.fromEntries(Object.entries(args.answers ?? {}).filter(([id]) => !id.startsWith('bom.'))), false);
+          }
           result = { ...document, bytes: new Uint8Array(document.bytes) };
         } else if (operation === 'answers') {
           // Every answer the STEP would be written with, the defaults made explicit: a part's
