@@ -9,8 +9,7 @@ All notable changes to specify-core-rust. The format follows
 ### Added
 
 - `analyse` and `mesh` take `-o -`: the JSON goes to stdout and the one-line summary to stderr,
-  so the output can be piped into another program (for example
-  [step2cam](https://github.com/pzfreo/step2cam), STEP features to camlib toolpaths).
+  so the output can be piped into another program. With a file, nothing changes.
 
 ## 0.1.12 (2026-11-06)
 
