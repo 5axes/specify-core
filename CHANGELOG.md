@@ -11,7 +11,8 @@ All notable changes to specify-core-rust. The format follows
 - The `bom.*` questions are asked only of a file the BOM can be written into: an assembly
   product definition with a shape and an assembly occurrence of every part, the writer's own
   condition (#149). A file of several products with no `NEXT_ASSEMBLY_USAGE_OCCURRENCE` is no
-  longer asked them, and writes without `--bom`; `--bom` on it is refused as on a single part,
+  longer asked them, and writes without `--bom`; `--bom` on it is refused as on a single part
+  (now saying the file has no assembly structure, so there is no BOM to write),
   and a stale `bom.*` answer is refused by the writer as before. `bom` still lists its rows.
 
 ## 0.1.12 (2026-11-06)

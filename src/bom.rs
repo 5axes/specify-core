@@ -112,7 +112,10 @@ fn formations(doc: &Document, pd: u64) -> (u64, u64, &'static str) {
     (formation, product, ty)
 }
 fn occurrences(doc: &Document, pd: u64) -> Vec<u64> {
-    doc.ids()
+    // Only what references `pd` can name it; the index is ascending, as `ids()` is.
+    doc.referrers(pd)
+        .iter()
+        .copied()
         .filter(|&id| {
             attrs(doc, id, "NEXT_ASSEMBLY_USAGE_OCCURRENCE")
                 .is_some_and(|a| reference(a.get(4)) == Some(pd))
@@ -531,7 +534,11 @@ pub fn accept_suggestions(
 ) -> Result<(), String> {
     let object = analysis.as_object().ok_or("analysis is not an object")?;
     if !analysis.get("bom").is_some_and(Value::is_object) {
-        return Err("BOM acceptance requires a current assembly analysis (analyse --part)".into());
+        return Err(
+            "the file has no assembly structure, so there is no BOM to write \
+             (BOM acceptance needs a part of an assembly, analysed with analyse --part)"
+                .into(),
+        );
     }
     let mut fields = intent
         .part
@@ -791,7 +798,9 @@ pub(crate) fn assembly_shape(
         .find(|&id| attrs(doc, id, "PRODUCT_DEFINITION").is_some() && !leaf.contains(&id))
         .ok_or("BOM writing requires an assembly product definition")?;
     let shape = doc
-        .ids()
+        .referrers(owner)
+        .iter()
+        .copied()
         .find(|&id| {
             attrs(doc, id, "PRODUCT_DEFINITION_SHAPE")
                 .is_some_and(|a| reference(a.get(2)) == Some(owner))

@@ -960,7 +960,8 @@ fn bom_is_not_asked_where_it_cannot_be_written() {
         assert!(complete.keys().all(|key| !key.starts_with("bom.")));
         // `--bom` is refused as on a single part: there is nothing to accept.
         let mut intent = api::apply(&analysis, &given, true).unwrap();
-        assert!(bom::accept_suggestions(&analysis, &given, &mut intent).is_err());
+        let refused = bom::accept_suggestions(&analysis, &given, &mut intent).unwrap_err();
+        assert!(refused.contains("no assembly structure"), "{refused}");
         jobs.push((
             api::apply(&analysis, &given, true).unwrap(),
             Some(given.clone()),
