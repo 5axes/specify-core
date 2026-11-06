@@ -18,7 +18,8 @@ export interface QuestionGroup {
 
 export type RowState = 'required' | 'check' | 'set' | 'ok';
 
-/** Rows: the part, one per feature in question order, then the datums they are measured from. */
+/** Rows: the part, its parts-list row (an assembly part's), one per feature in question order,
+ * then the datums they are measured from. */
 export function groupQuestions(questions: readonly PmiQuestion[]): QuestionGroup[] {
   const groups = new Map<string, QuestionGroup>();
   const add = (key: string, title: string, q: PmiQuestion) => {
@@ -28,10 +29,11 @@ export function groupQuestions(questions: readonly PmiQuestion[]): QuestionGroup
   };
   for (const q of questions) {
     if (q.id.startsWith('part.')) add('part', 'Part', q);
+    else if (q.id.startsWith('bom.')) add('bom', 'Parts list', q);
     else if (q.id.startsWith('datum.')) add('datums', 'Datums', q);
     else add(q.feature ?? q.id, titleOf(q), q);
   }
-  const order = (key: string) => (key === 'part' ? 0 : key === 'datums' ? 2 : 1);
+  const order = (key: string) => (key === 'part' ? 0 : key === 'bom' ? 1 : key === 'datums' ? 3 : 2);
   // Each datum is followed by its own control: A, A's flatness, B, B's perpendicularity...
   const datums = groups.get('datums');
   if (datums) datums.questions.sort((a, b) => datumOrder(a.id).localeCompare(datumOrder(b.id)));

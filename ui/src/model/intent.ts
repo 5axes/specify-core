@@ -7,9 +7,9 @@ import type { PmiAnswers, PmiQuestion } from '../types/pmi';
 export type GdtMode = 'plusminus' | 'geometric';
 
 /** The groups of the intent, in the order stage 1 shows them. */
-export type IntentPart = 'material' | 'threads' | 'notes' | 'faces' | 'scheme';
+export type IntentPart = 'material' | 'threads' | 'notes' | 'bom' | 'faces' | 'scheme';
 export const intentParts: Record<IntentPart, string> = {
-  material: 'Material', threads: 'Threads and taps', notes: 'General notes', faces: 'Not recognised', scheme: 'GD&T',
+  material: 'Material', threads: 'Threads and taps', notes: 'General notes', bom: 'Parts list', faces: 'Not recognised', scheme: 'GD&T',
 };
 
 // The general notes: blanket statements for the whole part, in every drawing's default path.
@@ -25,6 +25,8 @@ export function intentPart(q: PmiQuestion, answers: PmiAnswers): IntentPart {
   // How the part is made (Specify 0.1.12) sets its defaults with the material, so it sits beside it.
   if (q.id === 'part.material' || q.id === 'part.process') return 'material';
   if (notes.has(q.id)) return 'notes';
+  // A part of an assembly: its row of the parts list (Specify asks these only of assembly parts).
+  if (q.id.startsWith('bom.')) return 'bom';
   if ((q.id.startsWith('hole.function:') || q.id.startsWith('diameter.fit:'))
       && factOptions.some(option => valueOf(q, answers).startsWith(option))) return 'threads';
   return 'scheme';

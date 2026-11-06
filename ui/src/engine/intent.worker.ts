@@ -12,7 +12,7 @@ interface IntentModule {
     parts(name: string, bytes: Uint8Array): string;
   };
 }
-interface IntentInstance { free(): void; snapshot(): string; review(answers: string): string; settle(state: string): string; writePmi(answers: string, project?: string): string; acceptDefaults(answers: string): string;
+interface IntentInstance { free(): void; snapshot(): string; review(answers: string): string; settle(state: string): string; writePmi(answers: string, project?: string, payload?: string, bom?: boolean): string; acceptDefaults(answers: string): string;
     evidence(): string; rematchAnswers(answers: string, evidence?: string | null, automatic?: string | null): string;
     payload(name: string): string | undefined; original(): Uint8Array | undefined; pmiScene(state: string): string }
 
@@ -68,7 +68,9 @@ self.onmessage = ({ data: { id, operation, args } }) => {
           sourceId = args.sourceId; part = args.part;
         }
         if (operation === 'write') {
-          const document = JSON.parse(engine.writePmi(accepted(args.answers), args.project));
+          // A part of an assembly is written with its parts-list row: Specify's suggestions for what
+          // was not answered, and every part numbered.
+          const document = JSON.parse(engine.writePmi(accepted(args.answers), args.project, undefined, args.part !== undefined));
           result = { ...document, bytes: new Uint8Array(document.bytes) };
         } else if (operation === 'answers') {
           // Every answer the STEP would be written with, the defaults made explicit: a part's
