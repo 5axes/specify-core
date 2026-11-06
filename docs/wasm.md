@@ -85,11 +85,12 @@ All structured inputs and outputs are **JSON strings**, except the constructor's
 | `new IntentEngine(name, bytes)` | Opens one STEP part. Refuses gzip, any count other than one distinct part, any count other than one placement, and a mismatch between haecceity's ordered face sources and the STEP definition. `name` labels the input; it is never read as a path. An assembly, or a part placed more than once, is opened with `IntentEngine.openPart`. |
 | `IntentEngine.parts(name, bytes)` | The file's distinct parts, as `specify-core parts` lists them: `[{part, name, product_id, faces, instances, placements, written}]`, `written` saying whether Specify has stored answers for the part. Refuses gzip, as the constructor does. |
 | `IntentEngine.openPart(name, bytes, part)` | Opens part `part` (an index from `parts`) of any file: an assembly's part, or a part placed more than once. See "Assemblies" below. Part 0 of a file of one part used once opens exactly as the constructor opens it. |
+| `IntentEngine.bom(bytes)` | The file's BOM rows as JSON, one per distinct part, as `specify-core bom` gives them: each field `{value, source}`. Reading never accepts suggestions or allocates numbers. See [BOM](bom.md). |
 | `engine.snapshot()` | `{analysis, mesh, provenance: {source_sha256, face_entities, part}}`; `part` is the part opened (0 from the constructor). |
 | `engine.review(answersJson)` | `{questions, open, intent, problems}`; adds geometry anchors to `intent.anchors`. |
 | `engine.exportAnswers(answersJson)` | Complete answer map as a JSON string: every accepted PMI default explicit, plus `_specify.evidence` and empty `_specify.unresolved`. Refuses unanswered required questions, carry blocks and stale evidence. Recursively sorts object keys; preserves array order. Does not write or mutate the session. Save with `JSON.stringify(JSON.parse(result), null, 2) + "\n"`. Accepted directly by review, writePmi and diff. See [answer files](answers.md). |
 | `engine.acceptDefaults(answersJson)` | Answers object with every unanswered default filled to a fixed point, using the same rules as CLI/serve `accept_defaults`. Preserves supplied answers; questions without defaults stay unanswered. |
-| `engine.writePmi(answersJson, projectBase64?, payloadJson?)` | `{bytes, source_sha256, report}`; `bytes` is an array of byte values. Writes and verifies answered PMI and stored answers in memory. Unanswered defaults remain suggestions. `report` is the upstream writer's report; its `output` is the constructor's name. `payloadJson` is `{name, value}`: any JSON value carried in the STEP under `name` (give the project or a payload, not both; see below). |
+| `engine.writePmi(answersJson, projectBase64?, payloadJson?, bom?)` | `{bytes, source_sha256, report}`; `bytes` is an array of byte values. Writes and verifies answered PMI and stored answers in memory. Unanswered defaults remain suggestions. `report` is the upstream writer's report; its `output` is the constructor's name. `payloadJson` is `{name, value}`: any JSON value carried in the STEP under `name` (give the project or a payload, not both; see below). |
 | `engine.payload(name)` | The JSON text of the payload `name` the opened STEP carries, or `undefined`. |
 | `engine.original()` | `Uint8Array` of the part the opened STEP was first written from (without what the writer added, its `FILE_SCHEMA` restored), or `undefined` when it records none or the bytes do not hash to the recorded sha256. |
 | `engine.evidence()` | `{schema, face_count, faces}`: the face evidence to keep with answers saved outside the STEP. |
@@ -189,6 +190,16 @@ other parts are kept byte for byte, so parts are written one at a time, each fro
 the file the previous write returned. `parts()` then shows each written part as `written`.
 `payload(name)` reads the payload written on the opened part (another part's payload of the
 same name is not this part's); `original()` gives back the whole file as first opened.
+
+**BOM and process.** An assembly part's questions include the optional `bom.*` questions
+(make/buy, part number, description, revision, optional, stock; [BOM](bom.md)), which never
+block a write and are not accepted by `acceptDefaults`, and the part's snapshot carries its BOM
+row as `analysis.bom`. Explicit `bom.*` answers are written with the part; `writePmi`'s fourth
+argument `true` also stores the accepted BOM suggestions and numbers every part of the file
+(omitted or `false`, a write without `bom.*` answers adds no BOM data). `part.process`, how the
+part is made, is asked of every made part, last ([process](process.md)); a part whose make/buy
+is `bought` (answered or in the file, not guessed) is asked no process, and the
+assembly product none.
 
 ## Answers saved outside the STEP
 
