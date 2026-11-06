@@ -20,6 +20,8 @@ let engine: IntentInstance | undefined;
 let sourceId = '';
 // The part of an assembly the engine is of, if its file is one.
 let part: number | undefined;
+// The open file has parts but no assembly to write a parts list to (Specify refused once).
+let noAssembly = false;
 
 // The editor draws and writes Specify's defaults, listed for review (agreed 2026-10-16). From
 // specify-core alpha.6 an unanswered default is not written unless accepted, so every review and
@@ -65,12 +67,24 @@ self.onmessage = ({ data: { id, operation, args } }) => {
           engine?.free(); engine = undefined;
           engine = args.part === undefined ? new module.IntentEngine(args.name, args.bytes)
             : module.IntentEngine.openPart(args.name, args.bytes, args.part);
-          sourceId = args.sourceId; part = args.part;
+          sourceId = args.sourceId; part = args.part; noAssembly = false;
         }
         if (operation === 'write') {
           // A part of an assembly is written with its parts-list row: Specify's suggestions for what
-          // was not answered, and every part numbered.
-          const document = JSON.parse(engine.writePmi(accepted(args.answers), args.project, undefined, args.part !== undefined));
+          // was not answered, and every part numbered. A file of several parts not placed in an
+          // assembly (no assembly product definition) has no parts list to write them to: Specify
+          // 0.1.12 still asks them, so they are left out and the part written without.
+          const write = (answers: Record<string, unknown>, bom: boolean) =>
+            JSON.parse(engine!.writePmi(accepted(answers), args.project, undefined, bom));
+          const withoutBom = () => write(Object.fromEntries(Object.entries(args.answers ?? {}).filter(([id]) => !id.startsWith('bom.'))), false);
+          let document;
+          if (noAssembly) document = withoutBom();
+          else try { document = write(args.answers ?? {}, args.part !== undefined); }
+          catch (error) {
+            if (args.part === undefined || !String(error).includes('requires an assembly product definition')) throw error;
+            noAssembly = true; // Remembered for this file: the refused write costs about as much as a write.
+            document = withoutBom();
+          }
           result = { ...document, bytes: new Uint8Array(document.bytes) };
         } else if (operation === 'answers') {
           // Every answer the STEP would be written with, the defaults made explicit: a part's
