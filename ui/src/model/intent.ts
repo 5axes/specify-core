@@ -22,7 +22,8 @@ const valueOf = (q: PmiQuestion, answers: PmiAnswers) => String(q.id in answers 
 
 /** The part of the intent ``q`` belongs to, given what it is answered (or proposed) as. */
 export function intentPart(q: PmiQuestion, answers: PmiAnswers): IntentPart {
-  if (q.id === 'part.material') return 'material';
+  // How the part is made (Specify 0.1.12) sets its defaults with the material, so it sits beside it.
+  if (q.id === 'part.material' || q.id === 'part.process') return 'material';
   if (notes.has(q.id)) return 'notes';
   if ((q.id.startsWith('hole.function:') || q.id.startsWith('diameter.fit:'))
       && factOptions.some(option => valueOf(q, answers).startsWith(option))) return 'threads';

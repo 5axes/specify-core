@@ -31,7 +31,7 @@ export interface SpecifySlots {
 const STATE_TEXT = { required: 'needs an answer', check: 'please check', set: 'answered', ok: 'default' } as const;
 /** Short names for the part's own fields; any other part question is shown by its prompt. */
 const PART_FIELD: Record<string, string> = {
-  'part.material': 'Material', 'part.general_tolerance': 'General tolerance', 'part.locating': 'Holes located by',
+  'part.material': 'Material', 'part.process': 'Process', 'part.general_tolerance': 'General tolerance', 'part.locating': 'Holes located by',
   'part.surface_finish': 'Surface finish', 'part.coating': 'Coating or treatment',
   'part.heat_treatment': 'Heat treatment', 'part.edges': 'Edges',
 };
