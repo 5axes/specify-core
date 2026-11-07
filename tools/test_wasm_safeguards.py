@@ -17,7 +17,7 @@ import wasm_size
 class WorkspacePinTests(unittest.TestCase):
     def test_release_and_wasm_use_the_reviewed_kernel(self):
         local = kernel.pins(kernel.tomllib.loads((kernel.ROOT / "Cargo.toml").read_text()))
-        self.assertEqual(set(local.values()), {("tag", "v0.4.8")})
+        self.assertEqual(set(local.values()), {("tag", "v0.4.9")})
         self.assertEqual(set(local.values()), {("tag", kernel.REQUIRED_TAG)})
         kernel.check_wasm_pin(local)
 
@@ -26,16 +26,16 @@ class WorkspacePinTests(unittest.TestCase):
             manifest = Path(directory) / "Cargo.toml"
             manifest.write_text('[dependencies.haecceity]\ngit = "https://github.com/pzfreo/quiddity"\ntag = "v0.2.8"\n')
             with self.assertRaisesRegex(ValueError, "same source and pin"):
-                kernel.check_wasm_pin({"haecceity": ("tag", "v0.4.8")}, manifest)
+                kernel.check_wasm_pin({"haecceity": ("tag", "v0.4.9")}, manifest)
 
     def test_only_a_released_sibling_may_use_the_former_kernel_name(self):
         former = kernel.tomllib.loads(
-            '[dependencies.haecceity]\ngit = "https://github.com/pzfreo/quiddity-rust"\ntag = "v0.4.8"\n'
-            '[dependencies.quiddity]\ngit = "https://github.com/pzfreo/quiddity-rust"\ntag = "v0.4.8"\n')
+            '[dependencies.haecceity]\ngit = "https://github.com/pzfreo/quiddity-rust"\ntag = "v0.4.9"\n'
+            '[dependencies.quiddity]\ngit = "https://github.com/pzfreo/quiddity-rust"\ntag = "v0.4.9"\n')
         with self.assertRaisesRegex(ValueError, "not sourced from pzfreo/quiddity"):
             kernel.pins(former)
         sibling = kernel.pins(former, (kernel.KERNEL, kernel.FORMER_KERNEL))
-        self.assertEqual(set(sibling.values()), {("tag", "v0.4.8")})
+        self.assertEqual(set(sibling.values()), {("tag", "v0.4.9")})
 
 
 class ApiTests(unittest.TestCase):
