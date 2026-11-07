@@ -25,6 +25,7 @@ use std::path::Path;
 use serde_json::{Map, Value, json};
 
 use crate::anchors;
+use crate::bom;
 use crate::existing;
 use crate::features;
 use crate::mates;
@@ -103,9 +104,12 @@ impl From<WriteError> for Error {
 pub type Result<T> = std::result::Result<T, Error>;
 
 /// The distinct parts of `step`: `{part, name, product_id, faces, instances, placements,
-/// written}` each, `written` saying whether specify-core has written the part (answers stored
-/// for it). A part is identified by `part`, its index (decision D1); `name` and `product_id`
-/// are reported beside it and need not be unique.
+/// written, same_as}` each, `written` saying whether specify-core has written the part (answers
+/// stored for it). A part is identified by `part`, its index (decision D1); `name` and
+/// `product_id` are reported beside it and need not be unique. `same_as` is the index of the
+/// first part this one is a copy of (the same shape moved, and the same stated BOM facts and
+/// answers: [`bom::copies`]), or `null`: separate products a file gives for one part (four
+/// `M3×8 hex bolt #n` with no assembly) are one part with their instances added together.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn parts(step: &Path) -> Result<Vec<Value>> {
     Ok(parts_of(&part::File::read(step)?))
@@ -114,14 +118,21 @@ pub fn parts(step: &Path) -> Result<Vec<Value>> {
 /// [`parts`] of a file already read (from a path or from bytes held in memory, as the browser
 /// session lists an assembly's parts).
 pub fn parts_of(file: &part::File) -> Vec<Value> {
-    let stored = resume::stored(file.bytes());
+    let doc = haecceity::p21::Document::parse(file.bytes().to_vec()).ok();
+    let stored = doc.as_ref().map(resume::stored_in).unwrap_or_default();
+    let copies = match &doc {
+        Some(doc) => bom::copies(file, doc),
+        None => vec![None; file.definitions().len()],
+    };
     file.parts()
         .into_iter()
         .map(|p| {
             let written = stored.contains_key(&p.part);
+            let same_as = copies[p.part];
             // PartSummary contains only JSON-serializable fields with string keys.
             let mut value = serde_json::to_value(p).expect("a part summary serialises");
             value["written"] = Value::Bool(written);
+            value["same_as"] = json!(same_as);
             value
         })
         .collect()

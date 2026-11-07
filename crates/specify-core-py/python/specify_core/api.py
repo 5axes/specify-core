@@ -41,7 +41,9 @@ ANALYSIS_SCHEMA = _native.ANALYSIS_SCHEMA
 
 def parts(step: str | Path) -> list[dict[str, Any]]:
     """The distinct parts of ``step``: name, face count, instances and their
-    placements, and whether specify-core has written the part (answers stored)."""
+    placements, whether specify-core has written the part (answers stored), and
+    ``same_as``: the index of the first part this one is a copy of (the same shape
+    moved, stating the same BOM facts and answers), or ``None``."""
     return json.loads(_native.parts(_path(step)))
 
 

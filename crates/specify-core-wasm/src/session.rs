@@ -134,7 +134,7 @@ impl Session {
     }
 
     /// The distinct parts of the file, as `specify-core parts` lists them (`api::parts`):
-    /// `[{part, name, product_id, faces, instances, placements, written}]`.
+    /// `[{part, name, product_id, faces, instances, placements, written, same_as}]`.
     pub fn parts(name: &str, bytes: &[u8]) -> Result<Value, String> {
         check_input(name, bytes)?;
         let file = part::File::of_bytes(Path::new(name), bytes.to_vec())

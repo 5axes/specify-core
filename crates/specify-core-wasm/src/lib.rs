@@ -281,7 +281,7 @@ export interface PmiScene {
         }
 
         /// The file's distinct parts, as `specify-core parts` lists them: `[{part, name,
-        /// product_id, faces, instances, placements, written}]`.
+        /// product_id, faces, instances, placements, written, same_as}]`.
         pub fn parts(name: &str, bytes: &[u8]) -> Result<String, JsValue> {
             session::Session::parts(name, bytes)
                 .map(|value| value.to_string())

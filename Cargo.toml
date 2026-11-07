@@ -29,8 +29,8 @@ clap_complete = { version = "4.6", optional = true }
 # pzfreo/quiddity: feature recognition (quiddity) and the geometry kernel with STEP import and
 # AP242 semantic PMI (haecceity). Both use tagged v0.4.8.
 # See docs/design.md, "Dependency plan".
-quiddity = { git = "https://github.com/pzfreo/quiddity", tag = "v0.4.8" }
-haecceity = { git = "https://github.com/pzfreo/quiddity", tag = "v0.4.8", features = ["json"] }
+quiddity = { git = "https://github.com/pzfreo/quiddity", rev = "17a883aa1e489c2336b5866baf543c647c31969c", default-features = false, features = ["presentation"] }
+haecceity = { git = "https://github.com/pzfreo/quiddity", rev = "17a883aa1e489c2336b5866baf543c647c31969c", features = ["json"] }
 # The kernel's own unit reader also converts planner supplemental points into file units.
 step-io = "0.3.0"
 base64 = "0.22.1"
