@@ -967,6 +967,7 @@ fn bom_is_not_asked_where_it_cannot_be_written() {
         // `--bom` is refused as on a single part: there is nothing to accept.
         let mut intent = api::apply(&analysis, &given, true).unwrap();
         let refused = bom::accept_suggestions(&analysis, &given, &mut intent).unwrap_err();
+        assert!(refused.starts_with("bom_no_assembly: "), "{refused}");
         assert!(refused.contains("no assembly structure"), "{refused}");
         jobs.push((
             api::apply(&analysis, &given, true).unwrap(),
@@ -988,8 +989,9 @@ fn bom_is_not_asked_where_it_cannot_be_written() {
         .err()
         .unwrap()
         .to_string();
+    // The same code, wherever the writer's error is wrapped.
     assert!(
-        refused.contains("BOM writing requires an assembly product definition"),
+        refused.contains("bom_no_assembly: BOM writing requires an assembly product definition"),
         "{refused}"
     );
 

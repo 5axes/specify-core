@@ -6,6 +6,13 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+### WASM API
+
+- A refusal to write a BOM into a file with no assembly structure (`writePmi` with `bom=true`,
+  or a stale `bom.*` answer) now carries the stable code `bom_no_assembly:` (`bom::NO_ASSEMBLY`)
+  before its message, so the editor can match the code instead of the prose. 0.1.13 changed
+  the `bom=true` message, which broke the editor's text match (its fallback for loose parts).
+
 ## 0.1.13 (2026-11-07)
 
 ### Changed
