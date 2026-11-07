@@ -6,6 +6,21 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+### Added
+
+- `parts` (CLI, serve, Python, WASM `IntentEngine.parts`) gives each copy `faces_of_first`: for
+  each of its faces, in its own order, the face of its first part (`same_as`) it lands on, the
+  pairing quiddity's congruence check proves; `null` where `same_as` is (#150). A turned copy,
+  or one whose file lists its faces in another order, numbers its faces differently from the
+  first, so an answer given for faces (a datum, a feature question) carries over only through
+  it.
+
+### Changed
+
+- `same_as` compares only the saved `part.*` and `bom.*` answers. Answers given for faces may be
+  shared through `faces_of_first` or given per copy, so a copy whose datum or hole answers were
+  given separately stays a copy of its first part (#150).
+
 ## 0.1.14 (2026-11-07)
 
 ### Added
