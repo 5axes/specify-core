@@ -6,6 +6,8 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+## 0.1.13 (2026-11-07)
+
 ### Changed
 
 - Move native, WASM and Python builds from quiddity/haecceity v0.4.7 to v0.4.8
