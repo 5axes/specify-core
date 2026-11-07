@@ -902,6 +902,11 @@ fn same<'i, T, K: PartialEq>(items: &'i [T], keys: &[K]) -> Vec<Vec<&'i T>> {
 
 /// `_reviewed`: the question with its attention level; the policy for all questions is here.
 fn reviewed(mut q: Question, faces: &Faces) -> Result<Question> {
+    // The BOM's questions are optional and have no default by design (their proposals are
+    // suggestions), so their own attention stands (`bom::questions`).
+    if q.id.starts_with("bom.") {
+        return Ok(q);
+    }
     let Some(default) = q.default.as_ref() else {
         q.attention = "required";
         return Ok(q);

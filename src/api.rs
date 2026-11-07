@@ -281,6 +281,7 @@ fn analyse_with(
         Some(resumed) => {
             if loaded.part_count > 1
                 && let Ok(doc) = &doc
+                && definitions.is_some_and(|d| crate::bom::assembly_shape(doc, d).is_ok())
             {
                 let rows = crate::bom::read_parsed(
                     doc,
@@ -356,9 +357,12 @@ fn analyse_with(
                     &read_here
                 }
             };
+            // BOM questions only where the BOM can be written (#149).
+            let writable =
+                loaded.part_count > 1 && crate::bom::assembly_shape(&doc, definitions).is_ok();
             let reading =
                 existing::read_parsed(loaded, doc, definitions).map_err(|e| refused(&e))?;
-            if loaded.part_count > 1 {
+            if writable {
                 analysis.insert(
                     "bom".into(),
                     serde_json::to_value(reading.bom(loaded).map_err(Error::Analysis)?)
