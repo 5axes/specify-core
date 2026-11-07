@@ -19,9 +19,10 @@ All notable changes to specify-core-rust. The format follows
 
 ### Changed
 
-- `same_as` compares only the saved `part.*` and `bom.*` answers. Answers given for faces may be
-  shared through `faces_of_first` or given per copy, so a copy whose datum or hole answers were
-  given separately stays a copy of its first part (#150).
+- `same_as` compares only the saved `part.*` and `bom.*` answers. Answers given for faces
+  (datums, feature questions, `extra.*` requirements) may be shared through `faces_of_first` or
+  given per copy, so a copy whose datum or hole answers were given separately stays a copy of its
+  first part (#150).
 
 ## 0.1.14 (2026-11-07)
 

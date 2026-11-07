@@ -190,3 +190,32 @@ fn a_turned_copy_listing_its_faces_in_reverse_maps_each_face_to_the_first() {
     let reverse: Vec<usize> = (0..FACES).rev().collect();
     assert_eq!(faces_of_first(&parts), [json!(null), json!(reverse)]);
 }
+
+#[test]
+fn a_copy_of_a_split_off_part_maps_its_faces_to_that_part() {
+    // All three are the same shape, so the first is the group's head; the second and third state
+    // revision B, so the third is a copy of the second. The second is turned with its shell
+    // reversed and the third only moved, so the third's face k is the second's face FACES - 1 - k:
+    // its pairing goes through the head and back.
+    let parts = listed(file(
+        &[[0.0; 3], [50.0, 0.0, 0.0], [100.0, 0.0, 0.0]],
+        |n, e| {
+            let e = if n == 1 { reversed_shell(turned(e)) } else { e };
+            if n > 0 && e.contains("PRODUCT_DEFINITION_FORMATION(''") {
+                e.replacen(
+                    "PRODUCT_DEFINITION_FORMATION(''",
+                    "PRODUCT_DEFINITION_FORMATION('B'",
+                    1,
+                )
+            } else {
+                e
+            }
+        },
+    ));
+    assert_eq!(same_as(&parts), [json!(null), json!(null), json!(1)]);
+    let reverse: Vec<usize> = (0..FACES).rev().collect();
+    assert_eq!(
+        faces_of_first(&parts),
+        [json!(null), json!(null), json!(reverse)]
+    );
+}
