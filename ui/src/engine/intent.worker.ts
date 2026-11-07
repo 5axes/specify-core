@@ -23,7 +23,7 @@ let sourceId = '';
 // The part of an assembly the engine is of, if its file is one.
 let part: number | undefined;
 // The open file has parts but no assembly to write a parts list to (Specify refused once).
-let noAssembly = false;
+const noAssemblyFiles = new Set<string>();
 
 // The editor draws and writes Specify's defaults, listed for review (agreed 2026-10-16). From
 // specify-core alpha.6 an unanswered default is not written unless accepted, so every review and
@@ -69,7 +69,7 @@ self.onmessage = ({ data: { id, operation, args } }) => {
           engine?.free(); engine = undefined;
           engine = args.part === undefined ? new module.IntentEngine(args.name, args.bytes)
             : module.IntentEngine.openPart(args.name, args.bytes, args.part);
-          sourceId = args.sourceId; part = args.part; noAssembly = false;
+          sourceId = args.sourceId; part = args.part;
         }
         if (operation === 'write') {
           // A part of an assembly is written with its parts-list row: Specify's suggestions for what
@@ -80,11 +80,12 @@ self.onmessage = ({ data: { id, operation, args } }) => {
             JSON.parse(engine!.writePmi(accepted(answers), args.project, undefined, bom));
           const withoutBom = () => write(Object.fromEntries(Object.entries(args.answers ?? {}).filter(([id]) => !id.startsWith('bom.'))), false);
           let document;
-          if (noAssembly) document = withoutBom();
+          const fileId = args.fileId ?? args.sourceId;
+          if (noAssemblyFiles.has(fileId)) document = withoutBom();
           else try { document = write(args.answers ?? {}, args.part !== undefined); }
           catch (error) {
             if (args.part === undefined || !String(error).includes('requires an assembly product definition')) throw error;
-            noAssembly = true; // Remembered for this file: the refused write costs about as much as a write.
+            noAssemblyFiles.add(fileId);
             document = withoutBom();
           }
           result = { ...document, bytes: new Uint8Array(document.bytes) };

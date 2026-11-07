@@ -8,7 +8,9 @@ export class WorkerClient {
     timer: ReturnType<typeof setTimeout>;
   }>();
 
-  constructor(private factory: () => Worker) {
+  private factory: () => Worker;
+  constructor(factory: () => Worker) {
+    this.factory = factory;
     this.worker = factory();
     this.attach();
   }
