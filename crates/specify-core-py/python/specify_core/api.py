@@ -43,7 +43,9 @@ def parts(step: str | Path) -> list[dict[str, Any]]:
     """The distinct parts of ``step``: name, face count, instances and their
     placements, whether specify-core has written the part (answers stored), and
     ``same_as``: the index of the first part this one is a copy of (the same shape
-    moved, stating the same BOM facts and answers), or ``None``."""
+    moved, stating the same BOM facts and ``part.*``/``bom.*`` answers), or ``None``,
+    and ``faces_of_first``: for each of a copy's faces, the first part's face it
+    lands on (``None`` when ``same_as`` is)."""
     return json.loads(_native.parts(_path(step)))
 
 

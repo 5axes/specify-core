@@ -436,15 +436,26 @@ pub(crate) fn read_rows(
     Ok(rows)
 }
 
+/// A part that is a copy of an earlier one ([`copies`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PartCopy {
+    /// The index of the first part of its kind.
+    pub of: usize,
+    /// For each of this part's faces, in its own order, the face of `of` it lands on.
+    pub faces: Vec<usize>,
+}
+
 /// For each part of `file` (parsed as `doc`), the earlier part it is a copy of, or `None`
-/// (`same_as` in [`crate::api::parts`]). A copy has the same geometry up to a proper rigid
-/// motion, proven face by face (`quiddity::correspondence::congruent`), the same stated BOM
-/// facts ([`stated`]) and the same saved answers. Names, `PRODUCT.id` and defaults never decide
-/// it, as in draftwright's pack (`Metadata::compatible`). Parts keep their own indexes (decision
-/// D1); a copy points at the first of its kind. Only parts that share a face count with another
-/// are built, and only congruent ones have their BOM facts read, so a file of distinct parts
-/// costs next to nothing more.
-pub fn copies(file: &File, doc: &Document) -> Vec<Option<usize>> {
+/// (`same_as` and `faces_of_first` in [`crate::api::parts`]). A copy has the same geometry up
+/// to a proper rigid motion, proven face by face (`quiddity::correspondence::congruent`), the
+/// same stated BOM facts ([`stated`]) and the same saved `part.*` and `bom.*` answers. Answers
+/// given for faces (datums, feature questions) may be shared through the face pairing or given
+/// per copy, so they never decide it; nor do names, `PRODUCT.id` or defaults, as in
+/// draftwright's pack (`Metadata::compatible`). Parts keep their own indexes (decision D1); a
+/// copy points at the first of its kind. Only parts that share a face count with another are
+/// built, and only congruent ones have their BOM facts read, so a file of distinct parts costs
+/// next to nothing more.
+pub fn copies(file: &File, doc: &Document) -> Vec<Option<PartCopy>> {
     let defs = file.definitions();
     let mut out = vec![None; defs.len()];
     let shares = |i: usize| {
@@ -463,23 +474,36 @@ pub fn copies(file: &File, doc: &Document) -> Vec<Option<usize>> {
                 })
         })
         .collect();
-    let congruent = |a: usize, b: usize| match (&shapes[a], &shapes[b]) {
-        (Some((s, p)), Some((t, q))) => qc::congruent_with(s, p, t, q).is_some(),
-        _ => false,
+    // Each part's face to the face of its group's first part it lands on.
+    let onto = |a: usize, b: usize| match (&shapes[a], &shapes[b]) {
+        (Some((s, p)), Some((t, q))) => qc::congruent_with(s, p, t, q).map(|(_, pairs)| {
+            let mut faces = vec![0; pairs.len()];
+            for (first, copy) in pairs {
+                faces[copy] = first;
+            }
+            faces
+        }),
+        _ => None,
     };
     // Groups by geometry alone, then each is split by what the parts state.
-    let mut groups: Vec<Vec<usize>> = Vec::new();
+    let mut groups: Vec<Vec<(usize, Vec<usize>)>> = Vec::new();
     for i in (0..defs.len()).filter(|&i| shapes[i].is_some()) {
-        match groups.iter_mut().find(|g| congruent(g[0], i)) {
-            Some(g) => g.push(i),
-            None => groups.push(vec![i]),
+        match groups
+            .iter_mut()
+            .find_map(|g| onto(g[0].0, i).map(|faces| (g, faces)))
+        {
+            Some((g, faces)) => g.push((i, faces)),
+            None => {
+                let n = shapes[i].as_ref().map_or(0, |(s, _)| s.faces.len());
+                groups.push(vec![(i, (0..n).collect())]);
+            }
         }
     }
     groups.retain(|g| g.len() > 1);
     if groups.is_empty() {
         return out;
     }
-    let members: Vec<usize> = groups.iter().flatten().copied().collect();
+    let members: Vec<usize> = groups.iter().flatten().map(|(i, _)| *i).collect();
     let chosen: Vec<_> = members.iter().map(|&i| defs[i].clone()).collect();
     let Ok(rows) = read_parsed(doc, &chosen, 0) else {
         return out;
@@ -487,20 +511,46 @@ pub fn copies(file: &File, doc: &Document) -> Vec<Option<usize>> {
     let saved = crate::resume::stored_in(doc);
     let key = |i: usize| {
         let row = &rows[members.iter().position(|&m| m == i).unwrap_or_default()];
-        let answers = saved.get(&i).and_then(|p| p.get("answers")).cloned();
-        (stated(row, &defs[i].product_id), answers)
+        (
+            stated(row, &defs[i].product_id),
+            shared_answers(saved.get(&i)),
+        )
     };
     for group in groups {
-        let mut firsts: Vec<(usize, _)> = Vec::new();
-        for i in group {
+        // The first of each kind, with its faces' inverse: the group's first face to its own.
+        let mut firsts: Vec<(usize, _, Vec<usize>)> = Vec::new();
+        for (i, faces) in group {
             let k = key(i);
-            match firsts.iter().find(|(_, f)| *f == k) {
-                Some((f, _)) => out[i] = Some(*f),
-                None => firsts.push((i, k)),
+            match firsts.iter().find(|(_, f, _)| *f == k) {
+                Some((of, _, back)) => {
+                    let faces = faces.iter().map(|&h| back[h]).collect();
+                    out[i] = Some(PartCopy { of: *of, faces });
+                }
+                None => {
+                    let mut back = vec![0; faces.len()];
+                    for (own, &h) in faces.iter().enumerate() {
+                        back[h] = own;
+                    }
+                    firsts.push((i, k, back));
+                }
             }
         }
     }
     out
+}
+
+/// The saved answers two copies must share: the part's own (`part.*`) and its BOM's (`bom.*`).
+/// Answers given for faces (`datum.*`, feature questions) are left out, as they may be shared
+/// through the face pairing or given per copy.
+fn shared_answers(payload: Option<&Map<String, Value>>) -> Map<String, Value> {
+    payload
+        .and_then(|p| p.get("answers"))
+        .and_then(Value::as_object)
+        .into_iter()
+        .flatten()
+        .filter(|(id, _)| id.starts_with("part.") || id.starts_with("bom."))
+        .map(|(id, v)| (id.clone(), v.clone()))
+        .collect()
 }
 
 /// The BOM facts a row states, which two copies must share: part number, description, revision,
@@ -1383,6 +1433,32 @@ pub(crate) fn assembly_answers(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn copies_share_part_and_bom_answers_but_not_answers_for_faces() {
+        let payload = |answers: Value| json!({ "answers": answers }).as_object().cloned();
+        let first = payload(json!({
+            "part.material": "steel",
+            "bom.make_buy": "buy",
+            "datum.A": [4],
+            "hole.function:holes:3": "clearance",
+        }));
+        let copy = payload(json!({
+            "part.material": "steel",
+            "bom.make_buy": "buy",
+            "datum.A": [2],
+        }));
+        assert_eq!(
+            shared_answers(first.as_ref()),
+            shared_answers(copy.as_ref())
+        );
+        let other = payload(json!({"part.material": "brass", "bom.make_buy": "buy"}));
+        assert_ne!(
+            shared_answers(first.as_ref()),
+            shared_answers(other.as_ref())
+        );
+        assert!(shared_answers(None).is_empty());
+    }
     fn pin() -> Fingerprints {
         let f = File::read(
             &Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/parts/pin.step"),

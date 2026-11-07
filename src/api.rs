@@ -104,12 +104,15 @@ impl From<WriteError> for Error {
 pub type Result<T> = std::result::Result<T, Error>;
 
 /// The distinct parts of `step`: `{part, name, product_id, faces, instances, placements,
-/// written, same_as}` each, `written` saying whether specify-core has written the part (answers
-/// stored for it). A part is identified by `part`, its index (decision D1); `name` and
-/// `product_id` are reported beside it and need not be unique. `same_as` is the index of the
+/// written, same_as, faces_of_first}` each, `written` saying whether specify-core has written the
+/// part (answers stored for it). A part is identified by `part`, its index (decision D1); `name`
+/// and `product_id` are reported beside it and need not be unique. `same_as` is the index of the
 /// first part this one is a copy of (the same shape moved, and the same stated BOM facts and
-/// answers: [`bom::copies`]), or `null`: separate products a file gives for one part (four
-/// `M3×8 hex bolt #n` with no assembly) are one part with their instances added together.
+/// `part.*`/`bom.*` answers: [`bom::copies`]), or `null`: separate products a file gives for one
+/// part (four `M3×8 hex bolt #n` with no assembly) are one part with their instances added
+/// together. `faces_of_first` gives, for each of a copy's faces in its own order, the face of
+/// that first part it lands on (`null` when `same_as` is): a copy may list its faces in another
+/// order, so an answer given for faces carries over only through it.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn parts(step: &Path) -> Result<Vec<Value>> {
     Ok(parts_of(&part::File::read(step)?))
@@ -128,11 +131,12 @@ pub fn parts_of(file: &part::File) -> Vec<Value> {
         .into_iter()
         .map(|p| {
             let written = stored.contains_key(&p.part);
-            let same_as = copies[p.part];
+            let copy = copies[p.part].as_ref();
             // PartSummary contains only JSON-serializable fields with string keys.
             let mut value = serde_json::to_value(p).expect("a part summary serialises");
             value["written"] = Value::Bool(written);
-            value["same_as"] = json!(same_as);
+            value["same_as"] = json!(copy.map(|c| c.of));
+            value["faces_of_first"] = json!(copy.map(|c| &c.faces));
             value
         })
         .collect()
