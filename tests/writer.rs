@@ -929,10 +929,22 @@ fn a_nist_part_keeps_all_its_pmi() {
     // #75 adds dimension-owned origin/planner UDAs. As for #77, AP242 ed1 excludes
     // those owners, so the existing writer policy upgrades only FILE_SCHEMA to ed4.
     // Require that exact header change and every other original byte to survive.
+    // v0.4.8 (#193) also appends the PMI RP 4.1 reference to FILE_DESCRIPTION, keeping the
+    // file's own descriptions; require exactly that change too.
     let original = std::fs::read_to_string(&input).unwrap();
     let schema = "AP242_MANAGED_MODEL_BASED_3D_ENGINEERING_MIM_LF { 1 0 10303 442 1 1 4 }";
     assert_eq!(original.matches(schema).count(), 1);
-    let expected = original.replacen(schema, haecceity::express::TARGET_SCHEMA, 1);
+    let described = "'from the NIST MBE PMI Validation and Conformance Testing Project'),'2;1');";
+    assert_eq!(original.matches(described).count(), 1);
+    let expected = original
+        .replacen(schema, haecceity::express::TARGET_SCHEMA, 1)
+        .replacen(
+            described,
+            "'from the NIST MBE PMI Validation and Conformance Testing Project',\
+             'CAx-IF Rec.Pracs.---Representation and Presentation of Product Manufacturing \
+             Information (PMI)---4.1---2024-06-20'),'2;1');",
+            1,
+        );
     let end = expected.rfind("ENDSEC;").unwrap();
     assert!(text.starts_with(&expected[..end]) && text.ends_with(&expected[end..]));
 }

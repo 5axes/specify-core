@@ -6,6 +6,40 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+### Changed
+
+- Move native, WASM and Python builds from quiddity/haecceity v0.4.7 to v0.4.8
+  (`449ab51d`). Writes that carry general notes add a default AP242 Notes saved view
+  facing their annotation plane (quiddity #198); Add keeps foreign views and reuses its
+  own, edition-1 Add skips it, and Remove/Replace clean it up. New draughting models get
+  unique names, materials without a separate name repeat their id as description, and
+  presentation follows the CAx-IF PMI Recommended Practice 4.1 (#193). Recognition `/6`,
+  fingerprints `/3` and both packaged schemas are unchanged.
+- Adopt reader `haecceity-pmi-read/19` in place of /17.
+- Add optional `saved_view_findings` (`{kind, part, ids, entity, detail}` kernel findings
+  about the Notes saved view) to native/CLI, Python and WASM write reports.
+- Written STEP bytes change for these 0.4.8 causes only: the Notes view, the material
+  description, RP 4.1's FILE_DESCRIPTION reference and curve-set names, and `PMI callouts (2)`
+  model names. As a result, all fourteen cross-engine byte goldens are regenerated and
+  recaptured, and the BOM opt-in, legacy settings-only and unnamed-revision hashes are
+  updated. An Add over Specify's own output now rewrites the kernel's own Notes view in place
+  and retires its private camera; every other original entity keeps its bytes.
+- Known differences: the frozen Python reader no longer reads a material written without a
+  separate name (`material identification (no separate name)`) on single-part files; Rust
+  still reads it.
+- The carried `specify-core original` record also stores the original `FILE_DESCRIPTION`
+  (`description`), because v0.4.8 writes add the PMI RP 4.1 reference to it (#193).
+  `original()` (native and WASM) restores it, so it again gives back the source exactly.
+  Without this, every new write returned `undefined`. A record without `description`, from an
+  earlier write, gains one when that file is rewritten. Readers that restore only
+  `FILE_SCHEMA` (the editor's `originalOf` fallback) now differ from the source in that
+  statement.
+
+### WASM API
+
+- `WriteReport` adds optional `saved_view_findings: SavedViewFinding[]`, absent when empty;
+  new `SavedViewFinding` (`kind`, optional `part`, `ids`, `entity`, `detail`).
+
 ## 0.1.12 (2026-11-06)
 
 ### Added

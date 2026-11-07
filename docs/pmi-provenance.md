@@ -177,3 +177,11 @@ them, naming the ids. Dimensions with no stated value are written through unchan
 and a projected zone with no end geometry is read as a `fact` finding, not a
 nonconformance. Specify's read-back check compares findings before and after a
 write by value, so a `fact` the input already had is not reported as new.
+
+With the v0.4.8 pin, writes that carry general notes add a default AP242 Notes saved
+view framing the part and its notes; Add keeps foreign views and reuses its own Notes
+view, edition-1 Add skips it, and Replace upgrades edition 1 to 4 only when it can
+write it. Reports list why a view was not written in the optional
+`saved_view_findings`. Remove and Replace clean up the writer's Notes view. New
+draughting models get unique names (`PMI callouts (2)`), and materials without a
+separate name repeat their id as description.

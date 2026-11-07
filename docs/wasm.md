@@ -91,7 +91,7 @@ All structured inputs and outputs are **JSON strings**, except the constructor's
 | `engine.acceptDefaults(answersJson)` | Answers object with every unanswered default filled to a fixed point, using the same rules as CLI/serve `accept_defaults`. Preserves supplied answers; questions without defaults stay unanswered. |
 | `engine.writePmi(answersJson, projectBase64?, payloadJson?)` | `{bytes, source_sha256, report}`; `bytes` is an array of byte values. Writes and verifies answered PMI and stored answers in memory. Unanswered defaults remain suggestions. `report` is the upstream writer's report; its `output` is the constructor's name. `payloadJson` is `{name, value}`: any JSON value carried in the STEP under `name` (give the project or a payload, not both; see below). |
 | `engine.payload(name)` | The JSON text of the payload `name` the opened STEP carries, or `undefined`. |
-| `engine.original()` | `Uint8Array` of the part the opened STEP was first written from (without what the writer added, its `FILE_SCHEMA` restored), or `undefined` when it records none or the bytes do not hash to the recorded sha256. |
+| `engine.original()` | `Uint8Array` of the part the opened STEP was first written from (without what the writer added, its `FILE_SCHEMA` and `FILE_DESCRIPTION` restored), or `undefined` when it records none or the bytes do not hash to the recorded sha256. |
 | `engine.evidence()` | `{schema, face_count, faces}`: the face evidence to keep with answers saved outside the STEP. |
 | `engine.rematchAnswers(answersJson, evidenceJson?, automaticJson?)` | Saved answers matched to this part as now recognised: `{answers, unresolved?, migrated?, unverified?, automatic?}`. Does not change the session. See "Answers saved outside the STEP". |
 | `review(analysisJson, answersJson)` | Same review composition without a session or geometry anchors. Calls `specify_core::api::review`. |
@@ -155,9 +155,14 @@ value's compact UTF-8 JSON; for `name: "draftwright editor project"` that is exa
 item the editor's `readProject` and draftwright-mcp's `project::read` match, so files written
 either way read either way. A name must not be empty, `pmi-assist answers` or
 `specify-core original`. Either argument also stores a `specify-core original` attribute,
-`{schema: 1, sha256, header, from}`, from which `original()` gives back the part: it takes out
-every instance numbered `from` or more, restores the `FILE_SCHEMA` statement, and returns the
-bytes only if they hash to `sha256`. Rewriting a file that records its original carries the
+`{schema: 1, sha256, header, description, from}`, from which `original()` gives back the
+part: it takes out every instance numbered `from` or more, restores the `FILE_SCHEMA` and
+`FILE_DESCRIPTION` statements, and returns the bytes only if they hash to `sha256`. The
+original `FILE_DESCRIPTION` (`description`) is recorded since the v0.4.8 pin, whose writes add
+the PMI recommended-practice reference to it. A record from an earlier write has none, and
+gains it when that file is rewritten. Readers that restore only `FILE_SCHEMA` (the editor's
+`originalOf` and draftwright-mcp's legacy fallback) no longer recover a v0.4.8 write's part
+exactly; both use `original()` first. Rewriting a file that records its original carries the
 record forward, so `original()` remains the part first opened. `writePmi` without a project or
 payload drops what the opened file carried: the written file has no project, payload or
 original record, so resupply the project or payload on every write that should keep them.
@@ -567,7 +572,7 @@ packaged schemas are `specify_core/schema/haecceity.pmi-1.json` and
 `specify_core/schema/haecceity.presentation-1.json`.
 
 Scene export uses haecceity's serialise-only `json` feature in native, WASM and Python.
-`json-import` is not enabled. The Python package ships the v0.4.7 schemas as data; its
+`json-import` is not enabled. The Python package ships the v0.4.8 schemas as data; its
 smoke tests validate exports with Python's `jsonschema`, keeping schemas and import
 validation code out of the WASM binary.
 
@@ -578,7 +583,7 @@ Haecceity v0.4.4 adds optional `polyline_roles`, parallel to
 with x along `x_axis` and y along `normal × x_axis`. Hosts can fit and centre their
 own font in that box. File graphics omit roles/boxes unless known. These additive
 fields keep schema `/1`; strict `deny_unknown_fields` consumers must update their
-types. Specify passes both through unchanged. Native, WASM and Python builds pin the released v0.4.7 tag; no local path
+types. Specify passes both through unchanged. Native, WASM and Python builds pin the released v0.4.8 tag; no local path
 patch is needed.
 
 In the role array, `text` includes explicit ISO glyph strokes already represented
@@ -606,7 +611,7 @@ scope; their replacement rules do not guarantee preservation of foreign PMI. Use
 scoped writer for these rewrites. Existing 0.1.7 Add-mode files without saved answers keep
 their existing-PMI opening behavior in this engine.
 
-With v0.4.7, native/CLI, Python and WASM write reports expose these optional keys,
+With v0.4.8, native/CLI, Python and WASM write reports expose these optional keys,
 omitted when empty:
 
 - `geometry_carrier_exemptions`: `{part, condition, aspect, feature}` records, with
@@ -621,9 +626,12 @@ omitted when empty:
 - `presentation_warnings`: strings naming callout placement or glyph diagnostics.
 - `retained_shared`: ids of auxiliary support Replace kept because PMI it cannot
   read still uses it (v0.4.7); datum links are rebound only to equal replacements.
+- `saved_view_findings`: `{kind, part?, ids, entity, detail}` kernel findings about
+  the default AP242 Notes saved view (v0.4.8), for example why it was not written
+  (edition-1 Add, notes on several planes or with several text orientations).
 
 `PmiSceneGraphic.leader` is an optional model-space leader tip in millimetres.
-The packaged v0.4.7 presentation schema includes it; neither packaged schema changed from v0.4.6.
+The packaged v0.4.8 presentation schema includes it; neither packaged schema changed from v0.4.6.
 Specify passes the field through but does not yet accept a source-presentation companion.
 Add preserves original entities in the kernel. It can add a separate datum feature
 on a kept carrier; an upgrade requiring original-entity repairs instead fails with

@@ -93,6 +93,14 @@ export interface PreservedNormalization {
   id: number;
   normalization: string;
 }
+/** A kernel finding about the default Notes saved view. */
+export interface SavedViewFinding {
+  kind: string;
+  part?: number;
+  ids: number[];
+  entity: string;
+  detail: string;
+}
 /** Report in writePmi JSON; optional diagnostic keys are absent when empty. */
 export interface WriteReport {
   output: string;
@@ -103,6 +111,7 @@ export interface WriteReport {
   presentation_warnings?: string[];
   preserved_normalizations?: PreservedNormalization[];
   retained_shared?: number[];
+  saved_view_findings?: SavedViewFinding[];
 }
 /** JSON returned by evidence(), also embedded alongside stored answers. */
 export interface AnswerEvidence {

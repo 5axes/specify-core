@@ -373,6 +373,8 @@ def test_write_report_optional_geometry_carrier_exemptions():
         "presentation_warnings": ["feature note glyphs could not be drawn"],
         "preserved_normalizations": [{"id": 77, "normalization": "legacy-endpoint-retirement"}],
         "retained_shared": [301],
+        "saved_view_findings": [{"kind": "fact", "part": 0, "ids": [], "entity": "draughting_model",
+                                 "detail": "Notes saved view was not written"}],
     }
     assert WriteReport.from_dict(extended).to_dict() == extended
 
