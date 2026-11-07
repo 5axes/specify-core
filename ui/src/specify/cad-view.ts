@@ -10,6 +10,7 @@ import 'three-cad-viewer/css';
 import type { PmiMesh, PmiVec } from '../types/pmi';
 
 import { createOrientationCube } from './orientation-cube';
+import { lightGroup } from './cad-highlight.ts';
 
 /** A leaf of the tree: some faces of a mesh, in one colour. */
 export interface CadLeaf {
@@ -40,8 +41,8 @@ export interface CadView {
   readonly diagonal: number;
   /** The canvas, for pointer events in its own coordinates. */
   readonly canvas: HTMLElement;
-  /** Light everything under a tree path, or nothing. */
-  light(path: string | null): void;
+  /** Light everything under one or more tree paths, or nothing. */
+  light(path: string | readonly string[] | null): void;
   /** The faces under a point of the canvas, nearest first, of the leaves shown. */
   facesAt(x: number, y: number): CadHit[];
   /** Look along ``direction`` at ``around``, or at the whole part; ``up``, or the way up it had.
@@ -325,6 +326,7 @@ export function createCadView(
   // of its tree, clears the same highlight, so it is put back after each move. Over the tree,
   // the viewer's hover of a row is left to show.
   let lit: string | null = null;
+  let unlightGroup = () => {};
   let frame = 0;
   const relight = (event: Event) => {
     if ((event.target as Element | null)?.closest?.('.tcv_cad_tree')) return;
@@ -338,7 +340,16 @@ export function createCadView(
     canvas,
     get camera() { return viewer.camera.getCamera() as unknown as THREE.Camera; },
     diagonal: box.getSize(new THREE.Vector3()).length(),
-    light(path) { lit = path; viewer.handleTreeHover(path); },
+    light(path) {
+      unlightGroup();
+      unlightGroup = () => {};
+      lit = typeof path === 'string' ? path : path?.length === 1 ? path[0] : null;
+      viewer.handleTreeHover(lit);
+      if (Array.isArray(path) && path.length > 1 && viewer.nestedGroup.highlight) {
+        unlightGroup = lightGroup(viewer.nestedGroup.highlight, path);
+        viewer.update(true, false);
+      }
+    },
     facesAt(x, y) {
       const rect = canvas.getBoundingClientRect();
       ray.setFromCamera(new THREE.Vector2((2 * x) / rect.width - 1, 1 - (2 * y) / rect.height), viewer.camera.getCamera() as unknown as THREE.Camera);
@@ -429,6 +440,7 @@ export function createCadView(
       for (const type of ['pointermove', 'pointerleave', 'pointerup']) container.removeEventListener(type, relight, true);
       resized.disconnect();
       for (const { mesh } of drawn.values()) mesh.geometry.dispose();
+      unlightGroup();
       viewer.dispose();
       container.replaceChildren();
     },
