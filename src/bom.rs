@@ -436,6 +436,94 @@ pub(crate) fn read_rows(
     Ok(rows)
 }
 
+/// For each part of `file` (parsed as `doc`), the earlier part it is a copy of, or `None`
+/// (`same_as` in [`crate::api::parts`]). A copy has the same geometry up to a proper rigid
+/// motion, proven face by face (`quiddity::correspondence::congruent`), the same stated BOM
+/// facts ([`stated`]) and the same saved answers. Names, `PRODUCT.id` and defaults never decide
+/// it, as in draftwright's pack (`Metadata::compatible`). Parts keep their own indexes (decision
+/// D1); a copy points at the first of its kind. Only parts that share a face count with another
+/// are built, and only congruent ones have their BOM facts read, so a file of distinct parts
+/// costs next to nothing more.
+pub fn copies(file: &File, doc: &Document) -> Vec<Option<usize>> {
+    let defs = file.definitions();
+    let mut out = vec![None; defs.len()];
+    let shares = |i: usize| {
+        defs.iter()
+            .enumerate()
+            .any(|(j, d)| j != i && d.faces.len() == defs[i].faces.len())
+    };
+    let shapes: Vec<_> = (0..defs.len())
+        .map(|i| {
+            shares(i)
+                .then(|| file.load(Some(i)).ok())
+                .flatten()
+                .map(|l| {
+                    let prints = qc::fingerprint(&l.part, &Default::default());
+                    (l.part, prints)
+                })
+        })
+        .collect();
+    let congruent = |a: usize, b: usize| match (&shapes[a], &shapes[b]) {
+        (Some((s, p)), Some((t, q))) => qc::congruent_with(s, p, t, q).is_some(),
+        _ => false,
+    };
+    // Groups by geometry alone, then each is split by what the parts state.
+    let mut groups: Vec<Vec<usize>> = Vec::new();
+    for i in (0..defs.len()).filter(|&i| shapes[i].is_some()) {
+        match groups.iter_mut().find(|g| congruent(g[0], i)) {
+            Some(g) => g.push(i),
+            None => groups.push(vec![i]),
+        }
+    }
+    groups.retain(|g| g.len() > 1);
+    if groups.is_empty() {
+        return out;
+    }
+    let members: Vec<usize> = groups.iter().flatten().copied().collect();
+    let chosen: Vec<_> = members.iter().map(|&i| defs[i].clone()).collect();
+    let Ok(rows) = read_parsed(doc, &chosen, 0) else {
+        return out;
+    };
+    let saved = crate::resume::stored_in(doc);
+    let key = |i: usize| {
+        let row = &rows[members.iter().position(|&m| m == i).unwrap_or_default()];
+        let answers = saved.get(&i).and_then(|p| p.get("answers")).cloned();
+        (stated(row, &defs[i].product_id), answers)
+    };
+    for group in groups {
+        let mut firsts: Vec<(usize, _)> = Vec::new();
+        for i in group {
+            let k = key(i);
+            match firsts.iter().find(|(_, f)| *f == k) {
+                Some((f, _)) => out[i] = Some(*f),
+                None => firsts.push((i, k)),
+            }
+        }
+    }
+    out
+}
+
+/// The BOM facts a row states, which two copies must share: part number, description, revision,
+/// make/buy, material, optional and stock, each only where the file or an answer states it (a
+/// default is derived from the name). A part number that is only `PRODUCT.id` is an exporter's
+/// identifier, not a stated part number, and is left out.
+fn stated(row: &Item, product_id: &str) -> Vec<Option<Value>> {
+    let raw_id = row.part_number.source == "file" && row.part_number.value == json!(product_id);
+    [
+        &row.part_number,
+        &row.description,
+        &row.revision,
+        &row.make_buy,
+        &row.material,
+        &row.optional,
+        &row.stock,
+    ]
+    .iter()
+    .enumerate()
+    .map(|(n, f)| (f.source != "default" && !(n == 0 && raw_id)).then(|| f.value.clone()))
+    .collect()
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 pub fn read_path(path: &Path) -> Result<Vec<Item>, String> {
     read(&File::read(path).map_err(|e| e.to_string())?)

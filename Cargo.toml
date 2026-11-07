@@ -27,10 +27,10 @@ cli = ["dep:clap", "dep:clap_complete"]
 clap = { version = "4.6.1", features = ["derive"], optional = true }
 clap_complete = { version = "4.6", optional = true }
 # pzfreo/quiddity: feature recognition (quiddity) and the geometry kernel with STEP import and
-# AP242 semantic PMI (haecceity). Both use tagged v0.4.8.
+# AP242 semantic PMI (haecceity). Both use tagged v0.4.9.
 # See docs/design.md, "Dependency plan".
-quiddity = { git = "https://github.com/pzfreo/quiddity", tag = "v0.4.8" }
-haecceity = { git = "https://github.com/pzfreo/quiddity", tag = "v0.4.8", features = ["json"] }
+quiddity = { git = "https://github.com/pzfreo/quiddity", tag = "v0.4.9", default-features = false, features = ["presentation"] }
+haecceity = { git = "https://github.com/pzfreo/quiddity", tag = "v0.4.9", features = ["json"] }
 # The kernel's own unit reader also converts planner supplemental points into file units.
 step-io = "0.3.0"
 base64 = "0.22.1"

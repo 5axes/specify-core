@@ -6,6 +6,27 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+### Added
+
+- `parts` (CLI, serve, Python, WASM `IntentEngine.parts`) gives each part `same_as`: the index
+  of the first part it is a copy of, or `null` (#150). A copy has the same geometry moved by a
+  proper rigid motion, proven face by face (quiddity's `congruent`, the check draftwright's pack
+  uses), and states the same BOM facts (part number other than a bare `PRODUCT.id`,
+  description, revision, make/buy, material, optional, stock) and the same saved answers.
+  Names and defaults never decide it. Every part keeps its own index (decision D1), so saved
+  answers are unaffected; a picker can show `M3×8 hex bolt ×4` from the first and its copies.
+  Only parts sharing a face count with another are built, so a file of distinct parts costs
+  the same as before.
+
+### Changed
+
+- Move native, WASM and Python builds from quiddity/haecceity v0.4.8 to v0.4.9 (`17a883aa`),
+  taking quiddity with `default-features = false, features = ["presentation"]` so its new
+  `cli` feature (clap) stays out of every build. Recognition `/6`, fingerprints `/3`, the PMI
+  reader string `/19` and both packaged schemas are unchanged. One corpus expectation changes:
+  `mfcadpp_holdout/363` gets quiddity #215's circular blind step on faces 20 and 24 in place of
+  `cylindrical_profiles:20`.
+
 ### WASM API
 
 - A refusal to write a BOM into a file with no assembly structure (`writePmi` with `bom=true`,

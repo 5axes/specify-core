@@ -18,7 +18,7 @@ SIBLING = "pzfreo/draftwright-rust"
 KERNEL = "pzfreo/quiddity"
 # Its name before the 2026-11-03 rename; GitHub redirects it, and released siblings still use it.
 FORMER_KERNEL = "pzfreo/quiddity-rust"
-REQUIRED_TAG = "v0.4.8"
+REQUIRED_TAG = "v0.4.9"
 
 
 def api(path):
@@ -64,7 +64,7 @@ def pins(manifest, sources=(KERNEL,)):
 
 
 def check_wasm_pin(local, manifest=ROOT / "crates/specify-core-wasm/Cargo.toml"):
-    """The WASM kernel must follow the root pin (v0.4.8 for this release)."""
+    """The WASM kernel must follow the root pin (v0.4.9 for this release)."""
     dependency = tomllib.loads(manifest.read_text())["dependencies"]["haecceity"]
     kind, value = local["haecceity"]
     if (dependency.get("git", "").removesuffix(".git").rstrip("/") != f"https://github.com/{KERNEL}"

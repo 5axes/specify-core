@@ -83,7 +83,7 @@ All structured inputs and outputs are **JSON strings**, except the constructor's
 | Export | Behaviour |
 | --- | --- |
 | `new IntentEngine(name, bytes)` | Opens one STEP part. Refuses gzip, any count other than one distinct part, any count other than one placement, and a mismatch between haecceity's ordered face sources and the STEP definition. `name` labels the input; it is never read as a path. An assembly, or a part placed more than once, is opened with `IntentEngine.openPart`. |
-| `IntentEngine.parts(name, bytes)` | The file's distinct parts, as `specify-core parts` lists them: `[{part, name, product_id, faces, instances, placements, written}]`, `written` saying whether Specify has stored answers for the part. Refuses gzip, as the constructor does. |
+| `IntentEngine.parts(name, bytes)` | The file's distinct parts, as `specify-core parts` lists them: `[{part, name, product_id, faces, instances, placements, written, same_as}]`, `written` saying whether Specify has stored answers for the part, `same_as` the index of the first part this one is a copy of (the same shape moved, with the same stated BOM facts and answers), or `null`. A copy keeps its own index; a picker can show the first with the copies' instances added (`M3×8 hex bolt ×4`). Refuses gzip, as the constructor does. |
 | `IntentEngine.openPart(name, bytes, part)` | Opens part `part` (an index from `parts`) of any file: an assembly's part, or a part placed more than once. See "Assemblies" below. Part 0 of a file of one part used once opens exactly as the constructor opens it. |
 | `engine.snapshot()` | `{analysis, mesh, provenance: {source_sha256, face_entities, part}}`; `part` is the part opened (0 from the constructor). |
 | `engine.review(answersJson)` | `{questions, open, intent, problems}`; adds geometry anchors to `intent.anchors`. |
@@ -585,7 +585,7 @@ Haecceity v0.4.4 adds optional `polyline_roles`, parallel to
 with x along `x_axis` and y along `normal × x_axis`. Hosts can fit and centre their
 own font in that box. File graphics omit roles/boxes unless known. These additive
 fields keep schema `/1`; strict `deny_unknown_fields` consumers must update their
-types. Specify passes both through unchanged. Native, WASM and Python builds pin the released v0.4.8 tag; no local path
+types. Specify passes both through unchanged. Native, WASM and Python builds pin the released v0.4.9 tag; no local path
 patch is needed.
 
 In the role array, `text` includes explicit ISO glyph strokes already represented
