@@ -51,7 +51,7 @@ One engine, one set of answers and files, whichever way you call it:
 | Use | Install | Guide |
 | --- | --- | --- |
 | **In the browser** | nothing: [draftwright.io/specify](https://draftwright.io/specify) and [draftwright.io/diff](https://draftwright.io/diff) | |
-| **Command line** | a [release](https://github.com/pzfreo/specify-core/releases) binary, or `cargo build --release` | [below](#command-line) |
+| **Command line** | `uv tool install specify-core` (or `pipx install specify-core`), a [release](https://github.com/pzfreo/specify-core/releases) binary, or `cargo build --release` | [install](#install-the-command-line), [use](#command-line) |
 | **Python** | `pip install specify-core` (CPython 3.12+, no dependencies) | [below](#python), [package README](crates/specify-core-py/README.md) |
 | **Rust** | `specify-core = { git = "https://github.com/pzfreo/specify-core", tag = "v0.1.13" }` | [below](#rust), [docs/library.md](docs/library.md) |
 | **Browser** (WebAssembly) | `specify-core-wasm-<version>.tgz` on each release | [docs/wasm.md](docs/wasm.md) |
@@ -230,6 +230,14 @@ To post the review on every pull request that changes a STEP file, add the
 [pzfreo/step-diff-demo](https://github.com/pzfreo/step-diff-demo) is a working example.
 
 ## Install the command line
+
+The quickest route is the Python package, whose `specify-core` command is the same engine. It
+needs no Rust toolchain, and every release is published to PyPI:
+
+```bash
+uv tool install specify-core      # or: pipx install specify-core
+uv tool upgrade specify-core      # later, for a new release
+```
 
 Each [release](https://github.com/pzfreo/specify-core/releases) has the command line for Linux
 (x86_64), macOS (Apple silicon) and Windows (x86_64), each with a SHA-256 checksum:
