@@ -6,6 +6,8 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+## 0.1.14 (2026-11-07)
+
 ### Added
 
 - `parts` (CLI, serve, Python, WASM `IntentEngine.parts`) gives each part `same_as`: the index
