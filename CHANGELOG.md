@@ -6,6 +6,8 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+## 0.1.13 (2026-11-07)
+
 ### Changed
 
 - Move native, WASM and Python builds from quiddity/haecceity v0.4.7 to v0.4.8
@@ -38,7 +40,7 @@ All notable changes to specify-core-rust. The format follows
   short prompts (`Made or bought?`, `Description`, `Part number`, `Revision`, `Optional item?`),
   `why` "Shown in the drawing's parts list." and the make/buy proposal as the `reason`
   ("From the file", "Your answer", or "Proposed: made/bought (…)"). The one `check` is a
-  standard-hardware name on a part recognised with pockets (proposed made). Part number and revision
+  standard-hardware name on a part recognised with pockets or keyways (proposed made; its reason asks which). Part number and revision
   carry no suggestion. `bom.stock` is no longer asked: it follows make/buy, is still proposed
   by `--bom` and an explicit answer is still written. Suggestions stay out of `default`, so
   `--accept-defaults` writes no BOM field.
