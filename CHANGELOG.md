@@ -6,6 +6,8 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+## 0.1.15 (2026-11-07)
+
 ### Added
 
 - `parts` (CLI, serve, Python, WASM `IntentEngine.parts`) gives each copy `faces_of_first`: for
