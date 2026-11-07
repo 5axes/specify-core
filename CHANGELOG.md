@@ -6,6 +6,27 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+### Added
+
+- `parts` (CLI, serve, Python, WASM `IntentEngine.parts`) gives each part `same_as`: the index
+  of the first part it is a copy of, or `null` (#150). A copy has the same geometry moved by a
+  proper rigid motion, proven face by face (quiddity's `congruent`, the check draftwright's pack
+  uses), and states the same BOM facts (part number other than a bare `PRODUCT.id`,
+  description, revision, make/buy, material, optional, stock) and the same saved answers.
+  Names and defaults never decide it. Every part keeps its own index (decision D1), so saved
+  answers are unaffected; a picker can show `M3×8 hex bolt ×4` from the first and its copies.
+  Only parts sharing a face count with another are built, so a file of distinct parts costs
+  the same as before.
+
+### Changed
+
+- Move native, WASM and Python builds from quiddity/haecceity v0.4.8 to v0.4.9 (`17a883aa`),
+  taking quiddity with `default-features = false, features = ["presentation"]` so its new
+  `cli` feature (clap) stays out of every build. Recognition `/6`, fingerprints `/3`, the PMI
+  reader string `/19` and both packaged schemas are unchanged, and no expectation changes.
+
+## 0.1.13 (2026-11-07)
+
 ### Changed
 
 - Move native, WASM and Python builds from quiddity/haecceity v0.4.7 to v0.4.8
@@ -38,7 +59,7 @@ All notable changes to specify-core-rust. The format follows
   short prompts (`Made or bought?`, `Description`, `Part number`, `Revision`, `Optional item?`),
   `why` "Shown in the drawing's parts list." and the make/buy proposal as the `reason`
   ("From the file", "Your answer", or "Proposed: made/bought (…)"). The one `check` is a
-  standard-hardware name on a part recognised with pockets (proposed made). Part number and revision
+  standard-hardware name on a part recognised with pockets or keyways (proposed made; its reason asks which). Part number and revision
   carry no suggestion. `bom.stock` is no longer asked: it follows make/buy, is still proposed
   by `--bom` and an explicit answer is still written. Suggestions stay out of `default`, so
   `--accept-defaults` writes no BOM field.
