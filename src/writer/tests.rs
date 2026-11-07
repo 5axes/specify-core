@@ -137,6 +137,7 @@ fn write_report_exemptions_are_additive_and_use_written_entity_ids() {
         presentation_warnings: vec![],
         preserved_normalizations: vec![],
         retained_shared: vec![],
+        saved_view_findings: vec![],
     };
     assert!(
         report
@@ -149,6 +150,18 @@ fn write_report_exemptions_are_additive_and_use_written_entity_ids() {
     assert!(report.to_dict().get("retained_shared").is_none());
     report.retained_shared.push(301);
     assert_eq!(report.to_dict()["retained_shared"], json!([301]));
+    assert!(report.to_dict().get("saved_view_findings").is_none());
+    report.saved_view_findings.push(SavedViewFinding {
+        kind: "fact".into(),
+        part: Some(0),
+        ids: vec![],
+        entity: "draughting_model".into(),
+        detail: "Notes saved view was not written".into(),
+    });
+    assert_eq!(
+        report.to_dict()["saved_view_findings"],
+        json!([{"kind":"fact","part":0,"ids":[],"entity":"draughting_model","detail":"Notes saved view was not written"}])
+    );
     report
         .presentation_warnings
         .push("feature note glyphs could not be drawn".into());

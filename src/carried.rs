@@ -18,10 +18,13 @@
 //! consumers must concatenate their chunks in list order. Both forms read here.
 //!
 //! **The original** is recorded beside it, in a second attribute named [`ORIGINAL`]:
-//! `{schema: 1, sha256, header, from}`, the original's sha256, its `FILE_SCHEMA` statement
-//! (which the writer changes to AP242) and the first instance number the writer could add
-//! (one more than the original's largest). [`original`] takes out every instance from `from`
-//! on, puts the header back, and returns the bytes only when they hash to `sha256`. Writing a
+//! `{schema: 1, sha256, header, description, from}`, the original's sha256, its `FILE_SCHEMA`
+//! statement (which the writer changes to AP242), its `FILE_DESCRIPTION` statement (to which
+//! haecceity 0.4.8 adds the CAx-IF PMI recommended-practice reference, #193) and the first
+//! instance number the writer could add (one more than the original's largest). [`original`]
+//! takes out every instance from `from` on, puts both header statements back, and returns the
+//! bytes only when they hash to `sha256`; a record without `description` (written before
+//! 0.4.8) restores the schema statement only. Writing a
 //! file that already records its original carries that record forward, so the original stays
 //! the part first given, not the last written file. A part that came with PMI the writer
 //! replaced has no original to give back (its bytes no longer hash to the record), and
@@ -111,18 +114,31 @@ fn encode(value: &Value) -> String {
 /// original, else `source` itself.
 fn record(source: &[u8]) -> Value {
     let doc = Document::parse(source.to_vec()).ok();
+    let statement = |pattern: Regex| {
+        pattern
+            .find(source)
+            .map(|m| String::from_utf8_lossy(m.as_bytes()).into_owned())
+    };
     if let Some(doc) = &doc
-        && let Some(record) = last_text(doc, ORIGINAL).and_then(|text| decode(&text))
+        && let Some(mut record) = last_text(doc, ORIGINAL).and_then(|text| decode(&text))
         && restored(source, doc, &record).is_some()
     {
+        // A record from before 0.4.8 has no description; `source` still gives back its
+        // original, so its FILE_DESCRIPTION is the original's.
+        if record.get("description").is_none()
+            && let Some(description) = statement(description_statement())
+        {
+            record["description"] = json!(description);
+        }
         return record;
     }
     let from = doc.and_then(|doc| doc.ids().max()).unwrap_or(0) + 1;
-    let header = schema_statement()
-        .find(source)
-        .map(|m| String::from_utf8_lossy(m.as_bytes()).into_owned())
-        .unwrap_or_default();
-    json!({"schema": 1, "sha256": sha256(source), "header": header, "from": from})
+    let header = statement(schema_statement()).unwrap_or_default();
+    let mut record = json!({"schema": 1, "sha256": sha256(source), "header": header, "from": from});
+    if let Some(description) = statement(description_statement()) {
+        record["description"] = json!(description);
+    }
+    record
 }
 
 /// The payload named `name` that the STEP `bytes` carries, if any: the last item of that name
@@ -200,9 +216,16 @@ fn restored(bytes: &[u8], doc: &Document, record: &Value) -> Option<Vec<u8>> {
     let joined = [&bytes[..start], &bytes[end..]].concat();
     let statement = schema_statement();
     statement.find(&joined)?;
-    let out = statement
+    let mut out = statement
         .replace(&joined, NoExpand(header.as_bytes()))
         .into_owned();
+    if let Some(description) = record.get("description") {
+        let statement = description_statement();
+        statement.find(&out)?;
+        out = statement
+            .replace(&out, NoExpand(description.as_str()?.as_bytes()))
+            .into_owned();
+    }
     (sha256(&out) == sha).then_some(out)
 }
 
@@ -226,6 +249,13 @@ fn decode(text: &str) -> Option<Value> {
 fn schema_statement() -> Regex {
     // A constant pattern.
     Regex::new(r"FILE_SCHEMA\s*\([\s\S]*?\)\s*;").expect("a valid pattern")
+}
+
+/// The header's FILE_DESCRIPTION statement, to which haecceity 0.4.8 adds the PMI
+/// recommended-practice reference.
+fn description_statement() -> Regex {
+    // A constant pattern; a description ends at the first `)` closing the statement.
+    Regex::new(r"FILE_DESCRIPTION\s*\([\s\S]*?\)\s*;").expect("a valid pattern")
 }
 
 fn sha256(bytes: &[u8]) -> String {

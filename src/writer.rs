@@ -133,12 +133,24 @@ pub struct PreservedNormalization {
     pub normalization: String,
 }
 
+/// A kernel finding about the default Notes saved view (the kernel's finding JSON shape).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct SavedViewFinding {
+    pub kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub part: Option<usize>,
+    pub ids: Vec<u64>,
+    pub entity: String,
+    pub detail: String,
+}
+
 #[derive(Default)]
 struct KernelWriteReport {
     geometry_carrier_exemptions: Vec<GeometryCarrierExemption>,
     presentation_warnings: Vec<String>,
     preserved_normalizations: Vec<PreservedNormalization>,
     retained_shared: Vec<u64>,
+    saved_view_findings: Vec<SavedViewFinding>,
 }
 
 /// What a write did (Python's `WriteReport`; `to_dict`'s keys and order).
@@ -162,6 +174,9 @@ pub struct WriteReport {
     /// Ids of auxiliary support Replace kept because PMI it could not read still uses it.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub retained_shared: Vec<u64>,
+    /// Why the default Notes saved view was not written, or was written with reservations.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub saved_view_findings: Vec<SavedViewFinding>,
 }
 
 impl WriteReport {
@@ -184,6 +199,9 @@ impl WriteReport {
         }
         if !self.retained_shared.is_empty() {
             report["retained_shared"] = json!(self.retained_shared);
+        }
+        if !self.saved_view_findings.is_empty() {
+            report["saved_view_findings"] = json!(self.saved_view_findings);
         }
         report
     }
@@ -862,6 +880,7 @@ fn write_verified(
         presentation_warnings: kernel_report.presentation_warnings,
         preserved_normalizations: kernel_report.preserved_normalizations,
         retained_shared: kernel_report.retained_shared,
+        saved_view_findings: kernel_report.saved_view_findings,
     };
     for p in planned {
         let prefix = if jobs.len() > 1 {
@@ -999,6 +1018,20 @@ fn write_by_modes(
                 }),
         );
         report.retained_shared.extend(kernel_report.retained_shared);
+        report
+            .saved_view_findings
+            .extend(
+                kernel_report
+                    .saved_view_findings
+                    .iter()
+                    .map(|f| SavedViewFinding {
+                        kind: f.kind.as_str().into(),
+                        part: f.part.map(|p| p.0),
+                        ids: f.ids.clone(),
+                        entity: f.entity.clone(),
+                        detail: f.detail.clone(),
+                    }),
+            );
         // AddPreservation is a refusal, never a reason to retry with Replace:
         // Replace would re-author the caller's foreign PMI.
         if mode == Mode::Replace {
