@@ -12,8 +12,8 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 specify-core = { path = "../..", version = "=0.1.12", default-features = false }
-# Keep the geometry/PMI kernel on the same v0.4.8 release commit as the root crate.
-haecceity = { git = "https://github.com/pzfreo/quiddity", rev = "17a883aa1e489c2336b5866baf543c647c31969c" }
+# Keep the geometry/PMI kernel on the same v0.4.9 release commit as the root crate.
+haecceity = { git = "https://github.com/pzfreo/quiddity", tag = "v0.4.9" }
 serde_json = "1.0.151"
 sha2 = "0.11.0"
 
