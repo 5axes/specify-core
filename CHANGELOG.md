@@ -23,7 +23,16 @@ All notable changes to specify-core-rust. The format follows
 - Move native, WASM and Python builds from quiddity/haecceity v0.4.8 to v0.4.9 (`17a883aa`),
   taking quiddity with `default-features = false, features = ["presentation"]` so its new
   `cli` feature (clap) stays out of every build. Recognition `/6`, fingerprints `/3`, the PMI
-  reader string `/19` and both packaged schemas are unchanged, and no expectation changes.
+  reader string `/19` and both packaged schemas are unchanged. One corpus expectation changes:
+  `mfcadpp_holdout/363` gets quiddity #215's circular blind step on faces 20 and 24 in place of
+  `cylindrical_profiles:20`.
+
+### WASM API
+
+- A refusal to write a BOM into a file with no assembly structure (`writePmi` with `bom=true`,
+  or a stale `bom.*` answer) now carries the stable code `bom_no_assembly:` (`bom::NO_ASSEMBLY`)
+  before its message, so the editor can match the code instead of the prose. 0.1.13 changed
+  the `bom=true` message, which broke the editor's text match (its fallback for loose parts).
 
 ## 0.1.13 (2026-11-07)
 

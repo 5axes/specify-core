@@ -13,6 +13,10 @@ use crate::rules::Question;
 pub const PROPERTY: &str = "specify bom";
 pub const HISTORY: &str = "specify bom item numbers";
 pub const CARRY: &str = "_specify_bom";
+/// The code every refusal to write a BOM into a file with no assembly structure carries, at the
+/// start of its message: a stable contract (docs/wasm.md, "Errors") a caller matches instead of
+/// the prose after it.
+pub const NO_ASSEMBLY: &str = "bom_no_assembly";
 
 /// Every field carries its provenance, including missing/default values.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -622,11 +626,10 @@ pub fn accept_suggestions(
 ) -> Result<(), String> {
     let object = analysis.as_object().ok_or("analysis is not an object")?;
     if !analysis.get("bom").is_some_and(Value::is_object) {
-        return Err(
-            "the file has no assembly structure, so there is no BOM to write \
+        return Err(format!(
+            "{NO_ASSEMBLY}: the file has no assembly structure, so there is no BOM to write \
              (BOM acceptance needs a part of an assembly, analysed with analyse --part)"
-                .into(),
-        );
+        ));
     }
     let mut fields = intent
         .part
@@ -895,7 +898,9 @@ pub(crate) fn assembly_shape(
     let owner = doc
         .ids()
         .find(|&id| attrs(doc, id, "PRODUCT_DEFINITION").is_some() && !leaf.contains(&id))
-        .ok_or("BOM writing requires an assembly product definition")?;
+        .ok_or_else(|| {
+            format!("{NO_ASSEMBLY}: BOM writing requires an assembly product definition")
+        })?;
     let shape = doc
         .referrers(owner)
         .iter()
