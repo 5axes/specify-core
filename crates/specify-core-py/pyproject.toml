@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "specify-core"
-version = "0.1.13"
+version = "0.1.14"
 description = "Add manufacturing intent (GD&T, fits, threads, finish) to STEP parts and write it as AP242 semantic PMI"
 readme = "README.md"
 license = "Apache-2.0"
