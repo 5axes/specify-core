@@ -231,7 +231,9 @@ without it, so its answers are matched by feature ID.
 
 Refusals throw **strings**, preserving the editor's existing error transport: malformed JSON
 starts with `Invalid answers:`, `Invalid analysis:` or `Invalid state:`; rule and STEP errors
-name what could not be read or specified. Unknown answer/feature/face IDs, invalid choice or
+name what could not be read or specified. A refusal to write a BOM into a file with no assembly
+structure (`writePmi` with `bom=true`, or a stale `bom.*` answer) contains the code
+`bom_no_assembly:`; match the code, not the prose after it, which may change. Unknown answer/feature/face IDs, invalid choice or
 note types, and contradictory choices refuse explicitly. Text answers (`part.material`,
 `part.coating`, `part.heat_treatment`) preserve the core rules' Python-compatible truthiness
 and JSON values: `null` or `""` clears an answer, and non-string values remain accepted.

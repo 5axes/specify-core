@@ -52,3 +52,18 @@ fn write_pmi_bom_is_explicit_and_suggestions_do_not_become_answers() {
     );
     assert_eq!(bom::read_bytes(edited).unwrap()[0].stock.source, "answered");
 }
+
+/// A file with no assembly structure refuses `bom=true` with the stable code the editor matches
+/// (`bom::NO_ASSEMBLY`, docs/wasm.md "Errors"), not by its prose.
+#[test]
+fn write_pmi_bom_on_loose_parts_refuses_with_the_no_assembly_code() {
+    let bytes = include_bytes!("../../../tests/fixtures/parts/two_parts_without_an_assembly.step");
+    let session = Session::open_part("loose", bytes, 0).unwrap();
+    let refused = session
+        .write_pmi_with_bom(&Map::new(), None, None, true)
+        .unwrap_err();
+    assert!(refused.starts_with("bom_no_assembly: "), "{refused}");
+    assert_eq!(bom::NO_ASSEMBLY, "bom_no_assembly");
+    // Without the BOM it writes.
+    assert!(session.write_pmi(&Map::new(), None, None).is_ok());
+}
