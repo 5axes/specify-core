@@ -29,6 +29,9 @@ const noAssemblyFiles = new Set<string>();
 // specify-core alpha.6 an unanswered default is not written unless accepted, so every review and
 // write accepts them; an intent item is a default again when the person has not answered it, and
 // its question stays open, as the engine leaves it.
+// Specify's refusal to write a BOM into a file with no assembly structure: its code from specify-core
+// #156 (bom_no_assembly), and the wording of 0.1.12 and 0.1.13 before it.
+const noAssemblyRefusal = (error: unknown) => /bom_no_assembly|requires an assembly product definition|has no assembly structure/.test(String(error));
 const accepted = (answers: unknown) => engine!.acceptDefaults(JSON.stringify(answers));
 function reviewed(answers: Record<string, unknown>) {
   const review = markDefaults(JSON.parse(engine!.review(accepted(answers))), answers);
@@ -84,7 +87,7 @@ self.onmessage = ({ data: { id, operation, args } }) => {
           if (noAssemblyFiles.has(fileId)) document = withoutBom();
           else try { document = write(args.answers ?? {}, args.part !== undefined); }
           catch (error) {
-            if (args.part === undefined || !String(error).includes('requires an assembly product definition')) throw error;
+            if (args.part === undefined || !noAssemblyRefusal(error)) throw error;
             noAssemblyFiles.add(fileId);
             document = withoutBom();
           }
