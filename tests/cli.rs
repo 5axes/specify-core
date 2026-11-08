@@ -107,6 +107,27 @@ fn object(value: &Value) -> Map<String, Value> {
     value.as_object().cloned().unwrap_or_default()
 }
 
+/// `-o -` streams the JSON to stdout, byte for byte the file `-o file` writes, and moves the
+/// summary to stderr, so the output can be piped into another program (a CAM bridge, `jq`).
+#[test]
+fn a_dash_output_streams_the_json_to_stdout() {
+    let dir = scratch("dash-output");
+    let input = s(&part("plate"));
+    for command in ["analyse", "mesh"] {
+        let file = dir.join(format!("{command}.json"));
+        let to_file = run(&[command, "-o", &s(&file), &input]);
+        assert_eq!(to_file.code, 0, "{}", to_file.stderr);
+        let streamed = run(&[command, "-o", "-", &input]);
+        assert_eq!(streamed.code, 0, "{}", streamed.stderr);
+        let written = std::fs::read_to_string(&file).unwrap();
+        assert_eq!(streamed.stdout.trim_end(), written.trim_end(), "{command}");
+        assert!(streamed.stderr.contains(to_file.stdout.trim()), "{command}");
+        let parsed: Value = serde_json::from_str(&streamed.stdout).unwrap();
+        assert!(parsed.is_object(), "{command}");
+    }
+    assert!(!Path::new(env!("CARGO_MANIFEST_DIR")).join("-").exists());
+}
+
 #[test]
 fn freecad_product_type_upgrades_and_written_pmi_reads_back() {
     freecad_write_roundtrip("hex-standoff-m3");

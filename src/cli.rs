@@ -89,7 +89,7 @@ enum Cmd {
     /// recognise features and read existing PMI
     Analyse {
         step: PathBuf,
-        /// analysis JSON
+        /// analysis JSON (`-` for stdout; the summary then goes to stderr)
         #[arg(short, long)]
         output: PathBuf,
         /// which part of an assembly (see parts)
@@ -101,7 +101,7 @@ enum Cmd {
     /// triangles ranged by face index, for a picker
     Mesh {
         step: PathBuf,
-        /// mesh JSON
+        /// mesh JSON (`-` for stdout; the summary then goes to stderr)
         #[arg(short, long)]
         output: PathBuf,
         /// which part of an assembly (see parts)
@@ -314,8 +314,12 @@ fn run(cmd: Cmd, out: &mut impl Write) -> Result<(), Exit> {
             let loaded = file.load(part).map_err(Exit::error)?;
             let (analysis, warnings) =
                 api::analyse_reporting_in(&file, &loaded).map_err(Exit::error)?;
-            save(&output, &pyjson::dumps_indent1(&analysis))?;
-            print(out, &pyjson::dumps(&summary(&analysis)))?;
+            emit(
+                out,
+                &output,
+                &pyjson::dumps_indent1(&analysis),
+                &pyjson::dumps(&summary(&analysis)),
+            )?;
             for line in warnings {
                 eprintln!("warning: {line}");
             }
@@ -324,10 +328,14 @@ fn run(cmd: Cmd, out: &mut impl Write) -> Result<(), Exit> {
         Cmd::Mesh { step, output, part } => {
             let part = part_arg(&step, part)?;
             let mesh = api::mesh_file(&step, part).map_err(Exit::error)?;
-            save(&output, &pyjson::dumps_compact(&mesh))?;
             let count = |key: &str| mesh[key].as_array().map_or(0, Vec::len);
             let shown = json!({"faces": count("faces"), "triangles": count("indices") / 3});
-            print(out, &pyjson::dumps(&shown))?;
+            emit(
+                out,
+                &output,
+                &pyjson::dumps_compact(&mesh),
+                &pyjson::dumps(&shown),
+            )?;
             let missing: Vec<String> = mesh["missing"]
                 .as_array()
                 .into_iter()
@@ -743,6 +751,20 @@ fn summary(analysis: &Value) -> Value {
 /// Writes `text` to `path` (no newline at the end, as Python's `write_text` of `json.dumps`).
 fn save(path: &Path, text: &str) -> Result<(), Exit> {
     std::fs::write(path, text).map_err(|e| Exit::error(format!("{}: {e}", path.display())))
+}
+
+/// Writes a command's JSON file and its one-line summary. To a file, the summary goes to stdout;
+/// to `-` the JSON goes to stdout and the summary to stderr, so the JSON can be piped into
+/// another program (`specify-core analyse part.step -o - | jq .features`).
+fn emit(out: &mut impl Write, path: &Path, text: &str, shown: &str) -> Result<(), Exit> {
+    if path.as_os_str() == "-" {
+        print(out, text)?;
+        eprintln!("{shown}");
+        Ok(())
+    } else {
+        save(path, text)?;
+        print(out, shown)
+    }
 }
 
 /// A line on stdout.

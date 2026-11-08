@@ -6,6 +6,11 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+### Added
+
+- `analyse` and `mesh` take `-o -`: the JSON goes to stdout and the one-line summary to stderr,
+  so the output can be piped into another program. With a file, nothing changes.
+
 ## 0.1.15 (2026-11-07)
 
 ### Added

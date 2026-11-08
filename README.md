@@ -96,6 +96,9 @@ Exit codes:
 `specify-core mesh plate.step -o plate.mesh.json` writes the part's triangles grouped by face,
 for a face picker.
 
+`-o -` writes `analyse`'s or `mesh`'s JSON to stdout (the summary goes to stderr), for a pipe:
+`specify-core analyse plate.step -o - | jq '.features[].family'`.
+
 `specify-core open plate.step` opens the file in [draftwright.io/specify](https://draftwright.io/specify)
 in your browser, with nothing to click and nothing uploaded: it serves the file once on
 127.0.0.1, to the editor's origin only, and exits once the page has fetched it (or after 10
