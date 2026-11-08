@@ -21,6 +21,8 @@ class WriteReport:
     preserved_normalizations: list[dict[str, Any]] = field(default_factory=list)
     #: Ids of support Replace kept because PMI it could not read still uses it.
     retained_shared: list[int] = field(default_factory=list)
+    #: Kernel findings about the default Notes saved view ({kind, part?, ids, entity, detail}).
+    saved_view_findings: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         result = {
@@ -37,6 +39,8 @@ class WriteReport:
             result["preserved_normalizations"] = self.preserved_normalizations
         if self.retained_shared:
             result["retained_shared"] = self.retained_shared
+        if self.saved_view_findings:
+            result["saved_view_findings"] = self.saved_view_findings
         return result
 
     @classmethod
@@ -50,6 +54,7 @@ class WriteReport:
             data.get("presentation_warnings", []),
             data.get("preserved_normalizations", []),
             data.get("retained_shared", []),
+            data.get("saved_view_findings", []),
         )
 
 

@@ -22,7 +22,7 @@ analysis binding's `source_sha256` is that of the decompressed bytes below.
 
 `solid-edge-ctc01.step.gz` is the Solid Edge 2026 re-export of NIST CTC-01 from
 quiddity-rust v0.4.5 (`845a8919`), `tests/fixtures/ap242/reexport/09-NIST-reexported-by-SE.stp.gz`.
-It loses datum B's establishing feature. Reader /17 (as /15 did) reports B as Unresolved and
+It loses datum B's establishing feature. Reader /19 (as /17 and /15 did) reports B as Unresolved and
 omits that datum, retaining A and C. This tests Specify's existing-PMI and CLI
 finding output, rather than inventing a valid support for the lost datum.
 
@@ -52,3 +52,7 @@ repair lists are unchanged. Reader /17 reports CTC-04's projected zone #18897,
 whose projection end #18894 has no geometry, as a `fact` finding (it was a
 nonconformance); CTC-01's dimensions with no stated value (#24, #25, #126, #127)
 no longer produce a nonconformance finding.
+
+With v0.4.8 (reader /19) the six inputs still need exactly these repairs, and the
+existing-PMI and CLI finding expectations for CTC-01 to CTC-05 and the Solid Edge
+re-export are unchanged.

@@ -93,6 +93,14 @@ export interface PreservedNormalization {
   id: number;
   normalization: string;
 }
+/** A kernel finding about the default Notes saved view. */
+export interface SavedViewFinding {
+  kind: string;
+  part?: number;
+  ids: number[];
+  entity: string;
+  detail: string;
+}
 /** Report in writePmi JSON; optional diagnostic keys are absent when empty. */
 export interface WriteReport {
   output: string;
@@ -103,6 +111,7 @@ export interface WriteReport {
   presentation_warnings?: string[];
   preserved_normalizations?: PreservedNormalization[];
   retained_shared?: number[];
+  saved_view_findings?: SavedViewFinding[];
 }
 /** JSON returned by evidence(), also embedded alongside stored answers. */
 export interface AnswerEvidence {
@@ -272,7 +281,7 @@ export interface PmiScene {
         }
 
         /// The file's distinct parts, as `specify-core parts` lists them: `[{part, name,
-        /// product_id, faces, instances, placements, written}]`.
+        /// product_id, faces, instances, placements, written, same_as, faces_of_first}]`.
         pub fn parts(name: &str, bytes: &[u8]) -> Result<String, JsValue> {
             session::Session::parts(name, bytes)
                 .map(|value| value.to_string())

@@ -451,15 +451,28 @@ fn the_carried_project_is_read_by_the_editors_reader_and_gives_back_the_original
     let extra = carried::attributes(&source, PROJECT, &project).unwrap();
     let written = write(&loaded, &json!({"part.material": "steel"}), &extra);
 
-    // The editor and draftwright-mcp read what is written today, and recover the part.
+    // The editor and draftwright-mcp read what is written today, and recover the part: both
+    // take the engine's original first (the editor's `carried`, draftwright-mcp's
+    // `project::original`), which gives back the source exactly.
     assert_eq!(editor_read(&written), Some(project.clone()));
-    assert_eq!(
-        sha256(&editor_original(&written, &project).unwrap()),
-        sha256(&source)
-    );
-    // And so does the engine.
     assert_eq!(carried::payload(&written, PROJECT), Some(project.clone()));
     assert_eq!(carried::original(&written), Some(source.clone()));
+    // Their legacy fallback restores only the schema statement. haecceity 0.4.8 (#193) adds the
+    // PMI recommended-practice reference to FILE_DESCRIPTION, so that fallback gives back the
+    // source except for that one statement, and everything else exactly.
+    let legacy = editor_original(&written, &project).unwrap();
+    let description = Regex::new(r"FILE_DESCRIPTION\s*\([\s\S]*?\)\s*;").unwrap();
+    let written_description = description.find(&legacy).unwrap().as_bytes().to_vec();
+    assert!(
+        String::from_utf8_lossy(&written_description)
+            .contains("CAx-IF Rec.Pracs.---Representation and Presentation of Product Manufacturing Information (PMI)---4.1")
+    );
+    let source_description = description.find(&source).unwrap().as_bytes().to_vec();
+    assert_ne!(written_description, source_description);
+    assert_eq!(
+        sha256(&description.replace(&legacy, NoExpand(&source_description))),
+        sha256(&source)
+    );
     let back = part::load_bytes("plate.step", written.clone()).unwrap();
     assert_eq!(
         resume::answers_for(&back).unwrap().map(Value::Object),
@@ -523,6 +536,25 @@ fn rewriting_a_written_file_keeps_its_first_original() {
         carried::original(&write(&loaded, &json!({"part.material": "steel"}), &[])),
         None
     );
+}
+
+// A file Specify 0.1.12 wrote (haecceity v0.4.7, `carried-original-0.1.12.step.gz`, written
+// from parts/plate.step with payload "an app") records its original without a FILE_DESCRIPTION.
+// Rewriting it with haecceity 0.4.8, which adds the PMI recommended-practice reference to
+// FILE_DESCRIPTION (#193), still gives back that first original.
+#[test]
+fn a_pre_048_original_survives_a_rewrite_that_changes_file_description() {
+    let source = std::fs::read(fixture("parts/plate.step")).unwrap();
+    let old = part::load(&fixture("carried-original-0.1.12.step.gz"), None).unwrap();
+    let old_bytes = old.bytes.to_vec();
+    assert!(!String::from_utf8_lossy(&old_bytes).contains("CAx-IF Rec.Pracs."));
+    assert_eq!(carried::original(&old_bytes), Some(source.clone()));
+    let value = json!({"revision": 2});
+    let extra = carried::attributes(&old_bytes, "an app", &value).unwrap();
+    let rewritten = write(&old, &json!({"part.material": "brass"}), &extra);
+    assert!(String::from_utf8_lossy(&rewritten).contains("CAx-IF Rec.Pracs."));
+    assert_eq!(carried::payload(&rewritten, "an app"), Some(value));
+    assert_eq!(carried::original(&rewritten), Some(source));
 }
 
 // Only an item the writer stores, in a user defined attribute, is the payload: an item of the

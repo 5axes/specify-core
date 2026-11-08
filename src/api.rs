@@ -25,6 +25,7 @@ use std::path::Path;
 use serde_json::{Map, Value, json};
 
 use crate::anchors;
+use crate::bom;
 use crate::existing;
 use crate::features;
 use crate::mates;
@@ -103,9 +104,15 @@ impl From<WriteError> for Error {
 pub type Result<T> = std::result::Result<T, Error>;
 
 /// The distinct parts of `step`: `{part, name, product_id, faces, instances, placements,
-/// written}` each, `written` saying whether specify-core has written the part (answers stored
-/// for it). A part is identified by `part`, its index (decision D1); `name` and `product_id`
-/// are reported beside it and need not be unique.
+/// written, same_as, faces_of_first}` each, `written` saying whether specify-core has written the
+/// part (answers stored for it). A part is identified by `part`, its index (decision D1); `name`
+/// and `product_id` are reported beside it and need not be unique. `same_as` is the index of the
+/// first part this one is a copy of (the same shape moved, and the same stated BOM facts and
+/// `part.*`/`bom.*` answers: [`bom::copies`]), or `null`: separate products a file gives for one
+/// part (four `M3×8 hex bolt #n` with no assembly) are one part with their instances added
+/// together. `faces_of_first` gives, for each of a copy's faces in its own order, the face of
+/// that first part it lands on (`null` when `same_as` is): a copy may list its faces in another
+/// order, so an answer given for faces carries over only through it.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn parts(step: &Path) -> Result<Vec<Value>> {
     Ok(parts_of(&part::File::read(step)?))
@@ -114,14 +121,22 @@ pub fn parts(step: &Path) -> Result<Vec<Value>> {
 /// [`parts`] of a file already read (from a path or from bytes held in memory, as the browser
 /// session lists an assembly's parts).
 pub fn parts_of(file: &part::File) -> Vec<Value> {
-    let stored = resume::stored(file.bytes());
+    let doc = haecceity::p21::Document::parse(file.bytes().to_vec()).ok();
+    let stored = doc.as_ref().map(resume::stored_in).unwrap_or_default();
+    let copies = match &doc {
+        Some(doc) => bom::copies(file, doc),
+        None => vec![None; file.definitions().len()],
+    };
     file.parts()
         .into_iter()
         .map(|p| {
             let written = stored.contains_key(&p.part);
+            let copy = copies[p.part].as_ref();
             // PartSummary contains only JSON-serializable fields with string keys.
             let mut value = serde_json::to_value(p).expect("a part summary serialises");
             value["written"] = Value::Bool(written);
+            value["same_as"] = json!(copy.map(|c| c.of));
+            value["faces_of_first"] = json!(copy.map(|c| &c.faces));
             value
         })
         .collect()
@@ -281,6 +296,7 @@ fn analyse_with(
         Some(resumed) => {
             if loaded.part_count > 1
                 && let Ok(doc) = &doc
+                && definitions.is_some_and(|d| crate::bom::assembly_shape(doc, d).is_ok())
             {
                 let rows = crate::bom::read_parsed(
                     doc,
@@ -356,9 +372,12 @@ fn analyse_with(
                     &read_here
                 }
             };
+            // BOM questions only where the BOM can be written (#149).
+            let writable =
+                loaded.part_count > 1 && crate::bom::assembly_shape(&doc, definitions).is_ok();
             let reading =
                 existing::read_parsed(loaded, doc, definitions).map_err(|e| refused(&e))?;
-            if loaded.part_count > 1 {
+            if writable {
                 analysis.insert(
                     "bom".into(),
                     serde_json::to_value(reading.bom(loaded).map_err(Error::Analysis)?)

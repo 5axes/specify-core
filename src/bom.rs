@@ -13,6 +13,10 @@ use crate::rules::Question;
 pub const PROPERTY: &str = "specify bom";
 pub const HISTORY: &str = "specify bom item numbers";
 pub const CARRY: &str = "_specify_bom";
+/// The code every refusal to write a BOM into a file with no assembly structure carries, at the
+/// start of its message: a stable contract (docs/wasm.md, "Errors") a caller matches instead of
+/// the prose after it.
+pub const NO_ASSEMBLY: &str = "bom_no_assembly";
 
 /// Every field carries its provenance, including missing/default values.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -112,7 +116,10 @@ fn formations(doc: &Document, pd: u64) -> (u64, u64, &'static str) {
     (formation, product, ty)
 }
 fn occurrences(doc: &Document, pd: u64) -> Vec<u64> {
-    doc.ids()
+    // Only what references `pd` can name it; the index is ascending, as `ids()` is.
+    doc.referrers(pd)
+        .iter()
+        .copied()
         .filter(|&id| {
             attrs(doc, id, "NEXT_ASSEMBLY_USAGE_OCCURRENCE")
                 .is_some_and(|a| reference(a.get(4)) == Some(pd))
@@ -186,7 +193,26 @@ fn stock_for(make_buy: &Value) -> Value {
     }
 }
 
-fn guessed(name: &str) -> (&'static str, &'static str) {
+/// What a part's name says about whether it is made or bought.
+enum Guess {
+    /// A project drawing/part number: made, including bespoke hardware.
+    PartNumber,
+    /// Its last noun names standard hardware (the noun).
+    Standard(String),
+    /// Anything else: made.
+    Other,
+}
+
+impl Guess {
+    fn value(&self) -> &'static str {
+        match self {
+            Guess::Standard(_) => "bought",
+            _ => "made",
+        }
+    }
+}
+
+fn guessed(name: &str) -> Guess {
     let tokens: Vec<_> = name
         .split(|c: char| !c.is_alphanumeric())
         .filter(|s| !s.is_empty())
@@ -198,32 +224,24 @@ fn guessed(name: &str) -> (&'static str, &'static str) {
             && p[0].chars().all(|c| c.is_ascii_uppercase())
             && p[1].chars().all(|c| c.is_ascii_digit())
     }) {
-        return (
-            "made",
-            "The name carries a project drawing/part number; propose made, including bespoke hardware.",
-        );
+        return Guess::PartNumber;
     }
     let words: Vec<_> = tokens.iter().map(|s| s.to_lowercase()).collect();
     // Ignore size/designation suffixes; the last noun determines the kind of part.
     let noun = words.iter().rev().find(|s| {
         !s.chars().any(|c| c.is_ascii_digit()) && !["mm", "iso", "din", "x"].contains(&s.as_str())
     });
-    if noun.is_some_and(|s| {
-        [
-            "screw", "washer", "dowel", "bearing", "nut", "fastener", "bolt", "rivet", "circlip",
-            "pin", "stud",
-        ]
-        .contains(&s.as_str())
-    }) {
-        (
-            "bought",
-            "The final noun identifies standard hardware; review against recognition and bespoke features.",
-        )
-    } else {
-        (
-            "made",
-            "The final noun does not identify standard hardware; propose a manufactured part and review it.",
-        )
+    match noun {
+        Some(noun)
+            if [
+                "screw", "washer", "dowel", "bearing", "nut", "fastener", "bolt", "rivet",
+                "circlip", "pin", "stud",
+            ]
+            .contains(&noun.as_str()) =>
+        {
+            Guess::Standard(noun.clone())
+        }
+        _ => Guess::Other,
     }
 }
 
@@ -393,7 +411,7 @@ pub(crate) fn read_rows(
             }
         }
         if row.make_buy.value.is_null() {
-            row.make_buy = field(guessed(&def.name).0, "default");
+            row.make_buy = field(guessed(&def.name).value(), "default");
         }
         // A defaulted stock, including one accepted before stock followed make/buy, is
         // re-proposed from make/buy; an unknown make/buy leaves it as it is.
@@ -418,6 +436,144 @@ pub(crate) fn read_rows(
     Ok(rows)
 }
 
+/// A part that is a copy of an earlier one ([`copies`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PartCopy {
+    /// The index of the first part of its kind.
+    pub of: usize,
+    /// For each of this part's faces, in its own order, the face of `of` it lands on.
+    pub faces: Vec<usize>,
+}
+
+/// For each part of `file` (parsed as `doc`), the earlier part it is a copy of, or `None`
+/// (`same_as` and `faces_of_first` in [`crate::api::parts`]). A copy has the same geometry up
+/// to a proper rigid motion, proven face by face (`quiddity::correspondence::congruent`), the
+/// same stated BOM facts ([`stated`]) and the same saved `part.*` and `bom.*` answers. Answers
+/// given for faces (datums, feature questions) may be shared through the face pairing or given
+/// per copy, so they never decide it; nor do names, `PRODUCT.id` or defaults, as in
+/// draftwright's pack (`Metadata::compatible`). Parts keep their own indexes (decision D1); a
+/// copy points at the first of its kind. Only parts that share a face count with another are
+/// built, and only congruent ones have their BOM facts read, so a file of distinct parts costs
+/// next to nothing more.
+pub fn copies(file: &File, doc: &Document) -> Vec<Option<PartCopy>> {
+    let defs = file.definitions();
+    let mut out = vec![None; defs.len()];
+    let shares = |i: usize| {
+        defs.iter()
+            .enumerate()
+            .any(|(j, d)| j != i && d.faces.len() == defs[i].faces.len())
+    };
+    let shapes: Vec<_> = (0..defs.len())
+        .map(|i| {
+            shares(i)
+                .then(|| file.load(Some(i)).ok())
+                .flatten()
+                .map(|l| {
+                    let prints = qc::fingerprint(&l.part, &Default::default());
+                    (l.part, prints)
+                })
+        })
+        .collect();
+    // Each part's face to the face of its group's first part it lands on.
+    let onto = |a: usize, b: usize| match (&shapes[a], &shapes[b]) {
+        (Some((s, p)), Some((t, q))) => qc::congruent_with(s, p, t, q).map(|(_, pairs)| {
+            let mut faces = vec![0; pairs.len()];
+            for (first, copy) in pairs {
+                faces[copy] = first;
+            }
+            faces
+        }),
+        _ => None,
+    };
+    // Groups by geometry alone, then each is split by what the parts state.
+    let mut groups: Vec<Vec<(usize, Vec<usize>)>> = Vec::new();
+    for i in (0..defs.len()).filter(|&i| shapes[i].is_some()) {
+        match groups
+            .iter_mut()
+            .find_map(|g| onto(g[0].0, i).map(|faces| (g, faces)))
+        {
+            Some((g, faces)) => g.push((i, faces)),
+            None => {
+                let n = shapes[i].as_ref().map_or(0, |(s, _)| s.faces.len());
+                groups.push(vec![(i, (0..n).collect())]);
+            }
+        }
+    }
+    groups.retain(|g| g.len() > 1);
+    if groups.is_empty() {
+        return out;
+    }
+    let members: Vec<usize> = groups.iter().flatten().map(|(i, _)| *i).collect();
+    let chosen: Vec<_> = members.iter().map(|&i| defs[i].clone()).collect();
+    let Ok(rows) = read_parsed(doc, &chosen, 0) else {
+        return out;
+    };
+    let saved = crate::resume::stored_in(doc);
+    let key = |i: usize| {
+        let row = &rows[members.iter().position(|&m| m == i).unwrap_or_default()];
+        (
+            stated(row, &defs[i].product_id),
+            shared_answers(saved.get(&i)),
+        )
+    };
+    for group in groups {
+        // The first of each kind, with its faces' inverse: the group's first face to its own.
+        let mut firsts: Vec<(usize, _, Vec<usize>)> = Vec::new();
+        for (i, faces) in group {
+            let k = key(i);
+            match firsts.iter().find(|(_, f, _)| *f == k) {
+                Some((of, _, back)) => {
+                    let faces = faces.iter().map(|&h| back[h]).collect();
+                    out[i] = Some(PartCopy { of: *of, faces });
+                }
+                None => {
+                    let mut back = vec![0; faces.len()];
+                    for (own, &h) in faces.iter().enumerate() {
+                        back[h] = own;
+                    }
+                    firsts.push((i, k, back));
+                }
+            }
+        }
+    }
+    out
+}
+
+/// The saved answers two copies must share: the part's own (`part.*`) and its BOM's (`bom.*`).
+/// Answers given for faces (`datum.*`, feature questions) are left out, as they may be shared
+/// through the face pairing or given per copy.
+fn shared_answers(payload: Option<&Map<String, Value>>) -> Map<String, Value> {
+    payload
+        .and_then(|p| p.get("answers"))
+        .and_then(Value::as_object)
+        .into_iter()
+        .flatten()
+        .filter(|(id, _)| id.starts_with("part.") || id.starts_with("bom."))
+        .map(|(id, v)| (id.clone(), v.clone()))
+        .collect()
+}
+
+/// The BOM facts a row states, which two copies must share: part number, description, revision,
+/// make/buy, material, optional and stock, each only where the file or an answer states it (a
+/// default is derived from the name). A part number that is only `PRODUCT.id` is an exporter's
+/// identifier, not a stated part number, and is left out.
+fn stated(row: &Item, product_id: &str) -> Vec<Option<Value>> {
+    let raw_id = row.part_number.source == "file" && row.part_number.value == json!(product_id);
+    [
+        &row.part_number,
+        &row.description,
+        &row.revision,
+        &row.make_buy,
+        &row.material,
+        &row.optional,
+        &row.stock,
+    ]
+    .iter()
+    .enumerate()
+    .map(|(n, f)| (f.source != "default" && !(n == 0 && raw_id)).then(|| f.value.clone()))
+    .collect()
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 pub fn read_path(path: &Path) -> Result<Vec<Item>, String> {
     read(&File::read(path).map_err(|e| e.to_string())?)
@@ -426,39 +582,34 @@ pub fn read_bytes(bytes: Vec<u8>) -> Result<Vec<Item>, String> {
     read(&File::of_bytes(Path::new("bom.step"), bytes).map_err(|e| e.to_string())?)
 }
 
+/// The BOM questions: optional, never blocking a write, and without a `default`, so accepting
+/// defaults never writes them; their proposals are `suggestions`, accepted only explicitly
+/// ([`accept_suggestions`]). Each is `routine`, except a make/buy proposal its name and its
+/// recognised pockets disagree on (`check`). Stock is not asked: it follows make/buy.
 pub(crate) fn questions(analysis: &Map<String, Value>) -> Vec<Question> {
     let Some(bom) = analysis.get("bom") else {
         return vec![];
     };
+    let machined = analysis
+        .get("features")
+        .and_then(Value::as_array)
+        .is_some_and(|features| {
+            features
+                .iter()
+                .filter_map(|f| f.get("family").and_then(Value::as_str))
+                .any(|family| family.contains("pocket") || family.contains("keyway"))
+        });
     let mut out = Vec::new();
-    let mut make_buy = Value::Null;
-    for (key, prompt, default, options) in [
+    for (key, prompt, options) in [
         (
             "make_buy",
-            "Is this part made or bought?",
-            json!("not known"),
+            "Made or bought?",
             vec!["made", "bought", "not known"],
         ),
-        (
-            "description",
-            "What does this BOM item describe?",
-            json!(""),
-            vec![],
-        ),
-        ("part_number", "What is the part number?", json!(""), vec![]),
-        ("revision", "What is the part revision?", json!(""), vec![]),
-        (
-            "optional",
-            "Is this item optional (quantity 0–1)?",
-            json!("no"),
-            vec!["no", "yes"],
-        ),
-        (
-            "stock",
-            "Is this item from stock or to be made?",
-            Value::Null,
-            vec!["from stock", "to be made"],
-        ),
+        ("description", "Description", vec![]),
+        ("part_number", "Part number", vec![]),
+        ("revision", "Revision", vec![]),
+        ("optional", "Optional item?", vec!["no", "yes"]),
     ] {
         if matches!(key, "part_number" | "revision") && bom[key]["source"] == "file" {
             continue;
@@ -470,53 +621,47 @@ pub(crate) fn questions(analysis: &Map<String, Value>) -> Vec<Question> {
             prompt.into(),
             vec![],
         );
-        q.default = Some(if key == "optional" {
-            json!(if value == true { "yes" } else { "no" })
-        } else if value.is_null() {
-            default
-        } else {
-            value.clone()
-        });
         q.options = options.into_iter().map(String::from).collect();
-        q.why = "The STEP assembly is the BOM authority for drawings and CSV.".into();
-        q.basis = if bom[key]["source"] == "file" {
-            "Existing export data; preserved unless changed.".into()
-        } else if key == "make_buy" {
-            guessed(bom["name"]["value"].as_str().unwrap_or(""))
-                .1
-                .into()
-        } else {
-            "BOM setting; review against the manufacturing specification.".into()
+        q.why = "Shown in the drawing's parts list.".into();
+        q.attention = "routine";
+        let suggestion = match key {
+            "make_buy" if bom[key]["source"] == "answered" => {
+                q.reason = "Your answer".into();
+                value.clone()
+            }
+            "make_buy" if bom[key]["source"] != "default" => {
+                q.reason = "From the file".into();
+                value.clone()
+            }
+            "make_buy" => {
+                let guess = guessed(bom["name"]["value"].as_str().unwrap_or(""));
+                q.reason = match &guess {
+                    Guess::PartNumber => "Proposed: made (the name carries a part number)".into(),
+                    Guess::Standard(noun) if machined => {
+                        q.attention = "check";
+                        format!(
+                            "Its name says {noun}, but it has machined pockets: made to your \
+                             drawing, or bought?"
+                        )
+                    }
+                    Guess::Standard(noun) => format!("Proposed: bought (a standard {noun})"),
+                    Guess::Other => "Proposed: made (it isn't a standard part)".into(),
+                };
+                // The row's proposal (`read_rows`: the name's guess, or one accepted earlier).
+                if machined {
+                    json!("made")
+                } else {
+                    value.clone()
+                }
+            }
+            "description" => value.clone(),
+            "optional" => json!(if value == true { "yes" } else { "no" }),
+            _ => Value::Null,
         };
-        if key == "make_buy"
-            && bom[key]["source"] == "default"
-            && analysis
-                .get("features")
-                .and_then(Value::as_array)
-                .is_some_and(|features| {
-                    features
-                        .iter()
-                        .filter_map(|f| f.get("family").and_then(Value::as_str))
-                        .any(|family| family.contains("pocket") || family.contains("keyway"))
-                })
-        {
-            q.default = Some(json!("made"));
-            q.basis = "Recognition found machined pockets/keyways beyond a standard fastener; propose made and review it.".into();
+        if !suggestion.is_null() {
+            q.suggestions.push(suggestion);
         }
-        if key == "make_buy" {
-            make_buy = q.default.clone().unwrap_or_default();
-        }
-        if key == "stock" && bom[key]["source"] == "default" {
-            q.default = Some(stock_for(&make_buy));
-            q.basis =
-                "Follows the make/buy proposal: bought parts from stock, made parts to be made."
-                    .into();
-        }
-        if let Some(value) = q.default.take().filter(|v| !v.is_null()) {
-            q.suggestions.push(value);
-        }
-        q.attention = "check";
-        q.reason = q.basis.clone();
+        q.basis = q.reason.clone();
         out.push(q);
     }
     out
@@ -531,7 +676,10 @@ pub fn accept_suggestions(
 ) -> Result<(), String> {
     let object = analysis.as_object().ok_or("analysis is not an object")?;
     if !analysis.get("bom").is_some_and(Value::is_object) {
-        return Err("BOM acceptance requires a current assembly analysis (analyse --part)".into());
+        return Err(format!(
+            "{NO_ASSEMBLY}: the file has no assembly structure, so there is no BOM to write \
+             (BOM acceptance needs a part of an assembly, analysed with analyse --part)"
+        ));
     }
     let mut fields = intent
         .part
@@ -540,16 +688,27 @@ pub fn accept_suggestions(
         .cloned()
         .unwrap_or_default();
     let mut suggested = Vec::new();
-    for q in questions(object) {
-        let key = q.id.strip_prefix("bom.").unwrap_or("");
-        // An explicit make/buy answer decides the stock proposal over the analysed one.
-        let value = match answers.get("bom.make_buy") {
-            Some(answer) if key == "stock" && analysis["bom"][key]["source"] == "default" => {
-                Some(stock_for(answer)).filter(|v| !v.is_null())
-            }
-            _ => q.suggestions.first().cloned(),
-        };
-        if !answers.contains_key(&q.id)
+    let questions = questions(object);
+    // Stock is not asked but is proposed with the rest: from the file, or following make/buy
+    // (an explicit answer over the proposal).
+    let stock = if analysis["bom"]["stock"]["source"] == "default" {
+        let make_buy = answers.get("bom.make_buy").cloned().or_else(|| {
+            questions
+                .iter()
+                .find(|q| q.id == "bom.make_buy")
+                .and_then(|q| q.suggestions.first().cloned())
+        });
+        make_buy.map_or(Value::Null, |m| stock_for(&m))
+    } else {
+        analysis["bom"]["stock"]["value"].clone()
+    };
+    let proposals = questions
+        .iter()
+        .map(|q| (q.id.as_str(), q.suggestions.first().cloned()))
+        .chain([("bom.stock", Some(stock).filter(|v| !v.is_null()))]);
+    for (id, value) in proposals {
+        let key = id.strip_prefix("bom.").unwrap_or("");
+        if !answers.contains_key(id)
             && analysis["bom"][key]["source"] != "answered"
             && let Some(value) = value
             && !value.as_str().is_some_and(|s| s.trim().is_empty())
@@ -777,6 +936,39 @@ fn uda(edit: &mut Edit, owner: u64, name: &str, values: &Map<String, Value>) {
     ));
 }
 
+/// The assembly's `PRODUCT_DEFINITION_SHAPE` a BOM is written under, or why a BOM cannot be
+/// written into `doc`: it needs a product definition that is not one of the parts
+/// (`definitions`), with a shape, and an assembly occurrence of every part. Questions about the
+/// BOM are asked only when this holds, so they are never asked of what cannot be written.
+pub(crate) fn assembly_shape(
+    doc: &Document,
+    definitions: &[haecceity::step::PartDefinition],
+) -> Result<u64, String> {
+    let leaf: BTreeSet<_> = definitions.iter().map(|d| d.product_definition).collect();
+    let owner = doc
+        .ids()
+        .find(|&id| attrs(doc, id, "PRODUCT_DEFINITION").is_some() && !leaf.contains(&id))
+        .ok_or_else(|| {
+            format!("{NO_ASSEMBLY}: BOM writing requires an assembly product definition")
+        })?;
+    let shape = doc
+        .referrers(owner)
+        .iter()
+        .copied()
+        .find(|&id| {
+            attrs(doc, id, "PRODUCT_DEFINITION_SHAPE")
+                .is_some_and(|a| reference(a.get(2)) == Some(owner))
+        })
+        .ok_or("BOM assembly has no definition shape for history")?;
+    if let Some(i) = definitions
+        .iter()
+        .position(|d| occurrences(doc, d.product_definition).is_empty())
+    {
+        return Err(format!("BOM part {i} has no assembly occurrence"));
+    }
+    Ok(shape)
+}
+
 /// Pure append after the PMI candidate, before its final readback/atomic publication.
 pub(crate) fn append(bytes: Vec<u8>, jobs: &[crate::writer::Job<'_>]) -> Result<Vec<u8>, String> {
     if !jobs
@@ -849,22 +1041,7 @@ pub(crate) fn append(bytes: Vec<u8>, jobs: &[crate::writer::Job<'_>]) -> Result<
             .map(|r| r.item_number.value.as_u64())
             .collect::<Vec<_>>(),
     )?;
-    let leaf: BTreeSet<_> = file
-        .definitions()
-        .iter()
-        .map(|d| d.product_definition)
-        .collect();
-    let owner = doc
-        .ids()
-        .find(|&id| attrs(&doc, id, "PRODUCT_DEFINITION").is_some() && !leaf.contains(&id))
-        .ok_or("BOM writing requires an assembly product definition")?;
-    let owner = doc
-        .ids()
-        .find(|&id| {
-            attrs(&doc, id, "PRODUCT_DEFINITION_SHAPE")
-                .is_some_and(|a| reference(a.get(2)) == Some(owner))
-        })
-        .ok_or("BOM assembly has no definition shape for history")?;
+    let owner = assembly_shape(&doc, file.definitions())?;
     let mut edit = Edit::new();
     let mut expected = BTreeMap::new();
     for (i, p) in parts.iter().enumerate() {
@@ -1256,6 +1433,32 @@ pub(crate) fn assembly_answers(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn copies_share_part_and_bom_answers_but_not_answers_for_faces() {
+        let payload = |answers: Value| json!({ "answers": answers }).as_object().cloned();
+        let first = payload(json!({
+            "part.material": "steel",
+            "bom.make_buy": "buy",
+            "datum.A": [4],
+            "hole.function:holes:3": "clearance",
+        }));
+        let copy = payload(json!({
+            "part.material": "steel",
+            "bom.make_buy": "buy",
+            "datum.A": [2],
+        }));
+        assert_eq!(
+            shared_answers(first.as_ref()),
+            shared_answers(copy.as_ref())
+        );
+        let other = payload(json!({"part.material": "brass", "bom.make_buy": "buy"}));
+        assert_ne!(
+            shared_answers(first.as_ref()),
+            shared_answers(other.as_ref())
+        );
+        assert!(shared_answers(None).is_empty());
+    }
     fn pin() -> Fingerprints {
         let f = File::read(
             &Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/parts/pin.step"),
@@ -1368,9 +1571,29 @@ mod tests {
             "features": [{"family": "pockets"}],
         });
         let qs = questions(analysis.as_object().unwrap());
-        let suggestion = |id: &str| qs.iter().find(|q| q.id == id).unwrap().suggestions.clone();
-        assert_eq!(suggestion("bom.make_buy"), [json!("made")]);
-        assert_eq!(suggestion("bom.stock"), [json!("to be made")]);
+        let make_buy = qs.iter().find(|q| q.id == "bom.make_buy").unwrap();
+        assert_eq!(make_buy.suggestions, [json!("made")]);
+        // Stock is not asked; accepting the proposals makes it follow the made proposal.
+        assert!(qs.iter().all(|q| q.id != "bom.stock"));
+        let mut intent = crate::rules::Intent::new(json!({}));
+        accept_suggestions(&analysis, &Map::new(), &mut intent).unwrap();
+        assert_eq!(intent.part["bom"]["make_buy"], "made");
+        assert_eq!(intent.part["bom"]["stock"], "to be made");
+    }
+    #[test]
+    fn a_make_buy_answered_earlier_is_the_answer_not_the_file() {
+        let reason = |source: &str| {
+            let analysis = json!({"bom": {
+                "name": {"value": "plate", "source": "file"},
+                "make_buy": {"value": "bought", "source": source},
+            }});
+            let qs = questions(analysis.as_object().unwrap());
+            assert_eq!(qs[0].suggestions, [json!("bought")]);
+            assert_eq!(qs[0].attention, "routine");
+            qs[0].reason.clone()
+        };
+        assert_eq!(reason("answered"), "Your answer");
+        assert_eq!(reason("file"), "From the file");
     }
     #[test]
     fn foreign_keys_ignore_case_and_invalid_values() {
@@ -1439,7 +1662,7 @@ mod tests {
             "leadscrew",
             "minute",
         ] {
-            assert_eq!(guessed(name).0, "made", "{name}");
+            assert_eq!(guessed(name).value(), "made", "{name}");
         }
         for name in [
             "ISO 4762 screw M2x6",
@@ -1456,7 +1679,7 @@ mod tests {
             "bearing",
             "dowel",
         ] {
-            assert_eq!(guessed(name).0, "bought", "{name}");
+            assert_eq!(guessed(name).value(), "bought", "{name}");
         }
         assert_eq!(normalised("stock", &json!("unusable text")), None);
         assert_eq!(

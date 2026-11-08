@@ -901,7 +901,13 @@ fn the_stock_proposal_follows_make_buy() {
             .clone()
     };
     assert_eq!(suggestion("bom.make_buy"), "bought");
-    assert_eq!(suggestion("bom.stock"), "from stock");
+    // Stock is not asked (#149) but still proposed with the rest, following make/buy.
+    assert!(
+        api::questions(&analysis, &Map::new())
+            .unwrap()
+            .iter()
+            .all(|q| q.id != "bom.stock")
+    );
 
     let accepted = |answers: Map<String, Value>| {
         let mut intent = api::preview(&analysis, &answers).unwrap();
@@ -929,5 +935,182 @@ fn the_stock_proposal_follows_make_buy() {
             .as_array()
             .unwrap()
             .contains(&json!("stock"))
+    );
+}
+
+/// #149: several products and no NEXT_ASSEMBLY_USAGE_OCCURRENCE, so no BOM can be written.
+/// `two_parts_without_an_assembly.step` is `a_file_with_two_parts_must_say_which.step` with its
+/// assembly product and the two occurrences placing its parts removed.
+#[test]
+fn bom_is_not_asked_where_it_cannot_be_written() {
+    let f = part::File::read(
+        &Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/parts/two_parts_without_an_assembly.step"),
+    )
+    .unwrap();
+    // The read-only BOM still lists the products.
+    assert_eq!(bom::read(&f).unwrap().len(), 2);
+    let given = json!({"part.material":"6061-T6"})
+        .as_object()
+        .unwrap()
+        .clone();
+    let mut jobs = Vec::new();
+    let mut stale = Vec::new();
+    for p in f.load_all().unwrap() {
+        assert_eq!(p.part_count, 2);
+        let analysis = api::analyse_reporting_in(&f, &p).unwrap().0;
+        assert!(analysis.get("bom").is_none());
+        let questions = api::questions(&analysis, &given).unwrap();
+        assert!(questions.iter().all(|q| !q.id.starts_with("bom.")));
+        let complete = rules::with_all_defaults(&analysis, &given).unwrap();
+        assert!(complete.keys().all(|key| !key.starts_with("bom.")));
+        // `--bom` is refused as on a single part: there is nothing to accept.
+        let mut intent = api::apply(&analysis, &given, true).unwrap();
+        let refused = bom::accept_suggestions(&analysis, &given, &mut intent).unwrap_err();
+        assert!(refused.starts_with("bom_no_assembly: "), "{refused}");
+        assert!(refused.contains("no assembly structure"), "{refused}");
+        jobs.push((
+            api::apply(&analysis, &given, true).unwrap(),
+            Some(given.clone()),
+        ));
+        // A stale answer from before this fix is refused by the writer, not a panic.
+        let mut answers = given.clone();
+        answers.insert("bom.make_buy".into(), json!("made"));
+        stale.push((
+            api::apply(&analysis, &answers, true).unwrap(),
+            Some(answers),
+        ));
+    }
+    let bytes = api::write_bytes(f.bytes().as_ref().clone(), &jobs)
+        .unwrap()
+        .0;
+    assert!(!String::from_utf8_lossy(&bytes).contains(bom::PROPERTY));
+    let refused = api::write_bytes(f.bytes().as_ref().clone(), &stale)
+        .err()
+        .unwrap()
+        .to_string();
+    // The same code, wherever the writer's error is wrapped.
+    assert!(
+        refused.contains("bom_no_assembly: BOM writing requires an assembly product definition"),
+        "{refused}"
+    );
+
+    // No regression: an assembly the BOM is written into still asks it of every part.
+    let f = fixture();
+    for p in f.load_all().unwrap() {
+        let analysis = api::analyse_reporting_in(&f, &p).unwrap().0;
+        let questions = api::questions(&analysis, &Map::new()).unwrap();
+        assert!(questions.iter().any(|q| q.id == "bom.make_buy"));
+    }
+}
+
+/// The BOM questions' attention, prompts and proposals (#149 follow-on).
+fn bom_questions(analysis: &Value) -> Vec<rules::Question> {
+    api::questions(analysis, &Map::new())
+        .unwrap()
+        .into_iter()
+        .filter(|q| q.id.starts_with("bom."))
+        .collect()
+}
+
+#[test]
+fn bom_questions_are_routine_with_their_proposal_as_the_reason() {
+    let f = fixture();
+    // A made part: its name is no standard part. Its part number is the file's, so not asked.
+    let plate = api::analyse_reporting_in(&f, &f.load(Some(0)).unwrap())
+        .unwrap()
+        .0;
+    let qs = bom_questions(&plate);
+    let ids: Vec<_> = qs.iter().map(|q| q.id.as_str()).collect();
+    assert_eq!(
+        ids,
+        [
+            "bom.make_buy",
+            "bom.description",
+            "bom.revision",
+            "bom.optional"
+        ]
+    );
+    for q in &qs {
+        assert_eq!(q.attention, "routine", "{}", q.id);
+        assert!(q.default.is_none(), "{}", q.id);
+        assert_eq!(q.why, "Shown in the drawing's parts list.");
+        assert_eq!(q.to_dict()["optional"], true);
+    }
+    let prompts: Vec<_> = qs.iter().map(|q| q.prompt.as_str()).collect();
+    assert_eq!(
+        prompts,
+        [
+            "Made or bought?",
+            "Description",
+            "Revision",
+            "Optional item?"
+        ]
+    );
+    assert_eq!(qs[0].suggestions, [json!("made")]);
+    assert_eq!(qs[0].reason, "Proposed: made (it isn't a standard part)");
+    assert_eq!(qs[1].suggestions, [json!("plate")]);
+    assert!(qs[2].suggestions.is_empty());
+    assert_eq!(qs[3].suggestions, [json!("no")]);
+    // No BOM field is written by accepting defaults.
+    let merged = rules::with_all_defaults(&plate, &Map::new()).unwrap();
+    assert!(merged.keys().all(|k| !k.starts_with("bom.")));
+
+    // A standard bolt: proposed bought, still routine.
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/bom/gramil.step.gz");
+    let gramil = part::File::read(&path).unwrap();
+    let bolt = gramil
+        .parts()
+        .iter()
+        .position(|p| p.name == "pan-head screw M2x6")
+        .unwrap();
+    let screw = api::analyse_reporting_in(&gramil, &gramil.load(Some(bolt)).unwrap())
+        .unwrap()
+        .0;
+    let qs = bom_questions(&screw);
+    assert!(qs.iter().all(|q| q.attention == "routine"));
+    assert_eq!(qs[0].suggestions, [json!("bought")]);
+    assert_eq!(qs[0].reason, "Proposed: bought (a standard screw)");
+    // A project part number.
+    let shaft = gramil
+        .parts()
+        .iter()
+        .position(|p| p.name == "GRM-02 shaft")
+        .unwrap();
+    let shaft = api::analyse_reporting_in(&gramil, &gramil.load(Some(shaft)).unwrap())
+        .unwrap()
+        .0;
+    assert_eq!(
+        bom_questions(&shaft)[0].reason,
+        "Proposed: made (the name carries a part number)"
+    );
+
+    // The one check: a standard-hardware name on a part recognised with machined pockets.
+    // Synthesised from a pocketed part's own analysis given the BOM row of a "hex bolt".
+    let pocketed = part::File::read(
+        &PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/parts/default_datum_a_takes_every_coplanar_face.step"),
+    )
+    .unwrap();
+    let mut conflict = api::analyse(&pocketed.load(None).unwrap()).unwrap();
+    assert!(
+        conflict["features"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|f| f["family"] == "pockets")
+    );
+    let mut row = plate["bom"].clone();
+    row["name"]["value"] = json!("hex bolt");
+    row["make_buy"]["value"] = json!("bought");
+    conflict["bom"] = row;
+    let qs = bom_questions(&conflict);
+    let checks: Vec<_> = qs.iter().filter(|q| q.attention == "check").collect();
+    assert_eq!(checks.len(), 1);
+    assert_eq!(checks[0].id, "bom.make_buy");
+    assert_eq!(checks[0].suggestions, [json!("made")]);
+    assert_eq!(
+        checks[0].reason,
+        "Its name says bolt, but it has machined pockets: made to your drawing, or bought?"
     );
 }

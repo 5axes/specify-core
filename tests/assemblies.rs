@@ -99,9 +99,14 @@ fn parts_are_listed_by_index_with_name_and_product_id() {
                 "faces",
                 "instances",
                 "placements",
-                "written"
+                "written",
+                "same_as",
+                "faces_of_first"
             ]
         );
+        // The plate and the pin are different parts (#150).
+        assert_eq!(value["same_as"], json!(null));
+        assert_eq!(value["faces_of_first"], json!(null));
         assert_eq!(value["product_id"], json!(summary.product_id));
         assert_eq!(value["written"], json!(false));
     }

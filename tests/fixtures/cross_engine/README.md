@@ -175,7 +175,40 @@ metadata records the actual written hashes and clean reference. No known-differe
 entry is removed or changed. Original input spans, foreign dependencies, shared
 carrier removal and stable characteristic numbers are checked in native tests.
 
-## Current pin: v0.4.7 (`dcba9d38`)
+## Current pin: v0.4.8 (`449ab51d`)
+
+Regenerated all sixteen cases once with `examples/write_fixtures.rs`; both refusals
+(CTC-02, CTC-04) are unchanged. All fourteen successful byte goldens change, and
+each change was checked record by record against the v0.4.7 bytes (references
+blanked, so renumbering is ignored). Every case has exactly these changes and no
+others:
+
+- #198, default Notes saved view: 21 new records, the `Notes` camera, view volume,
+  planar box, `DEFAULT_MODEL_GEOMETRIC_VIEW`, `Notes` draughting model with its
+  part styling and relationship to the callout model, and their placements. There is
+  one per file, so assemblies have it only on the first part.
+- #198, material description: `DESCRIPTIVE_REPRESENTATION_ITEM('steel','')` becomes
+  `('steel','steel')` in `REPRESENTATION('material identification (no separate name)')`,
+  formerly `'material name'` (one per part).
+- #193, PMI RP 4.1: FILE_DESCRIPTION gains the RP 4.1 reference, and curve sets and
+  geometric sets are renamed with Table 18 names (`GENERAL NOTES...` becomes `note`,
+  `thread` becomes `label`). Their coordinates and indices are byte-identical.
+- #198, unique model names: the second and third parts' callout models in
+  `a_file_with_two_parts_must_say_which`, `assembly` and `stack` are `PMI callouts (2)`
+  and `PMI callouts (3)`.
+
+Independent Python recapture: `--rust-only` with Python 3.12.13 and the frozen
+`uv.lock`. The reference is `2cb6499` (docs/questions.md, "Recapture source"),
+rebuilt from its documented recipe because the `7e2125d` checkout no longer exists.
+It has the same Python source, and the metadata records `2cb6499`. Decoded
+readbacks are unchanged except `part.material`, which Python no longer reads on the
+eleven single-part cases. Its text route matches only `REPRESENTATION('material name'`
+(see the new `cross_engine.json` entry). The three assembly readbacks are unchanged.
+Python-written evidence is frozen. The hashes in `tests/bom_opt_in.rs`,
+`tests/face_names.rs` and `tests/fixtures/characteristic-numbers-legacy.json` change
+for the same causes. Recognition `/6` and fingerprints `/3` are unchanged.
+
+## Previous pin: v0.4.7 (`dcba9d38`)
 
 No byte golden, independent Python readback or `tests/bom_opt_in.rs` hash changes:
 all sixteen cases and the six API/CLI byte comparisons match the v0.4.6 outputs below

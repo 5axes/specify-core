@@ -13,8 +13,8 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 |---|---:|---:|---:|---:|---:|---:|---:|
 | [analysis](#analysis) | 5 | 0 | 0 | 0 | 0 | 0 | 5 |
 | [anchors](#anchors) | 4 | 0 | 2 | 1 | 2 | 0 | 9 |
-| [cli](#cli) | 266 | 0 | 52 | 0 | 2 | 1 | 321 |
-| [cross_engine](#cross_engine) | 54 | 2 | 0 | 1 | 1 | 20 | 78 |
+| [cli](#cli) | 270 | 0 | 52 | 0 | 2 | 1 | 325 |
+| [cross_engine](#cross_engine) | 55 | 2 | 0 | 1 | 1 | 20 | 79 |
 | [existing](#existing) | 31 | 0 | 0 | 0 | 7 | 0 | 38 |
 | [features](#features) | 3459 | 1415 | 543 | 2481 | 1066 | 1880 | 10844 |
 | [iso286](#iso286) | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
@@ -22,7 +22,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 0 | 40 |
 | [rules](#rules) | 114 | 0 | 615 | 0 | 0 | 0 | 729 |
 | [writer](#writer) | 1091 | 0 | 0 | 0 | 15 | 0 | 1106 |
-| **all** | 5030 | 1434 | 1221 | 2487 | 1101 | 1901 | 13174 |
+| **all** | 5035 | 1434 | 1221 | 2487 | 1101 | 1901 | 13179 |
 
 ## analysis
 
@@ -76,7 +76,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## cli
 
-### cli: rust-correct (266 entries)
+### cli: rust-correct (270 entries)
 
 - **Combined ISO 2768 class choices in CLI and serve** (36 entries, 3 case globs)
 
@@ -133,6 +133,22 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 - **serve's parts reports each part's product id beside its name (D1), a key Python's listing lacks** (`parts/*@serve` at `serve*.parts.result.parts*.product_id`)
 
   Decision D1 (maintainer, 2026-10-15): a part is identified by its index ('part', what --part and stored answers use); its name and its product's PRODUCT.id are reported beside it. haecceity's PartDefinition.product_id (quiddity-rust 0d601d2) is the id as the file states it, escapes decoded; Python's parts listing has no such key. Every other key of the listing is still compared and equal (tests/part.rs, corpus_and_nist_faces_are_pythons_at_every_index, compares the rest with Python on corpus and NIST files).
+
+- **parts says which earlier part each part is a copy of (#150), a key Python's listing lacks** (`cli/*/parts` at `stdout.*.same_as`)
+
+  Issue #150: separate products that are one part moved (no assembly, each placed once, as in a file of four 'M3x8 hex bolt #n') are listed with same_as, the index of the first part each is a copy of (the same geometry under a proper rigid motion, proven face by face by quiddity::correspondence::congruent, and the same stated BOM facts and saved part.\* and bom.\* answers; names and PRODUCT.id never decide it), or null. Each part keeps its own index (decision D1). Python's parts listing has no such key; every other key is still compared and equal. Every value here is null except in a_file_with_two_parts_must_say_which, two unit boxes 5 apart as separate products (tools/make_parts.py), whose second part is same_as 0: the same box moved. tests/part_copies.rs checks copies, a stated revision and a changed shape.
+
+- **parts says which earlier part each copy's face lands on (#150), a key Python's listing lacks** (`cli/*/parts` at `stdout.*.faces_of_first`)
+
+  Issue #150: beside same_as, a copy lists faces_of_first, for each of its faces in its own order the face of the first part it lands on (the pairing quiddity::correspondence::congruent proves), so an answer given for faces carries over to a copy that lists its faces in another order; null where same_as is null. Python's parts listing has no such key; every other key is still compared and equal. Every value here is null except in a_file_with_two_parts_must_say_which, whose second part, the same unit box moved (tools/make_parts.py), maps each face to the same index. tests/part_copies.rs checks moved copies (the identity) and a copy turned a quarter turn whose shell lists its faces in reverse.
+
+- **serve's parts says which earlier part each part is a copy of (#150), a key Python's listing lacks** (`parts/*@serve` at `serve*.parts.result.parts*.same_as`)
+
+  Issue #150: separate products that are one part moved (no assembly, each placed once, as in a file of four 'M3x8 hex bolt #n') are listed with same_as, the index of the first part each is a copy of (the same geometry under a proper rigid motion, proven face by face by quiddity::correspondence::congruent, and the same stated BOM facts and saved part.\* and bom.\* answers; names and PRODUCT.id never decide it), or null. Each part keeps its own index (decision D1). Python's parts listing has no such key; every other key is still compared and equal. Every value here is null except in a_file_with_two_parts_must_say_which, two unit boxes 5 apart as separate products (tools/make_parts.py), whose second part is same_as 0: the same box moved. tests/part_copies.rs checks copies, a stated revision and a changed shape.
+
+- **serve's parts says which earlier part each copy's face lands on (#150), a key Python's listing lacks** (`parts/*@serve` at `serve*.parts.result.parts*.faces_of_first`)
+
+  Issue #150: beside same_as, a copy lists faces_of_first, for each of its faces in its own order the face of the first part it lands on (the pairing quiddity::correspondence::congruent proves), so an answer given for faces carries over to a copy that lists its faces in another order; null where same_as is null. Python's parts listing has no such key; every other key is still compared and equal. Every value here is null except in a_file_with_two_parts_must_say_which, whose second part, the same unit box moved (tools/make_parts.py), maps each face to the same index. tests/part_copies.rs checks moved copies (the identity) and a copy turned a quarter turn whose shell lists its faces in reverse.
 
 - **CLI and serve expose the corrected turned datums and blind-thread summaries** (20 entries, 11 case globs)
 
@@ -202,7 +218,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## cross_engine
 
-### cross_engine: rust-correct (54 entries)
+### cross_engine: rust-correct (55 entries)
 
 - **Specify-written requirements retain STEP-only authorship (issue #22)** (`*` at `python_readback.existing[key=*].provenance`)
 
@@ -211,6 +227,10 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 - **the part's default finish, written as a surface texture, is not read by specify-core (Python)** (`*` at `python_readback.part.surface_finish`)
 
   The Rust writer writes the part's default finish (Ra 3.2 on every accept-defaults intent) as ISO 10303-1110's surface texture on the part's product_definition_shape (property_definition 'surface texture', material removal 'any process allowed', its parameter a surface_texture_representation of 'measuring method' 'Ra' and 'characteristic value' 3.2 µm; question Q3, decided 2026-10-09; haecceity checks surface_texture_representation WR1-WR5 and general_property_association WR1-WR2 on its writes, quiddity-rust c228f95), and reads it back as the part's surface_finish (src/existing.rs). specify-core's part_settings finds the default finish only in its own text route, a DESCRIPTIVE_REPRESENTATION_ITEM('surface texture','Ra 3.2 µm unless otherwise specified') (existing.py), and OpenCascade's XCAF has no surface texture model, so Python reads none, on every Rust-written part of a single-part file (assemblies report no settings in either engine). The form is AP242's standard one, the text route is not (haecceity decision 5); the gap is Python's reader.
+
+- **a material written without a separate name is not read by specify-core's (Python's) text route** (`*` at `python_readback.part.material`)
+
+  haecceity v0.4.8 (quiddity #198, docs/step-ap242.md, reader haecceity-pmi-read/19) writes a material that has no separate name as PROPERTY_DEFINITION('material property','material name',...) with REPRESENTATION('material identification (no separate name)',(DESCRIPTIVE_REPRESENTATION_ITEM('steel','steel')),...), repeating the id as description instead of the former REPRESENTATION('material name',(DESCRIPTIVE_REPRESENTATION_ITEM('steel','')),...); checked in every regenerated byte golden (examples/write_fixtures.rs, 2026-11-06), where the record pair is the only material change. Rust reads the material back as steel (src/existing.rs through haecceity's reader). specify-core's part_settings (existing.py, frozen reference 2cb6499, the same Python source as 7e2125d) matches only the text prefix REPRESENTATION('material name', so the independent Python 3.12.13 --rust-only recapture reads no material on the eleven single-part cases (CTC-01, CTC-03, CTC-05, a_hole_along_x, a_placed_part, default_datum_a, four_corner_holes, identical_holes, pin, plate, wrapped); every other readback field is unchanged, and assemblies report no settings in either engine. The property still follows the material practice's 'material property' / 'material name' convention and existing.py's own comment says OCCT's material reader takes any named representation; the gap is Python's narrower text reader.
 
 - **a fit written as its ISO 286 class reads with no limits in specify-core (Python)** (`*` at `python_readback.existing[key=dimension|Size_*].*er`)
 
@@ -406,13 +426,17 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   The evidence is stated per entry (239 distinct; all in `features.json`). The first, for `corpus/cadgenbench_inputs/cgb202` at `features[id=blends:1527]`: At v0.2.3: quiddity #127: former inside blends become concave fillets. face 1527: native cylinder R4 mm, inward/concave, sweep 90°, transverse plane tangency residuals (face, mm) [[2106,0.0],[1648,1.5700152289355174e-10]]. The same defining support is now fillets:1527 R4.0 concave. The old blend payload is absent; the faces remain recognised. Exact comparison: Python {"id":"blends:1527","family":"blends","record":{"radius":4.0,"side":"concave","path":{"at":[-204.357,-163.5,3.146],"direction":[0.872239,0.0,0.489079]}},"faces":[1527]}; Rust null.
 
-- **quiddity #127: cylindrical profile surfaces reported by Rust only** (195 entries, 20 case globs)
+- **quiddity #127: cylindrical profile surfaces reported by Rust only** (194 entries, 20 case globs)
 
-  The evidence is stated per entry (195 distinct; all in `features.json`). The first, for `corpus/cadgenbench/flanged_spool_132` at `features[id=cylindrical_profiles:40]`: At v0.2.3: quiddity #127: cylindrical profile surfaces reported by Rust only. face 40: native cylinder R10 mm, outward/convex, sweep 113.4873679°. These measured sub-180° cylindrical portions have no accepted hole or edge-round claim; they are residual profile surfaces, not an inferred machining operation. Exact comparison: Python null; Rust {"id":"cylindrical_profiles:40","family":"cylindrical_profiles","record":{"radius":10.0,"axis":"z","axis_point":[45.0,0.0,134.0],"side":"convex","sweep":1.9807282292912012,"faces":[40]},"faces":[40]}.
+  The evidence is stated per entry (194 distinct; all in `features.json`). The first, for `corpus/cadgenbench/flanged_spool_132` at `features[id=cylindrical_profiles:40]`: At v0.2.3: quiddity #127: cylindrical profile surfaces reported by Rust only. face 40: native cylinder R10 mm, outward/convex, sweep 113.4873679°. These measured sub-180° cylindrical portions have no accepted hole or edge-round claim; they are residual profile surfaces, not an inferred machining operation. Exact comparison: Python null; Rust {"id":"cylindrical_profiles:40","family":"cylindrical_profiles","record":{"radius":10.0,"axis":"z","axis_point":[45.0,0.0,134.0],"side":"convex","sweep":1.9807282292912012,"faces":[40]},"faces":[40]}.
 
 - **interior_voids reported by Rust only** (`corpus/cadgenbench_inputs/cgb217` at `features[id=interior_voids:361.362.363]`)
 
   quiddity #189 at v0.4.7: every sealed shell gets an exact closed_shell record. The file states #15=BREP_WITH_VOIDS('',#16,(#31910)) whose void #31910=ORIENTED_CLOSED_SHELL('',\*,#31911,.F.) closes #31911=CLOSED_SHELL of three faces (#31912,#32177,#32253), faces 361, 362 and 363. Rust reports it with no openings and closed_shell volume 27.096 mm³; Python quiddity's six-axis air-sampling grid (pitch about 2.07 mm on this body) has no sample inside so small a cavity and reports nothing on these faces. Volume not checked against an independent reference.
+
+- **quiddity #215: circular blind steps cut by a second feature** (`corpus/mfcadpp_holdout/363` at `features[id=circular_blind_steps:20.24]`)
+
+  At v0.4.9: quiddity #215 (for #208) recognises a circular blind step whose quarter-cylinder wall is intact although a second cut adds a convex planar neighbour. Here it replaces the subordinate `cylindrical_profiles:20` (face 20: native cylinder R4.550383998 mm, inward/concave, sweep 90°, recorded at v0.2.3 under quiddity #127) with a step on faces 20 and 24. quiddity's own snapshot for this part changes the same way, by design: its inventory floor records the one subordinate profile replaced. Python has no such step. Exact comparison: Python null; Rust {"id":"circular_blind_steps:20.24","family":"circular_blind_steps","record":{"axis":"z","radius":4.55039,"length":3.35864,"centreline":[[33.3163,0.0,17.1386],[33.3163,0.0,20.4972]],"section":[[33.3163,4.55038],[33.3163,0.0],[28.7659,0.0]]},"faces":[20,24]}.
 
 - **quiddity #123: turned bodies reported by Rust only** (6 entries, 6 case globs)
 

@@ -81,7 +81,10 @@ fn each_part_is_listed_once_with_where_its_instances_are() {
     );
     assert_eq!(plate["written"], json!(false));
     assert_eq!(pin["written"], json!(false));
-    // Python's key order, `written` last, with the product's id after the name (decision D1).
+    assert_eq!(pin["same_as"], json!(null));
+    assert_eq!(pin["faces_of_first"], json!(null));
+    // Python's key order, with the product's id after the name (decision D1), then `same_as`
+    // and `faces_of_first` (#150), which Python's listing does not have.
     let keys: Vec<&String> = pin.as_object().unwrap().keys().collect();
     assert_eq!(
         keys,
@@ -92,7 +95,9 @@ fn each_part_is_listed_once_with_where_its_instances_are() {
             "faces",
             "instances",
             "placements",
-            "written"
+            "written",
+            "same_as",
+            "faces_of_first"
         ]
     );
 }

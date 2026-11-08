@@ -285,7 +285,9 @@ def test_bom_write_requires_explicit_acceptance(assembly, tmp_path):
     from specify_core import bom
     analysis = api.analyse(assembly, part=0)
     questions = [q for q in api.questions(analysis, {}) if q.id.startswith("bom.")]
-    assert questions and all(q.optional and q.default is None and q.suggestions for q in questions)
+    assert questions and all(q.optional and q.default is None for q in questions)
+    # Part number and revision carry no suggestion; the rest propose one.
+    assert all(bool(q.suggestions) == (q.id not in ("bom.part_number", "bom.revision")) for q in questions)
     assert "bom" not in api.apply(analysis, STEEL, accept_defaults=True).part
     intent = api.apply(analysis, STEEL, accept_defaults=True, bom=True)
     out = tmp_path / "bom.step"
@@ -373,6 +375,8 @@ def test_write_report_optional_geometry_carrier_exemptions():
         "presentation_warnings": ["feature note glyphs could not be drawn"],
         "preserved_normalizations": [{"id": 77, "normalization": "legacy-endpoint-retirement"}],
         "retained_shared": [301],
+        "saved_view_findings": [{"kind": "fact", "part": 0, "ids": [], "entity": "draughting_model",
+                                 "detail": "Notes saved view was not written"}],
     }
     assert WriteReport.from_dict(extended).to_dict() == extended
 

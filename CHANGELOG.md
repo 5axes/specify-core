@@ -11,6 +11,107 @@ All notable changes to specify-core-rust. The format follows
 - `analyse` and `mesh` take `-o -`: the JSON goes to stdout and the one-line summary to stderr,
   so the output can be piped into another program. With a file, nothing changes.
 
+## 0.1.15 (2026-11-07)
+
+### Added
+
+- `parts` (CLI, serve, Python, WASM `IntentEngine.parts`) gives each copy `faces_of_first`: for
+  each of its faces, in its own order, the face of its first part (`same_as`) it lands on, the
+  pairing quiddity's congruence check proves; `null` where `same_as` is (#150). A turned copy,
+  or one whose file lists its faces in another order, numbers its faces differently from the
+  first, so an answer given for faces (a datum, a feature question) carries over only through
+  it.
+
+### Changed
+
+- `same_as` compares only the saved `part.*` and `bom.*` answers. Answers given for faces
+  (datums, feature questions, `extra.*` requirements) may be shared through `faces_of_first` or
+  given per copy, so a copy whose datum or hole answers were given separately stays a copy of its
+  first part (#150).
+
+## 0.1.14 (2026-11-07)
+
+### Added
+
+- `parts` (CLI, serve, Python, WASM `IntentEngine.parts`) gives each part `same_as`: the index
+  of the first part it is a copy of, or `null` (#150). A copy has the same geometry moved by a
+  proper rigid motion, proven face by face (quiddity's `congruent`, the check draftwright's pack
+  uses), and states the same BOM facts (part number other than a bare `PRODUCT.id`,
+  description, revision, make/buy, material, optional, stock) and the same saved answers.
+  Names and defaults never decide it. Every part keeps its own index (decision D1), so saved
+  answers are unaffected; a picker can show `M3×8 hex bolt ×4` from the first and its copies.
+  Only parts sharing a face count with another are built, so a file of distinct parts costs
+  the same as before.
+
+### Changed
+
+- Move native, WASM and Python builds from quiddity/haecceity v0.4.8 to v0.4.9 (`17a883aa`),
+  taking quiddity with `default-features = false, features = ["presentation"]` so its new
+  `cli` feature (clap) stays out of every build. Recognition `/6`, fingerprints `/3`, the PMI
+  reader string `/19` and both packaged schemas are unchanged. One corpus expectation changes:
+  `mfcadpp_holdout/363` gets quiddity #215's circular blind step on faces 20 and 24 in place of
+  `cylindrical_profiles:20`.
+
+### WASM API
+
+- A refusal to write a BOM into a file with no assembly structure (`writePmi` with `bom=true`,
+  or a stale `bom.*` answer) now carries the stable code `bom_no_assembly:` (`bom::NO_ASSEMBLY`)
+  before its message, so the editor can match the code instead of the prose. 0.1.13 changed
+  the `bom=true` message, which broke the editor's text match (its fallback for loose parts).
+
+## 0.1.13 (2026-11-07)
+
+### Changed
+
+- Move native, WASM and Python builds from quiddity/haecceity v0.4.7 to v0.4.8
+  (`449ab51d`). Writes that carry general notes add a default AP242 Notes saved view
+  facing their annotation plane (quiddity #198); Add keeps foreign views and reuses its
+  own, edition-1 Add skips it, and Remove/Replace clean it up. New draughting models get
+  unique names, materials without a separate name repeat their id as description, and
+  presentation follows the CAx-IF PMI Recommended Practice 4.1 (#193). Recognition `/6`,
+  fingerprints `/3` and both packaged schemas are unchanged.
+- Adopt reader `haecceity-pmi-read/19` in place of /17.
+- Add optional `saved_view_findings` (`{kind, part, ids, entity, detail}` kernel findings
+  about the Notes saved view) to native/CLI, Python and WASM write reports.
+- Written STEP bytes change for these 0.4.8 causes only: the Notes view, the material
+  description, RP 4.1's FILE_DESCRIPTION reference and curve-set names, and `PMI callouts (2)`
+  model names. As a result, all fourteen cross-engine byte goldens are regenerated and
+  recaptured, and the BOM opt-in, legacy settings-only and unnamed-revision hashes are
+  updated. An Add over Specify's own output now rewrites the kernel's own Notes view in place
+  and retires its private camera; every other original entity keeps its bytes.
+- Known differences: the frozen Python reader no longer reads a material written without a
+  separate name (`material identification (no separate name)`) on single-part files; Rust
+  still reads it.
+- The carried `specify-core original` record also stores the original `FILE_DESCRIPTION`
+  (`description`), because v0.4.8 writes add the PMI RP 4.1 reference to it (#193).
+  `original()` (native and WASM) restores it, so it again gives back the source exactly.
+  Without this, every new write returned `undefined`. A record without `description`, from an
+  earlier write, gains one when that file is rewritten. Readers that restore only
+  `FILE_SCHEMA` (the editor's `originalOf` fallback) now differ from the source in that
+  statement.
+- The BOM questions are `routine`, not `required` (`reviewed()` no longer overrides them), with
+  short prompts (`Made or bought?`, `Description`, `Part number`, `Revision`, `Optional item?`),
+  `why` "Shown in the drawing's parts list." and the make/buy proposal as the `reason`
+  ("From the file", "Your answer", or "Proposed: made/bought (…)"). The one `check` is a
+  standard-hardware name on a part recognised with pockets or keyways (proposed made; its reason asks which). Part number and revision
+  carry no suggestion. `bom.stock` is no longer asked: it follows make/buy, is still proposed
+  by `--bom` and an explicit answer is still written. Suggestions stay out of `default`, so
+  `--accept-defaults` writes no BOM field.
+
+### Fixed
+
+- The `bom.*` questions are asked only of a file the BOM can be written into: an assembly
+  product definition with a shape and an assembly occurrence of every part, the writer's own
+  condition (#149). A file of several products with no `NEXT_ASSEMBLY_USAGE_OCCURRENCE` is no
+  longer asked them, and writes without `--bom`; `--bom` on it is refused as on a single part
+  (now saying the file has no assembly structure, so there is no BOM to write),
+  and a stale `bom.*` answer is refused by the writer as before. `bom` still lists its rows.
+
+### WASM API
+
+- `WriteReport` adds optional `saved_view_findings: SavedViewFinding[]`, absent when empty;
+  new `SavedViewFinding` (`kind`, optional `part`, `ids`, `entity`, `detail`).
+
 ## 0.1.12 (2026-11-06)
 
 ### Added

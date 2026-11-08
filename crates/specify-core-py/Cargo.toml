@@ -1,6 +1,6 @@
 [package]
 name = "specify-core-py"
-version = "0.1.12"
+version = "0.1.15"
 edition = "2024"
 license = "Apache-2.0"
 description = "Python bindings for specify-core: the Python package's API on the Rust engine"
@@ -16,7 +16,7 @@ test = false
 doctest = false
 
 [dependencies]
-specify-core = { path = "../..", version = "=0.1.12" }
+specify-core = { path = "../..", version = "=0.1.15" }
 # abi3-py312: one wheel per platform for every CPython from 3.12, as specify-core supports.
 # No `extension-module` feature: maturin sets PYO3_BUILD_EXTENSION_MODULE, and without it
 # `cargo test --workspace` still links.

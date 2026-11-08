@@ -106,12 +106,20 @@ fn notes_round_trip_as_semantic_text_and_answers_with_a_byte_stable_rewrite() {
     // quiddity-rust#137 must not produce an empty coordinates/curve list for the blank row.
     assert!(haecceity::express::validate_document(doc.graph()).is_empty());
     assert!(haecceity::express_rules::check_all(&doc).is_empty());
+    // haecceity 0.4.8 (#193) names curve sets by the PMI RP 4.1 Table 18 (`note`) instead of
+    // the drawn text, so the drawn block is checked through the kernel's own notes layout of
+    // the read-back PMI (the rows and block it draws from), and the drawn set by its name.
     assert!(doc.ids().any(|id| matches!(doc.get(id),
         Some(haecceity::p21::RawEntity::Simple { name, attributes, .. })
             if name == "TESSELLATED_CURVE_SET" && matches!(attributes.first(),
-                Some(Attribute::String(text)) if text.starts_with("GENERAL NOTES\n")
-                    && text.matches("(blank)").count() == 1))));
+                Some(Attribute::String(text)) if text == "note"))));
     let read = pmi::read(&doc, &defs).unwrap();
+    let drawn = haecceity::presentation::notes::notes_block(
+        &haecceity::presentation::notes::general_notes(&read.parts[0]),
+    )
+    .cells
+    .join("\n");
+    assert!(drawn.starts_with("GENERAL NOTES\n") && drawn.matches("(blank)").count() == 1);
     let sets: Vec<_> = read.parts[0]
         .attributes
         .iter()

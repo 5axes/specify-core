@@ -330,6 +330,8 @@ fn legacy_numberless_files_have_byte_identical_analysis_and_pmi_serialization() 
     // v0.2.7 moves the General notes block; only settings-only writer hashes change.
     // v0.4.1 regenerates the numbered GENERAL NOTES block and its plane view;
     // only settings-only writer hashes change, never analysis or semantic-read hashes.
+    // v0.4.8 changes only the three settings-only writer hashes: #198's Notes saved view
+    // and material description, #193's RP 4.1 FILE_DESCRIPTION reference and `note` name.
     // Basic dimensions gain `"basic":true` in the existing read: only the alpha6 plate's
     // PMI read hash changes (its 14 basics); stripped of that key it is the old hash.
     // Float serialization varies by platform; portable absence checks run separately above.
@@ -560,11 +562,8 @@ fn foreign_pmi_append_keeps_original_bytes_and_numbers_even_for_equal_requiremen
     // Without stored answers the second write uses lossless Add, including a shared datum.
     let first = back(writer::write_bytes(&p, &i, None).unwrap().0);
     let original = numbers(&first);
-    let added = back(
-        writer::write_bytes(&first, &rebind(&i, &first), None)
-            .unwrap()
-            .0,
-    );
+    let (added, report) = writer::write_bytes(&first, &rebind(&i, &first), None).unwrap();
+    let added = back(added);
     let after = numbers(&added);
     assert_eq!(after.len(), 11); // the existing datum is reused, five new requirements
     assert_eq!(
@@ -576,12 +575,50 @@ fn foreign_pmi_append_keeps_original_bytes_and_numbers_even_for_equal_requiremen
     }
     let doc = Document::parse(first.bytes.to_vec()).unwrap();
     let new = Document::parse(added.bytes.to_vec()).unwrap();
-    for id in doc.ids() {
-        assert_eq!(
-            doc.span(id).map(|s| &doc.bytes()[s]),
-            new.span(id).map(|s| &new.bytes()[s])
-        );
+    // haecceity v0.4.8 (#198): the first write added the kernel's own Notes saved view; Add
+    // reuses it for the added notes, rewriting that view and its Notes model in place and
+    // retiring only its private camera support. Every other original entity keeps its bytes.
+    let views = haecceity::pmi::read(&doc, std::slice::from_ref(&first.definition))
+        .unwrap()
+        .saved_views;
+    let [view] = views.as_slice() else {
+        panic!("one Notes saved view expected, got {views:?}")
+    };
+    assert_eq!(view.name, "Notes");
+    let mut camera = BTreeSet::new();
+    let mut pending = vec![view.camera];
+    while let Some(id) = pending.pop() {
+        if camera.insert(id) {
+            haecceity::p21::visit_attributes(doc.get(id).unwrap(), &mut |a| {
+                if let Attribute::EntityRef(r) = a {
+                    pending.push(*r);
+                }
+            });
+        }
     }
+    for id in doc.ids() {
+        let (old, kept) = (
+            doc.span(id).map(|s| &doc.bytes()[s]),
+            new.span(id).map(|s| &new.bytes()[s]),
+        );
+        if old == kept {
+            continue;
+        }
+        if id == view.id || id == view.representation {
+            assert!(kept.is_some(), "the Notes view #{id} is rewritten in place");
+        } else {
+            assert!(
+                camera.contains(&id) && kept.is_none(),
+                "#{id} changed but is not the Notes view's private camera support"
+            );
+        }
+    }
+    assert!(report.saved_view_findings.iter().any(|f| {
+        f.kind == "fact"
+            && f.ids == [view.id]
+            && f.detail
+                .contains("reused the writer-owned Notes saved view")
+    }));
 }
 
 #[test]
