@@ -14,7 +14,7 @@ import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SIBLING = "pzfreo/draftwright-rust"
+SIBLING = "pzfreo/draftwright"
 KERNEL = "pzfreo/quiddity"
 # Its name before the 2026-11-03 rename; GitHub redirects it, and released siblings still use it.
 FORMER_KERNEL = "pzfreo/quiddity-rust"

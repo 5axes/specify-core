@@ -428,7 +428,7 @@ tool versions together and explain the increase in the changelog.
 The editor passes STEP files between Specify's browser package and Draftwright's drawing
 package. Different quiddity kernels can number the same faces differently.
 `python3 tools/check_quiddity_pin.py` reads **both** `haecceity` and `quiddity` pins from the
-root `Cargo.toml` and compares them with `pzfreo/draftwright-rust`'s latest published release.
+root `Cargo.toml` and compares them with `pzfreo/draftwright`'s latest published release.
 Prereleases count; drafts do not. Tags and abbreviated revisions are resolved to commits,
 so a full rev and a tag at that same commit match. Internal disagreement between the two
 kernel crates also warns. The check prints each package's pins and the matching commit.
