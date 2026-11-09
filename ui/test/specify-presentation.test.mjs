@@ -31,3 +31,9 @@ test('Specify zone hints use typed characteristics despite edited or translated 
   }
   assert.equal(optionHint({id:'datum.B.control',prompt:'Flatness but no typed characteristic'}, '0.05'), null);
 });
+
+test('in the Part row, process comes before material; the other part questions keep their order', () => {
+  const q = id => ({ id, prompt: id, faces: [] });
+  const [part] = groupQuestions([q('part.material'), q('part.general_tolerance'), q('hole.function:h1'), q('part.process')]);
+  assert.deepEqual(part.questions.map(x => x.id), ['part.process', 'part.material', 'part.general_tolerance']);
+});
