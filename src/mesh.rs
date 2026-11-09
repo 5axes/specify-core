@@ -349,7 +349,7 @@ fn boundary_deviation(
             });
         }
         let middle = geom::scale(geom::add(point(mesh.points[a]), point(mesh.points[b])), 0.5);
-        let mut distance = f64::INFINITY;
+        let mut distance = f64::NEG_INFINITY;
         for &i in &matches[&a] {
             if !matches[&b].contains(&i) {
                 continue;
@@ -365,7 +365,10 @@ fn boundary_deviation(
                         Err("boundary projection returned a non-finite distance")
                     }
                 })?;
-            distance = distance.min(off);
+            // Endpoints can match two nearby trims. Without edge ownership in
+            // FaceMesh, retain the larger distance instead of choosing an
+            // optimistically close neighbour curve.
+            distance = distance.max(off);
             covered[i] = true;
         }
         if distance.is_finite() {

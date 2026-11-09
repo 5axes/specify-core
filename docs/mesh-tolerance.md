@@ -35,6 +35,8 @@ Triangle edge incidence identifies boundary segments; their unrounded endpoints
 associate them with physical trim curves within the larger of four times the current
 triangulator target and `1e-7 * bbox diagonal + 1e-8` mm. This association reach is
 not an achieved value: every accepted segment is measured against its exact curve.
+If endpoints associate with several nearby curves, the largest measured distance
+is retained, conservatively, rather than selecting a closer neighbouring trim.
 The reach accounts for boundary vertices inserted along parameter chords, which
 can lie off the trim curve after being mapped onto the surface.
 Projection and distance measurement use the rounded emitted coordinates. Degenerate
