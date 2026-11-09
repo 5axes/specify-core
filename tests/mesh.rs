@@ -697,6 +697,9 @@ fn requested_deviation_is_measured_on_curved_output() {
                     let normal = geom::cross(geom::sub(p[1], p[0]), geom::sub(p[2], p[0]));
                     if kind == "sphere" {
                         assert!(geom::dot(normal, geom::add(geom::add(p[0], p[1]), p[2])) > 0.0);
+                    } else if kind == "cylinder" {
+                        let centre = geom::add(geom::add(p[0], p[1]), p[2]);
+                        assert!(normal[0] * centre[0] + normal[1] * centre[1] > 0.0);
                     } else if kind == "torus" {
                         let centre = geom::scale(geom::add(geom::add(p[0], p[1]), p[2]), 1.0 / 3.0);
                         let rho = centre[0].hypot(centre[1]);
@@ -732,6 +735,13 @@ fn requested_deviation_is_measured_on_curved_output() {
                     "whole sphere area: {area} vs {exact}"
                 );
             }
+            if kind == "cylinder" {
+                let exact = 2.0 * std::f64::consts::PI * radius * 40.0;
+                assert!(
+                    (area - exact).abs() / exact < 0.01,
+                    "complete cylinder area {area} vs {exact}"
+                );
+            }
             if kind == "torus" {
                 let exact = 4.0 * std::f64::consts::PI.powi(2) * 40.0 * radius;
                 assert!(
@@ -741,8 +751,14 @@ fn requested_deviation_is_measured_on_curved_output() {
             }
             let reported = value["achieved_deviation_mm"].as_f64().unwrap();
             assert!(worst > 0.0 && worst <= limit, "{name}: {worst} > {limit}");
-            // Dense validation and the production quadrature sample different points;
-            // their maxima need not be equal. Both must independently meet the request.
+            // The independent lattice and production quadrature sample different
+            // points, and the reported maximum also includes planar cap trim sag.
+            // These fixtures must not report less than the dense curved reference.
+            assert!(
+                reported >= worst - 1e-10,
+                "{name}: reported {reported} < dense {worst}"
+            );
+            // Both maxima independently have to meet the requested bound.
             assert!(
                 reported > 0.0 && reported <= limit,
                 "{name}: reported {reported} > {limit}"
