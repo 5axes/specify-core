@@ -33,6 +33,9 @@ export function groupQuestions(questions: readonly PmiQuestion[]): QuestionGroup
     else if (q.id.startsWith('datum.')) add('datums', 'Datums', q);
     else add(q.feature ?? q.id, titleOf(q), q);
   }
+  // How the part is made comes before its material: it narrows the materials and sets the
+  // defaults (tolerances, holes) the later questions start from.
+  groups.get('part')?.questions.sort((a, b) => Number(b.id === 'part.process') - Number(a.id === 'part.process'));
   const order = (key: string) => (key === 'part' ? 0 : key === 'bom' ? 1 : key === 'datums' ? 3 : 2);
   // Each datum is followed by its own control: A, A's flatness, B, B's perpendicularity...
   const datums = groups.get('datums');
