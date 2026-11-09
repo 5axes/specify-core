@@ -108,7 +108,7 @@ enum Cmd {
         #[arg(long, value_parser = part_number)]
         part: Option<i64>,
         /// maximum measured chordal deviation in mm (positive and finite; refuses unmet bounds)
-        #[arg(long = "max_deviation_mm")]
+        #[arg(long = "max_deviation_mm", allow_hyphen_values = true)]
         max_deviation_mm: Option<f64>,
     },
     /// list the questions, given answers so far

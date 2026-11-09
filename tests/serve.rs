@@ -349,3 +349,31 @@ fn serve_write_refuses_saved_answers_on_changed_geometry() {
     );
     assert!(!output.exists());
 }
+
+#[test]
+fn analyse_accepts_and_validates_max_deviation_mm() {
+    let mut child = Session::start();
+    let good =
+        child.ask(&json!({"op":"analyse", "step":part("mesh_cylinder"), "max_deviation_mm":0.01}));
+    assert_eq!(good["ok"], true, "{good}");
+    assert_eq!(good["result"]["mesh"]["max_deviation_mm"], 0.01);
+    assert!(
+        good["result"]["mesh"]["achieved_deviation_mm"]
+            .as_f64()
+            .unwrap()
+            <= 0.01
+    );
+    for value in [json!(0), json!(-1), json!("NaN"), json!(true)] {
+        let bad = child
+            .ask(&json!({"op":"analyse", "step":part("mesh_cylinder"), "max_deviation_mm":value}));
+        assert_eq!(bad["ok"], false);
+        assert_eq!(bad["error"]["code"], "invalid");
+        assert!(
+            bad["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("positive finite")
+        );
+    }
+    child.finish();
+}

@@ -661,3 +661,105 @@ pub fn check_known_compared(area: &str, differences: &[Difference], compared: &[
         .collect();
     check_known_with(&path.display().to_string(), &entries, differences);
 }
+
+/// Check emitted coordinates independently with closed-form radial distances, including
+/// the centroid and all edge midpoints (not triangulate's target or unrounded vertices).
+#[test]
+fn requested_deviation_is_measured_on_curved_output() {
+    for (name, sphere, radius) in [
+        ("mesh_sphere.step", true, 60.0),
+        ("mesh_cylinder.step", false, 50.0),
+    ] {
+        let loaded = load(name);
+        for limit in [0.1, 0.01, 1.0] {
+            let value = mesh::mesh_with_max_deviation(&loaded, limit).unwrap();
+            assert_eq!(value["max_deviation_mm"], limit);
+            assert!(value["missing"].as_array().unwrap().is_empty());
+            let parsed = Mesh::new(&value);
+            let mut worst = 0.0_f64;
+            let mut area = 0.0;
+            for (face, &(start, count)) in parsed.faces.iter().enumerate() {
+                if matches!(
+                    loaded.part.faces[face].surface,
+                    haecceity::geom::Surface::Plane { .. }
+                ) {
+                    continue;
+                }
+                for triangle in parsed.indices[3 * start..3 * (start + count)]
+                    .as_chunks::<3>()
+                    .0
+                {
+                    let p: Vec<V3> = triangle
+                        .iter()
+                        .map(|&i| parsed.positions[3 * i..3 * i + 3].try_into().unwrap())
+                        .collect();
+                    if sphere {
+                        let normal = geom::cross(geom::sub(p[1], p[0]), geom::sub(p[2], p[0]));
+                        assert!(geom::dot(normal, geom::add(geom::add(p[0], p[1]), p[2])) > 0.0);
+                        area += 0.5 * geom::norm(normal);
+                    }
+                    for w in [
+                        [1.0, 0.0, 0.0],
+                        [0.0, 1.0, 0.0],
+                        [0.0, 0.0, 1.0],
+                        [0.5, 0.5, 0.0],
+                        [0.0, 0.5, 0.5],
+                        [0.5, 0.0, 0.5],
+                        [1.0 / 3.0; 3],
+                    ] {
+                        let q = geom::add(
+                            geom::add(geom::scale(p[0], w[0]), geom::scale(p[1], w[1])),
+                            geom::scale(p[2], w[2]),
+                        );
+                        let radial = if sphere {
+                            geom::norm(q)
+                        } else {
+                            q[0].hypot(q[1])
+                        };
+                        worst = worst.max((radius - radial).abs());
+                    }
+                }
+            }
+            if sphere {
+                let exact = 4.0 * std::f64::consts::PI * radius * radius;
+                assert!(
+                    (area - exact).abs() / exact < 0.01,
+                    "whole sphere area: {area} vs {exact}"
+                );
+            }
+            let reported = value["achieved_deviation_mm"].as_f64().unwrap();
+            assert!(worst > 0.0 && worst <= limit, "{name}: {worst} > {limit}");
+            assert!(
+                (worst - reported).abs() < 1e-10,
+                "{name}: measured {worst}, reported {reported}"
+            );
+            assert_ne!(reported, limit, "must not echo the requested bound");
+        }
+        assert_eq!(
+            specify_core::api::mesh_with_max_deviation(&loaded, None)
+                .unwrap()
+                .to_string(),
+            mesh::mesh(&loaded).to_string(),
+        );
+    }
+}
+
+#[test]
+fn requested_deviation_refuses_invalid_values_and_unresolved_faces() {
+    let mut loaded = load("mesh_cylinder.step");
+    for limit in [0.0, -1.0, f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+        let reason = mesh::mesh_with_max_deviation(&loaded, limit).unwrap_err();
+        assert!(reason.contains("positive finite"), "{reason}");
+    }
+    let reason = mesh::mesh_with_max_deviation(&load("mesh_sphere.step"), 1e-12).unwrap_err();
+    assert!(
+        reason.contains("face 0") && reason.contains("refinement limit"),
+        "{reason}"
+    );
+    loaded.unresolved_faces.push(0);
+    let reason = mesh::mesh_with_max_deviation(&loaded, 0.1).unwrap_err();
+    assert!(
+        reason.contains("face 0") && reason.contains("surface did not resolve"),
+        "{reason}"
+    );
+}

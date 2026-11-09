@@ -2430,3 +2430,31 @@ fn diff_refuses_answers_from_another_old_revision_with_actionable_exit_two() {
     ]);
     assert_eq!(done.code, 0, "{}", done.stderr);
 }
+
+#[test]
+fn mesh_max_deviation_mm_is_measured_and_validated() {
+    let input = common::fixtures().join("parts/mesh_sphere.step");
+    let run = |limit: &str| {
+        std::process::Command::new(env!("CARGO_BIN_EXE_specify-core"))
+            .arg("mesh")
+            .arg(&input)
+            .args(["-o", "-", "--max_deviation_mm", limit])
+            .output()
+            .unwrap()
+    };
+    let output = run("0.01");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let mesh: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(mesh["max_deviation_mm"], 0.01);
+    assert!(mesh["achieved_deviation_mm"].as_f64().unwrap() <= 0.01);
+    for invalid in ["0", "-1", "NaN", "inf", "-inf"] {
+        let output = run(invalid);
+        assert!(!output.status.success());
+        assert!(String::from_utf8_lossy(&output.stderr).contains("positive finite"));
+        assert!(output.stdout.is_empty());
+    }
+}
