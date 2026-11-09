@@ -8,8 +8,29 @@ All notable changes to specify-core-rust. The format follows
 
 ### Added
 
+- `mesh` accepts CLI `--max-deviation-mm` and `max_deviation_mm` in serve, Python
+  and WASM snapshots, from 0.001 mm (#162). It measures the emitted triangles and boundary
+  chords against the exact surfaces and trim curves, refines until the bound is met, and
+  reports both the requested and the achieved deviation; a face that cannot be verified
+  refuses the whole mesh, naming that face and why. The achieved value is exact (to the
+  0.0001 mm output rounding) on planes, spheres, and line and circle trims, and a sampled
+  maximum on other surfaces and trims. Omitting the option keeps mesh v2 bytes unchanged.
+  Faces are meshed independently, so the result is not guaranteed watertight. See
+  [mesh tolerance](docs/mesh-tolerance.md).
+- Analyses whose shared dimension planner cannot build an input now include
+  `dimensioning: {applicable: false, reason}` rather than omitting it (#162).
+
 - `analyse` and `mesh` take `-o -`: the JSON goes to stdout and the one-line summary to stderr,
   so the output can be piped into another program. With a file, nothing changes.
+
+### WASM API
+
+- `IntentEngine.snapshot(max_deviation_mm?)` accepts an optional mesh deviation in mm,
+  at least 0.001, and throws if the requested mesh cannot be verified (#162).
+
+### Changed
+
+- The reviewed WASM size ceiling is raised from 15,000,000 to **16,500,000** bytes (maintainer, 2026-11-09), after the deviation-checked mesher (#162) measured 15,002,152 bytes.
 
 ## 0.1.15 (2026-11-07)
 

@@ -157,13 +157,23 @@ fn load_path(py: Python<'_>, step: &Bound<'_, PyAny>, part: Option<usize>) -> Py
 /// Triangles of `step` (its `part`-th part), or of a part already loaded, ranged by the face
 /// indices its analysis uses, in the part's own frame, as JSON (`api.mesh`).
 #[pyfunction]
-#[pyo3(signature = (step, part=None))]
-fn mesh(py: Python<'_>, step: &Bound<'_, PyAny>, part: Option<usize>) -> PyResult<String> {
+#[pyo3(signature = (step, part=None, *, max_deviation_mm=None))]
+fn mesh(
+    py: Python<'_>,
+    step: &Bound<'_, PyAny>,
+    part: Option<usize>,
+    max_deviation_mm: Option<f64>,
+) -> PyResult<String> {
     if let Some(handle) = loaded(step, part)? {
-        return Ok(py.detach(|| api::mesh(&handle.loaded)).to_string());
+        return py
+            .detach(|| api::mesh_with_max_deviation(&handle.loaded, max_deviation_mm))
+            .map(|mesh| mesh.to_string())
+            .map_err(raised);
     }
     let path: PathBuf = step.extract()?;
-    let mesh = py.detach(|| api::mesh_file(&path, part)).map_err(raised)?;
+    let mesh = py
+        .detach(|| api::mesh_file_with_max_deviation(&path, part, max_deviation_mm))
+        .map_err(raised)?;
     Ok(mesh.to_string())
 }
 

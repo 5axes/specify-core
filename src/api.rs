@@ -280,12 +280,11 @@ fn analyse_with(
         }
     }
     analysis.insert("features".into(), described);
-    if let Ok(input) = crate::dimensioning::input(&loaded.part) {
-        analysis.insert(
-            "dimensioning".into(),
-            serde_json::to_value(input).map_err(|e| refused(&e))?,
-        );
-    }
+    let dimensioning = match crate::dimensioning::input(&loaded.part) {
+        Ok(input) => serde_json::to_value(input).map_err(|e| refused(&e))?,
+        Err(reason) => json!({"applicable": false, "reason": reason}),
+    };
+    analysis.insert("dimensioning".into(), dimensioning);
     if let Some(mated) = mated {
         analysis.insert("mates".into(), Value::Object(mated));
     }
@@ -591,6 +590,37 @@ pub fn write_bytes(
 /// (the `pmi-assist-mesh` format; faces that did not triangulate are in `missing`).
 pub fn mesh(loaded: &LoadedPart) -> Value {
     meshing::mesh(loaded)
+}
+
+/// [`mesh`] with an optional measured maximum deviation in mm (at least
+/// [`meshing::MIN_MAX_DEVIATION_MM`]). With `None`, the original picker path (including its
+/// bytes and missing-face semantics) is used. The achieved value is exact (to the 0.0001 mm
+/// output rounding) on planes, spheres, and line and circle trims; on cylinders, cones, tori,
+/// B-spline surfaces, and ellipse, B-spline and NURBS trims it is a sampled maximum, not a
+/// bound (see docs/mesh-tolerance.md).
+pub fn mesh_with_max_deviation(
+    loaded: &LoadedPart,
+    max_deviation_mm: Option<f64>,
+) -> Result<Value> {
+    match max_deviation_mm {
+        None => Ok(mesh(loaded)),
+        Some(limit) => meshing::mesh_with_max_deviation(loaded, limit)
+            .map_err(|e| Error::Rules(rules::Error::Invalid(e))),
+    }
+}
+
+/// File variant of [`mesh_with_max_deviation`].
+#[cfg(not(target_arch = "wasm32"))]
+pub fn mesh_file_with_max_deviation(
+    step: &Path,
+    part: Option<usize>,
+    max_deviation_mm: Option<f64>,
+) -> Result<Value> {
+    if let Some(limit) = max_deviation_mm {
+        meshing::validate_max_deviation(limit)
+            .map_err(|e| Error::Rules(rules::Error::Invalid(e)))?;
+    }
+    mesh_with_max_deviation(&part::load(step, part)?, max_deviation_mm)
 }
 
 /// [`mesh`] of the `part`-th part of `step`.

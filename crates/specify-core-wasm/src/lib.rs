@@ -307,8 +307,14 @@ export interface PmiScene {
             scene.map(|value| value.to_string()).map_err(js_error)
         }
 
-        pub fn snapshot(&self) -> String {
-            self.0.snapshot().to_string()
+        /// The session snapshot; `max_deviation_mm` (at least 0.001) meshes to a measured bound
+        /// and throws if it cannot be met. Exact on planes, spheres, line and circle trims; a
+        /// sampled maximum on cylinders, cones, tori, B-splines and ellipse/B-spline/NURBS trims.
+        pub fn snapshot(&self, max_deviation_mm: Option<f64>) -> Result<String, JsValue> {
+            self.0
+                .snapshot_with_max_deviation(max_deviation_mm)
+                .map(|value| value.to_string())
+                .map_err(js_error)
         }
 
         /// `project` is the editor's base64 project; `payload` is `{name, value}` JSON. At most one.

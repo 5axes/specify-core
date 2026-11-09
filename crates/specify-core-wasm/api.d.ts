@@ -11,7 +11,12 @@ export class IntentEngine {
   rematchAnswers(answers: string, evidence?: string | null, automatic?: string | null): string;
   review(answers: string): string;
   settle(state: string): string;
-  snapshot(): string;
+  /**
+   * The session snapshot. `max_deviation_mm` (at least 0.001) meshes to a measured bound and
+   * throws if it cannot be met. Exact on planes, spheres, line and circle trims; a sampled
+   * maximum on cylinders, cones, tori, B-splines and ellipse/B-spline/NURBS trims.
+   */
+  snapshot(max_deviation_mm?: number | null): string;
   static bom(bytes: Uint8Array): string;
   static openPart(name: string, bytes: Uint8Array, part: number): IntentEngine;
   static parts(name: string, bytes: Uint8Array): string;
@@ -106,7 +111,7 @@ export interface InitOutput {
   readonly intentengine_rematchAnswers: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number, number, number];
   readonly intentengine_review: (a: number, b: number, c: number) => [number, number, number, number];
   readonly intentengine_settle: (a: number, b: number, c: number) => [number, number, number, number];
-  readonly intentengine_snapshot: (a: number) => [number, number];
+  readonly intentengine_snapshot: (a: number, b: number, c: number) => [number, number, number, number];
   readonly intentengine_writePmi: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number, number];
   readonly interpret: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number, number];
   readonly memory: WebAssembly.Memory;

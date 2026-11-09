@@ -23,6 +23,8 @@
 //! reads the part and changes nothing, so it is independent of what ran before (Python meshes a
 //! copy for that reason).
 
+use std::collections::BTreeMap;
+
 use haecceity::geom::{self, V3};
 use serde_json::{Value, json};
 
@@ -73,13 +75,580 @@ pub fn mesh(loaded: &LoadedPart) -> Value {
     })
 }
 
+/// A sampled, measured mesh in mm. The default picker path is deliberately separate.
+pub fn mesh_with_max_deviation(
+    loaded: &LoadedPart,
+    max_deviation_mm: f64,
+) -> Result<Value, String> {
+    validate_max_deviation(max_deviation_mm)?;
+    let diagonal = diagonal(loaded);
+    let initial = (diagonal * DEFLECTION).min(max_deviation_mm);
+    let mut meshes = Vec::with_capacity(loaded.binding.face_count);
+    let mut achieved = 0.0_f64;
+    for face in 0..loaded.binding.face_count {
+        let verified = (|| {
+            let check = FaceCheck::new(loaded, face, diagonal)?;
+            let local = refine_measured(initial, max_deviation_mm, check.margin(), |target| {
+                let mesh = triangulate::triangulate_for_deviation(
+                    &loaded.part,
+                    face,
+                    target,
+                    ANGULAR_DEFLECTION,
+                )?;
+                let measured = check.measure(&mesh, None)?;
+                Ok((mesh, measured))
+            });
+            local.or_else(|local_reason| {
+                refine_measured(initial, max_deviation_mm, check.margin(), |target| {
+                    let k = loaded
+                        .part
+                        .triangulate(face, target, ANGULAR_DEFLECTION)
+                        .map_err(|e| e.to_string())?;
+                    let mesh = FaceMesh {
+                        points: k.points,
+                        uv: k.uv,
+                        triangles: k.triangles,
+                        converged: k.converged,
+                        folded_dropped: k.folded_dropped,
+                    };
+                    let measured = check.measure(&mesh, Some(&k.boundary))?;
+                    Ok((mesh, measured))
+                })
+                .map_err(|why| format!("{local_reason}; exact-edge kernel fallback: {why}"))
+            })
+        })()
+        .map_err(|why| refusal(loaded, face, why))?;
+        achieved = achieved.max(verified.1);
+        meshes.push(verified.0);
+    }
+    let mut result = mesh_with_deflection(loaded, initial, |face, _| Ok(meshes[face].clone()));
+    result["max_deviation_mm"] = json!(max_deviation_mm);
+    result["achieved_deviation_mm"] = json!(achieved);
+    Ok(result)
+}
+
+// This extra work is only done when verification has actually refused a mesh.
+fn refusal(loaded: &LoadedPart, face: usize, why: String) -> String {
+    let missing = match face_mesh(loaded, face, deflection(loaded)) {
+        Ok(m) if !m.triangles.is_empty() => return format!("face {face}: {why}"),
+        Ok(_) => "no triangles".into(),
+        Err(e) => e,
+    };
+    format!(
+        "face {face}: {why}; it does not triangulate at any supported tolerance (default mesh lists it as missing: {missing})"
+    )
+}
+
+#[derive(Clone, Copy)]
+struct Measured {
+    deviation: f64,
+    area_error: f64,
+}
+const AREA_TOLERANCE: f64 = 0.01;
+
+fn refine_measured(
+    initial: f64,
+    limit: f64,
+    margin: f64,
+    mut attempt: impl FnMut(f64) -> Result<(FaceMesh, Measured), String>,
+) -> Result<(FaceMesh, f64), String> {
+    let (mut target, mut best, mut attempts) = (initial, f64::INFINITY, 0);
+    let mut stopped = String::new();
+    for round in 0..8 {
+        attempts += 1;
+        let (mesh, measured) = match attempt(target) {
+            Ok(v) => v,
+            Err(e) => {
+                stopped = e;
+                break;
+            }
+        };
+        best = best.min(measured.deviation);
+        if measured.area_error <= AREA_TOLERANCE && measured.deviation <= margin * limit {
+            return Ok((mesh, measured.deviation));
+        }
+        stopped = format!(
+            "area error {:.6}% (maximum {}%); deviation verification bound {} mm",
+            100.0 * measured.area_error,
+            100.0 * AREA_TOLERANCE,
+            margin * limit
+        );
+        if !mesh.converged {
+            stopped.push_str("; triangulator did not converge (vertex or round refinement limit)");
+            break;
+        }
+        if round == 7 {
+            stopped.push_str("; 8-attempt refinement limit");
+            break;
+        }
+        target *= if measured.area_error > AREA_TOLERANCE {
+            0.1
+        } else {
+            0.5
+        };
+    }
+    let best = if best.is_finite() {
+        format!("best measured {best} mm")
+    } else {
+        "no measurable attempt".into()
+    };
+    Err(format!(
+        "cannot meet max_deviation_mm {limit} mm after {attempts} attempt(s) ({best}; {stopped})"
+    ))
+}
+
+/// Mesh coordinates are written to 0.0001 mm, so a finer request cannot be met; the floor is ten
+/// times that step, which also keeps the triangulators' boundary sampling bounded.
+pub const MIN_MAX_DEVIATION_MM: f64 = 10.0 * OUTPUT_STEP_MM;
+const OUTPUT_STEP_MM: f64 = 0.0001;
+
+pub fn validate_max_deviation(max_deviation_mm: f64) -> Result<(), String> {
+    if !(max_deviation_mm.is_finite() && max_deviation_mm > 0.0) {
+        Err("max_deviation_mm must be a positive finite number in mm".into())
+    } else if max_deviation_mm < MIN_MAX_DEVIATION_MM {
+        Err(format!(
+            "max_deviation_mm {max_deviation_mm} mm is below the minimum {MIN_MAX_DEVIATION_MM} mm (mesh coordinates are written to 0.0001 mm)"
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+struct Trim {
+    edge: usize,
+    interval: (f64, f64),
+}
+struct FaceCheck<'a> {
+    loaded: &'a LoadedPart,
+    face: usize,
+    area: f64,
+    curves: Vec<Trim>,
+    tolerance: f64,
+    periods: [Option<f64>; 2],
+}
+type BoundaryLabels = [Option<haecceity::mesh::BoundaryPoint>];
+struct BoundarySegment {
+    points: [V3; 2],
+    uv: [(f64, f64); 2],
+    deviation: f64,
+    owner: usize,
+    physical: bool,
+    cut: bool,
+}
+
+impl<'a> FaceCheck<'a> {
+    fn new(loaded: &'a LoadedPart, face: usize, diagonal: f64) -> Result<Self, String> {
+        if loaded.unresolved_faces.contains(&face) || loaded.part.unresolved_faces().contains(&face)
+        {
+            return Err("its surface did not resolve".into());
+        }
+        let part = &loaded.part;
+        let area = part
+            .face_moments(face)
+            .map(|m| m.area)
+            .filter(|a| a.is_finite() && *a > 0.0)
+            .ok_or("no positive exact face area for coverage verification")?;
+        let mut uses = BTreeMap::new();
+        for &(edge, _) in part.faces[face].loops.iter().flat_map(|lp| &lp.edges) {
+            *uses.entry(edge).or_insert(0_usize) += 1;
+        }
+        let mut curves = Vec::new();
+        for (edge, count) in uses {
+            if count > 1 {
+                continue;
+            }
+            if loaded.unresolved_edges.contains(&edge) || part.unresolved_edges().contains(&edge) {
+                return Err(format!("boundary edge {edge}: its curve did not resolve"));
+            }
+            let e = &part.edges[edge];
+            if e.samples
+                .windows(2)
+                .map(|w| geom::dist(w[0], w[1]))
+                .sum::<f64>()
+                <= 1e-8
+            {
+                continue;
+            }
+            let (a, b) = haecceity::sampling::edge_interval(
+                &e.curve,
+                e.start,
+                e.end,
+                e.same_sense,
+                e.vertices.0 == e.vertices.1,
+            );
+            curves.push(Trim {
+                edge,
+                interval: (a.min(b), a.max(b)),
+            });
+        }
+        Ok(Self {
+            loaded,
+            face,
+            area,
+            curves,
+            tolerance: 1e-7 * diagonal + 1e-8,
+            periods: triangulate::mesh_periods(&part.faces[face].surface),
+        })
+    }
+    fn margin(&self) -> f64 {
+        if matches!(
+            self.loaded.part.faces[self.face].surface,
+            geom::Surface::Sphere { .. }
+                | geom::Surface::Torus { .. }
+                | geom::Surface::Freeform { .. }
+        ) {
+            0.95
+        } else {
+            1.0
+        }
+    }
+    fn measure(
+        &self,
+        mesh: &FaceMesh,
+        labels: Option<&BoundaryLabels>,
+    ) -> Result<Measured, String> {
+        let (surface, area, boundary) = surface_deviation(self.loaded, self.face, mesh)?;
+        // Rounding vertices to the output step can move the area by about the boundary
+        // length times that step; a sliver face is all rounding.
+        let rounding = boundary * OUTPUT_STEP_MM;
+        Ok(Measured {
+            deviation: surface.max(self.boundary_deviation(mesh, labels)?),
+            area_error: ((area - self.area).abs() - rounding).max(0.0) / self.area,
+        })
+    }
+    fn boundary_deviation(
+        &self,
+        mesh: &FaceMesh,
+        labels: Option<&BoundaryLabels>,
+    ) -> Result<f64, String> {
+        use haecceity::mesh::BoundaryPoint;
+        if self.curves.is_empty() {
+            return Ok(0.0);
+        }
+        let part = &self.loaded.part;
+        let tolerance = self.tolerance;
+        let mut incidence = BTreeMap::new();
+        for &[a, b, c] in &mesh.triangles {
+            for (i, j) in [(a, b), (b, c), (c, a)] {
+                let entry = incidence
+                    .entry((i.min(j), i.max(j)))
+                    .or_insert((0_usize, (i, j)));
+                entry.0 += 1;
+            }
+        }
+        let fits = |vertex: usize, trim: &Trim| match labels.and_then(|l| l[vertex]) {
+            Some(BoundaryPoint::Edge { edge, .. }) => edge == trim.edge,
+            Some(BoundaryPoint::Vertex(v)) => {
+                let e = &part.edges[trim.edge];
+                e.vertices.0 == v
+                    || e.vertices.1 == v
+                    || geom::dist(mesh.points[vertex], e.start)
+                        .min(geom::dist(mesh.points[vertex], e.end))
+                        <= tolerance
+            }
+            None => false,
+        };
+        // Each entry is an emitted index-boundary, not a proxy polyline.
+        let mut segments = Vec::new();
+        for (_, (count, (a, b))) in incidence {
+            if count != 1 {
+                continue;
+            }
+            let (pa, pb) = (point(mesh.points[a]), point(mesh.points[b]));
+            if pa == pb {
+                continue;
+            }
+            let samples = [pa, geom::scale(geom::add(pa, pb), 0.5), pb];
+            let owners: Vec<_> = self
+                .curves
+                .iter()
+                .enumerate()
+                .filter_map(|(i, t)| (fits(a, t) && fits(b, t)).then_some(i))
+                .collect();
+            let (mut best, mut owner, mut physical) = (f64::INFINITY, 0, !owners.is_empty());
+            for (i, trim) in self.curves.iter().enumerate() {
+                if !owners.is_empty() && !owners.contains(&i) {
+                    continue;
+                }
+                let curve = &part.edges[trim.edge].curve;
+                let distances =
+                    samples.map(|p| geom::dist(p, trim_projection(curve, trim.interval, p)));
+                if distances.iter().any(|d| !d.is_finite()) {
+                    return Err("boundary projection returned a non-finite distance".into());
+                }
+                physical |= [mesh.points[a], mesh.points[b]]
+                    .into_iter()
+                    .all(|p| geom::dist(p, trim_projection(curve, trim.interval, p)) <= tolerance);
+                let off = distances.into_iter().fold(0.0_f64, f64::max);
+                if off < best {
+                    best = off;
+                    owner = i;
+                }
+            }
+            segments.push(BoundarySegment {
+                points: [pa, pb],
+                uv: [mesh.uv[a], mesh.uv[b]],
+                deviation: best,
+                owner,
+                physical,
+                cut: false,
+            });
+        }
+        // An interior periodic cut can have different subdivisions on its two
+        // sides. Require opposite directed coverage on BOTH sides, not proximity
+        // to a guessed cut line. Physical trims never qualify as interior pairs.
+        for (axis, period) in self.periods.into_iter().enumerate() {
+            let Some(period) = period else { continue };
+            let component = |uv: (f64, f64), axis| if axis == 0 { uv.0 } else { uv.1 };
+            let eps = 1e-6 * period;
+            for i in 0..segments.len() {
+                let (physical, uv) = (segments[i].physical, segments[i].uv);
+                let fixed = uv.map(|p| component(p, axis));
+                if physical || (fixed[1] - fixed[0]).abs() > eps {
+                    continue;
+                }
+                let ends = uv.map(|p| component(p, 1 - axis));
+                let (lo, hi) = (ends[0].min(ends[1]), ends[0].max(ends[1]));
+                if hi <= lo {
+                    continue;
+                }
+                let mut intervals: Vec<_> = segments
+                    .iter()
+                    .filter_map(|s| {
+                        let side = s.uv.map(|p| component(p, axis));
+                        let other = s.uv.map(|p| component(p, 1 - axis));
+                        (!s.physical
+                            && (side[1] - side[0]).abs() <= eps
+                            && ((side[0] - fixed[0]).abs() - period).abs() <= eps
+                            && (other[1] - other[0]) * (ends[1] - ends[0]) < 0.0)
+                            .then_some((other[0].min(other[1]), other[0].max(other[1])))
+                    })
+                    .collect();
+                intervals.sort_by(|a, b| a.0.total_cmp(&b.0));
+                let mut covered = lo;
+                for (a, b) in intervals {
+                    if a <= covered + 1e-8 * (1.0 + hi.abs()) {
+                        covered = covered.max(b);
+                    }
+                }
+                if covered >= hi {
+                    segments[i].cut = true;
+                }
+            }
+        }
+        let mut covered = vec![false; self.curves.len()];
+        let mut worst = 0.0_f64;
+        for segment in &segments {
+            if !segment.cut {
+                worst = worst.max(segment.deviation);
+                covered[segment.owner] = true;
+            }
+        }
+        for (i, trim) in self.curves.iter().enumerate() {
+            if covered[i] {
+                continue;
+            }
+            // Reverse coverage: actual trim samples to actual emitted boundaries.
+            // An unrelated target-thinned polyline says nothing about this mesh.
+            for &sample in &part.edges[trim.edge].samples {
+                let p = trim_projection(&part.edges[trim.edge].curve, trim.interval, sample);
+                let distance = segments
+                    .iter()
+                    .filter(|s| !s.cut)
+                    .map(|s| segment_distance(p, s.points[0], s.points[1]))
+                    .fold(f64::INFINITY, f64::min);
+                if !distance.is_finite() {
+                    return Err(format!(
+                        "boundary edge {} has no emitted boundary coverage",
+                        trim.edge
+                    ));
+                }
+                worst = worst.max(distance);
+            }
+        }
+        Ok(worst)
+    }
+}
+
+fn segment_distance(p: V3, a: V3, b: V3) -> f64 {
+    let ab = geom::sub(b, a);
+    let n = geom::dot(ab, ab);
+    let t = if n > 0.0 {
+        (geom::dot(geom::sub(p, a), ab) / n).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    geom::dist(p, geom::add(a, geom::scale(ab, t)))
+}
+
+// The circumcentre projected into the closed triangle: an obtuse triangle uses
+// the closest boundary point, never a sample outside the emitted triangle.
+fn projected_circumcentre(p: [V3; 3]) -> Option<[f64; 3]> {
+    let (ab, ac) = (geom::sub(p[1], p[0]), geom::sub(p[2], p[0]));
+    let (aa, cc, bc) = (geom::dot(ab, ab), geom::dot(ac, ac), geom::dot(ab, ac));
+    let denominator = 2.0 * (aa * cc - bc * bc);
+    if denominator <= 1e-24 * aa * cc || !denominator.is_finite() {
+        return None;
+    }
+    let (v, w) = (cc * (aa - bc) / denominator, aa * (cc - bc) / denominator);
+    let weights = [1.0 - v - w, v, w];
+    if weights.iter().all(|&x| x >= 0.0) {
+        return Some(weights);
+    }
+    let centre = geom::add(p[0], geom::add(geom::scale(ab, v), geom::scale(ac, w)));
+    let (mut best, mut result) = (f64::INFINITY, [1.0, 0.0, 0.0]);
+    for (i, j) in [(0, 1), (1, 2), (2, 0)] {
+        let e = geom::sub(p[j], p[i]);
+        let n = geom::dot(e, e);
+        let t = if n > 0.0 {
+            (geom::dot(geom::sub(centre, p[i]), e) / n).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        let d = geom::dist(centre, geom::add(p[i], geom::scale(e, t)));
+        if d < best {
+            best = d;
+            result = [0.0; 3];
+            result[i] = 1.0 - t;
+            result[j] = t;
+        }
+    }
+    Some(result)
+}
+
+fn surface_deviation(
+    loaded: &LoadedPart,
+    face: usize,
+    mesh: &FaceMesh,
+) -> Result<(f64, f64, f64), String> {
+    if mesh.triangles.is_empty() {
+        return Err("no triangles".into());
+    }
+    let surface = &loaded.part.faces[face].surface;
+    let (mut worst, mut area) = (0.0_f64, 0.0_f64);
+    let mut edges = BTreeMap::new();
+    for triangle in &mesh.triangles {
+        for (i, j) in [(0, 1), (1, 2), (2, 0)] {
+            let (a, b) = (triangle[i], triangle[j]);
+            *edges.entry((a.min(b), a.max(b))).or_insert(0_usize) += 1;
+        }
+        let corners = triangle.map(|i| point(mesh.points[i]));
+        area += 0.5
+            * geom::norm(geom::cross(
+                geom::sub(corners[1], corners[0]),
+                geom::sub(corners[2], corners[0]),
+            ));
+        let uv = triangle.map(|i| mesh.uv[i]);
+        for weights in [
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [0.5, 0.5, 0.0],
+            [0.0, 0.5, 0.5],
+            [0.5, 0.0, 0.5],
+            [1.0 / 3.0; 3],
+            [2.0 / 3.0, 1.0 / 6.0, 1.0 / 6.0],
+            [1.0 / 6.0, 2.0 / 3.0, 1.0 / 6.0],
+            [1.0 / 6.0, 1.0 / 6.0, 2.0 / 3.0],
+        ]
+        .into_iter()
+        .chain(projected_circumcentre(corners))
+        {
+            let (mut sample, mut hint) = ([0.0; 3], (0.0, 0.0));
+            for i in 0..3 {
+                sample = geom::add(sample, geom::scale(corners[i], weights[i]));
+                hint.0 += uv[i].0 * weights[i];
+                hint.1 += uv[i].1 * weights[i];
+            }
+            let (u, v) = surface
+                .parameters(sample, Some(hint))
+                .ok_or("surface projection unavailable")?;
+            // Both are points on the surface, so the nearer is still an upper bound on the
+            // distance; freeform projection can stop on a parameter edge far from the hint.
+            let distance = geom::dist(sample, surface.value(u, v))
+                .min(geom::dist(sample, surface.value(hint.0, hint.1)));
+            if !distance.is_finite() {
+                return Err("surface projection returned a non-finite distance".into());
+            }
+            worst = worst.max(distance);
+        }
+    }
+    let boundary: f64 = edges
+        .into_iter()
+        .filter(|&(_, count)| count == 1)
+        .map(|((a, b), _)| geom::dist(point(mesh.points[a]), point(mesh.points[b])))
+        .sum();
+    Ok((worst, area, boundary))
+}
+
+fn trim_projection(curve: &geom::Curve, interval: (f64, f64), p: V3) -> V3 {
+    let mut t = curve.parameter(p);
+    let period = curve.period();
+    if let Some(period) = period {
+        t += period * (((interval.0 + interval.1) * 0.5 - t) / period).round();
+    }
+    t = t.clamp(interval.0, interval.1);
+    let mut best = curve.value(t);
+    let mut distance = geom::dist(p, best);
+    let span = interval.1 - interval.0;
+    // At a closed NURBS seam, the kernel's nearest sampled seed can be the
+    // wrong endpoint. Its clamped Newton step then cannot reach the other side.
+    // Try both one-sided seeds, retaining only closer *exact* curve evaluations.
+    if matches!(curve, geom::Curve::Nurbs(_))
+        && period.is_some()
+        && span > 0.0
+        && (t - interval.0).min(interval.1 - t) <= span / 512.0
+    {
+        for mut t in [interval.0 + span / 512.0, interval.1 - span / 512.0] {
+            for _ in 0..20 {
+                let q = curve.value(t);
+                let off = geom::dist(p, q);
+                if off < distance {
+                    best = q;
+                    distance = off;
+                }
+                let (lo, hi) = (
+                    (t - span * 1e-7).max(interval.0),
+                    (t + span * 1e-7).min(interval.1),
+                );
+                let derivative =
+                    geom::scale(geom::sub(curve.value(hi), curve.value(lo)), 1.0 / (hi - lo));
+                let speed = geom::dot(derivative, derivative);
+                if !speed.is_finite() || speed <= 1e-300 {
+                    break;
+                }
+                let step = geom::dot(geom::sub(p, q), derivative) / speed;
+                let mut next = (t + step).clamp(interval.0, interval.1);
+                for _ in 0..8 {
+                    if geom::dist(p, curve.value(next)) <= off {
+                        break;
+                    }
+                    next = (t + next) * 0.5;
+                }
+                if (next - t).abs() <= 1e-15 * (1.0 + t.abs()) {
+                    break;
+                }
+                t = next;
+            }
+        }
+    }
+    best
+}
+
 /// [`mesh`] with the face triangulation supplied, so a test can make a face fail.
 pub fn mesh_with(
     loaded: &LoadedPart,
+    triangulate: impl FnMut(usize, f64) -> Result<FaceMesh, String>,
+) -> Value {
+    mesh_with_deflection(loaded, deflection(loaded), triangulate)
+}
+
+fn mesh_with_deflection(
+    loaded: &LoadedPart,
+    deflection: f64,
     mut triangulate: impl FnMut(usize, f64) -> Result<FaceMesh, String>,
 ) -> Value {
     let bounds = loaded.part.bounds();
-    let deflection = deflection(loaded);
 
     let mut positions: Vec<f64> = Vec::new();
     let mut indices: Vec<usize> = Vec::new();
@@ -173,4 +742,285 @@ fn is_seam(loaded: &LoadedPart, e: usize) -> bool {
             .count()
             >= 2
     })
+}
+
+#[cfg(test)]
+mod tolerance_tests {
+    use super::*;
+
+    #[test]
+    fn refinement_refuses_with_best_attempt_after_limit() {
+        let mut targets = Vec::new();
+        let reason = refine_measured(1.0, 0.1, 1.0, |target| {
+            targets.push(target);
+            let mesh = FaceMesh {
+                points: vec![],
+                uv: vec![],
+                triangles: vec![],
+                converged: true,
+                folded_dropped: (0, 0.0),
+            };
+            Ok((
+                mesh,
+                Measured {
+                    deviation: 0.2 + target,
+                    area_error: 0.0,
+                },
+            ))
+        })
+        .unwrap_err();
+        assert_eq!(targets.len(), 8);
+        assert!(reason.contains("after 8 attempt(s)"), "{reason}");
+        assert!(reason.contains("refinement limit"), "{reason}");
+        assert!(
+            reason.contains(&format!("best measured {} mm", 0.2 + targets[7])),
+            "{reason}"
+        );
+    }
+
+    fn boundary_deviation(
+        loaded: &LoadedPart,
+        face: usize,
+        mesh: &FaceMesh,
+        _target: f64,
+    ) -> Result<f64, String> {
+        FaceCheck::new(loaded, face, diagonal(loaded))?.boundary_deviation(mesh, None)
+    }
+    fn verified_face(
+        loaded: &LoadedPart,
+        face: usize,
+        initial: f64,
+        limit: f64,
+        mut triangulate: impl FnMut(f64) -> Result<FaceMesh, String>,
+    ) -> Result<(FaceMesh, f64), String> {
+        let check = FaceCheck::new(loaded, face, diagonal(loaded))?;
+        refine_measured(initial, limit, check.margin(), |target| {
+            let mesh = triangulate(target)?;
+            let measured = check.measure(&mesh, None)?;
+            Ok((mesh, measured))
+        })
+    }
+
+    fn sphere() -> LoadedPart {
+        crate::part::load_bytes(
+            "sphere.step",
+            include_bytes!("../tests/fixtures/parts/mesh_sphere.step").to_vec(),
+        )
+        .unwrap()
+    }
+
+    fn offset_mesh(offset: f64, converged: bool) -> FaceMesh {
+        FaceMesh {
+            points: vec![
+                [60.0 - offset, 0.0, 0.0],
+                [60.0 - offset, 0.01, 0.0],
+                [60.0 - offset, 0.0, 0.01],
+            ],
+            uv: vec![(0.0, 0.0); 3],
+            triangles: vec![[0, 1, 2]],
+            converged,
+            folded_dropped: (0, 0.0),
+        }
+    }
+
+    #[test]
+    fn adding_corner_curve_candidates_does_not_inflate_the_boundary_error() {
+        let loaded = crate::part::load_bytes(
+            "plate.step",
+            include_bytes!("../tests/fixtures/parts/plate.step").to_vec(),
+        )
+        .unwrap();
+        let face = loaded
+            .part
+            .faces
+            .iter()
+            .enumerate()
+            .find(|(_, f)| matches!(f.surface, geom::Surface::Plane { .. }) && f.loops.len() > 1)
+            .unwrap()
+            .0;
+        let target = deflection(&loaded);
+        let mesh = face_mesh(&loaded, face, target).unwrap();
+        let nearby = boundary_deviation(&loaded, face, &mesh, target).unwrap();
+        let all = boundary_deviation(&loaded, face, &mesh, 100.0).unwrap();
+        assert!(nearby > 0.0 && nearby <= target);
+        assert!(
+            (all - nearby).abs() < 1e-10,
+            "nearest trim {nearby}, broad candidate set {all}"
+        );
+    }
+
+    #[test]
+    fn closed_nurbs_projection_checks_both_sides_of_its_seam() {
+        let r = 50.0;
+        let points = vec![
+            [r, 0.0, 0.0],
+            [r, r, 0.0],
+            [0.0, r, 0.0],
+            [-r, r, 0.0],
+            [-r, 0.0, 0.0],
+            [-r, -r, 0.0],
+            [0.0, -r, 0.0],
+            [r, -r, 0.0],
+            [r, 0.0, 0.0],
+        ];
+        let w = std::f64::consts::FRAC_1_SQRT_2;
+        let n = haecceity::nurbs::NurbsCurve::new(
+            2,
+            points,
+            vec![1.0, w, 1.0, w, 1.0, w, 1.0, w, 1.0],
+            vec![
+                0.0, 0.0, 0.0, 0.25, 0.25, 0.5, 0.5, 0.75, 0.75, 1.0, 1.0, 1.0,
+            ],
+        )
+        .unwrap();
+        let curve = geom::Curve::Nurbs(n);
+        for t in [0.0002, 0.9998] {
+            let p = curve.value(t);
+            let projected = trim_projection(&curve, (0.0, 1.0), p);
+            assert!(
+                geom::dist(p, projected) < 1e-8,
+                "seam {t}: {:?} -> {:?}",
+                p,
+                projected
+            );
+        }
+    }
+
+    #[test]
+    fn doubled_real_boundary_and_unlabelled_endpoints_are_measured() {
+        let loaded = crate::part::load_bytes(
+            "cylinder.step",
+            include_bytes!("../tests/fixtures/parts/mesh_cylinder.step").to_vec(),
+        )
+        .unwrap();
+        let face = loaded
+            .part
+            .faces
+            .iter()
+            .position(|f| matches!(f.surface, geom::Surface::Plane { .. }))
+            .unwrap();
+        let check = FaceCheck::new(&loaded, face, diagonal(&loaded)).unwrap();
+        let mut mesh = face_mesh(&loaded, face, deflection(&loaded)).unwrap();
+        let expected = check.boundary_deviation(&mesh, None).unwrap();
+        assert!(expected > 0.01);
+        let mut labels = vec![
+            Some(haecceity::mesh::BoundaryPoint::Edge {
+                edge: check.curves[0].edge,
+                index: 0
+            });
+            mesh.points.len()
+        ];
+        labels[0] = None;
+        assert!((check.boundary_deviation(&mesh, Some(&labels)).unwrap() - expected).abs() < 1e-10);
+        let offset = mesh.points.len();
+        mesh.points.extend(mesh.points.clone());
+        mesh.uv.extend(mesh.uv.clone());
+        let reverse: Vec<_> = mesh
+            .triangles
+            .iter()
+            .map(|t| [t[0] + offset, t[2] + offset, t[1] + offset])
+            .collect();
+        mesh.triangles.extend(reverse);
+        assert!(
+            (check.boundary_deviation(&mesh, None).unwrap() - expected).abs() < 1e-10,
+            "opposite coordinate copies of a physical trim must not be classified as a cut"
+        );
+        // A fully unlabelled triangle deep inside the cap must measure its real
+        // distance to the rim, rather than skipping all three boundary segments.
+        let surface = &loaded.part.faces[face].surface;
+        let interior = FaceMesh {
+            points: vec![
+                surface.value(0.0, 0.0),
+                surface.value(1.0, 0.0),
+                surface.value(0.0, 1.0),
+            ],
+            uv: vec![(0.0, 0.0), (1.0, 0.0), (0.0, 1.0)],
+            triangles: vec![[0, 1, 2]],
+            converged: true,
+            folded_dropped: (0, 0.0),
+        };
+        assert!(
+            check
+                .boundary_deviation(&interior, Some(&[None; 3]))
+                .unwrap()
+                > 49.0
+        );
+        // Simulate an omitted trim by adding the opposite cap's rim: its source
+        // samples must be measured to emitted segments, not to its own polyline.
+        let opposite = loaded
+            .part
+            .faces
+            .iter()
+            .enumerate()
+            .find(|(i, f)| *i != face && matches!(f.surface, geom::Surface::Plane { .. }))
+            .unwrap()
+            .0;
+        let mut check = check;
+        check.curves.extend(
+            FaceCheck::new(&loaded, opposite, diagonal(&loaded))
+                .unwrap()
+                .curves,
+        );
+        assert!(check.boundary_deviation(&mesh, None).unwrap() >= 39.999);
+    }
+
+    #[test]
+    fn coverage_rejects_a_surface_correct_half_sphere() {
+        let loaded = sphere();
+        let mut mesh =
+            triangulate::triangulate_for_deviation(&loaded.part, 0, 0.1, ANGULAR_DEFLECTION)
+                .unwrap();
+        mesh.triangles.truncate(mesh.triangles.len() / 2);
+        let measured = FaceCheck::new(&loaded, 0, diagonal(&loaded))
+            .unwrap()
+            .measure(&mesh, None)
+            .unwrap();
+        assert!(measured.deviation < 0.1);
+        assert!(measured.area_error > 0.4);
+        let reason = verified_face(&loaded, 0, 0.1, 0.1, |_| Ok(mesh.clone())).unwrap_err();
+        assert!(reason.contains("area error"), "{reason}");
+    }
+
+    #[test]
+    fn circumcentre_samples_the_interior_and_projects_obtuse_triangles() {
+        let acute = [[0.0, 0.0, 0.0], [2.0, 0.0, 0.0], [1.0, 1.0, 0.0]];
+        assert_eq!(projected_circumcentre(acute).unwrap(), [0.5, 0.5, 0.0]);
+        let obtuse = [[0.0, 0.0, 0.0], [2.0, 0.0, 0.0], [0.5, 0.1, 0.0]];
+        let weights = projected_circumcentre(obtuse).unwrap();
+        assert_eq!(weights, [0.5, 0.5, 0.0]);
+        assert!(projected_circumcentre([[0.0; 3]; 3]).is_none());
+    }
+
+    #[test]
+    fn exhausted_triangulation_stops_after_one_attempt() {
+        let mut calls = 0;
+        let error = verified_face(&sphere(), 0, 0.1, 0.1, |_| {
+            calls += 1;
+            Ok(offset_mesh(1.0, false))
+        })
+        .unwrap_err();
+        assert_eq!(calls, 1);
+        assert!(error.contains("best measured 1 mm"), "{error}");
+        assert!(error.contains("did not converge"), "{error}");
+    }
+
+    #[test]
+    fn refusal_keeps_best_measurement_when_later_mesh_worsens_or_fails() {
+        for later_error in [false, true] {
+            let mut calls = 0;
+            let error = verified_face(&sphere(), 0, 0.1, 0.1, |_| {
+                calls += 1;
+                if calls == 1 {
+                    Ok(offset_mesh(1.0, true))
+                } else if later_error {
+                    Err("vertex refinement limit".into())
+                } else {
+                    Ok(offset_mesh(2.0, false))
+                }
+            })
+            .unwrap_err();
+            assert_eq!(calls, 2);
+            assert!(error.contains("best measured 1 mm"), "{error}");
+        }
+    }
 }

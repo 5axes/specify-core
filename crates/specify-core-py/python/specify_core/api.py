@@ -134,12 +134,20 @@ def write_parts(
     )
 
 
-def mesh(step: str | Path | LoadedPart, part: int | None = None) -> dict[str, Any]:
+def mesh(
+    step: str | Path | LoadedPart, part: int | None = None, *,
+    max_deviation_mm: float | None = None,
+) -> dict[str, Any]:
     """Triangles of ``step`` (its ``part``-th part) ranged by the face indices its
-    analysis uses, in the part's own frame."""
+    analysis uses, in the part's own frame. ``max_deviation_mm`` optionally bounds
+    the measured deviation of emitted triangles in mm (at least 0.001); invalid or
+    unmet bounds raise ValueError. None preserves the default mesh. The value is
+    exact (to the 0.0001 mm output rounding) on planes, spheres, and line and
+    circle trims; on cylinders, cones, tori, B-spline surfaces, and ellipse,
+    B-spline and NURBS trims it is a sampled maximum, not a bound."""
     if isinstance(step, LoadedPart):
-        return json.loads(_native.mesh(step._handle))
-    return json.loads(_native.mesh(_path(step), part))
+        return json.loads(_native.mesh(step._handle, max_deviation_mm=max_deviation_mm))
+    return json.loads(_native.mesh(_path(step), part, max_deviation_mm=max_deviation_mm))
 
 
 def _step(step: Any) -> Any:

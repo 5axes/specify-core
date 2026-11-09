@@ -184,6 +184,16 @@ pub fn triangulate(
     deflection: f64,
     angular: f64,
 ) -> Result<FaceMesh, String> {
+    triangulate_impl(part, face, deflection, angular, false)
+}
+
+fn triangulate_impl(
+    part: &Part,
+    face: usize,
+    deflection: f64,
+    angular: f64,
+    keep_slivers: bool,
+) -> Result<FaceMesh, String> {
     let f = part
         .faces
         .get(face)
@@ -203,12 +213,191 @@ pub fn triangulate(
     // Thinning the boundary can make two close stretches of it cross (a narrow neck of the
     // face): thin less, down to the samples themselves, before refusing.
     for boundary in [1.0, 0.25, 1.0 / 16.0, 1e-6].map(|k| k * deflection) {
-        match attempt(part, face, deflection, boundary, angular) {
+        match attempt(part, face, deflection, boundary, angular, keep_slivers) {
             Err(why) if why == CROSSES => continue,
             result => return result,
         }
     }
     Err(CROSSES.into())
+}
+
+/// Opt-in tolerance path: STEP may represent a whole sphere with only pole vertex
+/// loops. A latitude/longitude mesh avoids singular parameter-space triangulations.
+/// Keep the published picker triangulation unchanged for compatibility.
+pub(crate) fn triangulate_for_deviation(
+    part: &Part,
+    face: usize,
+    deflection: f64,
+    angular: f64,
+) -> Result<FaceMesh, String> {
+    let f = part
+        .faces
+        .get(face)
+        .ok_or_else(|| format!("no face {face} in the part"))?;
+    if let Surface::Sphere { radius, .. } = f.surface
+        && !f.loops.is_empty()
+        && f.loops.iter().all(|lp| lp.vertex.is_some())
+    {
+        let (_, _, lo, hi) = part
+            .uv_bounds(face)
+            .ok_or("sphere has no parameter bounds")?;
+        // Conservative initial spacing; the caller still measures the actual rounded
+        // triangles and retries at a smaller deflection if necessary.
+        let angle = (3.0 * deflection / radius).sqrt().min(0.5 * angular);
+        let rows = ((hi - lo) / angle).ceil().max(2.0) as usize;
+        let columns = (TAU / angle).ceil().max(3.0) as usize;
+        if rows.saturating_mul(columns.saturating_add(1)) > MAX_VERTICES {
+            return Err("whole sphere exceeds the 60000-vertex refinement limit".into());
+        }
+        let mut mesh = FaceMesh {
+            points: Vec::new(),
+            uv: Vec::new(),
+            triangles: Vec::new(),
+            converged: true,
+            folded_dropped: (0, 0.0),
+        };
+        mesh.uv.push((0.0, lo));
+        for row in 1..rows {
+            let v = lo + (hi - lo) * row as f64 / rows as f64;
+            for column in 0..=columns {
+                mesh.uv.push((TAU * column as f64 / columns as f64, v));
+            }
+        }
+        let north = mesh.uv.len();
+        mesh.uv.push((0.0, hi));
+        mesh.points = mesh
+            .uv
+            .iter()
+            .map(|&(u, v)| f.surface.value(u, v))
+            .collect();
+        for column in 0..columns {
+            mesh.triangles.push([0, 2 + column, 1 + column]);
+            let last = 1 + (rows - 2) * (columns + 1) + column;
+            mesh.triangles.push([last, last + 1, north]);
+        }
+        for row in 0..rows - 2 {
+            for column in 0..columns {
+                let a = 1 + row * (columns + 1) + column;
+                let b = a + 1;
+                let d = a + columns + 1;
+                mesh.triangles.extend([[a, b, d + 1], [a, d + 1, d]]);
+            }
+        }
+        if f.reversed {
+            for triangle in &mut mesh.triangles {
+                triangle.swap(1, 2);
+            }
+        }
+        return Ok(mesh);
+    }
+    if let Some(mesh) = periodic_grid(part, face, deflection, angular) {
+        return mesh;
+    }
+    triangulate_impl(part, face, deflection, angular, true)
+}
+
+/// Complete tori and circular cylindrical bands have a rectangular parameter domain.
+/// Space each curved direction by its own radius; a cylinder's ruling is straight.
+/// Trimmed/holed patches retain the general triangulator, as do all default meshes.
+fn periodic_grid(
+    part: &Part,
+    face: usize,
+    deflection: f64,
+    angular: f64,
+) -> Option<Result<FaceMesh, String>> {
+    let f = &part.faces[face];
+    let (u0, u1, v0, v1) = part.uv_bounds(face)?;
+    if ((u1 - u0) - TAU).abs() > 1e-6 {
+        return None;
+    }
+    let mut uses = std::collections::BTreeMap::new();
+    for &(edge, _) in f.loops.iter().flat_map(|lp| &lp.edges) {
+        *uses.entry(edge).or_insert(0_usize) += 1;
+    }
+    let spacing = |radius: f64| (2.0 * deflection / radius).sqrt().min(0.5 * angular);
+    let (columns, rows, closed_v) = match &f.surface {
+        Surface::Torus { major, minor, .. }
+            if major > minor
+                && *minor > 0.0
+                && ((v1 - v0) - TAU).abs() <= 1e-6
+                && !uses.is_empty()
+                && uses.values().all(|&n| n == 2) =>
+        {
+            (
+                ((u1 - u0) / spacing(major + minor)).ceil() as usize,
+                ((v1 - v0) / spacing(*minor)).ceil() as usize,
+                true,
+            )
+        }
+        Surface::Cylinder { frame, radius }
+            if !uses.is_empty()
+                && uses.iter().all(|(&edge, &n)| {
+                    if n == 2 {
+                        return true;
+                    }
+                    match &part.edges[edge].curve {
+                        geom::Curve::Circle {
+                            frame: circle,
+                            radius: r,
+                        } => {
+                            let centre = frame.to_local(circle.origin);
+                            (r - radius).abs() < 1e-6 * radius.abs().max(1.0)
+                                && centre[0].hypot(centre[1]) < 1e-6 * radius.abs().max(1.0)
+                                && (centre[2] - v0).abs().min((centre[2] - v1).abs())
+                                    < 1e-6 * radius.abs().max(1.0)
+                                && geom::dot(frame.z, circle.z).abs() > 1.0 - 1e-8
+                        }
+                        _ => false,
+                    }
+                }) =>
+        {
+            (((u1 - u0) / spacing(*radius)).ceil() as usize, 1, false)
+        }
+        _ => return None,
+    };
+    let columns = columns.max(3);
+    let rows = if closed_v { rows.max(3) } else { rows };
+    let rings = if closed_v { rows } else { rows + 1 };
+    if columns.saturating_mul(rings) > MAX_VERTICES {
+        return Some(Err(
+            "periodic grid exceeds the 60000-vertex refinement limit".into(),
+        ));
+    }
+    let mut mesh = FaceMesh {
+        points: Vec::new(),
+        uv: Vec::new(),
+        triangles: Vec::new(),
+        converged: true,
+        folded_dropped: (0, 0.0),
+    };
+    for row in 0..rings {
+        let v = v0 + (v1 - v0) * row as f64 / rows as f64;
+        for column in 0..columns {
+            let u = u0 + (u1 - u0) * column as f64 / columns as f64;
+            mesh.uv.push((u, v));
+            mesh.points.push(f.surface.value(u, v));
+        }
+    }
+    for row in 0..rows {
+        for column in 0..columns {
+            let a = row * columns + column;
+            let b = row * columns + (column + 1) % columns;
+            let c = ((row + 1) % rings) * columns + (column + 1) % columns;
+            let d = ((row + 1) % rings) * columns + column;
+            mesh.triangles.extend([[a, b, c], [a, c, d]]);
+        }
+    }
+    if f.reversed {
+        for triangle in &mut mesh.triangles {
+            triangle.swap(1, 2);
+        }
+    }
+    Some(Ok(mesh))
+}
+
+/// Periods used by opt-in seam verification, including geometrically closed NURBS.
+pub(crate) fn mesh_periods(surface: &Surface) -> [Option<f64>; 2] {
+    Sheet::new(surface).period
 }
 
 /// Why a face's boundary cannot be triangulated as it is thinned.
@@ -222,6 +411,7 @@ fn attempt(
     deflection: f64,
     boundary: f64,
     angular: f64,
+    keep_slivers: bool,
 ) -> Result<FaceMesh, String> {
     let f = part
         .faces
@@ -353,7 +543,7 @@ fn attempt(
     } else {
         true
     };
-    let mut mesh = mesher.finish(f.reversed, deflection);
+    let mut mesh = mesher.finish(f.reversed, deflection, keep_slivers);
     mesh.converged = converged;
     Ok(mesh)
 }
@@ -1197,8 +1387,9 @@ impl<'a> Mesher<'a> {
     }
 
     /// The inside triangles on the surface, wound outward, with degenerate ones (no area in
-    /// space: two corners on one pole) left out.
-    fn finish(self, reversed: bool, deflection: f64) -> FaceMesh {
+    /// space: two corners on one pole) left out on the picker path. Requested meshes
+    /// retain slivers so their boundaries remain verifiable instead of opening gaps.
+    fn finish(self, reversed: bool, deflection: f64, keep_slivers: bool) -> FaceMesh {
         let inside = self.inside_faces();
         let mut index = vec![usize::MAX; self.cdt.num_vertices()];
         let mut points = Vec::new();
@@ -1230,21 +1421,24 @@ impl<'a> Mesher<'a> {
                     .all(|&m| geom::dot(doubled, m) < 0.0);
             let sliver = geom::norm(doubled) <= 1e-3 * longest * longest;
             let speck = geom::norm(doubled) <= 2.0 * (1e-3 * deflection).powi(2);
-            if geom::norm(doubled) <= thin * longest || parameter_sliver(&na, &nb, &nc) {
+            if !keep_slivers
+                && (geom::norm(doubled) <= thin * longest || parameter_sliver(&na, &nb, &nc))
+            {
                 continue;
             }
-            if (sliver && folded)
-                || (speck && {
-                    // A speck at a degenerate corner can have one corner's normal anything: it
-                    // is judged by the surface's normal at its middle.
-                    let mid = (
-                        (na.uv.0 + nb.uv.0 + nc.uv.0) / 3.0,
-                        (na.uv.1 + nb.uv.1 + nc.uv.1) / 3.0,
-                    );
-                    self.surface
-                        .normal(mid.0, mid.1)
-                        .is_some_and(|m| geom::dot(doubled, m) < 0.0)
-                })
+            if !keep_slivers
+                && ((sliver && folded)
+                    || (speck && {
+                        // A speck at a degenerate corner can have one corner's normal anything: it
+                        // is judged by the surface's normal at its middle.
+                        let mid = (
+                            (na.uv.0 + nb.uv.0 + nc.uv.0) / 3.0,
+                            (na.uv.1 + nb.uv.1 + nc.uv.1) / 3.0,
+                        );
+                        self.surface
+                            .normal(mid.0, mid.1)
+                            .is_some_and(|m| geom::dot(doubled, m) < 0.0)
+                    }))
             {
                 folded_dropped.0 += 1;
                 folded_dropped.1 += 0.5 * geom::norm(doubled);

@@ -512,3 +512,23 @@ fn apply_refuses_open_questions_and_takes_defaults_when_asked() {
     assert_eq!(intent.part["material"], json!("steel"));
     assert!(!intent.datums.is_empty());
 }
+
+#[test]
+fn all_curved_analysis_explains_inapplicable_dimensioning_and_still_previews() {
+    let a = api::analyse_file(&part("mesh_sphere"), None).unwrap();
+    assert_eq!(a["dimensioning"]["applicable"], false);
+    let reason = a["dimensioning"]["reason"].as_str().unwrap();
+    assert!(!reason.is_empty());
+    assert!(
+        a["faces"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|f| f["kind"] != "plane")
+    );
+    api::preview(&a, &Map::new()).unwrap();
+    let planar = api::analyse_file(&part("plate"), None).unwrap();
+    assert!(planar["dimensioning"].get("applicable").is_none());
+    let _: quiddity::dimensioning::Input =
+        serde_json::from_value(planar["dimensioning"].clone()).unwrap();
+}

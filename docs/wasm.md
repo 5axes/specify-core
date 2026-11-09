@@ -86,7 +86,7 @@ All structured inputs and outputs are **JSON strings**, except the constructor's
 | `IntentEngine.parts(name, bytes)` | The file's distinct parts, as `specify-core parts` lists them: `[{part, name, product_id, faces, instances, placements, written, same_as, faces_of_first}]`, `written` saying whether Specify has stored answers for the part, `same_as` the index of the first part this one is a copy of (the same shape moved, with the same stated BOM facts and `part.*`/`bom.*` answers), or `null`. A copy keeps its own index; a picker can show the first with the copies' instances added (`M3×8 hex bolt ×4`). `faces_of_first` gives, for each of a copy's faces in its own order, the face of the first part it lands on (`null` when `same_as` is). A copy may list its faces in another order, so carry an answer given for faces (`datum.*`, feature questions) to a copy only through it; answers for faces never decide `same_as`. Refuses gzip, as the constructor does. |
 | `IntentEngine.openPart(name, bytes, part)` | Opens part `part` (an index from `parts`) of any file: an assembly's part, or a part placed more than once. See "Assemblies" below. Part 0 of a file of one part used once opens exactly as the constructor opens it. |
 | `IntentEngine.bom(bytes)` | The file's BOM rows as JSON, one per distinct part, as `specify-core bom` gives them: each field `{value, source}`. Reading never accepts suggestions or allocates numbers. See [BOM](bom.md). |
-| `engine.snapshot()` | `{analysis, mesh, provenance: {source_sha256, face_entities, part}}`; `part` is the part opened (0 from the constructor). |
+| `engine.snapshot(max_deviation_mm?)` | `{analysis, mesh, provenance: {source_sha256, face_entities, part}}`; `part` is the part opened (0 from the constructor). |
 | `engine.review(answersJson)` | `{questions, open, intent, problems}`; adds geometry anchors to `intent.anchors`. |
 | `engine.exportAnswers(answersJson)` | Complete answer map as a JSON string: every accepted PMI default explicit, plus `_specify.evidence` and empty `_specify.unresolved`. Refuses unanswered required questions, carry blocks and stale evidence. Recursively sorts object keys; preserves array order. Does not write or mutate the session. Save with `JSON.stringify(JSON.parse(result), null, 2) + "\n"`. Accepted directly by review, writePmi and diff. See [answer files](answers.md). |
 | `engine.acceptDefaults(answersJson)` | Answers object with every unanswered default filled to a fixed point, using the same rules as CLI/serve `accept_defaults`. Preserves supplied answers; questions without defaults stay unanswered. |
@@ -100,6 +100,14 @@ All structured inputs and outputs are **JSON strings**, except the constructor's
 | `interpret(analysisJson, answersJson, questionId, text)` | `{value, code, callout?}` for a choice question; includes a diameter callout for `hole.function:` and `diameter.fit:`. |
 | `diff(oldName, oldBytes, newName, newBytes, answersJson, title, scenes?)` | Two revisions of a part compared, as `specify-core diff` compares two files, carrying `answersJson` (`{}` carries the answers Specify stored in the old file): `{report, markdown, view}`. `report` is what `report.json` holds and `markdown` is the report headed `title` with no picture. `view` is what a viewer needs to draw the change as `model.png` does: `new` and `old` meshes (as `snapshot().mesh`), `faces` (each new face's class, `changed`, `new` or `ambiguous`, keyed by face number; unchanged faces left out), `gone` (the old faces gone or moved), `motion` (`{rotation, translation}` taking the old part's frame to the new one's, or `null`) and `changes`, the report's "What changed" lines in order, each `{line, features, new, old}`: its text, its features (indices in `report.features`) and their faces on the new part and the old, for linking the lines and the faces. Two revisions of an assembly are compared part by part, `answersJson` by part name: `{report, markdown, parts}`, the assembly's report and Markdown, and each part's `{name, status, old, new}`, with its `report` when it is in both files and, when it changed, its `markdown` (headed `#### name`) and `view`, shaped as a part's. Refuses gzip. |
 | `start()` | Installs `console_error_panic_hook`; initialization also calls it automatically. |
+
+`engine.snapshot(0.05)` requests a measured mesh deviation of at most 0.05 mm.
+The optional argument is named `max_deviation_mm` in the generated declarations;
+`undefined`/`null` preserves the default mesh bytes. Non-positive/non-finite values
+or an unverifiable face throw. The mesh remains `pmi-assist-mesh` version 2 with
+additional `max_deviation_mm` and `achieved_deviation_mm` keys only when requested;
+readers should ignore unknown keys. The reported value is sampled on emitted
+triangles, not a continuous error certificate; see [mesh tolerance](mesh-tolerance.md).
 
 Questions use `to_presented_dict()` with `diameter` and `depth` added when present. `open`
 is the list of ids returned by `rules::open_questions`. `intent` is `api::preview(...).to_dict()`;
@@ -172,6 +180,7 @@ payload JSON over 8 MiB, its JSON input limit. A part that came with PMI or pres
 writer replaced, or a file written without a project or payload, gives `undefined`. Core
 callers use `specify_core::carried::{attributes, payload, original}` with
 `writer::write_bytes_with`.
+
 
 ## Assemblies
 
@@ -321,7 +330,7 @@ on 2026-10-16:
 | Raw, optimized | 10,197,823 | 9.73 |
 | gzip, level 9 | 3,157,943 | 3.01 |
 | Brotli, quality 11 | 2,148,100 | 2.05 |
-| Raw ceiling | 15,000,000 | 14.31 |
+| Raw ceiling | 16,500,000 | 15.74 |
 
 These measure `specify_core_wasm_bg.wasm`, excluding the small JS/TypeScript/metadata files.
 CI and releases print current measurements and the remaining size headroom; sizes can change
@@ -408,6 +417,8 @@ The initial ceiling is approximately 15% above the measured baseline, rounded up
 maintainer raised it by 10% to 12,980,000 bytes, after PR #57's revision-report work measured
 11,807,493 bytes in CI (7,493 over). On 2026-10-31 the maintainer raised it to 15,000,000 bytes,
 when `pmiScene` (PR #83) measured 12,903,620 bytes, 76,380 below the old ceiling.
+On 2026-11-09 the maintainer raised it to 16,500,000 bytes, after the deviation-checked mesher
+for #162 (PR #164) added 182 KB and measured 15,002,152 bytes (2,152 over).
 Raising it requires a deliberate, reviewed JSON edit; the size checker never
 updates the budget automatically. When rebaselining, record the three measurements and
 tool versions together and explain the increase in the changelog.

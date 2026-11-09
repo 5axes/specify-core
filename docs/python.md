@@ -5,6 +5,15 @@ Bulk defaults cannot replace dropped answers; write rejects stale evidence. Plai
 remain compatible but cannot detect stale in-range face indices. See
 [answer files and changed geometry](answers.md).
 
+## Mesh tolerance
+
+`api.mesh(step, part=None, *, max_deviation_mm=None)` accepts paths and loaded parts.
+For example `api.mesh("curved.step", max_deviation_mm=0.05)` returns mesh v2 with
+`max_deviation_mm` and measured `achieved_deviation_mm` (both mm). Omitting the
+keyword or passing `None` preserves the previous output. Non-positive/non-finite
+values and faces that cannot meet the measured bound raise `ValueError`.
+See [mesh tolerance](mesh-tolerance.md) for sampling and refusal semantics.
+
 ## Export complete answers
 
 `api.export_answers(step, analysis, answers)` accepts PMI defaults to a fixed point and

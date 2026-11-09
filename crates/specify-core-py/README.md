@@ -69,7 +69,7 @@ The main functions, all in `specify_core.api`:
 | `preview(analysis, answers)` | The intent the answers so far would give, without requiring every answer. |
 | `write(step, intent, output, answers=None)` | Writes the PMI (and the answers) and verifies the file. Returns a `WriteReport`. |
 | `write_parts(step, intents, output)` | The same for several parts of an assembly, in one file. |
-| `mesh(step, part=None)` | Triangles grouped by face index, for showing the part and picking faces. |
+| `mesh(step, part=None, *, max_deviation_mm=None)` | Triangles grouped by face index, for showing the part and picking faces. |
 
 Answers are a dict of question id to value, e.g. `{"part.material": "6082-T6"}`. Requirements
 no question asked for (a flatness, a fit, a finish on faces you choose) are added as `extra.*`
@@ -103,6 +103,10 @@ drives it as a child process:
 Each reply is `{"id", "ok": true, "result"}` or `{"id", "ok": false, "error": {"code", "message"}}`,
 where the code is `incomplete` (with what is `missing`), `invalid` or `failed`. `analyse` replies
 with the analysis and the mesh; `write` with the report and the intent.
+`analyse` accepts optional `"max_deviation_mm": 0.05` for its mesh. It must be a
+finite number of at least 0.001 mm; invalid or unmet bounds return `invalid`. Omitting
+it (or `null`) preserves the default mesh. Requested meshes add `max_deviation_mm`
+and `achieved_deviation_mm`; see [mesh tolerance](../../docs/mesh-tolerance.md).
 `specify_core.serve.reply(request)` answers the same requests in-process.
 
 ## What it writes

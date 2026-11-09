@@ -661,3 +661,457 @@ pub fn check_known_compared(area: &str, differences: &[Difference], compared: &[
         .collect();
     check_known_with(&path.display().to_string(), &entries, differences);
 }
+
+/// Independently check 66 barycentric lattice points per curved output triangle against
+/// analytic radial distances. This lattice does not reuse the production samples.
+#[test]
+fn requested_deviation_is_measured_on_curved_output() {
+    for (name, kind, radius) in [
+        ("mesh_sphere.step", "sphere", 60.0),
+        ("mesh_cylinder.step", "cylinder", 50.0),
+        ("mesh_torus.step", "torus", 3.0),
+    ] {
+        let loaded = load(name);
+        for limit in [0.1, 0.01, 1.0] {
+            let value = mesh::mesh_with_max_deviation(&loaded, limit).unwrap();
+            assert_eq!(value["max_deviation_mm"], limit);
+            assert!(value["missing"].as_array().unwrap().is_empty());
+            let parsed = Mesh::new(&value);
+            let mut worst = 0.0_f64;
+            let mut area = 0.0;
+            for (face, &(start, count)) in parsed.faces.iter().enumerate() {
+                if matches!(
+                    loaded.part.faces[face].surface,
+                    haecceity::geom::Surface::Plane { .. }
+                ) {
+                    continue;
+                }
+                for triangle in parsed.indices[3 * start..3 * (start + count)]
+                    .as_chunks::<3>()
+                    .0
+                {
+                    let p: Vec<V3> = triangle
+                        .iter()
+                        .map(|&i| parsed.positions[3 * i..3 * i + 3].try_into().unwrap())
+                        .collect();
+                    let normal = geom::cross(geom::sub(p[1], p[0]), geom::sub(p[2], p[0]));
+                    if kind == "sphere" {
+                        assert!(geom::dot(normal, geom::add(geom::add(p[0], p[1]), p[2])) > 0.0);
+                    } else if kind == "cylinder" {
+                        let centre = geom::add(geom::add(p[0], p[1]), p[2]);
+                        assert!(normal[0] * centre[0] + normal[1] * centre[1] > 0.0);
+                    } else if kind == "torus" {
+                        let centre = geom::scale(geom::add(geom::add(p[0], p[1]), p[2]), 1.0 / 3.0);
+                        let rho = centre[0].hypot(centre[1]);
+                        let outward = [
+                            centre[0] * (1.0 - 40.0 / rho),
+                            centre[1] * (1.0 - 40.0 / rho),
+                            centre[2],
+                        ];
+                        assert!(geom::dot(normal, outward) > 0.0);
+                    }
+                    area += 0.5 * geom::norm(normal);
+                    for i in 0..=10 {
+                        for j in 0..=10 - i {
+                            let w = [i as f64 / 10.0, j as f64 / 10.0, (10 - i - j) as f64 / 10.0];
+                            let q = geom::add(
+                                geom::add(geom::scale(p[0], w[0]), geom::scale(p[1], w[1])),
+                                geom::scale(p[2], w[2]),
+                            );
+                            let radial = match kind {
+                                "sphere" => geom::norm(q),
+                                "torus" => (q[0].hypot(q[1]) - 40.0).hypot(q[2]),
+                                _ => q[0].hypot(q[1]),
+                            };
+                            worst = worst.max((radius - radial).abs());
+                        }
+                    }
+                }
+            }
+            if kind == "sphere" {
+                let exact = 4.0 * std::f64::consts::PI * radius * radius;
+                assert!(
+                    (area - exact).abs() / exact < 0.01,
+                    "whole sphere area: {area} vs {exact}"
+                );
+            }
+            if kind == "cylinder" {
+                let exact = 2.0 * std::f64::consts::PI * radius * 40.0;
+                assert!(
+                    (area - exact).abs() / exact < 0.01,
+                    "complete cylinder area {area} vs {exact}"
+                );
+            }
+            if kind == "torus" {
+                let exact = 4.0 * std::f64::consts::PI.powi(2) * 40.0 * radius;
+                assert!(
+                    (area - exact).abs() / exact < 0.01,
+                    "whole torus area {area} vs {exact}"
+                );
+            }
+            let reported = value["achieved_deviation_mm"].as_f64().unwrap();
+            assert!(worst > 0.0 && worst <= limit, "{name}: {worst} > {limit}");
+            // The independent lattice and production quadrature sample different
+            // points, and the reported maximum also includes planar cap trim sag.
+            // These fixtures must not report less than the dense curved reference.
+            assert!(
+                reported >= worst - 1e-10,
+                "{name}: reported {reported} < dense {worst}"
+            );
+            // Both maxima independently have to meet the requested bound.
+            assert!(
+                reported > 0.0 && reported <= limit,
+                "{name}: reported {reported} > {limit}"
+            );
+            println!(
+                "{name}: requested {limit}, reported {reported}, dense {worst}, {} bytes, {} triangles",
+                value.to_string().len(),
+                parsed.indices.len() / 3
+            );
+            assert_ne!(reported, limit, "must not echo the requested bound");
+        }
+        assert_eq!(
+            specify_core::api::mesh_with_max_deviation(&loaded, None)
+                .unwrap()
+                .to_string(),
+            mesh::mesh(&loaded).to_string(),
+        );
+    }
+}
+
+#[test]
+fn requested_deviation_refuses_invalid_values_and_unresolved_faces() {
+    let mut loaded = load("mesh_cylinder.step");
+    for limit in [0.0, -1.0, f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+        let reason = mesh::mesh_with_max_deviation(&loaded, limit).unwrap_err();
+        assert!(reason.contains("positive finite"), "{reason}");
+    }
+    // Below the output rounding floor the request is refused before any meshing; 1e-9 on the
+    // torus used to spend minutes in boundary sampling.
+    let torus = load("mesh_torus.step");
+    for limit in [1e-12, 1e-9, 1e-7, 0.000_999] {
+        let start = std::time::Instant::now();
+        let reason = mesh::mesh_with_max_deviation(&torus, limit).unwrap_err();
+        assert!(reason.contains("below the minimum 0.001 mm"), "{reason}");
+        assert!(start.elapsed() < std::time::Duration::from_secs(5));
+    }
+    let cap = loaded
+        .part
+        .faces
+        .iter()
+        .find(|f| matches!(f.surface, haecceity::geom::Surface::Plane { .. }))
+        .unwrap();
+    loaded.unresolved_edges.push(cap.loops[0].edges[0].0);
+    let reason = mesh::mesh_with_max_deviation(&loaded, 0.1).unwrap_err();
+    assert!(
+        reason.contains("boundary edge") && reason.contains("curve did not resolve"),
+        "{reason}"
+    );
+    loaded.unresolved_edges.clear();
+    loaded.unresolved_faces.push(0);
+    let reason = mesh::mesh_with_max_deviation(&loaded, 0.1).unwrap_err();
+    assert!(
+        reason.contains("face 0") && reason.contains("surface did not resolve"),
+        "{reason}"
+    );
+}
+
+#[test]
+fn reversed_whole_sphere_cavity_has_outward_winding_and_complete_area() {
+    let loaded = load("mesh_spherical_cavity.step");
+    let value = mesh::mesh_with_max_deviation(&loaded, 0.01).unwrap();
+    let parsed = Mesh::new(&value);
+    let mut spheres = 0;
+    let mut area = 0.0;
+    for (face, &(start, count)) in parsed.faces.iter().enumerate() {
+        if !matches!(
+            loaded.part.faces[face].surface,
+            haecceity::geom::Surface::Sphere { .. }
+        ) {
+            continue;
+        }
+        spheres += 1;
+        assert!(
+            loaded.part.faces[face].reversed,
+            "must exercise the reversed swap"
+        );
+        for triangle in parsed.indices[3 * start..3 * (start + count)]
+            .as_chunks::<3>()
+            .0
+        {
+            let p = triangle.map(|i| parsed.positions[3 * i..3 * i + 3].try_into().unwrap());
+            let normal = geom::cross(geom::sub(p[1], p[0]), geom::sub(p[2], p[0]));
+            assert!(
+                geom::dot(normal, geom::add(geom::add(p[0], p[1]), p[2])) < 0.0,
+                "cavity normals must point into the spherical void"
+            );
+            area += 0.5 * geom::norm(normal);
+        }
+    }
+    assert_eq!(spheres, 1);
+    let exact = 4.0 * std::f64::consts::PI * 60.0 * 60.0;
+    assert!(
+        (area - exact).abs() / exact < 0.01,
+        "cavity area {area} vs {exact}"
+    );
+}
+
+#[test]
+fn planar_trim_chords_contribute_to_achieved_deviation() {
+    let loaded = load("mesh_cylinder.step");
+    let caps = mesh::mesh_with(&loaded, |face, deflection| {
+        if matches!(
+            loaded.part.faces[face].surface,
+            haecceity::geom::Surface::Plane { .. }
+        ) {
+            mesh::face_mesh(&loaded, face, deflection)
+        } else {
+            Err("caps only".into())
+        }
+    });
+    // The caps' surface distance is exactly zero. Their boundary polygon still sags
+    // inside the true R50 rim, and must contribute to the achieved global value.
+    let parsed = Mesh::new(&caps);
+    let mut cap_sag = 0.0_f64;
+    for &(start, count) in &parsed.faces {
+        let mut edges = std::collections::BTreeMap::new();
+        for &[a, b, c] in parsed.indices[3 * start..3 * (start + count)]
+            .as_chunks::<3>()
+            .0
+        {
+            for (i, j) in [(a, b), (b, c), (c, a)] {
+                *edges.entry((i.min(j), i.max(j))).or_insert(0) += 1;
+            }
+        }
+        for ((i, j), count) in edges {
+            if count != 1 {
+                continue;
+            }
+            let x = (parsed.positions[3 * i] + parsed.positions[3 * j]) * 0.5;
+            let y = (parsed.positions[3 * i + 1] + parsed.positions[3 * j + 1]) * 0.5;
+            cap_sag = cap_sag.max(50.0 - x.hypot(y));
+        }
+    }
+    let value = mesh::mesh_with_max_deviation(&loaded, 1.0).unwrap();
+    assert!(cap_sag > 0.01);
+    assert!(value["achieved_deviation_mm"].as_f64().unwrap() >= cap_sag - 1e-10);
+}
+
+#[test]
+fn trim_measurement_distinguishes_cap_and_cone_parameter_cuts() {
+    let cap = load("mesh_spherical_cap.step");
+    let ctc = part::load(
+        &Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/nist/nist_ctc_01_asme1_ap242.stp.gz"),
+        None,
+    )
+    .unwrap();
+    for loaded in [&cap, &ctc] {
+        for limit in [0.1, 0.05] {
+            let value = mesh::mesh_with_max_deviation(loaded, limit).unwrap();
+            assert!(value["missing"].as_array().unwrap().is_empty());
+            assert!(value["achieved_deviation_mm"].as_f64().unwrap() <= limit);
+        }
+    }
+}
+
+/// Regression for the toroidal patch whose worst point the fixed sample lattice missed.
+/// Use an independent analytic distance and 66 lattice points per output triangle.
+#[test]
+fn cgb207_torus_dense_deviation() {
+    let Some(root) = common::corpus_dir() else {
+        return;
+    };
+    let loaded = part::load(&root.join("cadgenbench_inputs/cgb207.step"), None).unwrap();
+    let value = mesh::mesh_with_max_deviation(&loaded, 0.1).unwrap();
+    let parsed = Mesh::new(&value);
+    let haecceity::geom::Surface::Torus {
+        frame,
+        major,
+        minor,
+    } = &loaded.part.faces[128].surface
+    else {
+        panic!("cgb207 face 128 must remain a torus");
+    };
+    let (_, count) = parsed.faces[128];
+    assert!(count > 0);
+    let (mut dense, mut dense_all) = (0.0_f64, 0.0_f64);
+    let mut max_face = 0;
+    for (face, &(start, count)) in parsed.faces.iter().enumerate() {
+        let surface = &loaded.part.faces[face].surface;
+        for triangle in parsed.indices[3 * start..3 * (start + count)]
+            .as_chunks::<3>()
+            .0
+        {
+            let corners = triangle.map(|i| parsed.positions[3 * i..3 * i + 3].try_into().unwrap());
+            for i in 0..=10 {
+                for j in 0..=10 - i {
+                    let q = geom::add(
+                        geom::add(
+                            geom::scale(corners[0], i as f64 / 10.0),
+                            geom::scale(corners[1], j as f64 / 10.0),
+                        ),
+                        geom::scale(corners[2], (10 - i - j) as f64 / 10.0),
+                    );
+                    let (u, v) = surface.parameters(q, None).unwrap();
+                    let mut off = geom::dist(q, surface.value(u, v));
+                    // At a collapsed B-spline pole the default seed can stop at
+                    // the pole. Independent interior seeds seek the closer branch.
+                    if off > 0.095
+                        && let haecceity::geom::Surface::Freeform { surface: nurbs, .. } = surface
+                    {
+                        let (u0, u1, v0, v1) = nurbs.domain();
+                        for a in [0.1, 0.5, 0.9] {
+                            for b in [0.1, 0.5, 0.9] {
+                                if let Some((u, v)) = surface
+                                    .parameters(q, Some((u0 + a * (u1 - u0), v0 + b * (v1 - v0))))
+                                {
+                                    off = off.min(geom::dist(q, surface.value(u, v)));
+                                }
+                            }
+                        }
+                    }
+                    if off > dense_all {
+                        dense_all = off;
+                        max_face = face;
+                    }
+                    if face == 128 {
+                        let q = frame.to_local(q);
+                        dense = dense.max(((q[0].hypot(q[1]) - major).hypot(q[2]) - minor).abs());
+                    }
+                }
+            }
+        }
+    }
+    let reported = value["achieved_deviation_mm"].as_f64().unwrap();
+    println!(
+        "cgb207: reported {reported} mm; dense all faces {dense_all} mm; face 128 dense {dense} mm ({count} triangles); whole max at face {max_face}: {:?}",
+        std::mem::discriminant(&loaded.part.faces[max_face].surface)
+    );
+    assert!(dense > 0.0 && dense <= 0.095, "dense {dense}");
+    assert!(
+        reported >= dense_all && reported <= 0.1,
+        "reported {reported}, dense {dense_all}"
+    );
+}
+
+/// Full real-part tolerance audit. Explicit opt-in keeps the normal mesh binary
+/// quick; CI/maintainers can require the corpus with QUIDDITY_CORPUS_REQUIRED=1.
+#[test]
+#[ignore = "full corpus survey: cargo test --release --test mesh corpus_requested_deviation -- --ignored --nocapture"]
+fn corpus_requested_deviation() {
+    let root =
+        common::corpus_dir().expect("set QUIDDITY_CORPUS to run the full mesh tolerance survey");
+    fn visit(dir: &Path, out: &mut Vec<PathBuf>) {
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let entry = entry.unwrap();
+            let path = entry.path();
+            if entry.file_type().unwrap().is_dir() {
+                visit(&path, out);
+            } else {
+                let name = path
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .to_ascii_lowercase();
+                if [".step", ".stp", ".step.gz", ".stp.gz"]
+                    .iter()
+                    .any(|suffix| name.ends_with(suffix))
+                {
+                    out.push(path);
+                }
+            }
+        }
+    }
+    let mut paths = Vec::new();
+    visit(&root, &mut paths);
+    paths.sort();
+    assert!(!paths.is_empty(), "the corpus has no STEP files");
+    // Only independently investigated blockers that cannot be fixed in scope may be added here:
+    // (relative path, part, face, exact diagnostic reason). Entries must be seen.
+    const REMAINING: &[(&str, usize, usize, &str)] = &[
+        // A band about 0.075 mm wide (0.475 mm2 inside 12.6 mm of boundary): deviation is met
+        // (0.009 mm) but each mesh's area is 2.4-12% over the exact area, so the 1% coverage
+        // check rejects it until a finer target's boundary crosses itself. The part also has
+        // default-missing face 483, so it refuses at 0.1 mm either way.
+        (
+            "cadgenbench_inputs/cgb242.step.gz",
+            0,
+            430,
+            "its boundary crosses itself in parameter space",
+        ),
+    ];
+    let mut seen = std::collections::BTreeSet::new();
+    let (mut parts, mut passed, mut missing, mut exceptions) = (0, 0, 0, 0);
+    let mut unexpected = Vec::new();
+    for path in &paths {
+        let relative = path.strip_prefix(&root).unwrap().to_string_lossy();
+        for loaded in part::load_all(path).unwrap() {
+            parts += 1;
+            println!("checking {relative} part {}", loaded.binding.part);
+            let default = mesh::mesh(&loaded);
+            let absent = usizes(&default["missing"]);
+            match mesh::mesh_with_max_deviation(&loaded, 0.1) {
+                Ok(value) => {
+                    let achieved = value["achieved_deviation_mm"].as_f64().unwrap();
+                    assert!(
+                        achieved.is_finite() && achieved <= 0.1,
+                        "{relative}: {achieved}"
+                    );
+                    assert!(value["missing"].as_array().unwrap().is_empty());
+                    passed += 1;
+                    println!(
+                        "{relative} part {}: achieved {achieved} mm",
+                        loaded.binding.part
+                    );
+                }
+                Err(reason) => {
+                    let face = reason
+                        .strip_prefix("face ")
+                        .and_then(|s| s.split(':').next())
+                        .and_then(|s| s.parse::<usize>().ok());
+                    println!(
+                        "{relative} part {}: REFUSED default missing={absent:?}: {reason}",
+                        loaded.binding.part
+                    );
+                    if face.is_some_and(|f| absent.contains(&f)) {
+                        assert!(
+                            reason.contains("does not triangulate at any supported tolerance"),
+                            "{reason}"
+                        );
+                        missing += 1;
+                    } else if let Some(&(file, part, face, why)) =
+                        REMAINING.iter().find(|&&(file, part, f, _)| {
+                            file == relative && part == loaded.binding.part && Some(f) == face
+                        })
+                    {
+                        assert!(reason.contains(why), "{relative}: {reason}");
+                        seen.insert((file, part, face));
+                        exceptions += 1;
+                    } else {
+                        unexpected.push(format!(
+                            "{relative} part {} default missing={absent:?}: {reason}",
+                            loaded.binding.part
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    for &(file, part, face, _) in REMAINING {
+        assert!(
+            seen.contains(&(file, part, face)),
+            "stale tolerance refusal: {file} part {part} face {face}"
+        );
+    }
+    println!(
+        "survey: {} files, {parts} parts, {passed} met 0.1 mm, {missing} default-missing refusals, {exceptions} documented exceptions, {} unexpected refusals",
+        paths.len(),
+        unexpected.len()
+    );
+    assert!(
+        unexpected.is_empty(),
+        "unexpected tolerance refusals:\n{}",
+        unexpected.join("\n")
+    );
+}

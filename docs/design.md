@@ -160,14 +160,18 @@ specify-core's keys, key order and omission rules (`serde_json` with `preserve_o
 except where a hash is taken (resume fingerprint, `pyjson.rs`).
 
 - `Binding { source_sha256, face_count, loader_version: 2, part }`.
-- Analysis (`schema` 1): `{schema, binding, faces: [Face], features: [Feature], mates?,
+- Analysis (`schema` 1): `{schema, binding, faces: [Face], features: [Feature], dimensioning, mates?,
   existing: [ExistingPmi], part: {material?, general_tolerance?, surface_finish?, coating?,
   heat_treatment?, edges?}, resume?: {answers}}`. `Face { id, kind: plane|cylinder|cone|torus|
   other, area, centroid, direction?, origin?, radius?, contact? }`. `Feature { id, family, record
   (JSON object), faces, members?, notes?, description? }`. Analysis snapshots add plain
   `description` text for turned bodies, face grooves, cylindrical profiles and concave
   fillets. The measured record and source-face indices remain the matching/PMI inputs;
-  these descriptions introduce no feature questions.
+  these descriptions introduce no feature questions. `dimensioning` is the shared typed
+  planner input on success (unchanged), or `{"applicable": false, "reason": "..."}`
+  when input construction fails, including parts with no planar face. Older analyses
+  may omit it; that is distinct from an explicit not-applicable result. Rules skip the
+  shared planner for this marker. See [dimensioning](dimensioning.md).
 - Answers: `{question id: JSON value}` (strings, face lists, `extra.*` objects), with
   optional reserved `_specify` evidence and unresolved carry blocks. See
   [answer files](answers.md) for validation and plain-map limitations.
@@ -178,7 +182,10 @@ except where a hash is taken (resume fingerprint, `pyjson.rs`).
   `serde_json::Value` for the analysis and answers, as Python works on dicts, with typed helpers
   for faces and features: the analysis may come from either engine and from older versions.
 - Mesh: `{format: "pmi-assist-mesh", version: 2, binding, bbox, positions, indices, faces,
-  missing, edges}`.
+  missing, edges}`. With `max_deviation_mm` requested, adds `max_deviation_mm` and
+  `achieved_deviation_mm`; no existing field changes meaning. Version 2 readers consume
+  named fields and tolerate additional keys, so this opt-in extension keeps version 2.
+  Without the option, serialization is byte-identical. See [mesh tolerance](mesh-tolerance.md).
 - Write report: `{output, written, not_written, warnings}`. An answer whose question the rules
   do not ask is an intent row of kind `unasked` with a `not_written_reason`, listed in
   `not_written` (#126; docs/answers.md).
