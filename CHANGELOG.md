@@ -37,6 +37,10 @@ All notable changes to specify-core-rust. The format follows
 - `IntentEngine.snapshot(max_deviation_mm?)` accepts an optional positive finite mesh
   deviation in mm and throws if the requested mesh cannot be verified (#162).
 
+### Changed
+
+- The reviewed WASM size ceiling is raised from 15,000,000 to **16,500,000** bytes (maintainer, 2026-11-09), after the deviation-checked mesher (#162) measured 15,002,152 bytes.
+
 ## 0.1.15 (2026-11-07)
 
 ### Added

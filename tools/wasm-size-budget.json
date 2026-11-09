@@ -17,6 +17,6 @@
     "gzip_bytes": 3157943,
     "brotli_bytes": 2148100
   },
-  "ceiling_bytes": 15000000,
-  "ceiling_policy": "Raw optimized WASM. Initially baseline plus 15%, rounded up to 100,000 bytes (11,800,000). Raised by 10% to 12,980,000 on 2026-10-29 by the maintainer, when PR #57 measured 11,807,493 bytes in CI. Increases require a reviewed edit. Raised to 15,000,000 on 2026-10-31 by the maintainer, when pmiScene (PR #83) measured 12,903,620 bytes (76,380 below the old ceiling)."
+  "ceiling_bytes": 16500000,
+  "ceiling_policy": "Raw optimized WASM. Initially baseline plus 15%, rounded up to 100,000 bytes (11,800,000). Raised by 10% to 12,980,000 on 2026-10-29 by the maintainer, when PR #57 measured 11,807,493 bytes in CI. Increases require a reviewed edit. Raised to 15,000,000 on 2026-10-31 by the maintainer, when pmiScene (PR #83) measured 12,903,620 bytes (76,380 below the old ceiling). Raised to 16,500,000 on 2026-11-09, approved by the maintainer (Paul), when the deviation-checked mesher for #162 (PR #164) added 182 KB and measured 15,002,152 bytes (2,152 over the old ceiling)."
 }
