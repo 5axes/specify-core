@@ -101,6 +101,14 @@ All structured inputs and outputs are **JSON strings**, except the constructor's
 | `diff(oldName, oldBytes, newName, newBytes, answersJson, title, scenes?)` | Two revisions of a part compared, as `specify-core diff` compares two files, carrying `answersJson` (`{}` carries the answers Specify stored in the old file): `{report, markdown, view}`. `report` is what `report.json` holds and `markdown` is the report headed `title` with no picture. `view` is what a viewer needs to draw the change as `model.png` does: `new` and `old` meshes (as `snapshot().mesh`), `faces` (each new face's class, `changed`, `new` or `ambiguous`, keyed by face number; unchanged faces left out), `gone` (the old faces gone or moved), `motion` (`{rotation, translation}` taking the old part's frame to the new one's, or `null`) and `changes`, the report's "What changed" lines in order, each `{line, features, new, old}`: its text, its features (indices in `report.features`) and their faces on the new part and the old, for linking the lines and the faces. Two revisions of an assembly are compared part by part, `answersJson` by part name: `{report, markdown, parts}`, the assembly's report and Markdown, and each part's `{name, status, old, new}`, with its `report` when it is in both files and, when it changed, its `markdown` (headed `#### name`) and `view`, shaped as a part's. Refuses gzip. |
 | `start()` | Installs `console_error_panic_hook`; initialization also calls it automatically. |
 
+`engine.snapshot(0.05)` requests a measured mesh deviation of at most 0.05 mm.
+The optional argument is named `max_deviation_mm` in the generated declarations;
+`undefined`/`null` preserves the default mesh bytes. Non-positive/non-finite values
+or an unverifiable face throw. The mesh remains `pmi-assist-mesh` version 2 with
+additional `max_deviation_mm` and `achieved_deviation_mm` keys only when requested;
+readers should ignore unknown keys. The reported value is sampled on emitted
+triangles, not a continuous error certificate; see [mesh tolerance](mesh-tolerance.md).
+
 Questions use `to_presented_dict()` with `diameter` and `depth` added when present. `open`
 is the list of ids returned by `rules::open_questions`. `intent` is `api::preview(...).to_dict()`;
 `problems` comes from `problems::problems`. Native front ends can use `api::review` directly.
@@ -173,13 +181,6 @@ writer replaced, or a file written without a project or payload, gives `undefine
 callers use `specify_core::carried::{attributes, payload, original}` with
 `writer::write_bytes_with`.
 
-`engine.snapshot(0.05)` requests a measured mesh deviation of at most 0.05 mm.
-The optional argument is named `max_deviation_mm` in the generated declarations;
-`undefined`/`null` preserves the default mesh bytes. Non-positive/non-finite values
-or an unverifiable face throw. The mesh remains `pmi-assist-mesh` version 2 with
-additional `max_deviation_mm` and `achieved_deviation_mm` keys only when requested;
-readers should ignore unknown keys. The reported value is sampled on emitted
-triangles, not a continuous error certificate; see [mesh tolerance](mesh-tolerance.md).
 
 ## Assemblies
 

@@ -271,6 +271,9 @@ echo '{"id": 1, "op": "analyse", "step": "part.step"}' | specify-core serve
   `export_answers` takes `step`, `analysis` and `answers`, and returns `result.answers`: a
   complete map with explicit defaults and geometry evidence; it refuses incomplete sets.
   See [answer files](docs/answers.md#export-a-complete-sidecar).
+- `analyse` accepts optional `max_deviation_mm` for the returned mesh (for example `0.05`).
+  It must be a positive finite number in mm; invalid or unmet bounds return `invalid`.
+  Omission or `null` preserves the default mesh. See [mesh tolerance](docs/mesh-tolerance.md).
 - **Replies:** each reply is `{"id", "ok": true, "result"}` or `{"id", "ok": false, "error": {"code", "message"}}`.
 - **Protocol:** defined in `src/serve.rs`.
 
