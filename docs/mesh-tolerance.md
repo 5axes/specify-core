@@ -46,6 +46,8 @@ measured against the actual emitted boundary segments. These reverse coverage
 distances also contribute to `achieved_deviation_mm`.
 
 Degenerate source edges and twice-used seam edges are not physical trims.
+A physical trim owner is established by kernel labels, or by both unrounded
+endpoints projecting to the same trim within `1e-7 * bbox diagonal + 1e-8` mm.
 Interior periodic cuts are excluded only when **both** sides have no physical
 trim owner and their oppositely directed UV intervals cover each other across
 one verified surface period (constant-coordinate agreement within one millionth
@@ -63,9 +65,10 @@ holes/overlap but does not certify topology or locate defects.
 
 The nearest-curve rule measures distance to the boundary union. In a narrow face,
 a chord intended for trim A may be closer to trim B. In particular, faces narrower
-than about four times the triangulator target can put both trims inside the
-previous association reach. Without reliable edge labels, the smaller distance
-can understate deviation from the intended trim A. The value does not certify
+than about four times the triangulator target can put both trims within a
+plausible matching reach. The unlabelled fallback considers the entire boundary
+union rather than imposing a reach gate; without reliable edge labels, its
+smaller distance can understate deviation from the intended trim A. The value does not certify
 trim ownership, an unsampled trim extremum, or a continuous Hausdorff bound.
 Boundary sampling does detect chord sag on a planar face round a hole, where the
 supporting-surface distance alone is zero.
