@@ -11,7 +11,7 @@ export class IntentEngine {
   rematchAnswers(answers: string, evidence?: string | null, automatic?: string | null): string;
   review(answers: string): string;
   settle(state: string): string;
-  snapshot(): string;
+  snapshot(max_deviation_mm?: number | null): string;
   static bom(bytes: Uint8Array): string;
   static openPart(name: string, bytes: Uint8Array, part: number): IntentEngine;
   static parts(name: string, bytes: Uint8Array): string;
@@ -106,7 +106,7 @@ export interface InitOutput {
   readonly intentengine_rematchAnswers: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number, number, number];
   readonly intentengine_review: (a: number, b: number, c: number) => [number, number, number, number];
   readonly intentengine_settle: (a: number, b: number, c: number) => [number, number, number, number];
-  readonly intentengine_snapshot: (a: number) => [number, number];
+  readonly intentengine_snapshot: (a: number, b: number, c: number) => [number, number, number, number];
   readonly intentengine_writePmi: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number, number];
   readonly interpret: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number, number];
   readonly memory: WebAssembly.Memory;

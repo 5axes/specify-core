@@ -245,6 +245,17 @@ impl Session {
             "provenance": {"source_sha256": self.loaded.binding.source_sha256, "face_entities": self.loaded.definition.faces, "part": self.loaded.binding.part}})
     }
 
+    /// Snapshot with an optional measured mesh deviation. `None` preserves `snapshot()`.
+    pub fn snapshot_with_max_deviation(
+        &self,
+        max_deviation_mm: Option<f64>,
+    ) -> Result<Value, String> {
+        let mesh = api::mesh_with_max_deviation(&self.loaded, max_deviation_mm)
+            .map_err(|e| e.to_string())?;
+        Ok(json!({"analysis": self.analysis, "mesh": mesh,
+            "provenance": {"source_sha256": self.loaded.binding.source_sha256, "face_entities": self.loaded.definition.faces, "part": self.loaded.binding.part}}))
+    }
+
     /// Write and verify the answered PMI, with the answers stored. `project` is the editor's
     /// project already in base64 (stored as `draftwright editor project`); `payload` is any
     /// application's `{name, value}`, stored as base64 JSON under `name` (`carried`). Either

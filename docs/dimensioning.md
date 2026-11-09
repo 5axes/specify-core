@@ -5,6 +5,14 @@ Specify uses `quiddity::dimensioning` from quiddity/haecceity v0.4.3. The depend
 not select an independent set of holes, pitches or plane intervals.
 
 A live analysis adds `dimensioning`, the shared `Input::from_recognition` result.
+If construction fails, it instead emits `{"applicable": false, "reason": "..."}`;
+`reason` is the upstream error string, not a stable error code. For example an
+all-curved sphere has no planar face from which the shared planner can build its
+frame. Successful inputs retain their exact shape and serialization, without an
+`applicable` key. Older saved analyses may omit the section entirely. Consumers
+must check `applicable === false` before interpreting it as typed planner input;
+rules then use the existing fallback. No frame is inferred from axes: changing
+frame construction belongs in quiddity and is outside this change.
 Rules supply the chosen datum face sets and answered/stored dimension contracts to
 that input. Hole-position answers supply Basic contracts to the pattern's own
 origin, pitches and bolt-circle diameter, rather than preserving the generated per-member witnesses.

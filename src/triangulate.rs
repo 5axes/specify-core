@@ -211,6 +211,78 @@ pub fn triangulate(
     Err(CROSSES.into())
 }
 
+/// Opt-in tolerance path: STEP may represent a whole sphere with only pole vertex
+/// loops. A latitude/longitude mesh avoids singular parameter-space triangulations.
+/// Keep the published picker triangulation unchanged for compatibility.
+pub(crate) fn triangulate_for_deviation(
+    part: &Part,
+    face: usize,
+    deflection: f64,
+    angular: f64,
+) -> Result<FaceMesh, String> {
+    let f = part
+        .faces
+        .get(face)
+        .ok_or_else(|| format!("no face {face} in the part"))?;
+    if let Surface::Sphere { radius, .. } = f.surface
+        && !f.loops.is_empty()
+        && f.loops.iter().all(|lp| lp.vertex.is_some())
+    {
+        let (_, _, lo, hi) = part
+            .uv_bounds(face)
+            .ok_or("sphere has no parameter bounds")?;
+        // Conservative initial spacing; the caller still measures the actual rounded
+        // triangles and retries at a smaller deflection if necessary.
+        let angle = (3.0 * deflection / radius).sqrt().min(0.5 * angular);
+        let rows = ((hi - lo) / angle).ceil().max(2.0) as usize;
+        let columns = (TAU / angle).ceil().max(3.0) as usize;
+        if rows.saturating_mul(columns.saturating_add(1)) > MAX_VERTICES {
+            return Err("whole sphere exceeds the 60000-vertex refinement limit".into());
+        }
+        let mut mesh = FaceMesh {
+            points: Vec::new(),
+            uv: Vec::new(),
+            triangles: Vec::new(),
+            converged: true,
+            folded_dropped: (0, 0.0),
+        };
+        mesh.uv.push((0.0, lo));
+        for row in 1..rows {
+            let v = lo + (hi - lo) * row as f64 / rows as f64;
+            for column in 0..=columns {
+                mesh.uv.push((TAU * column as f64 / columns as f64, v));
+            }
+        }
+        let north = mesh.uv.len();
+        mesh.uv.push((0.0, hi));
+        mesh.points = mesh
+            .uv
+            .iter()
+            .map(|&(u, v)| f.surface.value(u, v))
+            .collect();
+        for column in 0..columns {
+            mesh.triangles.push([0, 2 + column, 1 + column]);
+            let last = 1 + (rows - 2) * (columns + 1) + column;
+            mesh.triangles.push([last, last + 1, north]);
+        }
+        for row in 0..rows - 2 {
+            for column in 0..columns {
+                let a = 1 + row * (columns + 1) + column;
+                let b = a + 1;
+                let d = a + columns + 1;
+                mesh.triangles.extend([[a, b, d + 1], [a, d + 1, d]]);
+            }
+        }
+        if f.reversed {
+            for triangle in &mut mesh.triangles {
+                triangle.swap(1, 2);
+            }
+        }
+        return Ok(mesh);
+    }
+    triangulate(part, face, deflection, angular)
+}
+
 /// Why a face's boundary cannot be triangulated as it is thinned.
 const CROSSES: &str = "its boundary crosses itself in parameter space";
 

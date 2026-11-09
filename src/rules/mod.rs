@@ -1397,7 +1397,9 @@ fn intent(
         };
         intent.general = general::dimensions(ctx, &datums, &intent.requirements, tolerance)?;
     }
-    if let Some(input) = ctx.analysis.get("dimensioning") {
+    if let Some(input) = ctx.analysis.get("dimensioning")
+        && input.get("applicable") != Some(&Value::Bool(false))
+    {
         let input = serde_json::from_value(input.clone())
             .map_err(|e| Error::Invalid(format!("dimensioning input: {e}")))?;
         if let Some(stated) = ctx.analysis.get("dimensioning_stated") {

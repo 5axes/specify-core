@@ -307,8 +307,11 @@ export interface PmiScene {
             scene.map(|value| value.to_string()).map_err(js_error)
         }
 
-        pub fn snapshot(&self) -> String {
-            self.0.snapshot().to_string()
+        pub fn snapshot(&self, max_deviation_mm: Option<f64>) -> Result<String, JsValue> {
+            self.0
+                .snapshot_with_max_deviation(max_deviation_mm)
+                .map(|value| value.to_string())
+                .map_err(js_error)
         }
 
         /// `project` is the editor's base64 project; `payload` is `{name, value}` JSON. At most one.

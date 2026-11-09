@@ -73,6 +73,113 @@ pub fn mesh(loaded: &LoadedPart) -> Value {
     })
 }
 
+/// Mesh with a measured maximum chordal deviation in millimetres. Unlike the picker
+/// path, this refuses the entire mesh if any face cannot be triangulated or verified.
+/// Measurement uses the *rounded output* vertices, three edge midpoints and centroid
+/// against haecceity's exact surface. This is a sampled deviation, not a continuous proof.
+pub fn mesh_with_max_deviation(
+    loaded: &LoadedPart,
+    max_deviation_mm: f64,
+) -> Result<Value, String> {
+    validate_max_deviation(max_deviation_mm)?;
+    let mut meshes = Vec::with_capacity(loaded.binding.face_count);
+    let mut achieved = 0.0_f64;
+    let initial = deflection(loaded).min(max_deviation_mm);
+    for face in 0..loaded.binding.face_count {
+        let mut target = initial;
+        let mut accepted = None;
+        let mut measured = f64::INFINITY;
+        // Bound retries independently of triangulate's own vertex/round limits. A
+        // quantisation floor or an unrefinable boundary must terminate with a reason.
+        for _ in 0..8 {
+            if loaded.unresolved_faces.contains(&face)
+                || loaded.part.unresolved_faces().contains(&face)
+            {
+                return Err(format!(
+                    "face {face}: cannot meet max_deviation_mm: its surface did not resolve"
+                ));
+            }
+            let mesh = triangulate::triangulate_for_deviation(
+                &loaded.part,
+                face,
+                target,
+                ANGULAR_DEFLECTION,
+            )
+            .map_err(|why| format!("face {face}: cannot meet max_deviation_mm: {why}"))?;
+            measured = measured_deviation(loaded, face, &mesh)
+                .map_err(|why| format!("face {face}: cannot measure max_deviation_mm: {why}"))?;
+            if measured <= max_deviation_mm {
+                accepted = Some(mesh);
+                break;
+            }
+            target *= 0.5;
+        }
+        let mesh = accepted.ok_or_else(|| {
+            format!(
+                "face {face}: cannot meet max_deviation_mm {max_deviation_mm} mm after 8 attempts \
+             (measured {measured} mm; coordinate rounding or refinement limit)"
+            )
+        })?;
+        achieved = achieved.max(measured);
+        meshes.push(mesh);
+    }
+    let mut result = mesh_with(loaded, |face, _| Ok(meshes[face].clone()));
+    result["edges"] = json!(edges(loaded, initial));
+    result["max_deviation_mm"] = json!(max_deviation_mm);
+    result["achieved_deviation_mm"] = json!(achieved);
+    Ok(result)
+}
+
+/// Shared validation for every host interface, including before loading a file.
+pub fn validate_max_deviation(max_deviation_mm: f64) -> Result<(), String> {
+    if max_deviation_mm.is_finite() && max_deviation_mm > 0.0 {
+        Ok(())
+    } else {
+        Err("max_deviation_mm must be a positive finite number in mm".into())
+    }
+}
+
+/// Maximum sampled distance of the emitted triangles to their face's exact surface.
+/// Freeform inversion is seeded with each sample's interpolated surface parameters;
+/// analytic surfaces use the kernel's closed-form closest-point projection.
+fn measured_deviation(loaded: &LoadedPart, face: usize, mesh: &FaceMesh) -> Result<f64, String> {
+    if mesh.triangles.is_empty() {
+        return Err("no triangles".into());
+    }
+    let surface = &loaded.part.faces[face].surface;
+    let mut worst = 0.0_f64;
+    for triangle in &mesh.triangles {
+        let corners = triangle.map(|i| point(mesh.points[i]));
+        let uv = triangle.map(|i| mesh.uv[i]);
+        for weights in [
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [0.5, 0.5, 0.0],
+            [0.0, 0.5, 0.5],
+            [0.5, 0.0, 0.5],
+            [1.0 / 3.0; 3],
+        ] {
+            let mut sample = [0.0; 3];
+            let mut hint = (0.0, 0.0);
+            for i in 0..3 {
+                sample = geom::add(sample, geom::scale(corners[i], weights[i]));
+                hint.0 += uv[i].0 * weights[i];
+                hint.1 += uv[i].1 * weights[i];
+            }
+            let (u, v) = surface
+                .parameters(sample, Some(hint))
+                .ok_or("surface projection unavailable")?;
+            let distance = geom::dist(sample, surface.value(u, v));
+            if !distance.is_finite() {
+                return Err("surface projection returned a non-finite distance".into());
+            }
+            worst = worst.max(distance);
+        }
+    }
+    Ok(worst)
+}
+
 /// [`mesh`] with the face triangulation supplied, so a test can make a face fail.
 pub fn mesh_with(
     loaded: &LoadedPart,

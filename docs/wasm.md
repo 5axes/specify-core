@@ -86,7 +86,7 @@ All structured inputs and outputs are **JSON strings**, except the constructor's
 | `IntentEngine.parts(name, bytes)` | The file's distinct parts, as `specify-core parts` lists them: `[{part, name, product_id, faces, instances, placements, written, same_as, faces_of_first}]`, `written` saying whether Specify has stored answers for the part, `same_as` the index of the first part this one is a copy of (the same shape moved, with the same stated BOM facts and `part.*`/`bom.*` answers), or `null`. A copy keeps its own index; a picker can show the first with the copies' instances added (`M3×8 hex bolt ×4`). `faces_of_first` gives, for each of a copy's faces in its own order, the face of the first part it lands on (`null` when `same_as` is). A copy may list its faces in another order, so carry an answer given for faces (`datum.*`, feature questions) to a copy only through it; answers for faces never decide `same_as`. Refuses gzip, as the constructor does. |
 | `IntentEngine.openPart(name, bytes, part)` | Opens part `part` (an index from `parts`) of any file: an assembly's part, or a part placed more than once. See "Assemblies" below. Part 0 of a file of one part used once opens exactly as the constructor opens it. |
 | `IntentEngine.bom(bytes)` | The file's BOM rows as JSON, one per distinct part, as `specify-core bom` gives them: each field `{value, source}`. Reading never accepts suggestions or allocates numbers. See [BOM](bom.md). |
-| `engine.snapshot()` | `{analysis, mesh, provenance: {source_sha256, face_entities, part}}`; `part` is the part opened (0 from the constructor). |
+| `engine.snapshot(max_deviation_mm?)` | `{analysis, mesh, provenance: {source_sha256, face_entities, part}}`; `part` is the part opened (0 from the constructor). |
 | `engine.review(answersJson)` | `{questions, open, intent, problems}`; adds geometry anchors to `intent.anchors`. |
 | `engine.exportAnswers(answersJson)` | Complete answer map as a JSON string: every accepted PMI default explicit, plus `_specify.evidence` and empty `_specify.unresolved`. Refuses unanswered required questions, carry blocks and stale evidence. Recursively sorts object keys; preserves array order. Does not write or mutate the session. Save with `JSON.stringify(JSON.parse(result), null, 2) + "\n"`. Accepted directly by review, writePmi and diff. See [answer files](answers.md). |
 | `engine.acceptDefaults(answersJson)` | Answers object with every unanswered default filled to a fixed point, using the same rules as CLI/serve `accept_defaults`. Preserves supplied answers; questions without defaults stay unanswered. |
@@ -172,6 +172,14 @@ payload JSON over 8 MiB, its JSON input limit. A part that came with PMI or pres
 writer replaced, or a file written without a project or payload, gives `undefined`. Core
 callers use `specify_core::carried::{attributes, payload, original}` with
 `writer::write_bytes_with`.
+
+`engine.snapshot(0.05)` requests a measured mesh deviation of at most 0.05 mm.
+The optional argument is named `max_deviation_mm` in the generated declarations;
+`undefined`/`null` preserves the default mesh bytes. Non-positive/non-finite values
+or an unverifiable face throw. The mesh remains `pmi-assist-mesh` version 2 with
+additional `max_deviation_mm` and `achieved_deviation_mm` keys only when requested;
+readers should ignore unknown keys. The reported value is sampled on emitted
+triangles, not a continuous error certificate; see [mesh tolerance](mesh-tolerance.md).
 
 ## Assemblies
 

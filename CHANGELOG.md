@@ -8,8 +8,20 @@ All notable changes to specify-core-rust. The format follows
 
 ### Added
 
+- `mesh` accepts `max_deviation_mm` on CLI, serve, Python and WASM snapshots (#162).
+  It measures emitted triangles against exact surfaces, refines until the sampled bound
+  is met, and reports both requested and achieved deviation; an unverifiable face refuses
+  the whole mesh. Omitting the option preserves mesh v2 bytes.
+- Analyses whose shared dimension planner cannot build an input now include
+  `dimensioning: {applicable: false, reason}` rather than omitting it (#162).
+
 - `analyse` and `mesh` take `-o -`: the JSON goes to stdout and the one-line summary to stderr,
   so the output can be piped into another program. With a file, nothing changes.
+
+### WASM API
+
+- `IntentEngine.snapshot(max_deviation_mm?)` accepts an optional positive finite mesh
+  deviation in mm and throws if the requested mesh cannot be verified (#162).
 
 ## 0.1.15 (2026-11-07)
 

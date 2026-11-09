@@ -5,7 +5,7 @@
 //! specify-core parts STEP                        the file's parts, as JSON
 //! specify-core bom STEP                          the assembly BOM, as JSON
 //! specify-core analyse STEP -o ANALYSIS [--part K]
-//! specify-core mesh STEP -o MESH [--part K]
+//! specify-core mesh STEP -o MESH [--part K] [--max_deviation_mm MM]
 //! specify-core questions ANALYSIS [--answers ANSWERS] [--open]
 //!                        [--resolve-defaults --step STEP]
 //! specify-core write STEP ANALYSIS ANSWERS [ANALYSIS ANSWERS ...] -o OUT
@@ -107,6 +107,9 @@ enum Cmd {
         /// which part of an assembly (see parts)
         #[arg(long, value_parser = part_number)]
         part: Option<i64>,
+        /// maximum measured chordal deviation in mm (positive and finite; refuses unmet bounds)
+        #[arg(long = "max_deviation_mm")]
+        max_deviation_mm: Option<f64>,
     },
     /// list the questions, given answers so far
     Questions {
@@ -325,9 +328,15 @@ fn run(cmd: Cmd, out: &mut impl Write) -> Result<(), Exit> {
             }
             Ok(())
         }
-        Cmd::Mesh { step, output, part } => {
+        Cmd::Mesh {
+            step,
+            output,
+            part,
+            max_deviation_mm,
+        } => {
             let part = part_arg(&step, part)?;
-            let mesh = api::mesh_file(&step, part).map_err(Exit::error)?;
+            let mesh = api::mesh_file_with_max_deviation(&step, part, max_deviation_mm)
+                .map_err(Exit::error)?;
             let count = |key: &str| mesh[key].as_array().map_or(0, Vec::len);
             let shown = json!({"faces": count("faces"), "triangles": count("indices") / 3});
             emit(

@@ -12,6 +12,8 @@
 //! -> {"id": 6, "ok": true, "result": {"parts": [{"part": 0, "name": ..., "product_id": ...,
 //!    ...}, ...]}} (a part is named on the wire by its index, "part")
 //!    and "analyse" of an assembly says which: {..., "part": 1}
+//!    Optional "max_deviation_mm": positive finite mm for a measured mesh bound;
+//!    omitted/null keeps the default mesh. Unmet bounds refuse the whole request as invalid.
 //! {"id": 2, "op": "questions", "analysis": {...}, "answers": {...}}
 //! {"id": 3, "op": "preview", "analysis": {...}, "answers": {...}, "step": "/path/part.step"}
 //! -> the intent, with "anchors" for its labels when the step is given
@@ -214,6 +216,18 @@ impl Server {
                 return Ok(json!({ "parts": parts }));
             }
             Some("analyse") => {
+                let max_deviation_mm = match request.get("max_deviation_mm") {
+                    None | Some(Value::Null) => None,
+                    Some(value) => {
+                        let limit = value.as_f64().ok_or_else(|| {
+                            Failure::Invalid(
+                                "max_deviation_mm must be a positive finite number in mm".into(),
+                            )
+                        })?;
+                        crate::mesh::validate_max_deviation(limit).map_err(Failure::Invalid)?;
+                        Some(limit)
+                    }
+                };
                 let step = path(request, "step")?;
                 let part = match request.get("part") {
                     None | Some(Value::Null) => None,
@@ -225,7 +239,10 @@ impl Server {
                 let (analysis, warnings) = api::analyse_reporting_in(&file, &loaded)?;
                 let mut result = Map::new();
                 result.insert("analysis".into(), analysis);
-                result.insert("mesh".into(), api::mesh(&loaded));
+                result.insert(
+                    "mesh".into(),
+                    api::mesh_with_max_deviation(&loaded, max_deviation_mm)?,
+                );
                 if !warnings.is_empty() {
                     result.insert("warnings".into(), json!(warnings));
                 }
