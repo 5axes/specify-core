@@ -404,3 +404,19 @@ this relationship only between two `DRAUGHTING_MODEL`s (saved views), never with
 representation; haecceity does not evaluate the relationship's WR1-WR3 (`express_rules.rs`).
 What would meet the need for OpenCascade-based readers: relating the symbols' draughting model
 in a form those files use, or leaving the relationship out (Q16).
+
+## U16. Closest-point projection across a closed NURBS trim seam
+
+**Missing.** A trimmed-curve closest-point query that considers both sides of a
+closed NURBS seam. `Curve::parameter` can select one endpoint as its sampled seed
+and clamp there, missing a nearer point just inside the other endpoint.
+
+**Used by.** Requested mesh boundary-deviation measurement (`mesh.rs`), including
+cgb217 face 29's closed NURBS trim.
+
+**Stand-in.** `trim_projection` tries both one-sided seam seeds with bounded Newton
+steps, retaining only closer exact `Curve::value` evaluations.
+
+**Met when** haecceity projects onto a supplied trimmed parameter interval across
+both seam branches, returning the closest point or an explicit failure. The local
+seam-specific inversion can then be removed.

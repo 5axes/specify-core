@@ -9,10 +9,12 @@ All notable changes to specify-core-rust. The format follows
 ### Added
 
 - Requested meshes choose the nearest plausible trim curve at corners, fall back
-  to measured source polylines when association is unavailable, and correct closed
+  to measurements against emitted boundary segments when association is unavailable, and correct closed
   NURBS seam projection. Failed quality meshing can use haecceity's existing
   edge-labelled face triangulator; default mesh bytes are unchanged. Unsupported
-  default-missing faces are identified before quality retries. An ignored full
+  default-missing faces are identified only on refusal. Circumcentre samples, a 5%
+  acceptance margin on doubly curved surfaces, and a 1% face-area coverage check
+  strengthen verification. Boundary measurement is shared by both meshers. An ignored full
   corpus test checks every part at 0.1 mm without blanket refusal skips (#162).
 
 - `mesh` accepts CLI `--max-deviation-mm` and `max_deviation_mm` in serve, Python

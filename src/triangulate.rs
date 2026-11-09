@@ -184,6 +184,16 @@ pub fn triangulate(
     deflection: f64,
     angular: f64,
 ) -> Result<FaceMesh, String> {
+    triangulate_impl(part, face, deflection, angular, false)
+}
+
+fn triangulate_impl(
+    part: &Part,
+    face: usize,
+    deflection: f64,
+    angular: f64,
+    keep_slivers: bool,
+) -> Result<FaceMesh, String> {
     let f = part
         .faces
         .get(face)
@@ -203,7 +213,7 @@ pub fn triangulate(
     // Thinning the boundary can make two close stretches of it cross (a narrow neck of the
     // face): thin less, down to the samples themselves, before refusing.
     for boundary in [1.0, 0.25, 1.0 / 16.0, 1e-6].map(|k| k * deflection) {
-        match attempt(part, face, deflection, boundary, angular) {
+        match attempt(part, face, deflection, boundary, angular, keep_slivers) {
             Err(why) if why == CROSSES => continue,
             result => return result,
         }
@@ -283,7 +293,7 @@ pub(crate) fn triangulate_for_deviation(
     if let Some(mesh) = periodic_grid(part, face, deflection, angular) {
         return mesh;
     }
-    triangulate(part, face, deflection, angular)
+    triangulate_impl(part, face, deflection, angular, true)
 }
 
 /// Complete tori and circular cylindrical bands have a rectangular parameter domain.
@@ -385,6 +395,11 @@ fn periodic_grid(
     Some(Ok(mesh))
 }
 
+/// Periods used by opt-in seam verification, including geometrically closed NURBS.
+pub(crate) fn mesh_periods(surface: &Surface) -> [Option<f64>; 2] {
+    Sheet::new(surface).period
+}
+
 /// Why a face's boundary cannot be triangulated as it is thinned.
 const CROSSES: &str = "its boundary crosses itself in parameter space";
 
@@ -396,6 +411,7 @@ fn attempt(
     deflection: f64,
     boundary: f64,
     angular: f64,
+    keep_slivers: bool,
 ) -> Result<FaceMesh, String> {
     let f = part
         .faces
@@ -527,7 +543,7 @@ fn attempt(
     } else {
         true
     };
-    let mut mesh = mesher.finish(f.reversed, deflection);
+    let mut mesh = mesher.finish(f.reversed, deflection, keep_slivers);
     mesh.converged = converged;
     Ok(mesh)
 }
@@ -1371,8 +1387,9 @@ impl<'a> Mesher<'a> {
     }
 
     /// The inside triangles on the surface, wound outward, with degenerate ones (no area in
-    /// space: two corners on one pole) left out.
-    fn finish(self, reversed: bool, deflection: f64) -> FaceMesh {
+    /// space: two corners on one pole) left out on the picker path. Requested meshes
+    /// retain slivers so their boundaries remain verifiable instead of opening gaps.
+    fn finish(self, reversed: bool, deflection: f64, keep_slivers: bool) -> FaceMesh {
         let inside = self.inside_faces();
         let mut index = vec![usize::MAX; self.cdt.num_vertices()];
         let mut points = Vec::new();
@@ -1404,21 +1421,24 @@ impl<'a> Mesher<'a> {
                     .all(|&m| geom::dot(doubled, m) < 0.0);
             let sliver = geom::norm(doubled) <= 1e-3 * longest * longest;
             let speck = geom::norm(doubled) <= 2.0 * (1e-3 * deflection).powi(2);
-            if geom::norm(doubled) <= thin * longest || parameter_sliver(&na, &nb, &nc) {
+            if !keep_slivers
+                && (geom::norm(doubled) <= thin * longest || parameter_sliver(&na, &nb, &nc))
+            {
                 continue;
             }
-            if (sliver && folded)
-                || (speck && {
-                    // A speck at a degenerate corner can have one corner's normal anything: it
-                    // is judged by the surface's normal at its middle.
-                    let mid = (
-                        (na.uv.0 + nb.uv.0 + nc.uv.0) / 3.0,
-                        (na.uv.1 + nb.uv.1 + nc.uv.1) / 3.0,
-                    );
-                    self.surface
-                        .normal(mid.0, mid.1)
-                        .is_some_and(|m| geom::dot(doubled, m) < 0.0)
-                })
+            if !keep_slivers
+                && ((sliver && folded)
+                    || (speck && {
+                        // A speck at a degenerate corner can have one corner's normal anything: it
+                        // is judged by the surface's normal at its middle.
+                        let mid = (
+                            (na.uv.0 + nb.uv.0 + nc.uv.0) / 3.0,
+                            (na.uv.1 + nb.uv.1 + nc.uv.1) / 3.0,
+                        );
+                        self.surface
+                            .normal(mid.0, mid.1)
+                            .is_some_and(|m| geom::dot(doubled, m) < 0.0)
+                    }))
             {
                 folded_dropped.0 += 1;
                 folded_dropped.1 += 0.5 * geom::norm(doubled);

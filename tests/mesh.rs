@@ -911,6 +911,86 @@ fn trim_measurement_distinguishes_cap_and_cone_parameter_cuts() {
     }
 }
 
+/// Regression for the toroidal patch whose worst point the fixed sample lattice missed.
+/// Use an independent analytic distance and 66 lattice points per output triangle.
+#[test]
+fn cgb207_torus_dense_deviation() {
+    let Some(root) = common::corpus_dir() else {
+        return;
+    };
+    let loaded = part::load(&root.join("cadgenbench_inputs/cgb207.step"), None).unwrap();
+    let value = mesh::mesh_with_max_deviation(&loaded, 0.1).unwrap();
+    let parsed = Mesh::new(&value);
+    let haecceity::geom::Surface::Torus {
+        frame,
+        major,
+        minor,
+    } = &loaded.part.faces[128].surface
+    else {
+        panic!("cgb207 face 128 must remain a torus");
+    };
+    let (_, count) = parsed.faces[128];
+    assert!(count > 0);
+    let (mut dense, mut dense_all) = (0.0_f64, 0.0_f64);
+    let mut max_face = 0;
+    for (face, &(start, count)) in parsed.faces.iter().enumerate() {
+        let surface = &loaded.part.faces[face].surface;
+        for triangle in parsed.indices[3 * start..3 * (start + count)]
+            .as_chunks::<3>()
+            .0
+        {
+            let corners = triangle.map(|i| parsed.positions[3 * i..3 * i + 3].try_into().unwrap());
+            for i in 0..=10 {
+                for j in 0..=10 - i {
+                    let q = geom::add(
+                        geom::add(
+                            geom::scale(corners[0], i as f64 / 10.0),
+                            geom::scale(corners[1], j as f64 / 10.0),
+                        ),
+                        geom::scale(corners[2], (10 - i - j) as f64 / 10.0),
+                    );
+                    let (u, v) = surface.parameters(q, None).unwrap();
+                    let mut off = geom::dist(q, surface.value(u, v));
+                    // At a collapsed B-spline pole the default seed can stop at
+                    // the pole. Independent interior seeds seek the closer branch.
+                    if off > 0.095
+                        && let haecceity::geom::Surface::Freeform { surface: nurbs, .. } = surface
+                    {
+                        let (u0, u1, v0, v1) = nurbs.domain();
+                        for a in [0.1, 0.5, 0.9] {
+                            for b in [0.1, 0.5, 0.9] {
+                                if let Some((u, v)) = surface
+                                    .parameters(q, Some((u0 + a * (u1 - u0), v0 + b * (v1 - v0))))
+                                {
+                                    off = off.min(geom::dist(q, surface.value(u, v)));
+                                }
+                            }
+                        }
+                    }
+                    if off > dense_all {
+                        dense_all = off;
+                        max_face = face;
+                    }
+                    if face == 128 {
+                        let q = frame.to_local(q);
+                        dense = dense.max(((q[0].hypot(q[1]) - major).hypot(q[2]) - minor).abs());
+                    }
+                }
+            }
+        }
+    }
+    let reported = value["achieved_deviation_mm"].as_f64().unwrap();
+    println!(
+        "cgb207: reported {reported} mm; dense all faces {dense_all} mm; face 128 dense {dense} mm ({count} triangles); whole max at face {max_face}: {:?}",
+        std::mem::discriminant(&loaded.part.faces[max_face].surface)
+    );
+    assert!(dense > 0.0 && dense <= 0.095, "dense {dense}");
+    assert!(
+        reported >= dense_all && reported <= 0.1,
+        "reported {reported}, dense {dense_all}"
+    );
+}
+
 /// Full real-part tolerance audit. Explicit opt-in keeps the normal mesh binary
 /// quick; CI/maintainers can require the corpus with QUIDDITY_CORPUS_REQUIRED=1.
 #[test]

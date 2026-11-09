@@ -22,42 +22,53 @@ The additional keys occur only on opt-in requests; strict readers must allow the
 No crate version changes.
 
 Each face starts with the smaller of the request and the default deflection.
-The emitted coordinates are rounded to the existing four decimal places before
-measurement. Every triangle's vertices, three edge midpoints, centroid and the three
-permutations of barycentric (2/3, 1/6, 1/6) are projected to the face's exact surface using haecceity's `Surface::parameters` and
-`Surface::value`. Analytic projections are closed form; freeform inversion uses
-interpolated parameter hints. Distances are measured in 3D, not inferred from the
-triangulator's target or convergence flag. This sampled maximum is **not a proof
-of the continuous maximum** over every point of an arbitrary triangle or surface.
-Boundary triangle-edge midpoints and vertices also contribute their distance to the
-exact trim curve, using haecceity's `Curve::parameter`/`value` and its trimmed edge interval.
-Triangle edge incidence identifies boundary segments; their unrounded endpoints
-associate them with physical trim curves within the larger of four times the current
-triangulator target and `1e-7 * bbox diagonal + 1e-8` mm. This association reach is
-not an achieved value: every accepted segment is measured against its exact curve.
-Nearby corner curves are alternative owners: the smallest sampled segment distance
-among candidate curves is retained. Taking the maximum would measure a chord on
-one edge against an unrelated neighbouring edge and create false refusals.
-The reach accounts for boundary vertices inserted along parameter chords, which
-can lie off the trim curve after being mapped onto the surface.
-Projection and distance measurement use the rounded emitted coordinates. Degenerate
-edges and seams used twice by the same face are excluded. Parameter cuts are
-recognized by a full analytic period's extreme parameter lines, or by paired
-boundary segments at identical rounded endpoint coordinates. Slightly displaced
-cut edges left by omitted slivers are recognized within the same association reach
-of those exact parameter lines when they match no physical trim curve; they are
-internal cut/gap edges and do not contribute a trim-curve distance.
-Association is an optimization, not a validity test. A segment with no gated
-candidate is measured against every exact trim interval and uses the nearest one.
-If a trim has no associated emitted segment (for example beside an omitted sliver),
-its source polyline is thinned at the current target and its rounded vertices and
-chord midpoints are projected onto that exact curve; this measured fallback also
-contributes to `achieved_deviation_mm`. Neither fallback echoes the target as an
-achieved value. Unresolved curves and non-finite projections still refuse clearly.
-Closed NURBS curves get two extra one-sided projection seeds at their seam: a
-clamped Newton inversion at one endpoint can otherwise miss the nearer branch.
-This measures boundary chord sag even on a plane round a circular hole,
-whose supporting-surface distance alone would be zero.
+Measurement uses the emitted coordinates, rounded to the existing four decimal
+places. Every triangle's vertices, three edge midpoints, centroid, the three
+permutations of barycentric (2/3, 1/6, 1/6), and its circumcentre projected into
+the closed triangle are projected to the exact supporting surface with
+haecceity's `Surface::parameters` and `Surface::value`. Analytic projections are
+closed form; freeform inversion uses interpolated parameter hints. Distances are
+measured in 3D, independently of the triangulator target and convergence flag.
+For spheres, tori and B-spline surfaces the sampled maximum must be at most 95%
+of the request before acceptance; the reported number is the measured distance,
+not this safety margin. This remains a **sampled maximum, not a proof of the
+continuous maximum** on an arbitrary surface.
+
+Triangle-edge incidence identifies emitted boundary segments. Each segment's
+rounded endpoints and midpoint are measured against an exact trimmed curve, using
+`Curve::parameter`/`value` and the edge's parameter interval. Kernel edge labels
+identify candidate owners when available. Otherwise all physical trim curves are
+candidates, including for segments with an unlabelled endpoint. The smallest
+maximum of these three distances selects the nearest candidate. No association
+failure substitutes the requested target or a source polyline for a measurement.
+If a source trim has no assigned mesh segment, its exact-curve sample points are
+measured against the actual emitted boundary segments. These reverse coverage
+distances also contribute to `achieved_deviation_mm`.
+
+Degenerate source edges and twice-used seam edges are not physical trims.
+Interior periodic cuts are excluded only when **both** sides have no physical
+trim owner and their oppositely directed UV intervals cover each other across
+one verified surface period (constant-coordinate agreement within one millionth
+of the period). This permits different subdivisions. Coordinate duplication alone
+never excludes a segment; a doubled real trim remains measured. Zero-length
+rounded segments have no chord sag; their vertices still undergo surface checks.
+The opt-in local triangulator retains its tiny triangles at parameter
+seams and poles, rather than deleting them and creating unmeasured gaps.
+Closed NURBS curves receive two extra one-sided projection seeds at their seam
+(see upstream need U16). Unresolved curves, missing emitted boundary coverage and
+non-finite projections refuse the mesh. Rounded triangle areas must sum to within
+1% of haecceity's exact-face boundary-quadrature area; otherwise the face is not
+verified and is refined or refused. This coverage check detects significant
+holes/overlap but does not certify topology or locate defects.
+
+The nearest-curve rule measures distance to the boundary union. In a narrow face,
+a chord intended for trim A may be closer to trim B. In particular, faces narrower
+than about four times the triangulator target can put both trims inside the
+previous association reach. Without reliable edge labels, the smaller distance
+can understate deviation from the intended trim A. The value does not certify
+trim ownership, an unsampled trim extremum, or a continuous Hausdorff bound.
+Boundary sampling does detect chord sag on a planar face round a hole, where the
+supporting-surface distance alone is zero.
 
 The result is **not a watertightness guarantee**. Faces are triangulated and refined
 independently: adjacent faces can choose different samples of the same trim curve
@@ -66,21 +77,23 @@ mesh welding is imposed; gaps between faces are not measured. The reported sampl
 trim curve or certify topology. Displayed `edges` polylines still use the initial
 deflection and are not included in `achieved_deviation_mm`.
 
-A measured deviation above the request triggers a fresh triangulation with half the deflection,
-up to eight attempts per face. Retrying stops immediately when a triangulation
+A measured deviation above the acceptance bound triggers a fresh triangulation
+with half the deflection, up to eight attempts per face. Area failures reduce
+the deflection by a factor of ten to resolve narrow faces without spending all
+attempts at an unsuitable scale. Retrying stops immediately when a triangulation
 reports `converged=false`; lowering its target cannot add a larger vertex budget.
 The refusal reports the **best** measured attempt, the actual attempt count, and
 the stopping reason, including when a later triangulation fails or worsens.
 Each mesher retains its existing 60,000-vertex and 40-round bounds. If the local
 quality path fails, the opt-in path tries haecceity's existing `Part::triangulate`
-at the original target. Its edge-labelled boundary points avoid treating internal
-cut/sliver-gap edges as trims, and its per-edge discretization avoids local UV
-boundary jumps and crossing failures at finer targets. The same surface samples,
+at the original target. Its edge-labelled boundary points identify physical trims,
+and its per-edge discretization avoids local UV boundary jumps and crossing failures at finer targets. The same surface samples,
 exact trim measurements, finite-value checks and stop-on-unconverged rule apply.
 The fallback changes neither haecceity nor the default picker path.
 
-Before quality meshing, the default path is checked for unsupported faces. A face
-it already lists in `missing` refuses the requested mesh with
+There is no default-meshing pre-pass. Only when quality verification fails is the
+default path checked for unsupported faces. A face it lists in `missing` refuses
+the requested mesh with
 `face N: does not triangulate at any supported tolerance (default mesh lists it as missing: ...)`.
 This is the pipeline's unsupported-topology policy, not a mathematical assertion
 about every possible mesher. Explicitly supported whole pole-loop spheres remain
