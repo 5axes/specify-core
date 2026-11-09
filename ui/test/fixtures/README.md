@@ -1,7 +1,7 @@
 # Engine verification fixtures
 
 `scattered_holes.step` is the synthetic crowded plate from
-`pzfreo/draftwright-rust`, revision `59180446bfe406863df4787a533cb5ebdab6b379`,
+`pzfreo/draftwright`, revision `59180446bfe406863df4787a533cb5ebdab6b379`,
 `tests/fixtures/parts/scattered_holes.step`, under AGPL-3.0-only. It exercises
 restoring a computed callout that the automatic planner replaced with a hole table.
 
@@ -37,7 +37,7 @@ that alpha.6 exports resume under the current kernel and that an answer that can
 matched is reported with its value.
 
 `alpha1_bolt_thread_knurl.step.gz` is copied unchanged from
-`pzfreo/draftwright-rust` tag `v0.1.0-alpha.1`, commit
+`pzfreo/draftwright` tag `v0.1.0-alpha.1`, commit
 `d4ed8d128f0383ea504f8a0ce61502bd05bf33e1`, at
 `tests/fixtures/pmi/step/bolt_thread_knurl.step.gz` (AGPL-3.0-only).
 It checks native manufacturing thread/knurl callouts alongside the separate
