@@ -129,29 +129,14 @@ pub fn mesh_with_max_deviation(
 
 // This extra work is only done when verification has actually refused a mesh.
 fn refusal(loaded: &LoadedPart, face: usize, why: String) -> String {
-    let default_deflection = deflection(loaded);
-    for f in std::iter::once(face).chain((0..loaded.binding.face_count).filter(|&f| f != face)) {
-        let sphere = loaded.part.faces.get(f).is_some_and(|f| {
-            matches!(f.surface, geom::Surface::Sphere { .. })
-                && !f.loops.is_empty()
-                && f.loops.iter().all(|lp| lp.vertex.is_some())
-        });
-        if sphere
-            && !loaded.unresolved_faces.contains(&f)
-            && !loaded.part.unresolved_faces().contains(&f)
-        {
-            continue;
-        }
-        let missing = match face_mesh(loaded, f, default_deflection) {
-            Ok(m) if !m.triangles.is_empty() => continue,
-            Ok(_) => "no triangles".into(),
-            Err(e) => e,
-        };
-        return format!(
-            "face {f}: does not triangulate at any supported tolerance (default mesh lists it as missing: {missing})"
-        );
-    }
-    format!("face {face}: {why}")
+    let missing = match face_mesh(loaded, face, deflection(loaded)) {
+        Ok(m) if !m.triangles.is_empty() => return format!("face {face}: {why}"),
+        Ok(_) => "no triangles".into(),
+        Err(e) => e,
+    };
+    format!(
+        "face {face}: {why}; it does not triangulate at any supported tolerance (default mesh lists it as missing: {missing})"
+    )
 }
 
 #[derive(Clone, Copy)]
@@ -168,8 +153,8 @@ fn refine_measured(
     mut attempt: impl FnMut(f64) -> Result<(FaceMesh, Measured), String>,
 ) -> Result<(FaceMesh, f64), String> {
     let (mut target, mut best, mut attempts) = (initial, f64::INFINITY, 0);
-    let mut stopped = "8-attempt refinement limit".to_string();
-    for _ in 0..8 {
+    let mut stopped = String::new();
+    for round in 0..8 {
         attempts += 1;
         let (mesh, measured) = match attempt(target) {
             Ok(v) => v,
@@ -192,6 +177,10 @@ fn refine_measured(
             stopped.push_str("; triangulator did not converge (vertex or round refinement limit)");
             break;
         }
+        if round == 7 {
+            stopped.push_str("; 8-attempt refinement limit");
+            break;
+        }
         target *= if measured.area_error > AREA_TOLERANCE {
             0.1
         } else {
@@ -208,11 +197,20 @@ fn refine_measured(
     ))
 }
 
+/// Mesh coordinates are written to 0.0001 mm, so a finer request cannot be met; the floor is ten
+/// times that step, which also keeps the triangulators' boundary sampling bounded.
+pub const MIN_MAX_DEVIATION_MM: f64 = 10.0 * OUTPUT_STEP_MM;
+const OUTPUT_STEP_MM: f64 = 0.0001;
+
 pub fn validate_max_deviation(max_deviation_mm: f64) -> Result<(), String> {
-    if max_deviation_mm.is_finite() && max_deviation_mm > 0.0 {
-        Ok(())
-    } else {
+    if !(max_deviation_mm.is_finite() && max_deviation_mm > 0.0) {
         Err("max_deviation_mm must be a positive finite number in mm".into())
+    } else if max_deviation_mm < MIN_MAX_DEVIATION_MM {
+        Err(format!(
+            "max_deviation_mm {max_deviation_mm} mm is below the minimum {MIN_MAX_DEVIATION_MM} mm (mesh coordinates are written to 0.0001 mm)"
+        ))
+    } else {
+        Ok(())
     }
 }
 
@@ -309,10 +307,13 @@ impl<'a> FaceCheck<'a> {
         mesh: &FaceMesh,
         labels: Option<&BoundaryLabels>,
     ) -> Result<Measured, String> {
-        let (surface, area) = surface_deviation(self.loaded, self.face, mesh)?;
+        let (surface, area, boundary) = surface_deviation(self.loaded, self.face, mesh)?;
+        // Rounding vertices to the output step can move the area by about the boundary
+        // length times that step; a sliver face is all rounding.
+        let rounding = boundary * OUTPUT_STEP_MM;
         Ok(Measured {
             deviation: surface.max(self.boundary_deviation(mesh, labels)?),
-            area_error: (area - self.area).abs() / self.area,
+            area_error: ((area - self.area).abs() - rounding).max(0.0) / self.area,
         })
     }
     fn boundary_deviation(
@@ -519,13 +520,18 @@ fn surface_deviation(
     loaded: &LoadedPart,
     face: usize,
     mesh: &FaceMesh,
-) -> Result<(f64, f64), String> {
+) -> Result<(f64, f64, f64), String> {
     if mesh.triangles.is_empty() {
         return Err("no triangles".into());
     }
     let surface = &loaded.part.faces[face].surface;
     let (mut worst, mut area) = (0.0_f64, 0.0_f64);
+    let mut edges = BTreeMap::new();
     for triangle in &mesh.triangles {
+        for (i, j) in [(0, 1), (1, 2), (2, 0)] {
+            let (a, b) = (triangle[i], triangle[j]);
+            *edges.entry((a.min(b), a.max(b))).or_insert(0_usize) += 1;
+        }
         let corners = triangle.map(|i| point(mesh.points[i]));
         area += 0.5
             * geom::norm(geom::cross(
@@ -557,14 +563,22 @@ fn surface_deviation(
             let (u, v) = surface
                 .parameters(sample, Some(hint))
                 .ok_or("surface projection unavailable")?;
-            let distance = geom::dist(sample, surface.value(u, v));
+            // Both are points on the surface, so the nearer is still an upper bound on the
+            // distance; freeform projection can stop on a parameter edge far from the hint.
+            let distance = geom::dist(sample, surface.value(u, v))
+                .min(geom::dist(sample, surface.value(hint.0, hint.1)));
             if !distance.is_finite() {
                 return Err("surface projection returned a non-finite distance".into());
             }
             worst = worst.max(distance);
         }
     }
-    Ok((worst, area))
+    let boundary: f64 = edges
+        .into_iter()
+        .filter(|&(_, count)| count == 1)
+        .map(|((a, b), _)| geom::dist(point(mesh.points[a]), point(mesh.points[b])))
+        .sum();
+    Ok((worst, area, boundary))
 }
 
 fn trim_projection(curve: &geom::Curve, interval: (f64, f64), p: V3) -> V3 {
@@ -733,6 +747,36 @@ fn is_seam(loaded: &LoadedPart, e: usize) -> bool {
 #[cfg(test)]
 mod tolerance_tests {
     use super::*;
+
+    #[test]
+    fn refinement_refuses_with_best_attempt_after_limit() {
+        let mut targets = Vec::new();
+        let reason = refine_measured(1.0, 0.1, 1.0, |target| {
+            targets.push(target);
+            let mesh = FaceMesh {
+                points: vec![],
+                uv: vec![],
+                triangles: vec![],
+                converged: true,
+                folded_dropped: (0, 0.0),
+            };
+            Ok((
+                mesh,
+                Measured {
+                    deviation: 0.2 + target,
+                    area_error: 0.0,
+                },
+            ))
+        })
+        .unwrap_err();
+        assert_eq!(targets.len(), 8);
+        assert!(reason.contains("after 8 attempt(s)"), "{reason}");
+        assert!(reason.contains("refinement limit"), "{reason}");
+        assert!(
+            reason.contains(&format!("best measured {} mm", 0.2 + targets[7])),
+            "{reason}"
+        );
+    }
 
     fn boundary_deviation(
         loaded: &LoadedPart,

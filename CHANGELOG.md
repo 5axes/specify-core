@@ -8,24 +8,15 @@ All notable changes to specify-core-rust. The format follows
 
 ### Added
 
-- Requested meshes choose the nearest plausible trim curve at corners, fall back
-  to measurements against emitted boundary segments when association is unavailable, and correct closed
-  NURBS seam projection. Failed quality meshing can use haecceity's existing
-  edge-labelled face triangulator; default mesh bytes are unchanged. Unsupported
-  default-missing faces are identified only on refusal. Circumcentre samples, a 5%
-  acceptance margin on doubly curved surfaces, and a 1% face-area coverage check
-  strengthen verification. Boundary measurement is shared by both meshers. An ignored full
-  corpus test checks every part at 0.1 mm without blanket refusal skips (#162).
-
 - `mesh` accepts CLI `--max-deviation-mm` and `max_deviation_mm` in serve, Python
-  and WASM snapshots (#162).
-  It measures emitted triangles against exact surfaces, refines until the sampled bound
-  is met, and reports both requested and achieved deviation; an unverifiable face refuses
-  the whole mesh. Omitting the option preserves mesh v2 bytes. Verification includes
-  near-corner samples and exact trim-curve sag. Complete tori and circular cylinders
-  use separate spacing per parameter direction. Exhausted triangulations stop retries;
-  refusals retain the best measured attempt. Independent face meshing does not guarantee
-  watertight joins.
+  and WASM snapshots, from 0.001 mm (#162). It measures the emitted triangles and boundary
+  chords against the exact surfaces and trim curves, refines until the bound is met, and
+  reports both the requested and the achieved deviation; a face that cannot be verified
+  refuses the whole mesh, naming that face and why. The achieved value is exact (to the
+  0.0001 mm output rounding) on planes, spheres, and line and circle trims, and a sampled
+  maximum on other surfaces and trims. Omitting the option keeps mesh v2 bytes unchanged.
+  Faces are meshed independently, so the result is not guaranteed watertight. See
+  [mesh tolerance](docs/mesh-tolerance.md).
 - Analyses whose shared dimension planner cannot build an input now include
   `dimensioning: {applicable: false, reason}` rather than omitting it (#162).
 
@@ -34,8 +25,8 @@ All notable changes to specify-core-rust. The format follows
 
 ### WASM API
 
-- `IntentEngine.snapshot(max_deviation_mm?)` accepts an optional positive finite mesh
-  deviation in mm and throws if the requested mesh cannot be verified (#162).
+- `IntentEngine.snapshot(max_deviation_mm?)` accepts an optional mesh deviation in mm,
+  at least 0.001, and throws if the requested mesh cannot be verified (#162).
 
 ### Changed
 

@@ -104,7 +104,7 @@ Each reply is `{"id", "ok": true, "result"}` or `{"id", "ok": false, "error": {"
 where the code is `incomplete` (with what is `missing`), `invalid` or `failed`. `analyse` replies
 with the analysis and the mesh; `write` with the report and the intent.
 `analyse` accepts optional `"max_deviation_mm": 0.05` for its mesh. It must be a
-positive finite number in mm; invalid or unmet bounds return `invalid`. Omitting
+finite number of at least 0.001 mm; invalid or unmet bounds return `invalid`. Omitting
 it (or `null`) preserves the default mesh. Requested meshes add `max_deviation_mm`
 and `achieved_deviation_mm`; see [mesh tolerance](../../docs/mesh-tolerance.md).
 `specify_core.serve.reply(request)` answers the same requests in-process.

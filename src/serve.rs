@@ -12,7 +12,7 @@
 //! -> {"id": 6, "ok": true, "result": {"parts": [{"part": 0, "name": ..., "product_id": ...,
 //!    ...}, ...]}} (a part is named on the wire by its index, "part")
 //!    and "analyse" of an assembly says which: {..., "part": 1}
-//!    Optional "max_deviation_mm": positive finite mm for a measured mesh bound;
+//!    Optional "max_deviation_mm": finite mm, at least 0.001, for a measured mesh bound;
 //!    omitted/null keeps the default mesh. Unmet bounds refuse the whole request as invalid.
 //! {"id": 2, "op": "questions", "analysis": {...}, "answers": {...}}
 //! {"id": 3, "op": "preview", "analysis": {...}, "answers": {...}, "step": "/path/part.step"}

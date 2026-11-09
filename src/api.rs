@@ -592,8 +592,12 @@ pub fn mesh(loaded: &LoadedPart) -> Value {
     meshing::mesh(loaded)
 }
 
-/// [`mesh`] with an optional measured maximum deviation in mm. With `None`, the
-/// original picker path (including its bytes and missing-face semantics) is used.
+/// [`mesh`] with an optional measured maximum deviation in mm (at least
+/// [`meshing::MIN_MAX_DEVIATION_MM`]). With `None`, the original picker path (including its
+/// bytes and missing-face semantics) is used. The achieved value is exact (to the 0.0001 mm
+/// output rounding) on planes, spheres, and line and circle trims; on cylinders, cones, tori,
+/// B-spline surfaces, and ellipse, B-spline and NURBS trims it is a sampled maximum, not a
+/// bound (see docs/mesh-tolerance.md).
 pub fn mesh_with_max_deviation(
     loaded: &LoadedPart,
     max_deviation_mm: Option<f64>,

@@ -786,11 +786,15 @@ fn requested_deviation_refuses_invalid_values_and_unresolved_faces() {
         let reason = mesh::mesh_with_max_deviation(&loaded, limit).unwrap_err();
         assert!(reason.contains("positive finite"), "{reason}");
     }
-    let reason = mesh::mesh_with_max_deviation(&load("mesh_sphere.step"), 1e-12).unwrap_err();
-    assert!(
-        reason.contains("face 0") && reason.contains("refinement limit"),
-        "{reason}"
-    );
+    // Below the output rounding floor the request is refused before any meshing; 1e-9 on the
+    // torus used to spend minutes in boundary sampling.
+    let torus = load("mesh_torus.step");
+    for limit in [1e-12, 1e-9, 1e-7, 0.000_999] {
+        let start = std::time::Instant::now();
+        let reason = mesh::mesh_with_max_deviation(&torus, limit).unwrap_err();
+        assert!(reason.contains("below the minimum 0.001 mm"), "{reason}");
+        assert!(start.elapsed() < std::time::Duration::from_secs(5));
+    }
     let cap = loaded
         .part
         .faces
@@ -1025,7 +1029,18 @@ fn corpus_requested_deviation() {
     assert!(!paths.is_empty(), "the corpus has no STEP files");
     // Only independently investigated blockers that cannot be fixed in scope may be added here:
     // (relative path, part, face, exact diagnostic reason). Entries must be seen.
-    const REMAINING: &[(&str, usize, usize, &str)] = &[];
+    const REMAINING: &[(&str, usize, usize, &str)] = &[
+        // A band about 0.075 mm wide (0.475 mm2 inside 12.6 mm of boundary): deviation is met
+        // (0.009 mm) but each mesh's area is 2.4-12% over the exact area, so the 1% coverage
+        // check rejects it until a finer target's boundary crosses itself. The part also has
+        // default-missing face 483, so it refuses at 0.1 mm either way.
+        (
+            "cadgenbench_inputs/cgb242.step.gz",
+            0,
+            430,
+            "its boundary crosses itself in parameter space",
+        ),
+    ];
     let mut seen = std::collections::BTreeSet::new();
     let (mut parts, mut passed, mut missing, mut exceptions) = (0, 0, 0, 0);
     let mut unexpected = Vec::new();

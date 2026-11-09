@@ -107,7 +107,7 @@ enum Cmd {
         /// which part of an assembly (see parts)
         #[arg(long, value_parser = part_number)]
         part: Option<i64>,
-        /// maximum sampled surface/trim chord deviation in mm (positive and finite; refuses unmet bounds; not a watertightness guarantee)
+        /// maximum surface/trim chord deviation in mm, at least 0.001; refuses unmet bounds. Exact on planes, spheres, line and circle trims; a sampled maximum on cylinders, cones, tori, B-splines and ellipse/B-spline/NURBS trims. Not a watertightness guarantee
         #[arg(long = "max-deviation-mm", allow_hyphen_values = true)]
         max_deviation_mm: Option<f64>,
     },

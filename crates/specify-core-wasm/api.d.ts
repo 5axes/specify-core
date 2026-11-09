@@ -11,6 +11,11 @@ export class IntentEngine {
   rematchAnswers(answers: string, evidence?: string | null, automatic?: string | null): string;
   review(answers: string): string;
   settle(state: string): string;
+  /**
+   * The session snapshot. `max_deviation_mm` (at least 0.001) meshes to a measured bound and
+   * throws if it cannot be met. Exact on planes, spheres, line and circle trims; a sampled
+   * maximum on cylinders, cones, tori, B-splines and ellipse/B-spline/NURBS trims.
+   */
   snapshot(max_deviation_mm?: number | null): string;
   static bom(bytes: Uint8Array): string;
   static openPart(name: string, bytes: Uint8Array, part: number): IntentEngine;
