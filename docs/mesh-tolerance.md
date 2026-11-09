@@ -35,8 +35,9 @@ Triangle edge incidence identifies boundary segments; their unrounded endpoints
 associate them with physical trim curves within the larger of four times the current
 triangulator target and `1e-7 * bbox diagonal + 1e-8` mm. This association reach is
 not an achieved value: every accepted segment is measured against its exact curve.
-If endpoints associate with several nearby curves, the largest measured distance
-is retained, conservatively, rather than selecting a closer neighbouring trim.
+Nearby corner curves are alternative owners: the smallest sampled segment distance
+among candidate curves is retained. Taking the maximum would measure a chord on
+one edge against an unrelated neighbouring edge and create false refusals.
 The reach accounts for boundary vertices inserted along parameter chords, which
 can lie off the trim curve after being mapped onto the surface.
 Projection and distance measurement use the rounded emitted coordinates. Degenerate
@@ -46,8 +47,15 @@ boundary segments at identical rounded endpoint coordinates. Slightly displaced
 cut edges left by omitted slivers are recognized within the same association reach
 of those exact parameter lines when they match no physical trim curve; they are
 internal cut/gap edges and do not contribute a trim-curve distance.
-An unassociated physical trim curve, unresolved curve, or boundary segment that
-matches neither an exact trim curve nor a recognized parameter cut refuses the mesh.
+Association is an optimization, not a validity test. A segment with no gated
+candidate is measured against every exact trim interval and uses the nearest one.
+If a trim has no associated emitted segment (for example beside an omitted sliver),
+its source polyline is thinned at the current target and its rounded vertices and
+chord midpoints are projected onto that exact curve; this measured fallback also
+contributes to `achieved_deviation_mm`. Neither fallback echoes the target as an
+achieved value. Unresolved curves and non-finite projections still refuse clearly.
+Closed NURBS curves get two extra one-sided projection seeds at their seam: a
+clamped Newton inversion at one endpoint can otherwise miss the nearer branch.
 This measures boundary chord sag even on a plane round a circular hole,
 whose supporting-surface distance alone would be zero.
 
@@ -63,7 +71,20 @@ up to eight attempts per face. Retrying stops immediately when a triangulation
 reports `converged=false`; lowering its target cannot add a larger vertex budget.
 The refusal reports the **best** measured attempt, the actual attempt count, and
 the stopping reason, including when a later triangulation fails or worsens.
-The triangulator's existing 60,000-vertex and 40-round bounds remain in force.
+Each mesher retains its existing 60,000-vertex and 40-round bounds. If the local
+quality path fails, the opt-in path tries haecceity's existing `Part::triangulate`
+at the original target. Its edge-labelled boundary points avoid treating internal
+cut/sliver-gap edges as trims, and its per-edge discretization avoids local UV
+boundary jumps and crossing failures at finer targets. The same surface samples,
+exact trim measurements, finite-value checks and stop-on-unconverged rule apply.
+The fallback changes neither haecceity nor the default picker path.
+
+Before quality meshing, the default path is checked for unsupported faces. A face
+it already lists in `missing` refuses the requested mesh with
+`face N: does not triangulate at any supported tolerance (default mesh lists it as missing: ...)`.
+This is the pipeline's unsupported-topology policy, not a mathematical assertion
+about every possible mesher. Explicitly supported whole pole-loop spheres remain
+the exception: their opt-in analytic construction is used as before.
 An empty, unresolved, unprojectable or still out-of-tolerance face refuses the **whole mesh** with its face index and reason;
 no partial CAM mesh is returned. Coordinate rounding can prevent very fine
 requests from succeeding. Without a request, unmeshed faces continue to appear
@@ -75,3 +96,18 @@ spacing is chosen independently from the radius of each curved direction (R+r
 and r on a torus); cylinders need only the two ends along their straight rulings.
 Periodic seams are shared. Trimmed or holed patches use the general triangulator.
 The grid still undergoes the same rounded-coordinate measurement and refusal checks.
+
+## Full corpus regression
+
+Run the ignored real-part survey explicitly:
+
+```sh
+QUIDDITY_CORPUS_REQUIRED=1 cargo test -j 6 --release --test mesh corpus_requested_deviation -- --ignored --nocapture
+```
+
+It walks every STEP/STP file (including gzip) and every part, requests 0.1 mm,
+checks finite achieved deviations against the request, and permits refusals only
+at faces already missing in the default mesh. Any additional allowed refusal must
+have an explicit path, part, face and diagnostic reason in the test; stale entries
+fail. There are currently no additional exceptions. This is independent of the
+normal oracle corpus subset and never deletes or weakens a known-difference entry.

@@ -8,6 +8,13 @@ All notable changes to specify-core-rust. The format follows
 
 ### Added
 
+- Requested meshes choose the nearest plausible trim curve at corners, fall back
+  to measured source polylines when association is unavailable, and correct closed
+  NURBS seam projection. Failed quality meshing can use haecceity's existing
+  edge-labelled face triangulator; default mesh bytes are unchanged. Unsupported
+  default-missing faces are identified before quality retries. An ignored full
+  corpus test checks every part at 0.1 mm without blanket refusal skips (#162).
+
 - `mesh` accepts CLI `--max-deviation-mm` and `max_deviation_mm` in serve, Python
   and WASM snapshots (#162).
   It measures emitted triangles against exact surfaces, refines until the sampled bound

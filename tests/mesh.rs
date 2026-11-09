@@ -910,3 +910,113 @@ fn trim_measurement_distinguishes_cap_and_cone_parameter_cuts() {
         }
     }
 }
+
+/// Full real-part tolerance audit. Explicit opt-in keeps the normal mesh binary
+/// quick; CI/maintainers can require the corpus with QUIDDITY_CORPUS_REQUIRED=1.
+#[test]
+#[ignore = "full corpus survey: cargo test --release --test mesh corpus_requested_deviation -- --ignored --nocapture"]
+fn corpus_requested_deviation() {
+    let root =
+        common::corpus_dir().expect("set QUIDDITY_CORPUS to run the full mesh tolerance survey");
+    fn visit(dir: &Path, out: &mut Vec<PathBuf>) {
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let entry = entry.unwrap();
+            let path = entry.path();
+            if entry.file_type().unwrap().is_dir() {
+                visit(&path, out);
+            } else {
+                let name = path
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .to_ascii_lowercase();
+                if [".step", ".stp", ".step.gz", ".stp.gz"]
+                    .iter()
+                    .any(|suffix| name.ends_with(suffix))
+                {
+                    out.push(path);
+                }
+            }
+        }
+    }
+    let mut paths = Vec::new();
+    visit(&root, &mut paths);
+    paths.sort();
+    assert!(!paths.is_empty(), "the corpus has no STEP files");
+    // Only independently investigated blockers that cannot be fixed in scope may be added here:
+    // (relative path, part, face, exact diagnostic reason). Entries must be seen.
+    const REMAINING: &[(&str, usize, usize, &str)] = &[];
+    let mut seen = std::collections::BTreeSet::new();
+    let (mut parts, mut passed, mut missing, mut exceptions) = (0, 0, 0, 0);
+    let mut unexpected = Vec::new();
+    for path in &paths {
+        let relative = path.strip_prefix(&root).unwrap().to_string_lossy();
+        for loaded in part::load_all(path).unwrap() {
+            parts += 1;
+            println!("checking {relative} part {}", loaded.binding.part);
+            let default = mesh::mesh(&loaded);
+            let absent = usizes(&default["missing"]);
+            match mesh::mesh_with_max_deviation(&loaded, 0.1) {
+                Ok(value) => {
+                    let achieved = value["achieved_deviation_mm"].as_f64().unwrap();
+                    assert!(
+                        achieved.is_finite() && achieved <= 0.1,
+                        "{relative}: {achieved}"
+                    );
+                    assert!(value["missing"].as_array().unwrap().is_empty());
+                    passed += 1;
+                    println!(
+                        "{relative} part {}: achieved {achieved} mm",
+                        loaded.binding.part
+                    );
+                }
+                Err(reason) => {
+                    let face = reason
+                        .strip_prefix("face ")
+                        .and_then(|s| s.split(':').next())
+                        .and_then(|s| s.parse::<usize>().ok());
+                    println!(
+                        "{relative} part {}: REFUSED default missing={absent:?}: {reason}",
+                        loaded.binding.part
+                    );
+                    if face.is_some_and(|f| absent.contains(&f)) {
+                        assert!(
+                            reason.contains("does not triangulate at any supported tolerance"),
+                            "{reason}"
+                        );
+                        missing += 1;
+                    } else if let Some(&(file, part, face, why)) =
+                        REMAINING.iter().find(|&&(file, part, f, _)| {
+                            file == relative && part == loaded.binding.part && Some(f) == face
+                        })
+                    {
+                        assert!(reason.contains(why), "{relative}: {reason}");
+                        seen.insert((file, part, face));
+                        exceptions += 1;
+                    } else {
+                        unexpected.push(format!(
+                            "{relative} part {} default missing={absent:?}: {reason}",
+                            loaded.binding.part
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    for &(file, part, face, _) in REMAINING {
+        assert!(
+            seen.contains(&(file, part, face)),
+            "stale tolerance refusal: {file} part {part} face {face}"
+        );
+    }
+    println!(
+        "survey: {} files, {parts} parts, {passed} met 0.1 mm, {missing} default-missing refusals, {exceptions} documented exceptions, {} unexpected refusals",
+        paths.len(),
+        unexpected.len()
+    );
+    assert!(
+        unexpected.is_empty(),
+        "unexpected tolerance refusals:\n{}",
+        unexpected.join("\n")
+    );
+}
