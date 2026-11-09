@@ -23,3 +23,10 @@ def test_sphere_dimensioning_reason():
     section = api.analyse(PARTS / "mesh_sphere.step")["dimensioning"]
     assert section["applicable"] is False
     assert section["reason"]
+
+
+def test_torus_meets_fine_bound():
+    for limit in [0.1, 0.01]:
+        mesh = api.mesh(PARTS / "mesh_torus.step", max_deviation_mm=limit)
+        assert mesh["missing"] == []
+        assert 0 < mesh["achieved_deviation_mm"] <= limit

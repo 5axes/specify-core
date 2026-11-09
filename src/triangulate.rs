@@ -280,7 +280,109 @@ pub(crate) fn triangulate_for_deviation(
         }
         return Ok(mesh);
     }
+    if let Some(mesh) = periodic_grid(part, face, deflection, angular) {
+        return mesh;
+    }
     triangulate(part, face, deflection, angular)
+}
+
+/// Complete tori and circular cylindrical bands have a rectangular parameter domain.
+/// Space each curved direction by its own radius; a cylinder's ruling is straight.
+/// Trimmed/holed patches retain the general triangulator, as do all default meshes.
+fn periodic_grid(
+    part: &Part,
+    face: usize,
+    deflection: f64,
+    angular: f64,
+) -> Option<Result<FaceMesh, String>> {
+    let f = &part.faces[face];
+    let (u0, u1, v0, v1) = part.uv_bounds(face)?;
+    if ((u1 - u0) - TAU).abs() > 1e-6 {
+        return None;
+    }
+    let mut uses = std::collections::BTreeMap::new();
+    for &(edge, _) in f.loops.iter().flat_map(|lp| &lp.edges) {
+        *uses.entry(edge).or_insert(0_usize) += 1;
+    }
+    let spacing = |radius: f64| (2.0 * deflection / radius).sqrt().min(0.5 * angular);
+    let (columns, rows, closed_v) = match &f.surface {
+        Surface::Torus { major, minor, .. }
+            if major > minor
+                && *minor > 0.0
+                && ((v1 - v0) - TAU).abs() <= 1e-6
+                && !uses.is_empty()
+                && uses.values().all(|&n| n == 2) =>
+        {
+            (
+                ((u1 - u0) / spacing(major + minor)).ceil() as usize,
+                ((v1 - v0) / spacing(*minor)).ceil() as usize,
+                true,
+            )
+        }
+        Surface::Cylinder { frame, radius }
+            if !uses.is_empty()
+                && uses.iter().all(|(&edge, &n)| {
+                    if n == 2 {
+                        return true;
+                    }
+                    match &part.edges[edge].curve {
+                        geom::Curve::Circle {
+                            frame: circle,
+                            radius: r,
+                        } => {
+                            let centre = frame.to_local(circle.origin);
+                            (r - radius).abs() < 1e-6 * radius.abs().max(1.0)
+                                && centre[0].hypot(centre[1]) < 1e-6 * radius.abs().max(1.0)
+                                && (centre[2] - v0).abs().min((centre[2] - v1).abs())
+                                    < 1e-6 * radius.abs().max(1.0)
+                                && geom::dot(frame.z, circle.z).abs() > 1.0 - 1e-8
+                        }
+                        _ => false,
+                    }
+                }) =>
+        {
+            (((u1 - u0) / spacing(*radius)).ceil() as usize, 1, false)
+        }
+        _ => return None,
+    };
+    let columns = columns.max(3);
+    let rows = if closed_v { rows.max(3) } else { rows };
+    let rings = if closed_v { rows } else { rows + 1 };
+    if columns.saturating_mul(rings) > MAX_VERTICES {
+        return Some(Err(
+            "periodic grid exceeds the 60000-vertex refinement limit".into(),
+        ));
+    }
+    let mut mesh = FaceMesh {
+        points: Vec::new(),
+        uv: Vec::new(),
+        triangles: Vec::new(),
+        converged: true,
+        folded_dropped: (0, 0.0),
+    };
+    for row in 0..rings {
+        let v = v0 + (v1 - v0) * row as f64 / rows as f64;
+        for column in 0..columns {
+            let u = u0 + (u1 - u0) * column as f64 / columns as f64;
+            mesh.uv.push((u, v));
+            mesh.points.push(f.surface.value(u, v));
+        }
+    }
+    for row in 0..rows {
+        for column in 0..columns {
+            let a = row * columns + column;
+            let b = row * columns + (column + 1) % columns;
+            let c = ((row + 1) % rings) * columns + (column + 1) % columns;
+            let d = ((row + 1) % rings) * columns + column;
+            mesh.triangles.extend([[a, b, c], [a, c, d]]);
+        }
+    }
+    if f.reversed {
+        for triangle in &mut mesh.triangles {
+            triangle.swap(1, 2);
+        }
+    }
+    Some(Ok(mesh))
 }
 
 /// Why a face's boundary cannot be triangulated as it is thinned.

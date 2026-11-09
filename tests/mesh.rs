@@ -662,13 +662,14 @@ pub fn check_known_compared(area: &str, differences: &[Difference], compared: &[
     check_known_with(&path.display().to_string(), &entries, differences);
 }
 
-/// Check emitted coordinates independently with closed-form radial distances, including
-/// the centroid and all edge midpoints (not triangulate's target or unrounded vertices).
+/// Independently check 66 barycentric lattice points per curved output triangle against
+/// analytic radial distances. This lattice does not reuse the production samples.
 #[test]
 fn requested_deviation_is_measured_on_curved_output() {
-    for (name, sphere, radius) in [
-        ("mesh_sphere.step", true, 60.0),
-        ("mesh_cylinder.step", false, 50.0),
+    for (name, kind, radius) in [
+        ("mesh_sphere.step", "sphere", 60.0),
+        ("mesh_cylinder.step", "cylinder", 50.0),
+        ("mesh_torus.step", "torus", 3.0),
     ] {
         let loaded = load(name);
         for limit in [0.1, 0.01, 1.0] {
@@ -693,45 +694,63 @@ fn requested_deviation_is_measured_on_curved_output() {
                         .iter()
                         .map(|&i| parsed.positions[3 * i..3 * i + 3].try_into().unwrap())
                         .collect();
-                    if sphere {
-                        let normal = geom::cross(geom::sub(p[1], p[0]), geom::sub(p[2], p[0]));
+                    let normal = geom::cross(geom::sub(p[1], p[0]), geom::sub(p[2], p[0]));
+                    if kind == "sphere" {
                         assert!(geom::dot(normal, geom::add(geom::add(p[0], p[1]), p[2])) > 0.0);
-                        area += 0.5 * geom::norm(normal);
+                    } else if kind == "torus" {
+                        let centre = geom::scale(geom::add(geom::add(p[0], p[1]), p[2]), 1.0 / 3.0);
+                        let rho = centre[0].hypot(centre[1]);
+                        let outward = [
+                            centre[0] * (1.0 - 40.0 / rho),
+                            centre[1] * (1.0 - 40.0 / rho),
+                            centre[2],
+                        ];
+                        assert!(geom::dot(normal, outward) > 0.0);
                     }
-                    for w in [
-                        [1.0, 0.0, 0.0],
-                        [0.0, 1.0, 0.0],
-                        [0.0, 0.0, 1.0],
-                        [0.5, 0.5, 0.0],
-                        [0.0, 0.5, 0.5],
-                        [0.5, 0.0, 0.5],
-                        [1.0 / 3.0; 3],
-                    ] {
-                        let q = geom::add(
-                            geom::add(geom::scale(p[0], w[0]), geom::scale(p[1], w[1])),
-                            geom::scale(p[2], w[2]),
-                        );
-                        let radial = if sphere {
-                            geom::norm(q)
-                        } else {
-                            q[0].hypot(q[1])
-                        };
-                        worst = worst.max((radius - radial).abs());
+                    area += 0.5 * geom::norm(normal);
+                    for i in 0..=10 {
+                        for j in 0..=10 - i {
+                            let w = [i as f64 / 10.0, j as f64 / 10.0, (10 - i - j) as f64 / 10.0];
+                            let q = geom::add(
+                                geom::add(geom::scale(p[0], w[0]), geom::scale(p[1], w[1])),
+                                geom::scale(p[2], w[2]),
+                            );
+                            let radial = match kind {
+                                "sphere" => geom::norm(q),
+                                "torus" => (q[0].hypot(q[1]) - 40.0).hypot(q[2]),
+                                _ => q[0].hypot(q[1]),
+                            };
+                            worst = worst.max((radius - radial).abs());
+                        }
                     }
                 }
             }
-            if sphere {
+            if kind == "sphere" {
                 let exact = 4.0 * std::f64::consts::PI * radius * radius;
                 assert!(
                     (area - exact).abs() / exact < 0.01,
                     "whole sphere area: {area} vs {exact}"
                 );
             }
+            if kind == "torus" {
+                let exact = 4.0 * std::f64::consts::PI.powi(2) * 40.0 * radius;
+                assert!(
+                    (area - exact).abs() / exact < 0.01,
+                    "whole torus area {area} vs {exact}"
+                );
+            }
             let reported = value["achieved_deviation_mm"].as_f64().unwrap();
             assert!(worst > 0.0 && worst <= limit, "{name}: {worst} > {limit}");
+            // Dense validation and the production quadrature sample different points;
+            // their maxima need not be equal. Both must independently meet the request.
             assert!(
-                (worst - reported).abs() < 1e-10,
-                "{name}: measured {worst}, reported {reported}"
+                reported > 0.0 && reported <= limit,
+                "{name}: reported {reported} > {limit}"
+            );
+            println!(
+                "{name}: requested {limit}, reported {reported}, dense {worst}, {} bytes, {} triangles",
+                value.to_string().len(),
+                parsed.indices.len() / 3
             );
             assert_ne!(reported, limit, "must not echo the requested bound");
         }
@@ -756,10 +775,122 @@ fn requested_deviation_refuses_invalid_values_and_unresolved_faces() {
         reason.contains("face 0") && reason.contains("refinement limit"),
         "{reason}"
     );
+    let cap = loaded
+        .part
+        .faces
+        .iter()
+        .find(|f| matches!(f.surface, haecceity::geom::Surface::Plane { .. }))
+        .unwrap();
+    loaded.unresolved_edges.push(cap.loops[0].edges[0].0);
+    let reason = mesh::mesh_with_max_deviation(&loaded, 0.1).unwrap_err();
+    assert!(
+        reason.contains("boundary edge") && reason.contains("curve did not resolve"),
+        "{reason}"
+    );
+    loaded.unresolved_edges.clear();
     loaded.unresolved_faces.push(0);
     let reason = mesh::mesh_with_max_deviation(&loaded, 0.1).unwrap_err();
     assert!(
         reason.contains("face 0") && reason.contains("surface did not resolve"),
         "{reason}"
     );
+}
+
+#[test]
+fn reversed_whole_sphere_cavity_has_outward_winding_and_complete_area() {
+    let loaded = load("mesh_spherical_cavity.step");
+    let value = mesh::mesh_with_max_deviation(&loaded, 0.01).unwrap();
+    let parsed = Mesh::new(&value);
+    let mut spheres = 0;
+    let mut area = 0.0;
+    for (face, &(start, count)) in parsed.faces.iter().enumerate() {
+        if !matches!(
+            loaded.part.faces[face].surface,
+            haecceity::geom::Surface::Sphere { .. }
+        ) {
+            continue;
+        }
+        spheres += 1;
+        assert!(
+            loaded.part.faces[face].reversed,
+            "must exercise the reversed swap"
+        );
+        for triangle in parsed.indices[3 * start..3 * (start + count)]
+            .as_chunks::<3>()
+            .0
+        {
+            let p = triangle.map(|i| parsed.positions[3 * i..3 * i + 3].try_into().unwrap());
+            let normal = geom::cross(geom::sub(p[1], p[0]), geom::sub(p[2], p[0]));
+            assert!(
+                geom::dot(normal, geom::add(geom::add(p[0], p[1]), p[2])) < 0.0,
+                "cavity normals must point into the spherical void"
+            );
+            area += 0.5 * geom::norm(normal);
+        }
+    }
+    assert_eq!(spheres, 1);
+    let exact = 4.0 * std::f64::consts::PI * 60.0 * 60.0;
+    assert!(
+        (area - exact).abs() / exact < 0.01,
+        "cavity area {area} vs {exact}"
+    );
+}
+
+#[test]
+fn planar_trim_chords_contribute_to_achieved_deviation() {
+    let loaded = load("mesh_cylinder.step");
+    let caps = mesh::mesh_with(&loaded, |face, deflection| {
+        if matches!(
+            loaded.part.faces[face].surface,
+            haecceity::geom::Surface::Plane { .. }
+        ) {
+            mesh::face_mesh(&loaded, face, deflection)
+        } else {
+            Err("caps only".into())
+        }
+    });
+    // The caps' surface distance is exactly zero. Their boundary polygon still sags
+    // inside the true R50 rim, and must contribute to the achieved global value.
+    let parsed = Mesh::new(&caps);
+    let mut cap_sag = 0.0_f64;
+    for &(start, count) in &parsed.faces {
+        let mut edges = std::collections::BTreeMap::new();
+        for &[a, b, c] in parsed.indices[3 * start..3 * (start + count)]
+            .as_chunks::<3>()
+            .0
+        {
+            for (i, j) in [(a, b), (b, c), (c, a)] {
+                *edges.entry((i.min(j), i.max(j))).or_insert(0) += 1;
+            }
+        }
+        for ((i, j), count) in edges {
+            if count != 1 {
+                continue;
+            }
+            let x = (parsed.positions[3 * i] + parsed.positions[3 * j]) * 0.5;
+            let y = (parsed.positions[3 * i + 1] + parsed.positions[3 * j + 1]) * 0.5;
+            cap_sag = cap_sag.max(50.0 - x.hypot(y));
+        }
+    }
+    let value = mesh::mesh_with_max_deviation(&loaded, 1.0).unwrap();
+    assert!(cap_sag > 0.01);
+    assert!(value["achieved_deviation_mm"].as_f64().unwrap() >= cap_sag - 1e-10);
+}
+
+#[test]
+fn trim_measurement_distinguishes_cap_and_cone_parameter_cuts() {
+    let cap = load("mesh_spherical_cap.step");
+    let ctc = part::load(
+        &Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/nist/nist_ctc_01_asme1_ap242.stp.gz"),
+        None,
+    )
+    .unwrap();
+    for loaded in [&cap, &ctc] {
+        for limit in [0.1, 0.05] {
+            let value = mesh::mesh_with_max_deviation(loaded, limit).unwrap();
+            assert!(value["missing"].as_array().unwrap().is_empty());
+            assert!(value["achieved_deviation_mm"].as_f64().unwrap() <= limit);
+        }
+    }
 }

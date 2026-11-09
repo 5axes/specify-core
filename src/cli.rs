@@ -5,7 +5,7 @@
 //! specify-core parts STEP                        the file's parts, as JSON
 //! specify-core bom STEP                          the assembly BOM, as JSON
 //! specify-core analyse STEP -o ANALYSIS [--part K]
-//! specify-core mesh STEP -o MESH [--part K] [--max_deviation_mm MM]
+//! specify-core mesh STEP -o MESH [--part K] [--max-deviation-mm MM]
 //! specify-core questions ANALYSIS [--answers ANSWERS] [--open]
 //!                        [--resolve-defaults --step STEP]
 //! specify-core write STEP ANALYSIS ANSWERS [ANALYSIS ANSWERS ...] -o OUT
@@ -107,8 +107,8 @@ enum Cmd {
         /// which part of an assembly (see parts)
         #[arg(long, value_parser = part_number)]
         part: Option<i64>,
-        /// maximum measured chordal deviation in mm (positive and finite; refuses unmet bounds)
-        #[arg(long = "max_deviation_mm", allow_hyphen_values = true)]
+        /// maximum sampled surface/trim chord deviation in mm (positive and finite; refuses unmet bounds; not a watertightness guarantee)
+        #[arg(long = "max-deviation-mm", allow_hyphen_values = true)]
         max_deviation_mm: Option<f64>,
     },
     /// list the questions, given answers so far

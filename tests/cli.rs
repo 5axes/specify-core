@@ -2438,7 +2438,7 @@ fn mesh_max_deviation_mm_is_measured_and_validated() {
         std::process::Command::new(env!("CARGO_BIN_EXE_specify-core"))
             .arg("mesh")
             .arg(&input)
-            .args(["-o", "-", "--max_deviation_mm", limit])
+            .args(["-o", "-", "--max-deviation-mm", limit])
             .output()
             .unwrap()
     };

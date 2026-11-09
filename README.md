@@ -94,10 +94,10 @@ Exit codes:
 - **2:** a refusal, such as an unanswered question, an invalid answer or bad arguments.
 
 `specify-core mesh plate.step -o plate.mesh.json` writes the part's triangles grouped by face,
-for a face picker. Add `--max_deviation_mm 0.05` to request a measured chordal
+for a face picker. Add `--max-deviation-mm 0.05` to request a measured chordal
 bound in mm; the result includes `max_deviation_mm` and `achieved_deviation_mm`.
-The same name is used by serve's `analyse` request, Python's `api.mesh` keyword
-and WASM's snapshot argument. See [mesh tolerance](docs/mesh-tolerance.md).
+The corresponding serve request field, Python keyword and WASM snapshot argument
+are named `max_deviation_mm`. See [mesh tolerance](docs/mesh-tolerance.md).
 
 `-o -` writes `analyse`'s or `mesh`'s JSON to stdout (the summary goes to stderr), for a pipe:
 `specify-core analyse plate.step -o - | jq '.features[].family'`.

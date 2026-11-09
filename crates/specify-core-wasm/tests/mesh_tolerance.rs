@@ -28,3 +28,17 @@ fn snapshot_mesh_option_is_measured_and_none_is_byte_identical() {
         );
     }
 }
+
+#[test]
+fn whole_torus_meets_both_requested_bounds() {
+    let session = Session::open(
+        "torus.step",
+        include_bytes!("../../../tests/fixtures/parts/mesh_torus.step"),
+    )
+    .unwrap();
+    for limit in [0.1, 0.01] {
+        let snapshot = session.snapshot_with_max_deviation(Some(limit)).unwrap();
+        assert!(snapshot["mesh"]["missing"].as_array().unwrap().is_empty());
+        assert!(snapshot["mesh"]["achieved_deviation_mm"].as_f64().unwrap() <= limit);
+    }
+}

@@ -8,10 +8,15 @@ All notable changes to specify-core-rust. The format follows
 
 ### Added
 
-- `mesh` accepts `max_deviation_mm` on CLI, serve, Python and WASM snapshots (#162).
+- `mesh` accepts CLI `--max-deviation-mm` and `max_deviation_mm` in serve, Python
+  and WASM snapshots (#162).
   It measures emitted triangles against exact surfaces, refines until the sampled bound
   is met, and reports both requested and achieved deviation; an unverifiable face refuses
-  the whole mesh. Omitting the option preserves mesh v2 bytes.
+  the whole mesh. Omitting the option preserves mesh v2 bytes. Verification includes
+  near-corner samples and exact trim-curve sag. Complete tori and circular cylinders
+  use separate spacing per parameter direction. Exhausted triangulations stop retries;
+  refusals retain the best measured attempt. Independent face meshing does not guarantee
+  watertight joins.
 - Analyses whose shared dimension planner cannot build an input now include
   `dimensioning: {applicable: false, reason}` rather than omitting it (#162).
 
