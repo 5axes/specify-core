@@ -42,3 +42,14 @@ fn whole_torus_meets_both_requested_bounds() {
         assert!(snapshot["mesh"]["achieved_deviation_mm"].as_f64().unwrap() <= limit);
     }
 }
+
+#[test]
+fn real_freeform_part_meets_requested_bound() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/fixtures/resume_alpha7/cgb217.step.gz");
+    let loaded = specify_core::part::load(&path, None).unwrap();
+    let session = Session::open("cgb217.step", &loaded.bytes).unwrap();
+    let value = session.snapshot_with_max_deviation(Some(0.1)).unwrap();
+    assert!(value["mesh"]["missing"].as_array().unwrap().is_empty());
+    assert!(value["mesh"]["achieved_deviation_mm"].as_f64().unwrap() <= 0.1);
+}

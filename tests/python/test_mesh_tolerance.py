@@ -30,3 +30,10 @@ def test_torus_meets_fine_bound():
         mesh = api.mesh(PARTS / "mesh_torus.step", max_deviation_mm=limit)
         assert mesh["missing"] == []
         assert 0 < mesh["achieved_deviation_mm"] <= limit
+
+
+def test_real_freeform_part_meets_requested_bound():
+    path = PARTS.parent / "resume_alpha7" / "cgb217.step.gz"
+    mesh = api.mesh(path, max_deviation_mm=0.1)
+    assert mesh["missing"] == []
+    assert 0 < mesh["achieved_deviation_mm"] <= 0.1
