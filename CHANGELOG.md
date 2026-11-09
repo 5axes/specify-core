@@ -27,6 +27,7 @@ All notable changes to specify-core-rust. The format follows
 
 - `IntentEngine.snapshot(max_deviation_mm?)` accepts an optional mesh deviation in mm,
   at least 0.001, and throws if the requested mesh cannot be verified (#162).
+- docs/wasm.md links to pzfreo/draftwright, renamed from draftwright-rust; the API is unchanged.
 
 ### Changed
 
