@@ -8,6 +8,9 @@ All notable changes to specify-core-rust. The format follows
 
 ### Fixed
 
+- Revision reports fold a pocket and its section recess into one change when their
+  supports differ only by the pocket’s adjacent planar floor.
+
 - Answers without face evidence can follow a unique same-family feature whose ID
   adds faces to the saved ID. Ambiguous matches stay unresolved for review.
 

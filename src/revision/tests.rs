@@ -199,6 +199,8 @@ fn small_holes_on_a_large_part_only_fold_in_the_same_place() {
         &mut changes,
         std::slice::from_ref(&old),
         std::slice::from_ref(&new),
+        &Part::new(vec![], vec![], vec![]),
+        &Part::new(vec![], vec![], vec![]),
     );
     assert_eq!(
         changes.iter().map(|c| c.class.as_str()).collect::<Vec<_>>(),
@@ -208,7 +210,13 @@ fn small_holes_on_a_large_part_only_fold_in_the_same_place() {
     new.record
         .insert("location".into(), json!([520.2, 520., 3.]));
     let mut changes = vec![change(&old, "orphaned"), change(&new, "new")];
-    fold(&mut changes, &[old], &[new]);
+    fold(
+        &mut changes,
+        &[old],
+        &[new],
+        &Part::new(vec![], vec![], vec![]),
+        &Part::new(vec![], vec![], vec![]),
+    );
     assert_eq!(changes.len(), 1);
     assert_eq!(changes[0].class, "replaced");
 }
@@ -228,7 +236,13 @@ fn distant_small_patterns_on_a_large_part_do_not_fold() {
         vec![3, 4],
     );
     let mut changes = vec![change(&old, "orphaned"), change(&new, "new")];
-    fold(&mut changes, &[old], &[new]);
+    fold(
+        &mut changes,
+        &[old],
+        &[new],
+        &Part::new(vec![], vec![], vec![]),
+        &Part::new(vec![], vec![], vec![]),
+    );
     assert_eq!(
         changes.iter().map(|c| c.class.as_str()).collect::<Vec<_>>(),
         ["orphaned", "new"]
@@ -580,4 +594,100 @@ fn an_unnamed_refusal_no_answer_explains_is_returned_not_guessed() {
     assert_eq!(outcome.unwrap_err(), "the pair cannot both apply");
     assert!(refused.is_empty());
     assert_eq!(carried.len(), 3);
+}
+
+#[test]
+fn pocket_section_fold_requires_exact_walls_and_one_adjacent_planar_floor() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/revisions/complex_many.old.step.gz");
+    let loaded = crate::part::load(&path, None).unwrap();
+    let features = crate::features::recognise(&loaded).unwrap();
+    let mut pocket = features
+        .iter()
+        .find(|f| f.family == "pockets")
+        .unwrap()
+        .clone();
+    // Model both pre- and post-#216 supports without depending on the kernel pin.
+    let walls: Vec<_> = pocket
+        .faces
+        .iter()
+        .copied()
+        .filter(|f| {
+            loaded
+                .part
+                .neighbours(*f)
+                .iter()
+                .filter(|n| pocket.faces.contains(n))
+                .count()
+                < pocket.faces.len() - 1
+        })
+        .collect();
+    let walls = if walls.is_empty() {
+        pocket.faces.clone()
+    } else {
+        walls
+    };
+    let floor = (0..loaded.part.faces.len())
+        .find(|f| {
+            !walls.contains(f)
+                && matches!(
+                    loaded.part.faces[*f].surface,
+                    haecceity::geom::Surface::Plane { .. }
+                )
+                && walls.iter().all(|w| loaded.part.neighbours(*f).contains(w))
+        })
+        .unwrap();
+    pocket.faces = walls.clone();
+    pocket.faces.push(floor);
+    let mut section = pocket.clone();
+    section.family = "section_recesses".into();
+    section.faces = walls;
+    assert!(pocket_section_twins(&pocket, &section, &loaded.part));
+    assert!(pocket_section_twins(&section, &pocket, &loaded.part));
+    pocket.faces.sort_unstable();
+    pocket.id = format!(
+        "pockets:{}",
+        pocket
+            .faces
+            .iter()
+            .map(usize::to_string)
+            .collect::<Vec<_>>()
+            .join(".")
+    );
+    section.id = format!(
+        "section_recesses:{}",
+        section
+            .faces
+            .iter()
+            .map(usize::to_string)
+            .collect::<Vec<_>>()
+            .join(".")
+    );
+    let fs = [pocket.clone(), section.clone()];
+    let mut changes: Vec<_> = fs
+        .iter()
+        .map(|f| {
+            let mut c = change(f, "adapted");
+            c.old = Some(f.id.clone());
+            c.new = Some(f.id.clone());
+            c
+        })
+        .collect();
+    changes[0].what = "pocket".into();
+    changes[1].what = "section recess".into();
+    fold(&mut changes, &fs, &fs, &loaded.part, &loaded.part);
+    assert_eq!(changes.len(), 1);
+    assert_eq!(changes[0].what, "section recess");
+    assert_eq!(changes[0].old.as_deref(), Some(pocket.id.as_str()));
+    assert_eq!(changes[0].new.as_deref(), Some(pocket.id.as_str()));
+
+    let mut other = section.clone();
+    other.family = "slots".into();
+    assert!(!pocket_section_twins(&pocket, &other, &loaded.part));
+    other = section.clone();
+    other.faces.pop();
+    assert!(!pocket_section_twins(&pocket, &other, &loaded.part));
+    other = section.clone();
+    other.faces.push(floor);
+    assert!(!pocket_section_twins(&pocket, &other, &loaded.part));
 }
