@@ -107,8 +107,8 @@ fn grm03_tap_thread_and_knurl_do_not_add_datums_or_position() {
         })
         .unwrap();
     assert_eq!(
-        hole.id, "hole.function:holes:12",
-        "alpha.8 Ø1.6 hole identity"
+        hole.id, "hole.function:holes:12.13",
+        "quiddity #216 includes planar floor 13 in the Ø1.6 hole identity"
     );
     let mut given = given;
     given.insert(hole.id, json!("tapped:M2"));
@@ -172,7 +172,7 @@ fn grm03_answered_position_reports_its_pending_frame_then_is_written() {
     let qs = api::questions(&analysis, &Map::new()).unwrap();
     let position = qs
         .iter()
-        .find(|q| q.id == "hole.position:holes:12")
+        .find(|q| q.id == "hole.position:holes:12.13")
         .cloned()
         .unwrap();
     let mut given = answers(json!({position.id.clone(): "0.2"}));
@@ -306,7 +306,7 @@ fn grm03_explicit_bulk_acceptance_matches_apply_with_defaults() {
         &root.join("gramel/GRM-03_thumbwheel_drive_screw.step"),
         answers(json!({
             "part.material": "steel",
-            "hole.function:holes:12": "tapped:M2",
+            "hole.function:holes:12.13": "tapped:M2",
             "diameter.fit:turned_steps:6": "thread:M3",
             "diameter.fit:turned_steps:3": "knurl:straight",
         })),

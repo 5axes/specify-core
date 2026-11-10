@@ -334,6 +334,8 @@ fn legacy_numberless_files_have_byte_identical_analysis_and_pmi_serialization() 
     // and material description, #193's RP 4.1 FILE_DESCRIPTION reference and `note` name.
     // Basic dimensions gain `"basic":true` in the existing read: only the alpha6 plate's
     // PMI read hash changes (its 14 basics); stripped of that key it is the old hash.
+    // #216 changes only the alpha6 shaft analysis hash: its hole ID gains floor 16,
+    // and the saved answers report their exact key migrations. PMI and writer hashes stay fixed.
     // Float serialization varies by platform; portable absence checks run separately above.
     if !cfg!(target_os = "macos") {
         return;

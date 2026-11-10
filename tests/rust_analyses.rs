@@ -8,9 +8,9 @@
 //!
 //! Feature ids differ between engines by design (defining against constituent faces, upstream
 //! need U2), so these analyses are not compared with Python's entry by entry; that the chain
-//! runs on them is what is checked. The pin's tapped hole is such a hole (its faces lack the
-//! floor), and the plate's general dimensions run over the plane levels the Rust analysis
-//! gives.
+//! runs on them is what is checked. The pin's hole now owns its planar floor (#216),
+//! while thread requirements and written thread supports remain exactly its bore cylinders.
+//! The plate's general dimensions run over the plane levels the Rust analysis gives.
 
 mod common;
 
@@ -138,10 +138,11 @@ fn the_rules_and_the_writer_run_on_rust_analyses() {
     assert!(problems.is_empty(), "{}", problems.join("\n"));
 }
 
-/// The pin's tapped hole as the Rust engine recognises it: its defining faces only, the bore
-/// without the floor (U2), and still a tapped hole with its thread written.
+/// #216 gives the pin hole its planar floor, but a thread belongs exactly to the
+/// bore cylinder faces, both in the requirement and the written AP242 thread.
 #[test]
-fn a_hole_without_its_floor_is_tapped_and_written() {
+fn a_hole_with_its_floor_keeps_the_thread_on_bore_faces_only() {
+    use haecceity::{p21::Document, pmi, step::read_part_definitions};
     let dir = temp().join("pin");
     std::fs::create_dir_all(&dir).unwrap();
     let path = common::fixtures().join("parts").join("pin.step");
@@ -153,25 +154,44 @@ fn a_hole_without_its_floor_is_tapped_and_written() {
         .iter()
         .find(|f| f["family"] == "holes")
         .unwrap();
-    let faces = hole["faces"].as_array().unwrap();
-    assert!(
-        faces
-            .iter()
-            .all(|f| analysis["faces"][f.as_u64().unwrap() as usize]["kind"] == "cylinder")
-    );
+    assert_eq!(hole["id"], "holes:3.5");
+    assert_eq!(hole["faces"], json!([3, 5]));
+    let bore: Vec<_> = hole["faces"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|f| analysis["faces"][f.as_u64().unwrap() as usize]["kind"] == "cylinder")
+        .cloned()
+        .collect();
+    assert_eq!(bore, [json!(3)]);
+    assert_eq!(analysis["faces"][5]["kind"], "plane");
     let i = intent(&analysis).unwrap();
-    assert!(
-        i.requirements
-            .iter()
-            .any(|r| r["kind"] == "thread" && r["side"] == "internal")
-    );
-    let report = write_parts(&[(&parts[0], &i, None)], &dir.join("pin.step")).unwrap();
+    let threads: Vec<_> = i
+        .requirements
+        .iter()
+        .filter(|r| r["kind"] == "thread" && r["side"] == "internal")
+        .collect();
+    assert_eq!(threads.len(), 1);
+    assert_eq!(threads[0]["faces"], json!(bore));
+    assert!(!threads[0]["faces"].as_array().unwrap().contains(&json!(5)));
+    let output = dir.join("pin.step");
+    let report = write_parts(&[(&parts[0], &i, None)], &output).unwrap();
     assert!(
         report
             .written
             .iter()
             .any(|w| w.starts_with("internal thread M5x0.8-6H on holes:"))
     );
+    let bytes = std::fs::read(output).unwrap();
+    let definitions = read_part_definitions(&bytes).unwrap();
+    let model = pmi::read(&Document::parse(bytes).unwrap(), &definitions).unwrap();
+    let written = &model.parts[0];
+    assert_eq!(written.threads.len(), 1);
+    let pmi::Feature::Items(anchors) = &written.features[written.threads[0].feature.0] else {
+        panic!("one bore support")
+    };
+    assert_eq!(anchors, &[pmi::Anchor::Face(pmi::FaceIndex(3))]);
+    assert!(!anchors.contains(&pmi::Anchor::Face(pmi::FaceIndex(5))));
     let _ = std::fs::remove_dir_all(&dir);
 }
 

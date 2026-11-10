@@ -64,7 +64,7 @@ def pins(manifest, sources=(KERNEL,)):
 
 
 def check_wasm_pin(local, manifest=ROOT / "crates/specify-core-wasm/Cargo.toml"):
-    """The WASM kernel must follow the root pin (v0.4.9 for this release)."""
+    """The WASM kernel must follow the root source and exact tag or revision pin."""
     dependency = tomllib.loads(manifest.read_text())["dependencies"]["haecceity"]
     kind, value = local["haecceity"]
     if (dependency.get("git", "").removesuffix(".git").rstrip("/") != f"https://github.com/{KERNEL}"

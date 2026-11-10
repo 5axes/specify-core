@@ -8,8 +8,8 @@ All notable changes to specify-core-rust. The format follows
 
 ### Fixed
 
-- Planner dimensions on floor-bearing holes attach to the bore cylinders only,
-  keeping the planar floor out of depth and location dimension carriers.
+- Planner dimensions on floor-bearing holes leave the planar floor out of their
+  depth and location dimension carriers; the bore (and any cone) carries them.
 
 - Revision reports fold a pocket and its section recess into one change when their
   supports differ only by the pocket’s adjacent planar floor.

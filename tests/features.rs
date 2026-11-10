@@ -452,8 +452,20 @@ fn paired(case: &str, differences: Vec<Difference>, faces: &Value) -> Vec<Differ
         let (Some(id), Some(py), None) = (whole(d), &d.python, &d.rust) else {
             continue;
         };
+        // quiddity #217 marks a groove's duplicate hole/boss with `superseded_by`, which the
+        // frozen Python record lacks. The marker alone must not unpair the same feature; it is
+        // still compared exactly below.
+        let unmarked = |r: &Value| {
+            let mut r = r["record"].clone();
+            if py["record"].get("superseded_by").is_none()
+                && let Some(r) = r.as_object_mut()
+            {
+                r.remove("superseded_by");
+            }
+            r
+        };
         let Some(k) = rust_only.iter().position(|(_, r)| {
-            family(r) == family(py) && compare(case, &py["record"], &r["record"], &same).is_empty()
+            family(r) == family(py) && compare(case, &py["record"], &unmarked(r), &same).is_empty()
         }) else {
             continue;
         };

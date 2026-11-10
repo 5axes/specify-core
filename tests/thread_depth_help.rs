@@ -190,6 +190,7 @@ fn answered_m2_without_depth_preserves_alpha7_semantics_and_pins_presentation_by
     // Keep the historical alpha.7 input and every semantic readback check unchanged.
     // v0.4.8 recaptures it once more for #198's Notes saved view and material description and
     // #193's RP 4.1 FILE_DESCRIPTION reference and `note`/`label` curve-set names only.
+    // #216 changes only the stored-answer key to holes:15.16; thread PMI stays on bore 15.
     assert_eq!(bytes.as_slice(), numbered.bytes.as_slice());
     for (source, answers) in [(loaded, given.clone()), (baseline, given)] {
         let analysis = api::analyse(&source).unwrap();

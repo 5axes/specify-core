@@ -16,13 +16,13 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | [cli](#cli) | 270 | 0 | 52 | 0 | 2 | 1 | 325 |
 | [cross_engine](#cross_engine) | 55 | 2 | 0 | 1 | 1 | 20 | 79 |
 | [existing](#existing) | 31 | 0 | 0 | 0 | 7 | 0 | 38 |
-| [features](#features) | 3459 | 1415 | 543 | 2481 | 1066 | 1880 | 10844 |
+| [features](#features) | 3454 | 1414 | 570 | 2484 | 1066 | 1886 | 10874 |
 | [iso286](#iso286) | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | [mates](#mates) | 1 | 0 | 0 | 0 | 3 | 0 | 4 |
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 0 | 40 |
 | [rules](#rules) | 114 | 0 | 615 | 0 | 0 | 0 | 729 |
-| [writer](#writer) | 1092 | 0 | 0 | 0 | 15 | 0 | 1107 |
-| **all** | 5036 | 1434 | 1221 | 2487 | 1101 | 1901 | 13180 |
+| [writer](#writer) | 1090 | 0 | 0 | 0 | 15 | 2 | 1107 |
+| **all** | 5029 | 1433 | 1248 | 2490 | 1101 | 1909 | 13210 |
 
 ## analysis
 
@@ -404,7 +404,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
 ## features
 
-### features: rust-correct (3459 entries)
+### features: rust-correct (3454 entries)
 
 - **quiddity #134: boss end treatment** (8 entries, 4 case globs)
 
@@ -418,9 +418,9 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   The evidence is stated per entry (91 distinct; all in `features.json`). The first, for `corpus/cadgenbench/flanged_spool_132` at `features[id=fillets:86].record.side`: At v0.2.5: quiddity-rust#134. Native torus face 86: major radius 45 mm, minor radius 10 mm, trimmed UV sweeps 360°/90°. At 25%, 50%, 75% of the trimmed domain, outward-normal dot tube-radial vector is [-10, -10, -10] mm. All three negative signs prove material outside the tube (a concave root round). Defining faces and radius are unchanged; the old turned path hard-coded convex. Exact comparison: Python "convex"; Rust "concave".
 
-- **quiddity #127: inside rounds and spherical caps are concave fillets** (1016 entries, 20 case globs)
+- **quiddity #127: inside rounds and spherical caps are concave fillets** (1012 entries, 20 case globs)
 
-  The evidence is stated per entry (1016 distinct; all in `features.json`). The first, for `corpus/cadgenbench/flanged_spool_132` at `features[id=fillets:41]`: At v0.2.3: quiddity #127: inside rounds and spherical caps are concave fillets. face 41: native cylinder R40 mm, inward/concave, sweep 53.4873679°. Material-side checks distinguish these inside rounds from the historical false convex claim. Cylindrical runs and any spherical cap keep their exact source-face anchors; #127 supplies the tangent-round proof. Exact comparison: Python null; Rust {"id":"fillets:41","family":"fillets","record":{"axis":"z","radius":40.0,"at":[37.778,-21.811,134.0],"turned":false,"side":"concave"},"faces":[41]}.
+  The evidence is stated per entry (1012 distinct; all in `features.json`). The first, for `corpus/cadgenbench/flanged_spool_132` at `features[id=fillets:41]`: At v0.2.3: quiddity #127: inside rounds and spherical caps are concave fillets. face 41: native cylinder R40 mm, inward/concave, sweep 53.4873679°. Material-side checks distinguish these inside rounds from the historical false convex claim. Cylindrical runs and any spherical cap keep their exact source-face anchors; #127 supplies the tangent-round proof. Exact comparison: Python null; Rust {"id":"fillets:41","family":"fillets","record":{"axis":"z","radius":40.0,"at":[37.778,-21.811,134.0],"turned":false,"side":"concave"},"faces":[41]}.
 
 - **quiddity #127: former inside blends become concave fillets** (239 entries, 18 case globs)
 
@@ -510,7 +510,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   The evidence is stated per entry (4 distinct; all in `features.json`). The first, for `corpus/nist/nist_ctc_01_asme1_rd` at `features[id=rectangular_through_notches:31.33.35]`: CTC-01's three native U-cut planes [31, 33, 35] span the full 50-mm slab. Width 85, depth 25, R10 corners: plane areas [749.9999999998503, 749.9999999998503, 3250.0000000000005] equal [(depth-R)\*thickness twice, (width-2R)\*thickness] within 1e-7 mm2. The cap/mouth edges follow the plate outer loops (through_notches.rs slab/end proof); corner cylinders remain blends. Python has no through-notch family; some walls also retain legitimate step-level evidence.
 
-- **Rectangular slot support #100: both end walls claimed** (10 entries, 5 case globs)
+- **Rectangular slot support #100: both end walls claimed** (9 entries, 5 case globs)
 
   The evidence is stated per entry (5 distinct; all in `features.json`). The first, for `corpus/cadgenbench_inputs/cgb245` at `features[id=slots:293.295.297.299]`: #100 changes slots:293.297 to slots:293.295.297.299: added native planar end walls [295, 299], separation 16.8568734751 mm, width 6.98. Every old wall remains. The new source field is optional null; specify's end_direction/end_lo/end_hi use these actual native planes, including owned walls, and the unchanged rigid-motion test verifies questions/defaults/written PMI. Other common dimensions agree except the measured length case stated here.
 
@@ -530,7 +530,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   The evidence is stated per entry (8 distinct; all in `features.json`). The first, for `corpus/mfcadpp/10092` at `features[id=chamfers:26].record.corner`: At v0.4.2, quiddity-rust#167/#160 requires a corner to reconstruct its published wedge and to have no material interior; see upstream tests/internal/recognition.rs, mfcadpp_bevel_corners_are_reconstructible_or_absent (independent OCCT audit) and bevel_corner_proof_keeps_good_wider_and_captured_points. This exact frozen Python corner [9.828, 14.663, 0.0] is now null; the feature, defining faces and remaining fields still compare against the untouched capture. Conservatively omitting an unproved optional point meets the new publication contract; it does not remove the bevel or invent replacement geometry.
 
-### features: rust-wrong (1415 entries)
+### features: rust-wrong (1414 entries)
 
 - **Python at the adaptive integral, Rust off (U11)** (1407 entries, 16 case globs)
 
@@ -552,10 +552,6 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   Every such hole's record has bottom 'flat': Python's faces add the floor plane. quiddity-rust gives defining faces only (Features::defining); Python quiddity's evidence view gives constituent faces (upstream need U2).
 
-- **a pattern's blind member holes lack their floors** (`*` at `features[id=hole_patterns*].faces+plane`)
-
-  As for the member holes (bottom 'flat'). quiddity-rust gives defining faces only (Features::defining); Python quiddity's evidence view gives constituent faces (upstream need U2).
-
 - **a blind hole's freeform floor is constituent, not defining** (`corpus/cadgenbench_inputs/cgb243` at `features[id=holes:126.127.226].faces+other`)
 
   Record bottom 'flat'; face 126 is the floor (kind other). quiddity-rust gives defining faces only (Features::defining); Python quiddity's evidence view gives constituent faces (upstream need U2).
@@ -568,7 +564,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   quiddity-rust v0.1.0-alpha.2 publishes section_recesses in Features (154 records over the corpus and fixtures at v0.1.0-alpha.3); each differs only by Python's faces adding plane faces, records equal. quiddity-rust gives defining faces only (Features::defining); Python quiddity's evidence view gives constituent faces (upstream need U2).
 
-### features: equivalent (543 entries)
+### features: equivalent (570 entries)
 
 - **quiddity #134: plate under trimming** (18 entries, 8 case globs)
 
@@ -638,6 +634,10 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   The evidence is stated per entry (60 distinct; all in `features.json`). The first, for `corpus/cadgenbench_inputs/cgb245` at `features[id=hole_patterns.rectangle:17.18.24.25.261.262.301.302].members[0]`: quiddity #57/#58/#61: sorted member IDs agree exactly; only presentation order differs: ["holes:25.261","holes:24.262","holes:18.301","holes:17.302"]. Exact observation features[id=hole_patterns.rectangle:17.18.24.25.261.262.301.302].members[0]: captured "holes:24.262", v0.1.1 "holes:25.261".
 
+- **Python/Rust half-cent rounding: 92.07 versus 92.08 mm** (2 entries, 2 case globs)
+
+  The evidence is stated per entry (2 distinct; all in `features.json`). The first, for `corpus/nist/nist_ctc_05_asme1_rd#0` at `features[id=holes:205.206.207].record.depth`: #216 claims floor 207 with bore cylinders 205/206, matching the frozen Python ID and faces. This replaces the two stale missing/extra inventory entries; the remaining exact depth comparison stays visible: Python 92.07 mm versus Rust 92.08 mm for the 92.075 mm span. Every other record and support comparison remains active.
+
 - **Support claimed by named replacement** (5 entries, 1 case glob)
 
   The evidence is stated per entry (5 distinct; all in `features.json`). The first, for `corpus/nist/nist_ftc_10_asme1_rb` at `features[id=hole_patterns.linear:138.140.142.144.146.147.148.149]`: Alpha.8 record {"id":"hole_patterns.linear:138.140.142.144.146.147.148.149","family":"hole_patterns","record":{"holes":[{"axis":[0.0,0.0,-1.0],"location":[-52.0,23.0,37.5],"diameter":7.0,"depth":55.0,"bottom":"through","cbore":{"diameter":10.0,"depth":10.0},"spotface":null,"csink":null},{"axis":[0.0,0.0,-1.0],"location":[-30.0,23.0,37.5],"diameter":7.0,"depth":55.0,"bottom":"through","cbore":{"diameter":10.0,"depth":10.0},"spotface":null,"csink":null},{"axis":[0.0,0.0,-1.0],"location":[-8.0,23.0,37.5],"diameter":7.0,"depth":55.0,"bottom":"through","cbore":{"diameter":10.0,"depth":10.0},"spotface":null,"csink":null},{"axis":[0.0,0.0,-1.0],"location":[14.0,23.0,37.5],"diameter":7.0,"depth":55.0,"bottom":"through","cbore":{"diameter":10.0,"depth":10.0},"spotface":null,"csink":null}],"pitch":22.0,"direction":[1.0,0.0,0.0],"kind":"linear"},"faces":[138,140,142,144,146,147,148,149],"members":["holes:140.147","holes:138.148","holes:142.146","holes:144.149"]}. v0.1.1 schema-5: face 138: {"group":"feature","record_ids":["holes/14","hole_patterns/2"]}; face 140: {"group":"feature","record_ids":["holes/17","hole_patterns/2"]}; face 142: {"group":"feature","record_ids":["holes/16","hole_patterns/2"]}; face 144: {"group":"feature","record_ids":["holes/15","hole_patterns/2"]}; face 146: {"group":"feature","record_ids":["holes/16","hole_patterns/2"]}; face 147: {"group":"feature","record_ids":["holes/17","hole_patterns/2"]}; face 148: {"group":"feature","record_ids":["holes/14","hole_patterns/2"]}; face 149: {"group":"feature","record_ids":["holes/15","hole_patterns/2"]}. quiddity #57/#58/#61: hole_patterns/2 contains all saved pattern faces; pitch is 22.0, member diameters [7.0,7.0,7.0,7.0]; the four corresponding hole records acquire their counterbore supports. Exact observation features[id=hole_patterns.linear:138.140.142.144.146.147.148.149]: captured {"id":"hole_patterns.linear:138.140.142.144.146.147.148.149","family":"hole_patterns","record":{"holes":[{"axis":[0.0,0.0,-1.0],"location":[-52.0,23.0,37.5],"diameter":7.0,"depth":55.0,"bottom":"through","cbore":{"diameter":10.0,"depth":10.0},"spotface":null,"csink":null},{"axis":[0.0,0.0,-1.0],"location":[-30.0,23.0,37.5],"diameter":7.0,"depth":55.0,"bottom":"through","cbore":{"diameter":10.0,"depth":10.0},"spotface":null,"csink":null},{"axis":[0.0,0.0,-1.0],"location":[-8.0,23.0,37.5],"diameter":7.0,"depth":55.0,"bottom":"through","cbore":{"diameter":10.0,"depth":10.0},"spotface":null,"csink":null},{"axis":[0.0,0.0,-1.0],"location":[14.0,23.0,37.5],"diameter":7.0,"depth":55.0,"bottom":"through","cbore":{"diameter":10.0,"depth":10.0},"spotface":null,"csink":null}],"pitch":22.0,"direction":[1.0,0.0,0.0],"kind":"linear"},"faces":[138,140,142,144,146,147,148,149],"members":["holes:140.147","holes:138.148","holes:142.146","holes:144.149"]}, v0.1.1 null.
@@ -666,7 +666,15 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   The evidence is stated per entry (29 distinct; all in `features.json`). The first, for `corpus/cadgenbench_inputs/cgb202` at `features[id=fillets:1612]`: At v0.4.2, quiddity-rust#167/#159 groups the exact torus patches [1612, 1614, 1617, 1618, 1620, 1621, 1624, 1626, 1627] as fillets:1612.1614.1617.1618.1620.1621.1624.1626.1627. A direct native-surface audit, without calling recognition, checked common major radius 98 mm, minor radius 2 mm, origin [-96.51449146895, -99.5, -4.777351081632] and collinear axes. Oriented face-normal dot tube-radius at each patch midpoint is [2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0] mm, proving material side convex; the published radius agrees with the native minor radius. Python still reports patch fillets:1612 on faces [1612], with side convex; those faces remain in the group, rather than being lost. Retired per-patch side judgments remain resolved absence assertions.
 
-### features: undetermined (2481 entries)
+- **Native section-recess source provenance is absent from the frozen Python record** (21 entries, 13 case globs)
+
+  The evidence is stated per entry (8 distinct; all in `features.json`). The first, for `corpus/mfcadpp/1000` at `features[id=section_recesses:19.20.21].record.source`: At b590592 the native record adds source 'section_passages/1', a recognition-family/index provenance link; the frozen Python record has no source field. This entry explains only that added provenance. Every dimension, face and other record comparison remains active.
+
+- **Groove duplicate marker is absent from the frozen Python record (quiddity #217)** (4 entries, 2 case globs)
+
+  quiddity #217 marks a hole or boss that duplicates an annular groove's bore or core with superseded_by="annular_grooves/0"; it adds only this field and changes no face, id or other record field (published faces of this record are identical at #216's head 923c853c and #217's merge b04b4a0d). The frozen Python record has no such field. The feature still pairs with Python's under its id, and its faces and every other field remain compared.
+
+### features: undetermined (2484 entries)
 
 - **face numbering differs from OpenCascade's** (`corpus/inventory_refusal/13975` at `faces[*`)
 
@@ -788,13 +796,13 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   The evidence is stated per entry (863 distinct; all in `features.json`). The first, for `corpus/cadgenbench/flanged_spool_132` at `features[id=hole_patterns.bolt_circle:0.16.17.18.20.21].record.holes[0].axis[2]`: quiddity #57/#58/#61 changed the published record. Local fields are []; No numeric frame mapping or physical-role proof for this field is established; do not assert equivalence or a kernel correction. Exact observation features[id=hole_patterns.bolt_circle:0.16.17.18.20.21].record.holes[0].axis[2]: captured -1.0, v0.1.1 1.0.
 
-- **Unclaimed support requires recall investigation** (46 entries, 10 case globs)
+- **Unclaimed support requires recall investigation** (44 entries, 8 case globs)
 
-  The evidence is stated per entry (46 distinct; all in `features.json`). The first, for `corpus/cadgenbench_inputs/cgb202` at `features[id=fillets:1069]`: Alpha.8 record {"id":"fillets:1069","family":"fillets","record":{"axis":"y","radius":3.0,"at":[-9.296,-70.35,0.254],"turned":false,"side":"convex"},"faces":[1069]}. v0.1.1 schema-5 accounting: face 1069: {"group":"unexplained"}. No named refusal accounts for all of this support. No replacement is claimed for the unexplained/body faces. Exact observation features[id=fillets:1069]: captured {"id":"fillets:1069","family":"fillets","record":{"axis":"y","radius":3.0,"at":[-9.296,-70.35,0.254],"turned":false,"side":"convex"},"faces":[1069]}, v0.1.1 null.
+  The evidence is stated per entry (44 distinct; all in `features.json`). The first, for `corpus/cadgenbench_inputs/cgb202` at `features[id=fillets:1069]`: Alpha.8 record {"id":"fillets:1069","family":"fillets","record":{"axis":"y","radius":3.0,"at":[-9.296,-70.35,0.254],"turned":false,"side":"convex"},"faces":[1069]}. v0.1.1 schema-5 accounting: face 1069: {"group":"unexplained"}. No named refusal accounts for all of this support. No replacement is claimed for the unexplained/body faces. Exact observation features[id=fillets:1069]: captured {"id":"fillets:1069","family":"fillets","record":{"axis":"y","radius":3.0,"at":[-9.296,-70.35,0.254],"turned":false,"side":"convex"},"faces":[1069]}, v0.1.1 null.
 
-- **Inventory addition (not a lost feature)** (24 entries, 9 case globs)
+- **Inventory addition (not a lost feature)** (22 entries, 7 case globs)
 
-  The evidence is stated per entry (24 distinct; all in `features.json`). The first, for `corpus/cadgenbench_inputs/cgb202` at `features[id=fillets:1703]`: v0.1.1 publishes {"id":"fillets:1703","family":"fillets","record":{"axis":"x","radius":3.0,"at":[-165.499,-132.192,-91.846],"turned":false,"side":"convex","_local":["axis"],"_frame":{"status":"inferred","origin":[30.746994014776185,-32.658330387712496,-4.440670776034475],"x":[0.0,1.0,0.0],"y":[-0.08715574274761806,0.0,-0.9961946980917492],"z":[-0.9961946980917492,0.0,0.08715574274761806],"gauge":"full"}},"faces":[1703]}. Alpha.8 did not publish this support. The frozen Python inventory has no such ID. quiddity #57/#58/#61 change intrinsic-frame selection; the presence alone does not prove which semantic reading is correct. Exact observation features[id=fillets:1703]: captured null, v0.1.1 {"id":"fillets:1703","family":"fillets","record":{"axis":"x","radius":3.0,"at":[-165.499,-132.192,-91.846],"turned":false,"side":"convex","_local":["axis"],"_frame":{"status":"inferred","origin":[30.746994014776185,-32.658330387712496,-4.440670776034475],"x":[0.0,1.0,0.0],"y":[-0.08715574274761806,0.0,-0.9961946980917492],"z":[-0.9961946980917492,0.0,0.08715574274761806],"gauge":"full"}},"faces":[1703]}.
+  The evidence is stated per entry (22 distinct; all in `features.json`). The first, for `corpus/cadgenbench_inputs/cgb202` at `features[id=fillets:1703]`: v0.1.1 publishes {"id":"fillets:1703","family":"fillets","record":{"axis":"x","radius":3.0,"at":[-165.499,-132.192,-91.846],"turned":false,"side":"convex","_local":["axis"],"_frame":{"status":"inferred","origin":[30.746994014776185,-32.658330387712496,-4.440670776034475],"x":[0.0,1.0,0.0],"y":[-0.08715574274761806,0.0,-0.9961946980917492],"z":[-0.9961946980917492,0.0,0.08715574274761806],"gauge":"full"}},"faces":[1703]}. Alpha.8 did not publish this support. The frozen Python inventory has no such ID. quiddity #57/#58/#61 change intrinsic-frame selection; the presence alone does not prove which semantic reading is correct. Exact observation features[id=fillets:1703]: captured null, v0.1.1 {"id":"fillets:1703","family":"fillets","record":{"axis":"x","radius":3.0,"at":[-165.499,-132.192,-91.846],"turned":false,"side":"convex","_local":["axis"],"_frame":{"status":"inferred","origin":[30.746994014776185,-32.658330387712496,-4.440670776034475],"x":[0.0,1.0,0.0],"y":[-0.08715574274761806,0.0,-0.9961946980917492],"z":[-0.9961946980917492,0.0,0.08715574274761806],"gauge":"full"}},"faces":[1703]}.
 
 - **Support claimed by named replacement** (2 entries, 2 case globs)
 
@@ -811,6 +819,14 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 - **Drill-point support #100: alternate derived pattern grows** (7 entries, 5 case globs)
 
   The evidence is stated per entry (7 distinct; all in `features.json`). The first, for `corpus/cadgenbench_inputs/cgb243` at `features[id=hole_patterns.rectangle:18.19.20.21.22.23.24.25.564.565.566.567.568.569.570.571]`: #100 completes the existing Rust pattern's tip support: 4 members, union of their faces exactly [18, 19, 20, 21, 22, 23, 24, 25, 564, 565, 566, 567, 568, 569, 570, 571]; cones [19, 21, 23, 25, 564, 566, 568, 570] each adjoin a member bore. Published kind rectangle, diameter(s) [2.5]. Python overlapping patterns are ['hole_patterns.rectangle:18.19.20.21.22.23.24.25.565.567.569.571']. The cone addition is proved, but this pre-existing alternate grouping (#82 conservative row selection / source member differences) is not asserted equivalent to Python's grouping. No recall loss is hidden by the new ID.
+
+- **Native local-step inventory addition remains unverified** (`corpus/mfcadpp_holdout/18016` at `features[id=local_steps:13.16]`)
+
+  At b590592 native recognition adds local_steps:13.16 while the frozen Python inventory has no such record. This is recorded as an unverified inventory addition, not an equivalence or a certified geometry correction. Exact native observation: {"id": "local_steps:13.16", "family": "local_steps", "record": {"run_direction": [0.0, 0.0, 1.0], "run_start": [8.12, 11.011, 0.0], "run_end": [8.12, 11.011, 6.851], "length": 6.851, "height_direction": [0.0, -1.0, 0.0], "height": 11.011, "depth_direction": [1.0, 0.0, 0.0], "depth": 2.0, "ends": [{"scope": "solid", "faces": [12]}, {"scope": "local", "faces": [11]}]}, "faces": [13, 16]}. Every other field, face and feature remains compared.
+
+- **Native prismatic through-cut inventory addition (quiddity #241)** (6 entries, 4 case globs)
+
+  The evidence is stated per entry (6 distinct; all in `features.json`). The first, for `corpus/mfcadpp/10033` at `features[id=prismatic_through_cuts:8.9.10.16]`: At b590592 quiddity #241 proves polygonal through cuts across interrupted mouths and adds this record, while the frozen Python inventory has no such record. Quiddity reviewed the corpus additions in #241; against Python this is recorded as an unverified inventory addition, not an equivalence or a certified correction. Exact native observation: {"id": "prismatic_through_cuts:8.9.10.16", "family": "prismatic_through_cuts", "record": {"cut": {"frame": {"origin": [9.766, 0.0, 34.951], "run": [0.0, 1.0, 0.0], "u": [0.0, 0.0, 1.0], "v": [1.0, 0.0, 0.0]}, "run_interval": [0.0, 34.363], "section": {"boundary": [{"point": [-2.4076, -3.6038], "bulge": 0.0}, {"point": [2.4076, -3.6038], "bulge": 0.0}, {"point": [2.4076, 3.6038], "bulge": 0.0}, {"point": [-2.4076, 3.6038], "bulge": 0.0}]}, "ends": {"low_capped": false, "high_capped": false, "low_gradient": [0.0, 0.0], "high_gradient": [0.0, 0.0]}}, "core_interval": [5.763422, 34.363463], "extent": "observed_walls"}, "faces": [8, 9, 10, 16]}. Every other field, face and feature remains compared.
 
 ### features: not-applicable (1066 entries)
 
@@ -842,11 +858,15 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   The evidence is stated per entry (7 distinct; all in `features.json`). The first, for `corpus/mfcadpp/1007` at `features[id=oriented_chamfers:2]`: quiddity #92 family merge at ada4a044: oriented_chamfers:2 is now chamfers:2 on the same physical faces [2]. tests/schema6.rs::merged_families_keep_the_frozen_oriented_feature_geometry checks all 20 renamed supports against the frozen geometry: same chamfer points, leg/span pairs (allowing paired swaps and reversed run sense), lengths and angles, or the same slot end planes/width. mfcadpp/10252 additionally checks the actual bevel plane and overlapping support-edge intervals. This is a namespace/representation change, not lost or newly invented recognition. Remaining body-key integral differences, where present, are below 1e-9 relative; this verdict concerns cross-family representation, not a claim of exact integral equality.  Exact alpha.2 candidate observation: {"case":"corpus/mfcadpp/1007","path":"features[id=oriented_chamfers:2]","python":{"id":"oriented_chamfers:2","family":"oriented_chamfers","record":{"run":[0.0,0.963429,0.267965],"length":1.315,"at":[6.876,11.184,16.322],"corner":[6.926,11.197,16.274],"leg1":0.1,"leg2":0.1,"leg1_direction":[-1.0,0.0,0.0],"leg2_direction":[0.0,-0.267965,0.963429],"support_spans":[[-0.715,0.715],[-0.658,0.658]],"angle":45.0,"body_key":[0.0,0.0,0.0,11.999845,37.829959,20.147884,5672.85285361,2527.96466244]},"faces":[2]},"rust":null}.
 
-### features: resolved (1880 entries)
+### features: resolved (1886 entries)
 
 - **quiddity #134: turned fillet side** (190 entries, 5 case globs)
 
   The evidence is stated per entry (190 distinct; all in `features.json`). The first, for `corpus/cadgenbench_inputs/cgb202` at `features[id=fillets:0].record.side`: At v0.2.5: quiddity-rust#134. Native torus face 0: major radius 93 mm, minor radius 3 mm, trimmed UV sweeps 7.017314593°/90°. At 25%, 50%, 75% of the trimmed domain, outward-normal dot tube-radial vector is [-3, -3, -3] mm. All three negative signs prove material outside the tube (a concave root round). Defining faces and radius are unchanged; the old turned path hard-coded convex. Exact comparison: Python "convex"; Rust "concave". At v0.4.2, quiddity-rust#167/#159 merges interrupted torus patches: this former run-local id/field is retired, not recaptured. The new exact grouped-id entries retain the original face supports and their material-side evidence; returning this old path is a regression.
+
+- **quiddity #127: inside rounds and spherical caps are concave fillets** (4 entries, 1 case glob)
+
+  The evidence is stated per entry (4 distinct; all in `features.json`). The first, for `corpus/nist/nist_ftc_08_asme1_rc` at `features[id=fillets:135]`: Resolved in the rounded-floor pocket inventory at b590592: the former slot walls 213/214/215/216 and R0.762 concave faces 82/84/85/135 are now published together in pockets:61.62.63.64.82.83.84.85.135.213.214.215.216. The record states depth 1.27 mm, floor_radius 0.762 and the wall links in floor_fillets. This records the replacement inventory, not certification of the old or new geometric interpretation. The old separate slot/fillet departure no longer occurs; this negative assertion rejects its return, and remaining pocket/section comparisons stay active. Historical evidence: At v0.2.3: quiddity #127: inside rounds and spherical caps are concave fillets. face 135: native cylinder R0.762 mm, inward/concave, sweep 90°, transverse plane tangency residuals (face, mm) [[83,2.546629573885184e-12],[213,2.553735001242785e-12]]. Material-side checks distinguish these inside rounds from the historical false convex claim. Cylindrical runs and any spherical cap keep their exact source-face anchors; #127 supplies the tangent-round proof. Exact comparison: Python null; Rust {"id":"fillets:135","family":"fillets","record":{"axis":"x","radius":0.762,"at":[-124.46,79.152,47.213],"turned":false,"side":"concave"},"faces":[135]}.
 
 - **quiddity #127: cylindrical profile surfaces reported by Rust only** (2 entries, 1 case glob)
 
@@ -859,6 +879,10 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 - **a pattern's member holes lack their drill-point cones** (`*` at `features[id=hole_patterns*].faces+cone`)
 
   The members are drill-point holes (bottom 'drill_point'); the pattern's faces are its members'. quiddity-rust gives defining faces only (Features::defining); Python quiddity's evidence view gives constituent faces (upstream need U2). At v0.2.1-alpha.1: #100 now claims drill-point terminal cones. The old missing-cone difference is absent throughout the 120-part corpus/fixture sweep; Rust can include split tip faces Python omitted, judged separately at faces-cone.
+
+- **a pattern's blind member holes lack their floors** (`*` at `features[id=hole_patterns*].faces+plane`)
+
+  Resolved by #216: blind-hole floor claims propagate into the member union used for hole-pattern support. The old missing-planar-floor departure no longer occurs in this sweep. This exact resolved pattern is a negative assertion against its return; other face and record comparisons remain active. Historical evidence: As for the member holes (bottom 'flat'). quiddity-rust gives defining faces only (Features::defining); Python quiddity's evidence view gives constituent faces (upstream need U2).
 
 - **a polygonal boss's end face is constituent, not defining** (`*` at `features[id=polygonal_bosses:*].faces+plane`)
 
@@ -967,6 +991,10 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 - **Optional merged-family field is explicitly null** (5 entries, 5 case globs)
 
   The evidence is stated per entry (5 distinct; all in `features.json`). The first, for `corpus/cadgenbench_inputs/cgb245` at `features[id=slots:293.297].record.source`: quiddity #92 family merge at ada4a044: source is an optional published slot source field. The frozen Python plain record omits it; the merged contract serialises null. The 120-part sweep confirms the existing common geometry fields remain separately compared; this addition supplies no geometry and is not an unknown measurement. Exact alpha.2 candidate observation: {"case":"corpus/cadgenbench_inputs/cgb245","path":"features[id=slots:293.297].record.source","python":null,"rust":null}. At v0.2.1-alpha.1: #100 claims both end walls, replacing the old two-wall slot ID by its four-wall support. The old field path no longer occurs because the sweep compares the full changed-support records; the paired old/new slot entries below preserve the measured dimensions, optional source field and exact end planes, including FTC-08 length 158.75 versus 158.76.
+
+- **Rectangular slot support #100: both end walls claimed** (`corpus/nist/nist_ftc_08_asme1_rc` at `features[id=slots:213.214.215.216]`)
+
+  Resolved in the rounded-floor pocket inventory at b590592: the former slot walls 213/214/215/216 and R0.762 concave faces 82/84/85/135 are now published together in pockets:61.62.63.64.82.83.84.85.135.213.214.215.216. The record states depth 1.27 mm, floor_radius 0.762 and the wall links in floor_fillets. This records the replacement inventory, not certification of the old or new geometric interpretation. The old separate slot/fillet departure no longer occurs; this negative assertion rejects its return, and remaining pocket/section comparisons stay active. Historical evidence: #100 changes slots:214.216 to slots:213.214.215.216: added native planar end walls [213, 215], separation 158.750000001 mm, width 12.7. Every old wall remains. The new source field is optional null; specify's end_direction/end_lo/end_hi use these actual native planes, including owned walls, and the unchanged rigid-motion test verifies questions/defaults/written PMI. Other common dimensions agree except the measured length case stated here. FTC-08: measured 158.75 mm; Python 158.76 subtracts snapped endpoints (-79.38,79.38); Rust measures the raw span before rounding.
 
 ## iso286
 
@@ -1174,7 +1202,7 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 
 ## writer
 
-### writer: rust-correct (1092 entries)
+### writer: rust-correct (1090 entries)
 
 - **Specify-written requirements retain STEP-only authorship (issue #22)** (`*` at `existing[key=*].provenance`)
 
@@ -1244,9 +1272,9 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 
   The evidence is stated per entry (4 distinct; all in `writer.json`). The first, for `corpus/cadgenbench_inputs/cgb243` at `existing[key=dimension|Size_Diameter|[2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,572,573,574,575,576,577,578,579,580,581,582,583,584,585,586,587]|#1]`: Shared planner, #75: this exact occurrence now reads Ø70 Basic from answered:dim:pattern[hole:10.11.578.579,hole:12.13.576.577,hole:14.15.574.575,hole:16.17.572.573,hole:2.3.586.587,hole:4.5.584.585,hole:6.7.582.583,hole:8.9.580.581]/bolt_circle.diameter, before the answered-fit bore on the same complete face support. Python states only its member bore size. The separate bore retains its answered fit and moves to the next same-face comparison occurrence; characteristic identities use planner roles and are unchanged. The oracle's fit-limit projection requires both matching faces and matching nominal, preventing the Basic bolt-circle diameter from inheriting the bore fit limits. Exact fresh readback differences: {"case":"corpus/cadgenbench_inputs/cgb243","path":"existing[key=dimension\|Size_Diameter\|[2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,572,573,574,575,576,577,578,579,580,581,582,583,584,585,586,587]\|#1]","python":null,"rust":{"kind":"dimension","type":"Size_Diameter","faces":[2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,572,573,574,575,576,577,578,579,580,581,582,583,584,585,586,587],"value":70.0,"provenance":"specify-core:written:v1","key":"dimension\|Size_Diameter\|[2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,572,573,574,575,576,577,578,579,580,581,582,583,584,585,586,587]\|#1"}}. The actual STEP Basic tolerance is verified by the planner regression; no dimensional value is normalized away.
 
-- **Exact unsupported planner proposal is reported, not written (shared planner, #75)** (63 entries, 12 case globs)
+- **Exact unsupported planner proposal is reported, not written (shared planner, #75)** (62 entries, 11 case globs)
 
-  The evidence is stated per entry (12 distinct; all in `writer.json`). The first, for `corpus/cadgenbench_inputs/cgb202` at `write.not_written[shared planner dim:envelope:0:min/to/hole:1261.1262/0: General contract conflicts with an answered requirement; retained answered intent instead]`: Shared planner, #75: fresh writer-oracle report has this exact diagnostic absent from the frozen Python writer. The shared General proposal cannot replace the answered/stored tolerance contract. It is omitted and explicitly reported; the existing intent path remains authoritative. This entry covers the exact not_written diagnostic, never an extra dimension. tests/planner_dimensions.rs verifies actual STEP supports, unique pairs, independent plane chains and Required/readback correspondence across the corpus; writer-oracle also checks EXPRESS conformance.
+  The evidence is stated per entry (13 distinct; all in `writer.json`). The first, for `corpus/cadgenbench_inputs/cgb202` at `write.not_written[shared planner dim:envelope:0:min/to/hole:1261.1262/0: General contract conflicts with an answered requirement; retained answered intent instead]`: Shared planner, #75: fresh writer-oracle report has this exact diagnostic absent from the frozen Python writer. The shared General proposal cannot replace the answered/stored tolerance contract. It is omitted and explicitly reported; the existing intent path remains authoritative. This entry covers the exact not_written diagnostic, never an extra dimension. tests/planner_dimensions.rs verifies actual STEP supports, unique pairs, independent plane chains and Required/readback correspondence across the corpus; writer-oracle also checks EXPRESS conformance.
 
 - **Exact shared location conveyance or physical-support change (#75)** (903 entries, 31 case globs)
 
@@ -1272,10 +1300,6 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 
   Specify's existing records now mark a basic (theoretically exact) dimension with basic: true, which haecceity reads as DimTolerance::Basic; the archived Python reader has no such field. The key is emitted only when true, so the only differences are python (missing) rust true at existing[key=dimension\|...].basic. Values, tolerances and all other fields are unchanged; tests/existing.rs basic_dimensions_are_marked_basic_in_existing_and_the_scene verifies the NIST CTC-04 basics. Specify writes basic location dimensions for answered positions, so every written case with one reads basic: true on readback.
 
-- **Verified saved answers exclude feature IDs absent from the current recogniser** (`scenarios/turned_a_typed_thread_depth_is_written` at `resume.hole.function:holes:3.5`)
-
-  answers_for now rematches verified schema-2 answers instead of returning arbitrary saved feature keys. This frozen Python scenario stores tapped:M5@5.6 under holes:3.5, including floor 5; quiddity v0.4.9 recognises only holes:3. The value remains unchanged in the raw stored payload and is retained unresolved by analysis for review, but is not an applicable answer. The writer still verifies the complete thread and its exact 5.6 mm full-thread and 8 mm drilling depths; native save/reopen tests use the actual native feature ID. This exact cross-engine applicability departure is temporary until floor ownership #216 makes holes:3.5 a current feature.
-
 ### writer: not-applicable (15 entries)
 
 - **Python's three parts of one product are one part here** (`nist/nist_ctc_02_asme1_ap242` at `write.message[*]`)
@@ -1293,6 +1317,16 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 - **an assertion on Python's text route or drawing, not ported** (10 entries, 10 case globs)
 
   Python's own text route ('manufacturing requirement' sentences, leaders) or its own datum symbol lettering, which haecceity does not write (decisions 5 and 6 of docs/step-ap242.md); the semantic content each test also checks is ported in tests/writer.rs.
+
+### writer: resolved (2 entries)
+
+- **Resolved exact unsupported planner proposal (shared planner, #75)** (`corpus/mfcadpp/10103` at `write.not_written[shared planner dim:plane:2/to/step:29/2: support has no matching physical principal-plane station; retained legacy measured plane dimension]`)
+
+  At b590592 quiddity #241 recognises prismatic_through_cuts:28.29.30, so face 29 (Python's step_levels:9.14.29.36) is a through-cut wall and the planner no longer proposes the projected plane:2/to/step:29 location. The diagnostic, previously reported and not written, must not return; no other writer output for this part changes.
+
+- **Verified saved answers exclude feature IDs absent from the current recogniser** (`scenarios/turned_a_typed_thread_depth_is_written` at `resume.hole.function:holes:3.5`)
+
+  Resolved by quiddity #216: the native pin hole now claims its planar floor 5 and has exactly the frozen Python ID holes:3.5. The frozen tapped:M5@5.6 value resumes unchanged, with the same 5.6 mm full-thread and 8 mm drilling depths. This exact resolved entry is a negative regression assertion: losing that answer again fails the writer oracle. Before #216, v0.4.9 recognised only holes:3, so verified rematching retained the frozen answer in the raw payload and unresolved review rather than applying an unsupported feature ID.
 
 ## Open work
 
@@ -1342,8 +1376,6 @@ Every `rust-wrong` entry (a bug kept visible) and every `undetermined` entry (a 
   - `*`: `features[id=risers:*]`
 - **a blind hole's floor is constituent, not defining** (1 entry)
   - `*`: `features[id=holes:*].faces+plane`
-- **a pattern's blind member holes lack their floors** (1 entry)
-  - `*`: `features[id=hole_patterns*].faces+plane`
 - **a blind hole's freeform floor is constituent, not defining** (1 entry)
   - `corpus/cadgenbench_inputs/cgb243`: `features[id=holes:126.127.226].faces+other`
 - **a boss's end face is constituent, not defining** (1 entry)
@@ -1677,27 +1709,23 @@ Every `rust-wrong` entry (a bug kept visible) and every `undetermined` entry (a 
   - `parts/four_corner_holes_are_quiddity_rectangle_with_members`: `features[id=hole_patterns.rectangle:6.7.8.9].record.holes[0].location[0]`, `features[id=hole_patterns.rectangle:6.7.8.9].record.holes[1].location[1]`, `features[id=hole_patterns.rectangle:6.7.8.9].record.holes[2].location[0]`, `features[id=hole_patterns.rectangle:6.7.8.9].record.holes[3].location[1]`
   - `parts/stack#0`: `features[id=hole_patterns.rectangle:6.7.8.10].record.holes[0].location[0]`, `features[id=hole_patterns.rectangle:6.7.8.10].record.holes[1].location[1]`, `features[id=hole_patterns.rectangle:6.7.8.10].record.holes[2].location[0]`, `features[id=hole_patterns.rectangle:6.7.8.10].record.holes[3].location[1]`
   - `parts/stack#1`: `features[id=hole_patterns.rectangle:6.7.8.10].record.holes[0].location[0]`, `features[id=hole_patterns.rectangle:6.7.8.10].record.holes[1].location[1]`, `features[id=hole_patterns.rectangle:6.7.8.10].record.holes[2].location[0]`, `features[id=hole_patterns.rectangle:6.7.8.10].record.holes[3].location[1]`
-- **Unclaimed support requires recall investigation** (46 entries)
+- **Unclaimed support requires recall investigation** (44 entries)
   - `corpus/cadgenbench_inputs/cgb202`: `features[id=fillets:1069]`, `features[id=fillets:1092]`, `features[id=fillets:1104]`, `features[id=fillets:806]`, `features[id=fillets:890]`, `features[id=fillets:998]`
   - `corpus/cadgenbench_inputs/cgb243`: `features[id=hole_patterns.rectangle:18.19.20.21.22.23.24.25.565.567.569.571]`
   - `corpus/mfcadpp_regressions/11512`: `features[id=interior_voids:10.28.32.33.34]`
   - `corpus/nist/nist_ctc_02_asme1_rc#0`: `features[id=hole_patterns.linear:462.463.465.466.467.469.502.503.505]`, `features[id=hole_patterns.set:486.487.489.498.499.501.506.507.509.526.527.529.538.539.541]`
   - `corpus/nist/nist_ctc_04_asme1_rd#0`: `features[id=countersinks:446]`, `features[id=countersinks:448]`, `features[id=countersinks:450]`, `features[id=countersinks:452]`, `features[id=countersinks:454]`, `features[id=countersinks:456]`, `features[id=countersinks:471]`, `features[id=countersinks:473]`, `features[id=countersinks:475]`, `features[id=countersinks:477]`, `features[id=countersinks:479]`, `features[id=countersinks:481]`, `features[id=hole_patterns.rectangle:116.117.142.143.148.149.150.151.165.166.167.168]`, `features[id=hole_patterns.rectangle:69.70.71.74.75.76.83.84.85.88.89.90.144.145.146.147.169.170.171.172]`
-  - `corpus/nist/nist_ctc_05_asme1_rd#0`: `features[id=holes:205.206.207]`
   - `corpus/nist/nist_ftc_06_asme1_rd`: `features[id=bosses:11.21]`, `features[id=bosses:11.33]`, `features[id=bosses:11.35]`, `features[id=bosses:11.37]`
   - `nist/nist_ctc_02_asme1_ap242#0`: `features[id=hole_patterns.linear:272.273.274.341.342.343.344.345.346]`, `features[id=hole_patterns.set:254.255.257.258.271.305.306.307.308.311.312.313.314.339.340]`
   - `nist/nist_ctc_04_asme1_ap242#0`: `features[id=countersinks:447]`, `features[id=countersinks:449]`, `features[id=countersinks:451]`, `features[id=countersinks:453]`, `features[id=countersinks:455]`, `features[id=countersinks:457]`, `features[id=countersinks:472]`, `features[id=countersinks:474]`, `features[id=countersinks:476]`, `features[id=countersinks:478]`, `features[id=countersinks:480]`, `features[id=countersinks:482]`, `features[id=hole_patterns.rectangle:69.70.71.74.75.77.83.84.86.88.89.90.144.145.146.147.169.170.171.172]`, `features[id=hole_patterns.rectangle:79.116.117.143.148.149.150.151.165.166.167.168]`
-  - `nist/nist_ctc_05_asme1_ap242`: `features[id=holes:37.38]`
-- **Inventory addition (not a lost feature)** (24 entries)
+- **Inventory addition (not a lost feature)** (22 entries)
   - `corpus/cadgenbench_inputs/cgb202`: `features[id=fillets:1703]`, `features[id=fillets:1707]`, `features[id=fillets:1721]`, `features[id=fillets:1722]`, `features[id=fillets:1726]`, `features[id=fillets:1727]`, `features[id=fillets:2093]`, `features[id=fillets:2098]`
   - `corpus/cadgenbench_inputs/cgb242`: `features[id=fillets:349]`, `features[id=fillets:376]`
   - `corpus/mfcadpp/10060`: `features[id=edge_open_circular_pockets:11.12.13.14]`
   - `corpus/mfcadpp/10103`: `features[id=edge_open_circular_pockets:24.25.26.27]`
   - `corpus/mfcadpp_regressions/11512`: `features[id=interior_voids:13.14]`
-  - `corpus/nist/nist_ctc_05_asme1_rd#0`: `features[id=holes:205.206]`
   - `corpus/nist/nist_ftc_06_asme1_rd`: `features[id=bosses:21]`, `features[id=bosses:33]`, `features[id=bosses:35]`, `features[id=bosses:37]`
   - `corpus/nist/nist_ftc_10_asme1_rb`: `features[id=hole_patterns.linear:130.132.134.136.138.140.142.144.146.147.148.149]`, `features[id=holes:130.138.148]`, `features[id=holes:132.144.149]`, `features[id=holes:134.142.146]`, `features[id=holes:136.140.147]`
-  - `nist/nist_ctc_05_asme1_ap242`: `features[id=holes:37]`
 - **Support claimed by named replacement** (2 entries)
   - `corpus/cadgenbench_inputs/cgb217`: `features[id=turned_steps:321.330.332.334.336.338.340.342]`
   - `corpus/mfcadpp_regressions/11512`: `features[id=interior_voids:3.12.13.14]`
@@ -1724,6 +1752,13 @@ Every `rust-wrong` entry (a bug kept visible) and every `undetermined` entry (a 
   - `corpus/nist/nist_ctc_04_asme1_rd#0`: `features[id=hole_patterns.rectangle:69.70.71.72.74.75.76.77.83.84.85.86.88.89.90.91.144.145.146.147.169.170.171.172]`, `features[id=hole_patterns.rectangle:78.79.80.81.116.117.142.143.148.149.150.151.165.166.167.168]`
   - `nist/nist_ctc_02_asme1_ap242#0`: `features[id=hole_patterns.set:209.210.211.212.225.226.228.229.254.255.257.258.271.272.273.274.305.306.307.308.311.312.313.314.339.340.341.342.343.344.345.346]`
   - `nist/nist_ctc_04_asme1_ap242#0`: `features[id=hole_patterns.rectangle:69.70.71.72.74.75.76.77.83.84.85.86.88.89.90.91.144.145.146.147.169.170.171.172]`, `features[id=hole_patterns.rectangle:78.79.80.81.116.117.142.143.148.149.150.151.165.166.167.168]`
+- **Native local-step inventory addition remains unverified** (1 entry)
+  - `corpus/mfcadpp_holdout/18016`: `features[id=local_steps:13.16]`
+- **Native prismatic through-cut inventory addition (quiddity #241)** (6 entries)
+  - `corpus/mfcadpp/10033`: `features[id=prismatic_through_cuts:8.9.10.16]`
+  - `corpus/mfcadpp/10103`: `features[id=prismatic_through_cuts:16.17.18.19.20.21]`, `features[id=prismatic_through_cuts:28.29.30]`
+  - `corpus/mfcadpp/10163`: `features[id=prismatic_through_cuts:20.21.22]`
+  - `corpus/mfcadpp_holdout/467`: `features[id=prismatic_through_cuts:20.21.22.23.24.25]`, `features[id=prismatic_through_cuts:37.38.39.40.41.42]`
 
 ### mesh: rust-wrong
 

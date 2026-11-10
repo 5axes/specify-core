@@ -262,7 +262,7 @@ checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
 [[package]]
 name = "haecceity"
 version = "0.4.9"
-source = "git+https://github.com/pzfreo/quiddity?tag=v0.4.9#17a883aa1e489c2336b5866baf543c647c31969c"
+source = "git+https://github.com/pzfreo/quiddity?rev=b590592035733d8ac9fa5b3144bb5d969bda89a0#b590592035733d8ac9fa5b3144bb5d969bda89a0"
 dependencies = [
  "flate2",
  "i_overlay",
@@ -547,7 +547,7 @@ dependencies = [
 [[package]]
 name = "quiddity"
 version = "0.4.9"
-source = "git+https://github.com/pzfreo/quiddity?tag=v0.4.9#17a883aa1e489c2336b5866baf543c647c31969c"
+source = "git+https://github.com/pzfreo/quiddity?rev=b590592035733d8ac9fa5b3144bb5d969bda89a0#b590592035733d8ac9fa5b3144bb5d969bda89a0"
 dependencies = [
  "flate2",
  "haecceity",

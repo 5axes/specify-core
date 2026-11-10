@@ -28,7 +28,42 @@ fn five_real_alpha6_files_resume_all_87_answers_including_a_rotated_part() {
         let loaded = part::load(&fixture(&format!("resume-alpha6/{name}.step.gz")), None).unwrap();
         let (analysis, warnings) = api::analyse_reporting(&loaded).unwrap();
         assert!(warnings.is_empty(), "{name}: {warnings:?}");
-        assert_eq!(analysis["resume"]["answers"], base["answers"], "{name}");
+        // #216 adds planar floor ownership. Only these two saved hole IDs grow;
+        // compare every answer value and the complete migration list exactly.
+        let rekey = |id: &str| {
+            match name {
+                "shaft" => id
+                    .strip_suffix(":holes:15")
+                    .map(|q| format!("{q}:holes:15.16")),
+                "pin" => id
+                    .strip_suffix(":holes:3")
+                    .map(|q| format!("{q}:holes:3.5")),
+                _ => None,
+            }
+            .unwrap_or_else(|| id.into())
+        };
+        let expected: Map<String, Value> = base["answers"]
+            .as_object()
+            .unwrap()
+            .iter()
+            .map(|(id, value)| (rekey(id), value.clone()))
+            .collect();
+        let migrated: Vec<_> = base["answers"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .filter(|id| rekey(id) != **id)
+            .map(|id| json!([id, rekey(id)]))
+            .collect();
+        assert_eq!(analysis["resume"]["answers"], json!(expected), "{name}");
+        assert_eq!(
+            analysis["resume"]
+                .get("migrated")
+                .cloned()
+                .unwrap_or_else(|| json!([])),
+            json!(migrated),
+            "{name}"
+        );
         assert!(analysis["resume"]["unresolved"].is_null());
         let ids = |value: &Value| {
             value
@@ -58,7 +93,12 @@ fn five_real_alpha6_files_resume_all_87_answers_including_a_rotated_part() {
             .unwrap();
         assert_eq!(resume::answers_for(&back).unwrap().as_ref(), Some(answers));
         // Stored base64 bytes and literal Unicode/quote/backslash text survive step-io 0.3.
-        let before = resume::stored(&loaded.bytes);
+        let mut before = resume::stored(&loaded.bytes);
+        // Every payload field and string byte survives apart from the migrated keys.
+        before
+            .get_mut(&0)
+            .unwrap()
+            .insert("answers".into(), json!(expected));
         let after = resume::stored(&back.bytes);
         assert_eq!(
             resume::encode(&json!(before[&0])),
@@ -528,7 +568,14 @@ fn unresolved_saved_answers_reach_review_and_leave_questions_open() {
         analysis["resume"]["answers"].as_object().unwrap(),
     )
     .unwrap();
-    assert!(review["open"].as_array().unwrap().contains(&json!(key)));
+    // The unanswered current question includes the floor; the orphan retains its saved key.
+    assert_eq!(key, "hole.function:holes:3");
+    assert!(
+        review["open"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("hole.function:holes:3.5"))
+    );
     assert!(
         review["problems"]
             .as_array()

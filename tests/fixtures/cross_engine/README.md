@@ -262,3 +262,29 @@ These six API/CLI cases still compare complete output bytes exactly. The v0.4.6
 Add policy introduces no new Specify refusal on this fixture/oracle/corpus tier:
 the six raw-kernel AP203 refusals already use Replace in Specify because they have
 no PMI (per-file repair reasons are in the NIST README).
+
+## Floor ownership revision `b590592` (unreleased)
+
+Regenerated all sixteen cases with `cargo run --release --locked --example write_fixtures`.
+Only CTC-05 changes: its hole identity now includes floor 38 (`hole:37.38`) in planner
+metadata. The physical depth/location carriers remain on cylinder 37; the depth remains
+92.08 mm. Both refusals, the other thirteen successful STEP outputs and every
+Python-written input/evidence file remain unchanged.
+
+The documented capture tool independently read the changed output; its complete parsed
+semantic readback equals the previous capture. Its actual STEP hash and resume evidence
+come from the capture tool, with no manual compressed-data or hash edits. The output was
+staged under `<capture-dir>/nist/nist_ctc_05_asme1_ap242/` and read with:
+
+```sh
+SPECIFY_CORE=<python-reference> <venv>/bin/python \
+  tools/capture.py cross-engine <capture-dir> --rust-only
+```
+
+The source is the documented clean `2cb6499` reference, reconstructed from local Git
+objects. Its frozen Python 3.12 environment cannot be restored offline because the
+`cadquery-ocp==7.8.1.1.post1` macOS arm64 wheel is absent from the cache. No dependency
+was downloaded. The available reader uses Python 3.14.7, quiddity 0.3.9, build123d 0.11.1
+and cadquery-ocp-novtk/proxy 7.9.3.1. Before capturing the changed file, this reader gave
+identical complete semantic readbacks and resume face evidence for the original CTC-05
+fixture. Metadata records the actual runtime and command.
