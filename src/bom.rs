@@ -448,13 +448,15 @@ pub struct PartCopy {
 /// For each part of `file` (parsed as `doc`), the earlier part it is a copy of, or `None`
 /// (`same_as` and `faces_of_first` in [`crate::api::parts`]). A copy has the same geometry up
 /// to a proper rigid motion, proven face by face (`quiddity::correspondence::congruent`), the
-/// same stated BOM facts ([`stated`]) and the same saved `part.*` and `bom.*` answers. Answers
+/// same stated BOM facts ([`stated`]), effective stated process (answer before file), and the
+/// same saved `part.*` and `bom.*` answers. A bought part has no process; a guessed or defaulted
+/// process is not stated, so it differs from a stated one. Answers
 /// given for faces (datums, feature questions) may be shared through the face pairing or given
 /// per copy, so they never decide it; nor do names, `PRODUCT.id` or defaults, as in
 /// draftwright's pack (`Metadata::compatible`). Parts keep their own indexes (decision D1); a
 /// copy points at the first of its kind. Only parts that share a face count with another are
-/// built, and only congruent ones have their BOM facts read, so a file of distinct parts costs
-/// next to nothing more.
+/// built, and only congruent ones have their BOM facts and process read, so a file of distinct
+/// parts costs next to nothing more.
 pub fn copies(file: &File, doc: &Document) -> Vec<Option<PartCopy>> {
     let defs = file.definitions();
     let mut out = vec![None; defs.len()];
@@ -511,10 +513,30 @@ pub fn copies(file: &File, doc: &Document) -> Vec<Option<PartCopy>> {
     let saved = crate::resume::stored_in(doc);
     let key = |i: usize| {
         let row = &rows[members.iter().position(|&m| m == i).unwrap_or_default()];
-        (
-            stated(row, &defs[i].product_id),
-            shared_answers(saved.get(&i)),
-        )
+        let answers = shared_answers(saved.get(&i));
+        // As process::of: a bought part has no process, and a valid answer wins over the
+        // file. read normalises the file's process and distinguishes accepted suggestions.
+        let bought = answers.get("bom.make_buy").map_or_else(
+            || row.make_buy.source != "default" && row.make_buy.value == "bought",
+            |a| a == "bought",
+        );
+        let process = (!bought)
+            .then(|| {
+                answers
+                    .get(crate::process::QUESTION)
+                    .filter(|v| {
+                        v.as_str()
+                            .is_some_and(|a| crate::process::PROCESSES.contains(&a))
+                    })
+                    .cloned()
+                    .or_else(|| {
+                        crate::process::read(doc, defs[i].product_definition)
+                            .filter(|f| f.source != "default")
+                            .map(|f| f.value)
+                    })
+            })
+            .flatten();
+        (stated(row, &defs[i].product_id), process, answers)
     };
     for group in groups {
         // The first of each kind, with its faces' inverse: the group's first face to its own.

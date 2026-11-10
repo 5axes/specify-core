@@ -107,7 +107,8 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// written, same_as, faces_of_first}` each, `written` saying whether specify-core has written the
 /// part (answers stored for it). A part is identified by `part`, its index (decision D1); `name`
 /// and `product_id` are reported beside it and need not be unique. `same_as` is the index of the
-/// first part this one is a copy of (the same shape moved, and the same stated BOM facts and
+/// first part this one is a copy of (the same shape moved, and the same stated BOM facts,
+/// effective stated process (answer before file; none for bought parts or defaults), and
 /// `part.*`/`bom.*` answers: [`bom::copies`]), or `null`: separate products a file gives for one
 /// part (four `M3×8 hex bolt #n` with no assembly) are one part with their instances added
 /// together. `faces_of_first` gives, for each of a copy's faces in its own order, the face of

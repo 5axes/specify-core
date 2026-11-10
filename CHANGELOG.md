@@ -31,6 +31,10 @@ All notable changes to specify-core-rust. The format follows
 
 ### Changed
 
+- `same_as` now counts a stated manufacturing process, using the saved answer before the
+  file’s value, so congruent parts group as draftwright’s pack does. Guessed and defaulted
+  processes do not count; bought parts have no process.
+
 - The reviewed WASM size ceiling is raised from 15,000,000 to **16,500,000** bytes (maintainer, 2026-11-09), after the deviation-checked mesher (#162) measured 15,002,152 bytes.
 
 ## 0.1.15 (2026-11-07)

@@ -1,8 +1,10 @@
 //! For #150: separate products that are one part moved (four `M3×8 hex bolt #n` with no
 //! assembly) are listed with `same_as`, each keeping its own index. The files are made here from
 //! `pin.step`: each copy is its whole DATA section renumbered, renamed and translated.
+use haecceity::p21::{self, Attribute as A, Document, Edit};
+use haecceity::pmi::{AttributeSet, AttributeValue};
 use serde_json::{Value, json};
-use specify_core::{api, part::File};
+use specify_core::{api, part::File, process, resume};
 use std::path::Path;
 
 const PIN: &str = include_str!("fixtures/parts/pin.step");
@@ -104,6 +106,141 @@ fn file(copies: &[[f64; 3]], edit: impl Fn(usize, String) -> String) -> Vec<u8> 
 
 fn listed(bytes: Vec<u8>) -> Vec<Value> {
     api::parts_of(&File::of_bytes(Path::new("copies.step"), bytes).unwrap())
+}
+
+/// Congruent STEP copies with per-product CAx-IF attributes, without changing their geometry.
+fn with_metadata(sets: &[Vec<AttributeSet>]) -> Vec<u8> {
+    let shifts: Vec<_> = (0..sets.len())
+        .map(|i| [20.0 * i as f64, 0.0, 0.0])
+        .collect();
+    let bytes = file(&shifts, |_, e| e);
+    let file = File::of_bytes(Path::new("copies.step"), bytes.clone()).unwrap();
+    let doc = Document::parse(bytes).unwrap();
+    let mut edit = Edit::new();
+    let s = |v: &str| A::String(v.into());
+    for (def, sets) in file.definitions().iter().zip(sets) {
+        for set in sets {
+            let items = set
+                .items
+                .iter()
+                .map(|(key, value)| {
+                    let AttributeValue::Text(value) = value else {
+                        panic!("fixture expects text attributes");
+                    };
+                    edit.add(p21::simple(
+                        "DESCRIPTIVE_REPRESENTATION_ITEM",
+                        vec![s(key), s(value)],
+                    ))
+                    .to_ref()
+                })
+                .collect();
+            let context = edit.add(p21::simple(
+                "REPRESENTATION_CONTEXT",
+                vec![s(""), s("user defined attributes")],
+            ));
+            let rep = edit.add(p21::simple(
+                "REPRESENTATION",
+                vec![s(""), A::List(items), context.to_ref()],
+            ));
+            let property = edit.add(p21::simple(
+                "PROPERTY_DEFINITION",
+                vec![
+                    s(&set.name),
+                    s("user defined attribute"),
+                    A::EntityRef(def.product_definition),
+                ],
+            ));
+            edit.add(p21::simple(
+                "PROPERTY_DEFINITION_REPRESENTATION",
+                vec![property.to_ref(), rep.to_ref()],
+            ));
+        }
+    }
+    doc.apply(&edit).unwrap().bytes
+}
+
+fn file_process(value: &str) -> AttributeSet {
+    let mut set = process::attribute_set(value, false);
+    set.name = "Exporter attributes".into();
+    set
+}
+
+#[test]
+fn different_file_stated_processes_split_congruent_copies() {
+    let parts = listed(with_metadata(&[
+        vec![file_process(process::FDM)],
+        vec![file_process(process::MACHINED)],
+    ]));
+    assert_eq!(same_as(&parts), [json!(null), json!(null)]);
+}
+
+#[test]
+fn the_same_file_stated_process_groups_copies_after_normalisation() {
+    let parts = listed(with_metadata(&[
+        vec![file_process(process::FDM)],
+        vec![file_process("  3d PRINTED: fdm  ")],
+    ]));
+    assert_eq!(same_as(&parts), [json!(null), json!(0)]);
+}
+
+#[test]
+fn a_defaulted_or_guessed_process_differs_from_a_stated_process() {
+    // A default contributes None even when its value agrees with the stated process.
+    for unstated in [vec![], vec![process::attribute_set(process::FDM, true)]] {
+        for sets in [
+            vec![unstated.clone(), vec![file_process(process::FDM)]],
+            vec![vec![file_process(process::FDM)], unstated.clone()],
+        ] {
+            let parts = listed(with_metadata(&sets));
+            assert_eq!(same_as(&parts), [json!(null), json!(null)]);
+        }
+    }
+}
+
+#[test]
+fn defaulted_processes_group_even_when_their_values_differ() {
+    let parts = listed(with_metadata(&[
+        vec![process::attribute_set(process::FDM, true)],
+        vec![process::attribute_set(process::RESIN, true)],
+        vec![], // No stored suggestion: the ordinary machined guess is also unstated.
+    ]));
+    assert_eq!(same_as(&parts), [json!(null), json!(0), json!(0)]);
+}
+
+#[test]
+fn agreeing_process_answers_override_different_file_processes() {
+    let sets: Vec<_> = [process::MACHINED, process::RESIN]
+        .iter()
+        .enumerate()
+        .map(|(i, process)| {
+            vec![
+                file_process(process),
+                resume::attribute_set(&json!({
+                    "schema": 2, "part": i, "answers": {"part.process": process::FDM}
+                })),
+            ]
+        })
+        .collect();
+    let parts = listed(with_metadata(&sets));
+    assert_eq!(same_as(&parts), [json!(null), json!(0)]);
+}
+
+#[test]
+fn bought_copies_have_no_process_even_when_the_files_state_different_ones() {
+    let sets: Vec<_> = [process::FDM, process::MACHINED]
+        .iter()
+        .enumerate()
+        .map(|(i, process)| {
+            vec![
+                file_process(process),
+                resume::attribute_set(&json!({
+                    "schema": 2, "part": i, "answers": {"bom.make_buy": "bought"}
+                })),
+            ]
+        })
+        .collect();
+    let parts = listed(with_metadata(&sets));
+    assert_eq!(same_as(&parts), [json!(null), json!(0)]);
 }
 
 fn same_as(parts: &[Value]) -> Vec<Value> {

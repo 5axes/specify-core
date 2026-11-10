@@ -85,6 +85,13 @@ one product definition. Specify asks per part (`analyse --part N`). A part whose
 `unasked` row ("part.process is not asked of a bought part"). A bought **guess** does not
 suppress the question, as a suggestion is never applied. The assembly product has no process.
 
+`same_as` groups congruent copies only when their effective stated processes agree: the saved
+`part.process` answer wins over the file’s stated process. A guess or accepted suggestion
+contributes no stated process, so two defaults group even if their values differ, while a
+stated process and no stated process split, as in draftwright’s pack. Bought parts have no
+process for this comparison. The other stated BOM facts and saved `part.*`/`bom.*` answers
+still have to agree.
+
 ## STEP form
 
 A CAx-IF user defined attribute (UDA practice 1.8) property set `specify process` on the
