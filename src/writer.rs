@@ -654,9 +654,7 @@ fn write_verified(
     let mut scoped = Vec::new();
     for (loaded, _, _) in jobs {
         if resume::scoped(&original.doc, loaded.binding.part)
-            && resume::answers_for(loaded)
-                .map_err(|e| WriteError::Failed(e.to_string()))?
-                .is_some()
+            && resume::has_answers(loaded).map_err(|e| WriteError::Failed(e.to_string()))?
         {
             scoped.push(loaded.binding.part);
         }
@@ -724,7 +722,7 @@ fn write_verified(
     for (loaded, _, _) in jobs {
         let foreign = source.has_pmi(loaded.binding.part)
             && (scoped.contains(&loaded.binding.part)
-                || resume::answers_for(loaded).map_err(failed)?.is_none());
+                || !resume::has_answers(loaded).map_err(failed)?);
         modes.push(if foreign { Mode::Add } else { Mode::Replace });
     }
 

@@ -242,7 +242,7 @@ pub(crate) struct Planned {
 
 impl Planned {
     /// Recognition support proves a hole's identity; a floor-bearing hole's PMI
-    /// carriers use cylinders. Do this after reconciliation so carriers cannot change
+    /// carriers leave out its planar floor. Do this after reconciliation so carriers cannot change
     /// the planner's quantities, conflicts or existing-PMI authorities.
     pub(crate) fn bore_supports(&mut self, part: &haecceity::Part) {
         let bore = |support: &mut Support| {
@@ -258,7 +258,7 @@ impl Planned {
             {
                 support.faces.retain(|&i| {
                     part.faces.get(i).is_some_and(|f| {
-                        matches!(f.surface, haecceity::geom::Surface::Cylinder { .. })
+                        !matches!(f.surface, haecceity::geom::Surface::Plane { .. })
                     })
                 });
             }

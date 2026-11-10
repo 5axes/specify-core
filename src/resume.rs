@@ -403,6 +403,18 @@ fn schema_of(payload: &Map<String, Value>) -> Option<i64> {
 /// unresolved values and their diagnostics. [`stored`] exposes the original raw payload.
 /// An error describing faces or recognising named supports is returned to the caller.
 pub fn answers_for(loaded: &LoadedPart) -> Result<Option<Map<String, Value>>, FeatureError> {
+    stored_answers(loaded, true)
+}
+
+/// Whether [`answers_for`] returns answers, without rematching schema-1/2 feature answers.
+pub(crate) fn has_answers(loaded: &LoadedPart) -> Result<bool, FeatureError> {
+    Ok(stored_answers(loaded, false)?.is_some())
+}
+
+fn stored_answers(
+    loaded: &LoadedPart,
+    resolve: bool,
+) -> Result<Option<Map<String, Value>>, FeatureError> {
     let Ok(doc) = Document::parse(loaded.bytes.to_vec()) else {
         return Ok(None);
     };
@@ -419,6 +431,9 @@ pub fn answers_for(loaded: &LoadedPart) -> Result<Option<Map<String, Value>>, Fe
             if let Some(answers) = payload.get("answers").and_then(Value::as_object) {
                 // Part/datum-only payloads need no feature recognition. Keep
                 // geometry work off the common settings-only reopen/write path.
+                if !resolve {
+                    return Ok(Some(answers.clone()));
+                }
                 let features = if answers.keys().any(|id| answer_feature(id).is_some()) {
                     crate::features::recognise(loaded)?
                 } else {
