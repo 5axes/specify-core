@@ -44,7 +44,13 @@ corpus parts. No name is refused at write time merely because it is shared.
 Schema 3 uses schema 2's hash algorithm; no new fingerprint namespace is invented.
 
 This engine reads schemas 1, 2 and 3. Schema 1/2 resume retains its existing
-fingerprint and legacy-ID rules. A previous engine accepting only schemas 1/2
+fingerprint checks. With a verified fingerprint, both analysis and file-only PMI scenes
+rematch saved feature answers to current IDs, including a uniquely added planar floor.
+Without face evidence (plain projects/answer files and unverified schema-1 payloads),
+matching prefers an exact ID, then a unique same-family feature whose ID faces are a
+strict superset of the saved ID faces. Ambiguous supersets and family changes remain
+unresolved with their original values. These matches remain marked unverified.
+A previous engine accepting only schemas 1/2
 **skips a schema 3 stored-answer item entirely** under its existing version rule:
 it does not recover a subset of the answers. It can still read the standard AP242
 PMI as existing PMI to the extent its PMI reader supports it; automatic interview

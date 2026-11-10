@@ -628,3 +628,61 @@ fn real_alpha6_ftc10_answers_migrate_to_larger_geometric_supports() {
         assert!(!review["open"].as_array().unwrap().contains(&pair[1]));
     }
 }
+
+/// Sidecars/projects and legacy payloads lack face evidence: only an exact ID or
+/// a unique same-family strict superset of the ID faces may carry an answer.
+#[test]
+fn id_only_answers_require_a_unique_same_family_strict_id_face_superset() {
+    let loaded = part::load(&fixture("parts/plate.step"), None).unwrap();
+    let answers = json!({"hole.function:holes:6":"tapped:M2", "part.material":"steel"});
+    let run = |features: Vec<Feature>| {
+        resume::rematch_answers(&loaded, &features, answers.as_object().unwrap(), None, None)
+            .unwrap()
+    };
+    let unique = run(vec![feature("holes:6.7", "holes", vec![6, 7])]);
+    assert_eq!(
+        unique.answers,
+        json!({"hole.function:holes:6.7":"tapped:M2", "part.material":"steel"})
+            .as_object()
+            .unwrap()
+            .clone()
+    );
+    assert_eq!(
+        unique.migrated,
+        [(
+            "hole.function:holes:6".into(),
+            "hole.function:holes:6.7".into()
+        )]
+    );
+    assert!(unique.unresolved.is_empty());
+    assert!(unique.unverified.is_some());
+    for features in [
+        vec![
+            feature("holes:6.7", "holes", vec![6, 7]),
+            feature("holes:6.8", "holes", vec![6, 8]),
+        ],
+        vec![feature("bosses:6.7", "bosses", vec![6, 7])],
+        // Record faces alone do not establish an ID-face superset.
+        vec![feature("holes:7", "holes", vec![6, 7])],
+    ] {
+        let refused = run(features);
+        assert_eq!(
+            refused.answers,
+            json!({"part.material":"steel"})
+                .as_object()
+                .unwrap()
+                .clone()
+        );
+        assert!(refused.migrated.is_empty());
+        assert_eq!(refused.unresolved.len(), 1);
+        assert_eq!(refused.unresolved[0].id, "hole.function:holes:6");
+        assert_eq!(refused.unresolved[0].answer, "tapped:M2");
+    }
+    let exact = run(vec![
+        feature("holes:6", "holes", vec![6]),
+        feature("holes:6.7", "holes", vec![6, 7]),
+    ]);
+    assert_eq!(exact.answers, *answers.as_object().unwrap());
+    assert!(exact.migrated.is_empty());
+    assert!(exact.unresolved.is_empty());
+}

@@ -8,6 +8,9 @@ All notable changes to specify-core-rust. The format follows
 
 ### Fixed
 
+- Answers without face evidence can follow a unique same-family feature whose ID
+  adds faces to the saved ID. Ambiguous matches stay unresolved for review.
+
 - Reopening a STEP with verified schema-1/2 saved answers keeps current thread and
   position editor IDs when a kernel upgrade adds a hole floor to its feature ID,
   avoiding false removals and duplicate position changes in revision reports.
