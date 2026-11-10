@@ -37,10 +37,22 @@ pub struct Scene {
 
 impl Scene {
     pub fn new(loaded: &LoadedPart) -> Result<Self, String> {
+        Self::with(loaded, None)
+    }
+
+    /// [`Scene::new`] with `loaded`'s features already recognised, when the caller has them.
+    pub(crate) fn with(
+        loaded: &LoadedPart,
+        features: Option<&[crate::features::Feature]>,
+    ) -> Result<Self, String> {
         let doc = Document::parse(loaded.bytes.to_vec()).map_err(|e| e.to_string())?;
         let defs = step::read_part_definitions(&loaded.bytes).map_err(|e| e.to_string())?;
         let read = pmi::read(&doc, &defs).map_err(|e| e.to_string())?;
-        let stored = resume::answers_for(loaded).map_err(|e| e.to_string())?;
+        let stored = match features {
+            Some(features) => resume::answers_with(loaded, features),
+            None => resume::answers_for(loaded),
+        }
+        .map_err(|e| e.to_string())?;
         let foreign = if stored.is_some() && resume::scoped(&doc, loaded.binding.part) {
             let bytes = crate::provenance::without_owned(&doc, &read, &[loaded.binding.part])?;
             let doc = Document::parse(bytes).map_err(|e| e.to_string())?;

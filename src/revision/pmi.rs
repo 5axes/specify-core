@@ -705,7 +705,7 @@ pub(super) fn diff(
         }
         items
     };
-    let destination = Scene::new(new).map_err(api::Error::Analysis)?;
+    let destination = Scene::with(new, Some(features.1)).map_err(api::Error::Analysis)?;
     let carried_numbers = destination
         .carries_numbers(carried)
         .map_err(api::Error::Analysis)?;
@@ -713,7 +713,8 @@ pub(super) fn diff(
         if std::ptr::eq(part, new) {
             destination.comparison(part, analysis, answers)
         } else {
-            Scene::new(part).and_then(|scene| scene.comparison(part, analysis, answers))
+            Scene::with(part, std::ptr::eq(part, old).then_some(features.0))
+                .and_then(|scene| scene.comparison(part, analysis, answers))
         }
         .map_err(api::Error::Analysis)
     };

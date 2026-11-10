@@ -684,7 +684,7 @@ fn write_verified(
             let current = if k >= first.part_count {
                 None
             } else if let Some((l, _, _)) = jobs.iter().find(|(l, _, _)| l.binding.part == k) {
-                resume::answers_for(l).map_err(failed)?
+                resume::has_answers(l).map_err(failed)?.then_some(())
             } else {
                 let load_failed = |e: part::LoadError| WriteError::Failed(e.to_string());
                 if file.is_none() {
@@ -698,7 +698,7 @@ fn write_verified(
                     .expect("read above")
                     .load(Some(k))
                     .map_err(load_failed)?;
-                resume::answers_for(&l).map_err(failed)?
+                resume::has_answers(&l).map_err(failed)?.then_some(())
             };
             if current.is_none() {
                 stale.push(k.to_string());

@@ -403,17 +403,45 @@ fn schema_of(payload: &Map<String, Value>) -> Option<i64> {
 /// unresolved values and their diagnostics. [`stored`] exposes the original raw payload.
 /// An error describing faces or recognising named supports is returned to the caller.
 pub fn answers_for(loaded: &LoadedPart) -> Result<Option<Map<String, Value>>, FeatureError> {
-    stored_answers(loaded, true)
+    stored_answers(loaded, Need::Answers(None))
+}
+
+/// [`answers_for`], matched against `features`, `loaded`'s features already recognised.
+pub(crate) fn answers_with(
+    loaded: &LoadedPart,
+    features: &[crate::features::Feature],
+) -> Result<Option<Map<String, Value>>, FeatureError> {
+    stored_answers(loaded, Need::Answers(Some(features)))
 }
 
 /// Whether [`answers_for`] returns answers, without rematching schema-1/2 feature answers.
 pub(crate) fn has_answers(loaded: &LoadedPart) -> Result<bool, FeatureError> {
-    Ok(stored_answers(loaded, false)?.is_some())
+    Ok(stored_answers(loaded, Need::Presence)?.is_some())
+}
+
+/// What [`stored_answers`] is asked for.
+#[derive(Clone, Copy)]
+enum Need<'a> {
+    /// Only whether there are answers.
+    Presence,
+    /// The answers, matched to the part's features (recognised here when not given).
+    Answers(Option<&'a [crate::features::Feature]>),
+}
+
+/// `known`, or `loaded`'s features recognised now.
+fn recognised<'a>(
+    loaded: &LoadedPart,
+    known: Option<&'a [crate::features::Feature]>,
+) -> Result<std::borrow::Cow<'a, [crate::features::Feature]>, FeatureError> {
+    Ok(match known {
+        Some(features) => std::borrow::Cow::Borrowed(features),
+        None => std::borrow::Cow::Owned(crate::features::recognise(loaded)?),
+    })
 }
 
 fn stored_answers(
     loaded: &LoadedPart,
-    resolve: bool,
+    need: Need,
 ) -> Result<Option<Map<String, Value>>, FeatureError> {
     let Ok(doc) = Document::parse(loaded.bytes.to_vec()) else {
         return Ok(None);
@@ -422,7 +450,11 @@ fn stored_answers(
         return Ok(None);
     };
     if schema_of(&payload) == Some(3) {
-        let features = crate::features::recognise(loaded)?;
+        let known = match need {
+            Need::Answers(known) => known,
+            Need::Presence => None,
+        };
+        let features = recognised(loaded, known)?;
         return Ok(report_for_parsed(loaded, Some(&doc), &features)?.map(|r| r.answers));
     }
     let mut answers = match check(loaded, &payload, form)? {
@@ -431,13 +463,13 @@ fn stored_answers(
             if let Some(answers) = payload.get("answers").and_then(Value::as_object) {
                 // Part/datum-only payloads need no feature recognition. Keep
                 // geometry work off the common settings-only reopen/write path.
-                if !resolve {
+                let Need::Answers(known) = need else {
                     return Ok(Some(answers.clone()));
-                }
+                };
                 let features = if answers.keys().any(|id| answer_feature(id).is_some()) {
-                    crate::features::recognise(loaded)?
+                    recognised(loaded, known)?
                 } else {
-                    Vec::new()
+                    std::borrow::Cow::Owned(Vec::new())
                 };
                 Some(if state == Check::Verified {
                     rematch(answers, &features).answers
