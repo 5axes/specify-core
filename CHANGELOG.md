@@ -6,6 +6,12 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+### Fixed
+
+- Reopening a STEP with verified schema-1/2 saved answers keeps current thread and
+  position editor IDs when a kernel upgrade adds a hole floor to its feature ID,
+  avoiding false removals and duplicate position changes in revision reports.
+
 ### Added
 
 - `mesh` accepts CLI `--max-deviation-mm` and `max_deviation_mm` in serve, Python

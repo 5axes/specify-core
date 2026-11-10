@@ -174,10 +174,14 @@ fn a_written_file_resumes_its_answers_and_is_rewritten_not_added_to() {
 #[test]
 fn a_resumed_files_thread_can_be_answered_away() {
     let dir = temp("unthread");
-    let base = analysis("parts/pin");
+    let pin = load(&fixture("pin"), None).unwrap();
+    // This is an edit on the current recogniser, not a Python-to-Rust import.
+    // Python's frozen holes:3.5 includes a floor that v0.4.9 does not claim;
+    // rematching must not silently trust that unsupported saved ID. Use the
+    // actual analysis and retain the complete removal and resumed-answer checks.
+    let base = specify_core::api::analyse(&pin).unwrap();
     let given = json!({"part.material": "brass"});
     let first = dir.join("first.step");
-    let pin = load(&fixture("pin"), None).unwrap();
     let report = write(
         &pin,
         &apply(&base, given.clone()),

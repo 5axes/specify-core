@@ -21,8 +21,8 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | [mates](#mates) | 1 | 0 | 0 | 0 | 3 | 0 | 4 |
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 0 | 40 |
 | [rules](#rules) | 114 | 0 | 615 | 0 | 0 | 0 | 729 |
-| [writer](#writer) | 1091 | 0 | 0 | 0 | 15 | 0 | 1106 |
-| **all** | 5035 | 1434 | 1221 | 2487 | 1101 | 1901 | 13179 |
+| [writer](#writer) | 1092 | 0 | 0 | 0 | 15 | 0 | 1107 |
+| **all** | 5036 | 1434 | 1221 | 2487 | 1101 | 1901 | 13180 |
 
 ## analysis
 
@@ -1174,7 +1174,7 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 
 ## writer
 
-### writer: rust-correct (1091 entries)
+### writer: rust-correct (1092 entries)
 
 - **Specify-written requirements retain STEP-only authorship (issue #22)** (`*` at `existing[key=*].provenance`)
 
@@ -1271,6 +1271,10 @@ No entries: every comparison in this area equals Python's (`iso286.json` is empt
 - **Basic dimensions are marked basic** (`*` at `existing[key=dimension|*].basic`)
 
   Specify's existing records now mark a basic (theoretically exact) dimension with basic: true, which haecceity reads as DimTolerance::Basic; the archived Python reader has no such field. The key is emitted only when true, so the only differences are python (missing) rust true at existing[key=dimension\|...].basic. Values, tolerances and all other fields are unchanged; tests/existing.rs basic_dimensions_are_marked_basic_in_existing_and_the_scene verifies the NIST CTC-04 basics. Specify writes basic location dimensions for answered positions, so every written case with one reads basic: true on readback.
+
+- **Verified saved answers exclude feature IDs absent from the current recogniser** (`scenarios/turned_a_typed_thread_depth_is_written` at `resume.hole.function:holes:3.5`)
+
+  answers_for now rematches verified schema-2 answers instead of returning arbitrary saved feature keys. This frozen Python scenario stores tapped:M5@5.6 under holes:3.5, including floor 5; quiddity v0.4.9 recognises only holes:3. The value remains unchanged in the raw stored payload and is retained unresolved by analysis for review, but is not an applicable answer. The writer still verifies the complete thread and its exact 5.6 mm full-thread and 8 mm drilling depths; native save/reopen tests use the actual native feature ID. This exact cross-engine applicability departure is temporary until floor ownership #216 makes holes:3.5 a current feature.
 
 ### writer: not-applicable (15 entries)
 

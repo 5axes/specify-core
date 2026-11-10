@@ -1577,3 +1577,44 @@ fn mixed_resume_preview_keeps_foreign_control_and_replaces_owned_control() {
     );
     assert_eq!(scene["specify"]["flatness:extra.1"]["status"], "answered");
 }
+
+/// Frozen schema-2 output written before floor ownership (#216). Reopening must
+/// retain editor identities even when recognition grows the hole's defining support.
+#[test]
+fn schema_two_before_floor_ownership_keeps_editor_ids_and_no_false_removal() {
+    use specify_core::{resume, revision};
+    let fixtures = common::fixtures().join("revisions");
+    let old = part::load(&fixtures.join("spindle_pmi.old.step.gz"), None).unwrap();
+    let payload = resume::stored(&old.bytes).remove(&0).unwrap();
+    assert_eq!(payload["schema"], 2);
+    assert_eq!(payload["answers"]["hole.function:holes:15"], "tapped:M2");
+    assert_eq!(payload["answers"]["hole.position:holes:15"], "0.2");
+    let analysis = api::analyse(&old).unwrap();
+    let hole = analysis["features"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["family"] == "holes" && f["faces"].as_array().unwrap().contains(&json!(15)))
+        .unwrap()["id"]
+        .as_str()
+        .unwrap();
+    let resumed = resume::answers_for(&old).unwrap().unwrap();
+    assert_eq!(resumed[&format!("hole.function:{hole}")], "tapped:M2");
+    assert_eq!(resumed[&format!("hole.position:{hole}")], "0.2");
+    let scene = pmi_scene::pmi_scene(&old.bytes, None).unwrap();
+    let ids = editor_ids(&scene);
+    for prefix in ["thread", "position"] {
+        assert!(ids.contains(&format!("{prefix}:{hole}")), "{ids:?}");
+    }
+    let report = revision::diff_with_options(
+        &old,
+        &old,
+        &Map::new(),
+        revision::DiffOptions { scenes: true },
+    )
+    .unwrap();
+    assert!(report.pmi.items.is_empty(), "{:?}", report.pmi.items);
+    let scenes = report.pmi.scenes.unwrap();
+    assert_eq!(editor_ids(&scenes.old), ids);
+    assert_eq!(editor_ids(&scenes.new), ids);
+}

@@ -395,7 +395,8 @@ fn schema_of(payload: &Map<String, Value>) -> Option<i64> {
 }
 
 /// Stored answers for this part. Schemas 1/2 require their existing face-count and
-/// fingerprint checks (including [`Check::Legacy`]); their original keys are preserved.
+/// fingerprint checks (including [`Check::Legacy`]). Verified supports are rematched to
+/// current feature IDs; legacy unverified answers are matched by ID.
 /// Schema 3 rematches authored names and unnamed evidence to the current geometry and
 /// returns only applicable answers, even across a rebuild. Missing or ambiguous supports
 /// are excluded. Use [`report_for_parsed`] or [`crate::api::analyse`] to retain those
@@ -414,8 +415,23 @@ pub fn answers_for(loaded: &LoadedPart) -> Result<Option<Map<String, Value>>, Fe
     }
     let mut answers = match check(loaded, &payload, form)? {
         Check::Mismatch => None,
-        Check::Verified | Check::Legacy => {
-            payload.get("answers").and_then(Value::as_object).cloned()
+        state @ (Check::Verified | Check::Legacy) => {
+            if let Some(answers) = payload.get("answers").and_then(Value::as_object) {
+                // Part/datum-only payloads need no feature recognition. Keep
+                // geometry work off the common settings-only reopen/write path.
+                let features = if answers.keys().any(|id| answer_feature(id).is_some()) {
+                    crate::features::recognise(loaded)?
+                } else {
+                    Vec::new()
+                };
+                Some(if state == Check::Verified {
+                    rematch(answers, &features).answers
+                } else {
+                    by_id(answers, &features, loaded, NO_EVIDENCE).answers
+                })
+            } else {
+                None
+            }
         }
     };
     if let Some(answers) = &mut answers {

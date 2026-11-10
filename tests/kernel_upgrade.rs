@@ -515,6 +515,14 @@ fn unresolved_saved_answers_reach_review_and_leave_questions_open() {
     assert!(warnings[0].contains("hole.function:holes:999"));
     assert_eq!(analysis["resume"]["unresolved"][0]["answer"], value);
     assert_eq!(analysis["resume"]["unresolved"][0]["feature"], "holes:999");
+    // File-only consumers get applicable answers, while analysis keeps the
+    // unsupported answer above for review instead of applying an unknown ID.
+    assert!(
+        !resume::answers_for(&part)
+            .unwrap()
+            .unwrap()
+            .contains_key("hole.function:holes:999")
+    );
     let review = api::review(
         &analysis,
         analysis["resume"]["answers"].as_object().unwrap(),
