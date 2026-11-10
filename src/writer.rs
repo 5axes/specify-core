@@ -1899,6 +1899,7 @@ fn part_pmi_observed(
             if mode == Mode::Add && thread_carries_planned(before, &planned) {
                 continue;
             }
+            planned.bore_supports(&loaded.part);
             let dimension_kind = planned_kind(&planned, &mut f, &mut p.geometry, &point_unit)?;
             // Keep generated measurements at Specify's established six decimal places in mm;
             // sub-nanometre frame-inference noise must not create inspection revisions.

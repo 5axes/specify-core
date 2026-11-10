@@ -240,6 +240,40 @@ pub(crate) struct Planned {
     pub witnesses: Option<[Support; 2]>,
 }
 
+impl Planned {
+    /// Recognition support proves a hole's identity; a floor-bearing hole's PMI
+    /// carriers use cylinders. Do this after reconciliation so carriers cannot change
+    /// the planner's quantities, conflicts or existing-PMI authorities.
+    pub(crate) fn bore_supports(&mut self, part: &haecceity::Part) {
+        let bore = |support: &mut Support| {
+            // #216 adds a planar floor to an otherwise cylindrical support.
+            // Preserve the existing conical-hole grammar and carriers: only
+            // floor-bearing hole supports need this compatibility lowering.
+            if support.feature.starts_with("hole:")
+                && support.faces.iter().any(|&i| {
+                    part.faces.get(i).is_some_and(|f| {
+                        matches!(f.surface, haecceity::geom::Surface::Plane { .. })
+                    })
+                })
+            {
+                support.faces.retain(|&i| {
+                    part.faces.get(i).is_some_and(|f| {
+                        matches!(f.surface, haecceity::geom::Surface::Cylinder { .. })
+                    })
+                });
+            }
+        };
+        self.supports.iter_mut().for_each(bore);
+        if let Kind::Location { from, to, .. } = &mut self.required.kind {
+            bore(from);
+            bore(to);
+        }
+        if let Some(pair) = &mut self.witnesses {
+            pair.iter_mut().for_each(bore);
+        }
+    }
+}
+
 /// Lower the shared slice-one requirements, accounting for existing carriers and
 /// reporting quantities that cannot be reconciled. Answered location *contracts*
 /// apply to the pattern's own origin and pitch; old per-member basics are generated witnesses,
