@@ -1,6 +1,6 @@
 //! The browser session exposes saved-answer recovery through its existing snapshot and review.
 use haecceity::p21::{Attribute, Document, Edit, RawEntity};
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 use specify_core::{part, resume};
 use specify_core_wasm::session::Session;
 use std::path::Path;
@@ -11,18 +11,55 @@ fn saved(name: &str) -> Vec<u8> {
     part::load(&path, None).unwrap().bytes.to_vec()
 }
 
+/// Rename only the specified feature IDs, preserving every historical answer value.
+fn rekey_answers(original: &Value, moves: &[(&str, &str)]) -> (Map<String, Value>, Vec<Value>) {
+    let mut answers = Map::new();
+    let mut migrated = Vec::new();
+    for (id, value) in original.as_object().unwrap() {
+        let new = id
+            .split_once(':')
+            .and_then(|(question, feature)| {
+                moves
+                    .iter()
+                    .find(|(old, _)| *old == feature)
+                    .map(|(_, new)| format!("{question}:{new}"))
+            })
+            .unwrap_or_else(|| id.clone());
+        if new != *id {
+            migrated.push(json!([id, new]));
+        }
+        answers.insert(new, value.clone());
+    }
+    (answers, migrated)
+}
+
 #[test]
 fn browser_sessions_resume_all_87_alpha6_answers() {
     let mut count = 0;
     for name in ["plate", "plate-moved", "shaft", "corners", "pin"] {
         let bytes = saved(name);
-        let expected = &resume::stored(&bytes)[&0]["answers"];
+        let original = &resume::stored(&bytes)[&0]["answers"];
+        // #216 adds these planar floors to recognition IDs, not to the saved values.
+        let moves: &[(&str, &str)] = match name {
+            "shaft" => &[("holes:15", "holes:15.16")],
+            "pin" => &[("holes:3", "holes:3.5")],
+            _ => &[],
+        };
+        let (expected, migrated) = rekey_answers(original, moves);
+        assert_eq!(migrated.len(), moves.len() * 2);
         let session = Session::open(name, &bytes).unwrap();
         let snapshot = session.snapshot();
-        assert_eq!(&snapshot["analysis"]["resume"]["answers"], expected);
-        count += expected.as_object().unwrap().len();
+        assert_eq!(snapshot["analysis"]["resume"]["answers"], json!(expected));
+        assert_eq!(
+            snapshot["analysis"]["resume"]
+                .get("migrated")
+                .cloned()
+                .unwrap_or_else(|| json!([])),
+            json!(migrated)
+        );
+        count += expected.len();
         // #21's optional depth override adds no review work to fully answered old files.
-        let review = session.review(expected.as_object().unwrap()).unwrap();
+        let review = session.review(&expected).unwrap();
         assert!(review["open"].as_array().unwrap().is_empty());
     }
     assert_eq!(count, 87);
@@ -47,18 +84,39 @@ fn browser_resumes_v024_answers_on_bosses_with_corrected_end_heights() {
             .find(|f| f["id"] == base["boss"]["id"])
             .unwrap();
         assert_eq!(boss["record"]["height"], height);
-        assert_eq!(snapshot["analysis"]["resume"]["answers"], base["answers"]);
+        // #216 adds floor 16 to the chamfered shaft's hole. Exactly three keys
+        // migrate; the corrected boss heights and every answer value stay pinned.
+        let moves: &[(&str, &str)] = if name == "chamfer" {
+            &[("holes:15", "holes:15.16")]
+        } else {
+            &[]
+        };
+        let (answers, migrated) = rekey_answers(&base["answers"], moves);
+        assert_eq!(migrated.len(), moves.len() * 3);
+        assert_eq!(snapshot["analysis"]["resume"]["answers"], json!(answers));
+        assert_eq!(
+            snapshot["analysis"]["resume"]
+                .get("migrated")
+                .cloned()
+                .unwrap_or_else(|| json!([])),
+            json!(migrated)
+        );
         assert!(snapshot["analysis"]["resume"]["unresolved"].is_null());
-        let answers = base["answers"].as_object().unwrap();
         assert!(
-            session.review(answers).unwrap()["open"]
+            session.review(&answers).unwrap()["open"]
                 .as_array()
                 .unwrap()
                 .is_empty()
         );
         for evidence in [Some(&base["evidence"]), None] {
-            let out = session.rematch_answers(answers, evidence, None).unwrap();
-            assert_eq!(out["answers"], base["answers"]);
+            let out = session
+                .rematch_answers(base["answers"].as_object().unwrap(), evidence, None)
+                .unwrap();
+            assert_eq!(out["answers"], json!(answers));
+            assert_eq!(
+                out.get("migrated").cloned().unwrap_or_else(|| json!([])),
+                json!(migrated)
+            );
             assert!(out["unresolved"].is_null());
             assert_eq!(out["unverified"].is_string(), evidence.is_none());
         }
@@ -94,12 +152,33 @@ fn browser_reports_unmatched_values_and_leaves_current_question_open() {
     let session = Session::open("orphan.step", &doc.apply(&edit).unwrap().bytes).unwrap();
     let snapshot = session.snapshot();
     let resumed = &snapshot["analysis"]["resume"];
+    let mut applicable = payload["answers"].clone();
+    applicable
+        .as_object_mut()
+        .unwrap()
+        .shift_remove("hole.function:holes:999")
+        .unwrap();
+    let (expected, migrated) = rekey_answers(&applicable, &[("holes:3", "holes:3.5")]);
+    assert_eq!(resumed["answers"], json!(expected));
+    assert_eq!(
+        migrated,
+        vec![json!(["hole.position:holes:3", "hole.position:holes:3.5"])]
+    );
+    assert_eq!(resumed["migrated"], json!(migrated));
+    assert_eq!(resumed["unresolved"].as_array().unwrap().len(), 1);
     assert_eq!(resumed["unresolved"][0]["answer"], value);
     assert_eq!(resumed["unresolved"][0]["id"], "hole.function:holes:999");
     let review: Value = session
         .review(resumed["answers"].as_object().unwrap())
         .unwrap();
-    assert!(review["open"].as_array().unwrap().contains(&json!(key)));
+    // The orphan retains its saved key/value; the current hole question owns floor 5.
+    assert_eq!(key, "hole.function:holes:3");
+    assert!(
+        review["open"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("hole.function:holes:3.5"))
+    );
     assert!(
         review["problems"]
             .as_array()
@@ -169,7 +248,7 @@ fn browser_sessions_resume_all_84_alpha7_answers_after_schema6_upgrade() {
     let mut total = 0;
     for (name, count, moved) in [
         ("golden_oriented_slots", 13, 0),
-        ("cgb217", 37, 3),
+        ("cgb217", 37, 5),
         ("ctc02_ap242", 34, 15),
     ] {
         let path = Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -187,8 +266,76 @@ fn browser_sessions_resume_all_84_alpha7_answers_after_schema6_upgrade() {
             &std::fs::read(path.with_file_name(format!("{name}.json"))).unwrap(),
         )
         .unwrap();
+        // #216 adds two moves to cgb217: the M8 clearance and position answers
+        // on the three-hole set gain floors 105/107/109. The prior three rectangle
+        // moves and all fifteen CTC-02 moves still claim only #100 tip cones.
+        let moves: &[(&str, &str)] = match name {
+            "golden_oriented_slots" => &[],
+            "cgb217" => &[
+                (
+                    "hole_patterns.rectangle:10.13.16.19",
+                    "hole_patterns.rectangle:10.11.13.14.16.17.19.20",
+                ),
+                (
+                    "hole_patterns.set:106.108.110",
+                    "hole_patterns.set:105.106.107.108.109.110",
+                ),
+            ],
+            "ctc02_ap242" => &[
+                (
+                    "hole_patterns.bolt_circle:167.168.173.174.179.180",
+                    "hole_patterns.bolt_circle:167.168.173.174.179.180.187.188.193.194.199.200",
+                ),
+                (
+                    "hole_patterns.linear:317.318.319.320.321.322.323.324.347.348",
+                    "hole_patterns.linear:208.220.221.222.223.260.261.262.263.275.317.318.319.320.321.322.323.324.347.348",
+                ),
+                (
+                    "hole_patterns.linear:309.310.315.316.325.326.327.328",
+                    "hole_patterns.linear:218.219.224.227.256.259.264.265.309.310.315.316.325.326.327.328",
+                ),
+                (
+                    "hole_patterns.linear:597.598.599.600.601.602.603.604.605.606",
+                    "hole_patterns.linear:109.110.111.112.113.435.436.437.438.439.597.598.599.600.601.602.603.604.605.606",
+                ),
+                (
+                    "hole_patterns.linear:561.562.563.564.565.566",
+                    "hole_patterns.linear:129.130.131.417.418.419.561.562.563.564.565.566",
+                ),
+                (
+                    "hole_patterns.set:169.170.175.176.177.178.183.184",
+                    "hole_patterns.set:169.170.175.176.177.178.183.184.189.190.195.196.197.198.203.204",
+                ),
+                (
+                    "hole_patterns.set:305.306.307.308.311.312.313.314.339.340.341.342.343.344.345.346",
+                    "hole_patterns.set:209.210.211.212.225.226.228.229.254.255.257.258.271.272.273.274.305.306.307.308.311.312.313.314.339.340.341.342.343.344.345.346",
+                ),
+                (
+                    "hole_patterns.set:553.554.555.556.557.558.559.560.583.584.585.586.587.588.589.590",
+                    "hole_patterns.set:117.118.119.120.132.133.134.135.413.414.415.416.428.429.430.431.553.554.555.556.557.558.559.560.583.584.585.586.587.588.589.590",
+                ),
+                (
+                    "hole_patterns.set:620.621.632.633",
+                    "hole_patterns.set:0.97.448.620.621.632.633.634",
+                ),
+            ],
+            _ => unreachable!(),
+        };
+        let (expected_answers, expected_migrations) = rekey_answers(expected, moves);
         let migrations = resumed["migrated"].as_array().cloned().unwrap_or_default();
         assert_eq!(migrations.len(), moved, "{name}");
+        assert_eq!(migrations, expected_migrations, "{name}");
+        assert_eq!(resumed["answers"], json!(expected_answers), "{name}");
+        if name == "cgb217" {
+            assert_eq!(
+                expected_answers["hole.function:hole_patterns.set:105.106.107.108.109.110"],
+                "clearance:M8"
+            );
+            assert_eq!(
+                expected_answers["hole.position:hole_patterns.set:105.106.107.108.109.110"],
+                "1"
+            );
+        }
         assert_eq!(
             resumed["answers"].as_object().unwrap().len(),
             count,
@@ -226,19 +373,38 @@ fn browser_sessions_resume_all_84_alpha7_answers_after_schema6_upgrade() {
                 .filter(|f| !old_faces.contains(f))
                 .collect();
             assert!(!extra.is_empty());
-            for face in extra {
-                let i = face.as_u64().unwrap() as usize;
-                assert!(matches!(
-                    loaded.part.faces[i].surface,
-                    haecceity::geom::Surface::Cone { .. }
-                ));
-                assert!(
-                    loaded
-                        .part
-                        .neighbours(i)
-                        .iter()
-                        .any(|j| old_faces.contains(&json!(j)))
-                );
+            if name == "cgb217" && old == "hole_patterns.set:106.108.110" {
+                // Independently prove the two additional answer moves are the
+                // same three bores gaining their own adjacent planar floors.
+                assert_eq!(before["faces"], json!([106, 108, 110]));
+                assert_eq!(after["faces"], json!([105, 106, 107, 108, 109, 110]));
+                assert_eq!(json!(extra), json!([105, 107, 109]));
+                for (floor, bore) in [(105, 106), (107, 108), (109, 110)] {
+                    assert!(matches!(
+                        loaded.part.faces[floor].surface,
+                        haecceity::geom::Surface::Plane { .. }
+                    ));
+                    assert!(matches!(
+                        loaded.part.faces[bore].surface,
+                        haecceity::geom::Surface::Cylinder { .. }
+                    ));
+                    assert!(loaded.part.neighbours(floor).contains(&bore));
+                }
+            } else {
+                for face in extra {
+                    let i = face.as_u64().unwrap() as usize;
+                    assert!(matches!(
+                        loaded.part.faces[i].surface,
+                        haecceity::geom::Surface::Cone { .. }
+                    ));
+                    assert!(
+                        loaded
+                            .part
+                            .neighbours(i)
+                            .iter()
+                            .any(|j| old_faces.contains(&json!(j)))
+                    );
+                }
             }
         }
         assert_eq!(expected.as_object().unwrap().len(), count);
