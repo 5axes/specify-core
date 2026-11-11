@@ -18,6 +18,14 @@ parity checks; `.github/workflows/ci.yml` lists every step.
 A change that alters a recorded expectation (fixtures, oracle departures, known differences)
 says why for each change. Don't weaken a test to make it pass.
 
+## Test files and data
+
+Add only files you created yourself or whose licence allows redistribution, and record each
+file's source and licence beside it (a fixture README or NOTICE entry). Never add customer,
+confidential or NDA-covered files, or geometry extracted from them, to the repository, to
+issues or to pull requests. For a bug seen on such a part, share a reduced synthetic part that
+reproduces it instead.
+
 ## Developer Certificate of Origin
 
 Contributions are accepted under the project's licence, Apache-2.0 (its section 5 covers
