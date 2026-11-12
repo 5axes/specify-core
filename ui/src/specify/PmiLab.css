@@ -397,3 +397,5 @@ fieldset.pmi-lab-rows { min-width: 0; margin: 0; padding: 0; border: 0; }
 /* The viewer's own tools come on request, in the same corner as Show. */
 .pmi-lab .pmi-lab-pad button.pmi-lab-more-tools { width: auto; height: auto; align-self: flex-end; padding: 3px 8px; font-size: 12.5px; }
 .pmi-lab .pmi-lab-pad button.pmi-lab-more-tools[aria-pressed="true"] { background: #e8f0f8; border-color: #2f6fb5; }
+/* The viewer's toolbar and tools panel, folded away until "More view tools". */
+.cad-tools-hidden .tcv_cad_toolbar, .cad-tools-hidden .tcv_cad_navigation { display: none !important; }
