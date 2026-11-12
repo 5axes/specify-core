@@ -245,7 +245,7 @@ export function createReviewView(
     missing: mesh.missing,
     annotate(intent, { current = null, show = {}, balloons = new Map(), pending, reveal, datums = true } = {}) {
       const shown = toLabels(intent, analysis, pending)
-        .filter((label) => datums || label.kind !== 'datum')
+        .filter((label) => datums || label.kind !== 'datum' || label.group === 'existing')
         .filter((label) => show[label.group] !== false || reveal?.has(label.id));
       annotations.set(shown, { current, anchors: intent?.anchors ?? {}, balloons });
       // The opening view is chosen before the labels arrive; the first time they do, it is
