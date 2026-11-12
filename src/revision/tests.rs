@@ -272,25 +272,24 @@ fn chamfer_continuation_requires_carried_faces_matching_sizes_and_tangent_fillet
         anchor, corner1, bridge, corner2, separate, resized, sharp_join, fillet,
     ];
     let mut corr = report().correspondence.unwrap();
-    corr.faces.push(qc::Entry {
-        old: 1,
-        class: Class::Carried,
-        new: Some(10),
-        candidates: vec![],
-        changes: BTreeMap::new(),
-        cost: None,
-    });
-    let face = |index, ns: &[(usize, &str)]| qc::FaceFingerprint {
-        index,
-        surface: "plane".into(),
-        parameters: BTreeMap::new(),
-        axis: None,
-        support: None,
-        area: None,
-        centroid: [0.; 3],
-        normal: None,
-        adjacency: vec![],
-        neighbours: ns.iter().map(|(i, a)| (*i, (*a).into())).collect(),
+    // quiddity's correspondence records are non-exhaustive: build them as stored.
+    corr.faces.push(
+        serde_json::from_value(json!({"old": 1, "class": Class::Carried, "new": 10})).unwrap(),
+    );
+    let face = |index, ns: &[(usize, &str)]| -> qc::FaceFingerprint {
+        serde_json::from_value(json!({
+            "index": index,
+            "surface": "plane",
+            "parameters": {},
+            "axis": null,
+            "support": null,
+            "area": null,
+            "centroid": [0., 0., 0.],
+            "normal": null,
+            "adjacency": [],
+            "neighbours": ns,
+        }))
+        .unwrap()
     };
     let mut prints = qc::Fingerprints {
         fingerprint_version: String::new(),
@@ -455,15 +454,18 @@ fn coowning_body_fingerprints_never_alias_individual_features() {
         faces: vec![],
         features: ["face_grooves", "turned_bodies"]
             .into_iter()
-            .map(|family| qc::FeatureFingerprint {
-                id: format!("{family}/0"),
-                family: family.into(),
-                traits: BTreeMap::new(),
-                sizes: BTreeMap::new(),
-                axis: None,
-                position: None,
-                faces: vec![1, 2],
-                neighbourhood: vec![],
+            .map(|family| {
+                serde_json::from_value(json!({
+                    "id": format!("{family}/0"),
+                    "family": family,
+                    "traits": {},
+                    "sizes": {},
+                    "axis": null,
+                    "position": null,
+                    "faces": [1, 2],
+                    "neighbourhood": [],
+                }))
+                .unwrap()
             })
             .collect(),
     };

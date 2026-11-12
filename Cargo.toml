@@ -29,8 +29,8 @@ clap_complete = { version = "4.6", optional = true }
 # pzfreo/quiddity: feature recognition (quiddity) and the geometry kernel with STEP import and
 # AP242 semantic PMI (haecceity). Both use the unreleased floor-ownership revision (#216); replace with its release tag.
 # See docs/design.md, "Dependency plan".
-quiddity = { git = "https://github.com/pzfreo/quiddity", rev = "b590592035733d8ac9fa5b3144bb5d969bda89a0", default-features = false, features = ["presentation"] }
-haecceity = { git = "https://github.com/pzfreo/quiddity", rev = "b590592035733d8ac9fa5b3144bb5d969bda89a0", features = ["json"] }
+quiddity = { git = "https://github.com/pzfreo/quiddity", tag = "v0.5.0", default-features = false, features = ["presentation"] }
+haecceity = { git = "https://github.com/pzfreo/quiddity", tag = "v0.5.0", features = ["json"] }
 # The kernel's own unit reader also converts planner supplemental points into file units.
 step-io = "0.3.0"
 base64 = "0.22.1"

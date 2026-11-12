@@ -94,14 +94,7 @@ fn golden_oriented_slots_end_planes_questions_defaults_and_written_pmi_move_rigi
         ("mixed", mixed),
     ] {
         let moved = source.part.transformed(&at).unwrap();
-        let (bytes, report) = write_step(
-            &moved,
-            &WriteOptions {
-                name: "oriented slots",
-                pmi: None,
-            },
-        )
-        .unwrap();
+        let (bytes, report) = write_step(&moved, &WriteOptions::new("oriented slots")).unwrap();
         assert!(report.face_order_preserved);
         let loaded = part::load_bytes("slots.step", bytes).unwrap();
         let a = api::analyse(&loaded).unwrap();

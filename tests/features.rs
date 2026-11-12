@@ -220,45 +220,46 @@ fn recognition_refuses_a_degraded_part() {
     assert!(features::recognise(&part::load(&path, Some(0)).unwrap()).is_ok());
 }
 
-/// quiddity #119: a failed discovery has source faces and a reason, but claims no feature.
+/// quiddity #119: a refusal has source faces and a reason, but claims no feature.
 #[test]
-fn discovery_refusals_are_not_question_targets() {
-    use quiddity::features::{Features, discovery::DiscoveryRefusal};
-    let loaded = part::load(&fixture("plate.step"), None).unwrap();
-    let mut recognition = quiddity::correspondence::recognise(&loaded.part);
-    let families = [
-        "pad_refusals",
-        "prismatic_pocket_refusals",
-        "section_passage_refusals",
-        "oriented_slot_refusals",
-        "polygonal_boss_refusals",
-        "reconciliation_refusals",
-    ];
-    recognition.features = Features {
-        discovery_refusals: families
-            .into_iter()
-            .map(|family| {
-                (
-                    family,
-                    vec![DiscoveryRefusal {
-                        faces: vec![0, 1],
-                        reason: "unproved source roles".into(),
-                    }],
-                )
+fn refusals_are_not_question_targets() {
+    // quiddity 0.5.0 keeps refusal construction inside the crate (and tests its discovery
+    // refusals there), so this uses parts whose recognition publishes refusal records:
+    // a section recess refusal and two interior void refusals.
+    let Some(dir) = corpus_dir() else {
+        return;
+    };
+    for name in ["mfcadpp_holdout/467.step", "mfcadpp_regressions/11512.step"] {
+        let loaded = part::load(&dir.join(name), None).unwrap();
+        let recognition = quiddity::correspondence::recognise(&loaded.part);
+        let document = quiddity::recognition::document(&recognition, loaded.part.faces.len());
+        let refused: Vec<String> = document
+            .records
+            .iter()
+            .filter(|r| r.is_refusal())
+            .map(|r| {
+                let mut faces = r.faces.clone();
+                faces.sort_unstable();
+                let faces: Vec<_> = faces.iter().map(usize::to_string).collect();
+                format!("{}:{}", r.family, faces.join("."))
             })
-            .collect(),
-        ..Features::default()
+            .collect();
+        assert!(!refused.is_empty(), "{name} no longer publishes a refusal");
+        let features = features::recognise_from(&loaded, &recognition).unwrap();
+        assert!(
+            features.iter().all(|f| !refused.contains(&f.id)),
+            "a refusal became a feature: {refused:?}"
+        );
+        let analysis =
+            json!({"faces": features::describe_faces(&loaded).unwrap(), "features": features});
+        let questions = specify_core::rules::questions(&analysis, &Default::default()).unwrap();
+        assert!(
+            questions
+                .iter()
+                .filter_map(|q| q.feature.as_deref())
+                .all(|id| !refused.iter().any(|r| r == id))
+        );
     }
-    .into();
-    let document = quiddity::recognition::document(&recognition, loaded.part.faces.len());
-    assert_eq!(document.records.len(), families.len());
-    assert!(document.records.iter().all(|r| r.is_refusal()));
-    let features = features::recognise_from(&loaded, &recognition).unwrap();
-    assert!(features.is_empty());
-    let analysis =
-        json!({"faces": features::describe_faces(&loaded).unwrap(), "features": features});
-    let questions = specify_core::rules::questions(&analysis, &Default::default()).unwrap();
-    assert!(questions.iter().all(|q| q.feature.is_none()));
 }
 
 // --- the oracle sweeps -----------------------------------------------------------------------

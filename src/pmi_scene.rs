@@ -1112,30 +1112,28 @@ mod tests {
     use presentation::{Graphic, Source, TextPlacement, View};
 
     fn graphic(id: &str, stroked: Option<bool>) -> Graphic {
-        Graphic {
-            id: Some(id.into()),
-            plane_id: None,
-            leader: None,
-            source: Source::File,
-            name: "Text".into(),
-            text: vec!["Text".into()],
-            polyline_roles: None,
-            polylines: vec![],
-            triangles: vec![],
-            step_ids: vec![],
-            unsupported: vec![],
-            text_placements: vec![TextPlacement {
-                text_index: Some(0),
-                cell_box: None,
-                stroked,
-                origin: [0.; 3],
-                x_axis: [1., 0., 0.],
-                normal: [0., 0., 1.],
-                height: Some(2.),
-                line_spacing: None,
-                alignment: None,
-            }],
-        }
+        let mut placement = TextPlacement::new([0.; 3], [1., 0., 0.], [0., 0., 1.]);
+        placement.text_index = Some(0);
+        placement.stroked = stroked;
+        placement.height = Some(2.);
+        let mut g = Graphic::new(Source::File, "Text".into());
+        g.id = Some(id.into());
+        g.text = vec!["Text".into()];
+        g.text_placements = vec![placement];
+        g
+    }
+
+    /// `Presentation` is non-exhaustive: build it from its default.
+    fn presentation(
+        items: BTreeMap<String, Vec<Graphic>>,
+        unlinked: Vec<Graphic>,
+        views: Vec<View>,
+    ) -> presentation::Presentation {
+        let mut p = presentation::Presentation::default();
+        p.items = items;
+        p.unlinked = unlinked;
+        p.views = views;
+        p
     }
 
     #[test]
@@ -1145,10 +1143,7 @@ mod tests {
         g.polyline_roles = Some(vec![presentation::PolylineRole::Text]);
         g.leader = Some([3., 4., 5.]);
         g.text_placements[0].cell_box = Some([[-2., -1.], [2., 1.]]);
-        let scene = encoded(presentation::Presentation {
-            unlinked: vec![g],
-            ..Default::default()
-        });
+        let scene = encoded(presentation(BTreeMap::new(), vec![g], vec![]));
         let g = &scene["presentation"]["unlinked"][0];
         assert_eq!(g["polyline_roles"], json!(["text"]));
         assert_eq!(g["leader"], json!([3., 4., 5.]));
@@ -1166,10 +1161,11 @@ mod tests {
     #[test]
     fn text_placement_stroked_survives_true_absent_and_false() {
         for stroked in [Some(true), None, Some(false)] {
-            let scene = encoded(presentation::Presentation {
-                unlinked: vec![graphic("text", stroked)],
-                ..Default::default()
-            });
+            let scene = encoded(presentation(
+                BTreeMap::new(),
+                vec![graphic("text", stroked)],
+                vec![],
+            ));
             let placement = &scene["presentation"]["unlinked"][0]["text_placements"][0];
             assert_eq!(placement.get("stroked"), stroked.map(Value::Bool).as_ref());
             assert_eq!(placement["text_index"], 0);
@@ -1179,17 +1175,17 @@ mod tests {
     #[test]
     fn merging_replaced_graphics_prunes_obsolete_views() {
         let document = |id: &str| {
-            encoded(presentation::Presentation {
-                items: BTreeMap::from([("requirement".into(), vec![graphic(id, None)])]),
-                views: vec![View {
+            encoded(presentation(
+                BTreeMap::from([("requirement".into(), vec![graphic(id, None)])]),
+                vec![],
+                vec![View {
                     id: format!("{id}/view"),
                     name: id.into(),
                     direction: None,
                     up: None,
                     graphics: vec![id.into()],
                 }],
-                ..Default::default()
-            })
+            ))
         };
         let mut scene = document("generated");
         let file = document("file");
@@ -1206,14 +1202,14 @@ mod tests {
 
     #[test]
     fn filtered_graphics_are_pruned_from_views_but_aliases_and_unlinked_survive() {
-        let mut graphics = presentation::Presentation {
-            items: BTreeMap::from([
+        let mut graphics = presentation(
+            BTreeMap::from([
                 ("removed".into(), vec![graphic("filtered", None)]),
                 ("original".into(), vec![graphic("aliased", None)]),
                 ("alias".into(), vec![graphic("aliased", None)]),
             ]),
-            unlinked: vec![graphic("unlinked", None)],
-            views: vec![
+            vec![graphic("unlinked", None)],
+            vec![
                 View {
                     id: "mixed".into(),
                     name: "Mixed view".into(),
@@ -1229,8 +1225,7 @@ mod tests {
                     graphics: vec!["filtered".into()],
                 },
             ],
-            ..Default::default()
-        };
+        );
         graphics.items.remove("removed");
         graphics.items.remove("original");
         let scene = encoded(graphics);
