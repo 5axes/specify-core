@@ -25,6 +25,8 @@ export type SpecifyEngine = Pick<PmiLabEngine, 'questions' | 'interpret' | 'prev
 /** Where the workspace shows Specify: the part in the 3D pane, the questions in the edit pane. */
 export interface SpecifySlots {
   view: HTMLElement; panel: HTMLElement; exports: HTMLElement | null;
+  /** Where the exports for specialists go (under the menu's More); with none, they join ``exports``. */
+  more?: HTMLElement | null;
   /** The selected queue row's: the current question, answered where it is listed. */
   question?: HTMLElement | null;
 }
@@ -1037,14 +1039,14 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
         ? <PartField key={`${q.id}:${JSON.stringify(answers[q.id])}`} q={q} answers={answers} error={errorAt(q.id)} onAnswer={(value) => answer(q, value)} />
         : questionItem(q, g, false)}</div>, slots.question);
     })()}
-    {slots.exports && createPortal(<>
-      <button type="button" onClick={downloadCsv} disabled={!chars.length} title="Every dimension and tolerance, numbered, with its nominal and limits">
+    {slots.exports && <>
+      {createPortal(<button type="button" onClick={downloadCsv} disabled={!chars.length} title="Every dimension and tolerance, numbered, with its nominal and limits">
         {gated ? 'Inspection list (CSV) · Sign in' : 'Inspection list (CSV)'}
-      </button>
-      <button type="button" onClick={downloadFai} disabled={!chars.length} title="AS9102 first article inspection Forms 1–3 as an Excel workbook: the part, its materials and processes, and each characteristic with its requirement, for the results">
+      </button>, slots.exports)}
+      {createPortal(<button type="button" onClick={downloadFai} disabled={!chars.length} title="AS9102 first article inspection Forms 1–3 as an Excel workbook: the part, its materials and processes, and each characteristic with its requirement, for the results">
         {gated ? 'AS9102 FAI (Excel) · Sign in' : 'AS9102 FAI (Excel)'}
-      </button>
-    </>, slots.exports)}
+      </button>, slots.more ?? slots.exports)}
+    </>}
   </>);
 }
 
