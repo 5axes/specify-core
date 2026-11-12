@@ -900,12 +900,18 @@ fn number(row: &Item) -> Option<u64> {
         .or_else(|| row.item_number.value.as_str().and_then(|s| s.parse().ok()))
 }
 
-/// Re-fingerprint the entries an earlier quiddity fingerprinted (fingerprint/3, before 0.5.0).
-/// `correspond` refuses those rather than migrating them, so they would match no part and every
-/// part would be renumbered. Each such entry takes the fingerprints of the part of the history's
-/// own file (`rows`, `names`) that carries its item number, or failing that the one part with
-/// its name. An entry matching no part keeps its old fingerprints and so matches nothing; its
-/// number stays reserved by the high-water mark.
+/// Whether `e` was fingerprinted by an earlier quiddity (fingerprint/3, before 0.5.0).
+fn stale(e: &Entry) -> bool {
+    e.geometry.fingerprint_version != qc::FINGERPRINT_VERSION
+}
+
+/// Re-fingerprint the [`stale`] entries. `correspond` refuses their fingerprints rather than
+/// migrating them, so they would match no part and every part would be renumbered. Every such
+/// entry first takes the fingerprints of the part of the history's own file (`rows`, `names`)
+/// that carries its item number; only then does an entry still unmatched take the one remaining
+/// part with its name, so a name never claims a part whose number belongs to another entry. An
+/// entry matching no part keeps its old fingerprints and so matches nothing; its number stays
+/// reserved by the high-water mark.
 fn refingerprint(
     h: &mut History,
     rows: &[Item],
@@ -914,39 +920,53 @@ fn refingerprint(
 ) {
     let unique = |found: Vec<usize>| (found.len() == 1).then(|| found[0]);
     let mut taken = BTreeSet::new();
-    for e in &mut h.entries {
-        if e.geometry.fingerprint_version == qc::FINGERPRINT_VERSION {
-            continue;
-        }
-        let part = unique(
+    let mut parts: Vec<Option<usize>> = vec![None; h.entries.len()];
+    for (j, e) in h.entries.iter().enumerate().filter(|(_, e)| stale(e)) {
+        if let Some(i) = unique(
             (0..rows.len())
                 .filter(|&i| number(&rows[i]) == Some(e.number))
                 .collect(),
-        )
-        .or_else(|| unique((0..names.len()).filter(|&i| names[i] == e.name).collect()));
-        if let Some(i) = part
-            && taken.insert(i)
+        ) && taken.insert(i)
         {
+            parts[j] = Some(i);
+        }
+    }
+    for (j, e) in h.entries.iter().enumerate().filter(|(_, e)| stale(e)) {
+        if parts[j].is_none()
+            && let Some(i) = unique(
+                (0..names.len())
+                    .filter(|&i| !taken.contains(&i) && names[i] == e.name)
+                    .collect(),
+            )
+        {
+            taken.insert(i);
+            parts[j] = Some(i);
+        }
+    }
+    for (e, part) in h.entries.iter_mut().zip(parts) {
+        if let Some(i) = part {
             e.geometry = fingerprints(i);
         }
     }
 }
 
-/// [`refingerprint`] `h`, read from `file`, recognising its parts only when an entry needs it.
-fn refingerprint_in(h: &mut History, file: &File) -> Result<(), String> {
-    if h.entries
-        .iter()
-        .all(|e| e.geometry.fingerprint_version == qc::FINGERPRINT_VERSION)
-    {
-        return Ok(());
+/// [`refingerprint`] `h`, read from `part`'s file, reading and recognising its parts only when an
+/// entry is [`stale`]. A file whose parts cannot be read leaves `h` unchanged: its stale entries
+/// match nothing, as they did before, and the caller's work is not refused for it.
+fn refingerprint_in(h: &mut History, part: &LoadedPart) {
+    if !h.entries.iter().any(stale) {
+        return;
     }
-    let parts = file.load_all().map_err(|e| e.to_string())?;
-    let rows = read(file)?;
+    let Ok(file) = File::of_shared(&part.path, std::sync::Arc::clone(&part.bytes)) else {
+        return;
+    };
+    let (Ok(parts), Ok(rows)) = (file.load_all(), read(&file)) else {
+        return;
+    };
     let names: Vec<_> = parts.iter().map(|p| p.name.clone()).collect();
     refingerprint(h, &rows, &names, |i| {
         qc::recognise(&parts[i].part).fingerprints
     });
-    Ok(())
 }
 
 fn uda(edit: &mut Edit, owner: u64, name: &str, values: &Map<String, Value>) {
@@ -1389,9 +1409,7 @@ fn allocate(
 pub(crate) fn carry(old: &LoadedPart, answers: &mut Map<String, Value>) -> Result<(), String> {
     let doc = Document::parse(old.bytes.as_ref().clone()).map_err(|e| e.to_string())?;
     if let Some(mut h) = history(&doc)? {
-        let file = File::of_shared(&old.path, std::sync::Arc::clone(&old.bytes))
-            .map_err(|e| e.to_string())?;
-        refingerprint_in(&mut h, &file)?;
+        refingerprint_in(&mut h, old);
         answers.insert(
             CARRY.into(),
             serde_json::to_value(h).map_err(|e| e.to_string())?,
@@ -1472,9 +1490,7 @@ pub(crate) fn assembly_answers(
     let Some(mut h) = history(&doc)? else {
         return Ok(out);
     };
-    let file = File::of_shared(&first.path, std::sync::Arc::clone(&first.bytes))
-        .map_err(|e| e.to_string())?;
-    refingerprint_in(&mut h, &file)?;
+    refingerprint_in(&mut h, first);
     let source = serde_json::to_value(&h).map_err(|e| e.to_string())?;
     let geometry: Vec<_> = new
         .iter()
@@ -1570,6 +1586,37 @@ mod tests {
                 })
                 .collect(),
         }
+    }
+    fn row(number: Option<u64>) -> Item {
+        let none = || field(Value::Null, "default");
+        Item {
+            part: 0,
+            item_number: number.map_or_else(none, |n| field(n, "file")),
+            part_number: none(),
+            name: none(),
+            description: none(),
+            revision: none(),
+            make_buy: none(),
+            material: none(),
+            quantity: none(),
+            optional: none(),
+            stock: none(),
+        }
+    }
+    #[test]
+    fn an_old_entry_matches_by_number_before_any_matches_by_name() {
+        // Entry 7 lost its part outside Specify; the remaining plate carries entry 2's number.
+        let mut old = pin();
+        old.fingerprint_version = "quiddity-rust/fingerprint/3".into();
+        let mut h = initial(old, &["plate", "renamed plate"]);
+        h.entries[0].number = 7;
+        h.high_water = 7;
+        let fresh = pin();
+        refingerprint(&mut h, &[row(Some(2))], &["plate".into()], |_| {
+            fresh.clone()
+        });
+        assert!(stale(&h.entries[0]), "the name took a numbered part");
+        assert_eq!(h.entries[1].geometry, fresh);
     }
     #[test]
     fn perturbation_duplicates_and_small_parts_keep_numbers() {
