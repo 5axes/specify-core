@@ -59,6 +59,8 @@ export interface Picker {
   lookSquare?(view: DrawnView): void;
   /** Whether labels on the far side of the part are hidden. */
   setFarSideHidden(on: boolean): void;
+  /** The viewer's own toolbar and tools panel, where the view has them. */
+  setTools?(on: boolean): void;
   /** How see-through the part is, 0 (solid) to under 1. */
   setTransparency(amount: number): void;
   setMode(mode: PickMode): void;

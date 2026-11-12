@@ -73,6 +73,8 @@ export interface CadView {
   /** What the orientation cube frames besides the part when it turns the view: the drawn
    * callouts, say. */
   alsoFrame(also: () => THREE.Box3 | null): void;
+  /** The viewer's toolbar and its tools panel, shown or hidden (see ``tools``). */
+  showTools(on: boolean): void;
   /** The tree opened one level again, its nodes closed. */
   collapse(): void;
   dispose(): void;
@@ -151,7 +153,8 @@ function shapeOf(leaf: CadLeaf, soup: ReturnType<typeof soupOf>) {
  */
 export function createCadView(
   container: HTMLElement, nodes: CadNode[],
-  { onPick, control = 'orbit' }: { onPick?: (path: string) => void; control?: 'orbit' | 'trackball' } = {},
+  { onPick, control = 'orbit', tools = true }: { onPick?: (path: string) => void; control?: 'orbit' | 'trackball';
+    /** Whether the viewer opens with its toolbar and tools panel; ``showTools`` brings them later. */ tools?: boolean } = {},
 ): CadView {
   const box = new THREE.Box3();
   // Each leaf drawn, by path, with what a ray needs to find its faces.
@@ -194,7 +197,7 @@ export function createCadView(
   const [width, height] = size();
   // Studio mode is off: it fetches its lighting from polyhaven.org, which the CSP refuses.
   const display = new Display(container, {
-    cadWidth: width, height, treeWidth: 260, glass: true, theme: 'light', tools: true,
+    cadWidth: width, height, treeWidth: 260, glass: true, theme: 'light', tools,
     pinning: false, studioTool: false, zscaleTool: false, explodeTool: false,
     measureTools: true, selectTool: true, zebraTool: true, externalMeasurementBackend: false,
   });
@@ -223,7 +226,7 @@ export function createCadView(
   // part. Its Tools toggle opens them.
   const opened = setTimeout(() => {
     viewer.collapseNodes(CollapseState.ROOT, false);
-    if (container.clientWidth < 700) viewer.showToolsPanel(false);
+    if (!tools || container.clientWidth < 700) viewer.showToolsPanel(false);
   });
 
   const canvas = viewer.getCanvas() as HTMLElement;
@@ -399,6 +402,7 @@ export function createCadView(
     dolly(factor) { viewer.setCameraZoom(Math.min(40, Math.max(0.05, viewer.getCameraZoom() / factor)), false); },
     moved: () => moved,
     alsoFrame(also) { alsoFramed = also; },
+    showTools(on) { viewer.showTools(on); viewer.showToolsPanel(on); fit(); },
     collapse() { viewer.collapseNodes(CollapseState.ROOT, false); },
     replace(group, ...leaves) {
       const names = group === null ? [] : [group];

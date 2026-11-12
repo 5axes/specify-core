@@ -63,6 +63,8 @@ export function createReviewView(
   const EDGES: CadLeaf = { name: 'Edges', mesh, faces: [], colour: '#4a5058', edges: true };
   const cad = createCadView(container, [{ name: OTHER, leaves: [leaf('Faces', all)] }, EDGES], {
     control: 'trackball',
+    // A calm first look: the viewer's toolbar and tools panel come with "More view tools".
+    tools: false,
     // A feature picked in the tree: its question, as picking one of its faces would.
     onPick: (path) => {
       const name = path.split('/')[2];
@@ -302,6 +304,7 @@ export function createReviewView(
       cad.lookFrom([...view.eye] as PmiVec, around, view.up ? [...view.up] as PmiVec : undefined);
     },
     setFarSideHidden: (on) => annotations.setFarSideHidden(on),
+    setTools: (on) => cad.showTools(on),
     setTransparency(amount) {
       const a = Math.min(Math.max(amount, 0), 0.95);
       seeThrough = a > 0;

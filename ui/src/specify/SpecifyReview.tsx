@@ -73,6 +73,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
 }) {
   const stage = useRef<HTMLDivElement>(null);
   const picker = useRef<Picker | null>(null);
+  const [moreTools, setMoreTools] = useState(false);
   const [questions, setQuestions] = useState<readonly PmiQuestion[]>(session.questions);
   const [answers, setAnswers] = useState<PmiAnswers>(session.answers ?? {});
   const [resumed, setResumed] = useState(false);
@@ -281,6 +282,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     ? drawnViews(drawnPmi, (g, item) => drawnShown(g.source, item === null ? undefined : drawnPmi.links[item]?.status, drawnShow), partCentre(session.mesh.positions))
     : []), [drawnPmi, drawnShow, session]);
 
+  useEffect(() => { picker.current?.setTools?.(moreTools); }, [moreTools, session]);
   useEffect(() => {
     picker.current?.setTransparency(transparency / 100);
   }, [transparency, session]);
@@ -779,6 +781,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
               ))}
             </div>
           </details>
+          <button type="button" className="pmi-lab-more-tools" aria-pressed={moreTools} title="The 3D viewer's own toolbar and tree: measuring, clipping, zebra" onClick={() => setMoreTools(on => !on)}>More view tools</button>
           <div>
             <button type="button" title="Roll a quarter turn anticlockwise" onClick={() => picker.current?.navigator.roll(-1)}>↺</button>
             <button type="button" title="Roll a quarter turn clockwise" onClick={() => picker.current?.navigator.roll(1)}>↻</button>
