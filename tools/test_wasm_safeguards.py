@@ -17,8 +17,8 @@ import wasm_size
 class WorkspacePinTests(unittest.TestCase):
     def test_release_and_wasm_use_the_reviewed_kernel(self):
         local = kernel.pins(kernel.tomllib.loads((kernel.ROOT / "Cargo.toml").read_text()))
-        self.assertEqual(set(local.values()), {("tag", "v0.4.9")})
-        self.assertEqual(set(local.values()), {("tag", kernel.REQUIRED_TAG)})
+        self.assertEqual(set(local.values()), {("tag", "v0.5.0")})
+        self.assertEqual(kernel.REQUIRED_TAG, "v0.5.0")
         kernel.check_wasm_pin(local)
 
     def test_mismatched_wasm_pin_is_rejected(self):

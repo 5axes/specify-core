@@ -891,6 +891,34 @@ fn locate(f: &Feature, all: &[Feature], size: &Size) -> Place {
 /// Keys of a feature's changes that are its surroundings, not the feature: what it borders.
 const CONTEXT: [&str; 2] = ["adjacency", "neighbourhood"];
 
+/// A pocket and its section view may differ only by the pocket's planar floor.
+/// Identical wall faces prove the same place; the extra plane must touch every wall.
+fn pocket_section_twins(a: &Feature, b: &Feature, part: &Part) -> bool {
+    let (pocket, section) = match (a.family.as_str(), b.family.as_str()) {
+        ("pockets" | "prismatic_pockets", "section_recesses") => (a, b),
+        ("section_recesses", "pockets" | "prismatic_pockets") => (b, a),
+        _ => return false,
+    };
+    if section.faces.is_empty()
+        || pocket.faces.len() != section.faces.len() + 1
+        || !section.faces.iter().all(|f| pocket.faces.contains(f))
+    {
+        return false;
+    }
+    let floor = *pocket
+        .faces
+        .iter()
+        .find(|f| !section.faces.contains(f))
+        .unwrap();
+    part.faces
+        .get(floor)
+        .is_some_and(|f| matches!(f.surface, haecceity::geom::Surface::Plane { .. }))
+        && section
+            .faces
+            .iter()
+            .all(|wall| part.neighbours(floor).contains(wall))
+}
+
 /// The changes read as a person would say them, not as features were paired:
 ///
 /// - one line for a feature recognised twice (the same faces, as two records: a pocket by its
@@ -898,7 +926,13 @@ const CONTEXT: [&str; 2] = ["adjacency", "neighbourhood"];
 /// - a pattern laid out again (another count, circle or spacing) as one pattern become
 ///   another, its holes' own pairings folded into it;
 /// - a hole that became another kind of hole in its place (counterbored, blind) as that.
-fn fold(changes: &mut Vec<FeatureChange>, old: &[Feature], new: &[Feature]) {
+fn fold(
+    changes: &mut Vec<FeatureChange>,
+    old: &[Feature],
+    new: &[Feature],
+    old_part: &Part,
+    new_part: &Part,
+) {
     // A tenth of the smaller feature's radius, with a 0.1 mm rounding floor.
     // The part's box must not make two small, distant holes count as the same place.
     let radius = |f: &Feature| {
@@ -961,14 +995,26 @@ fn fold(changes: &mut Vec<FeatureChange>, old: &[Feature], new: &[Feature]) {
     let mut kept: Vec<FeatureChange> = Vec::new();
     for c in changes.drain(..) {
         match kept.iter_mut().find(|k| {
-            k.class == c.class
-                && k.family == c.family
-                && k.old == c.old
-                && k.new == c.new
-                && k.old.is_some()
+            let twins = |a: &Option<String>, b: &Option<String>, fs: &[Feature], part: &Part| {
+                match (a.as_deref().and_then(|id| find(fs, id)), b.as_deref().and_then(|id| find(fs, id))) {
+                    (Some(a), Some(b)) => pocket_section_twins(&a, &b, part),
+                    _ => false,
+                }
+            };
+            k.class == c.class && k.old.is_some()
+                && ((k.family == c.family && k.old == c.old && k.new == c.new)
+                    || (twins(&k.old, &c.old, old, old_part)
+                        && twins(&k.new, &c.new, new, new_part)))
         }) {
-            Some(k) if plain(&c) < plain(k) => *k = c,
-            Some(_) => {}
+            Some(k) => {
+                // Keep the section wording used by the old shared representative,
+                // with the plain measurements and the full pocket support link.
+                let wording = (k.family != c.family).then(|| {
+                    if c.family == "section_recesses" { c.what.clone() } else { k.what.clone() }
+                });
+                if plain(&c) < plain(k) { *k = c; }
+                if let Some(wording) = wording { k.what = wording; }
+            }
             None => kept.push(c),
         }
     }
@@ -1736,7 +1782,13 @@ pub fn diff_with_options(
         }
     }
 
-    fold(&mut feature_changes, &old_features, &new_features);
+    fold(
+        &mut feature_changes,
+        &old_features,
+        &new_features,
+        &old.part,
+        &new.part,
+    );
 
     treatments::fold_end_chamfers(
         &mut feature_changes,

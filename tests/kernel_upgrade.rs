@@ -28,7 +28,42 @@ fn five_real_alpha6_files_resume_all_87_answers_including_a_rotated_part() {
         let loaded = part::load(&fixture(&format!("resume-alpha6/{name}.step.gz")), None).unwrap();
         let (analysis, warnings) = api::analyse_reporting(&loaded).unwrap();
         assert!(warnings.is_empty(), "{name}: {warnings:?}");
-        assert_eq!(analysis["resume"]["answers"], base["answers"], "{name}");
+        // #216 adds planar floor ownership. Only these two saved hole IDs grow;
+        // compare every answer value and the complete migration list exactly.
+        let rekey = |id: &str| {
+            match name {
+                "shaft" => id
+                    .strip_suffix(":holes:15")
+                    .map(|q| format!("{q}:holes:15.16")),
+                "pin" => id
+                    .strip_suffix(":holes:3")
+                    .map(|q| format!("{q}:holes:3.5")),
+                _ => None,
+            }
+            .unwrap_or_else(|| id.into())
+        };
+        let expected: Map<String, Value> = base["answers"]
+            .as_object()
+            .unwrap()
+            .iter()
+            .map(|(id, value)| (rekey(id), value.clone()))
+            .collect();
+        let migrated: Vec<_> = base["answers"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .filter(|id| rekey(id) != **id)
+            .map(|id| json!([id, rekey(id)]))
+            .collect();
+        assert_eq!(analysis["resume"]["answers"], json!(expected), "{name}");
+        assert_eq!(
+            analysis["resume"]
+                .get("migrated")
+                .cloned()
+                .unwrap_or_else(|| json!([])),
+            json!(migrated),
+            "{name}"
+        );
         assert!(analysis["resume"]["unresolved"].is_null());
         let ids = |value: &Value| {
             value
@@ -58,7 +93,12 @@ fn five_real_alpha6_files_resume_all_87_answers_including_a_rotated_part() {
             .unwrap();
         assert_eq!(resume::answers_for(&back).unwrap().as_ref(), Some(answers));
         // Stored base64 bytes and literal Unicode/quote/backslash text survive step-io 0.3.
-        let before = resume::stored(&loaded.bytes);
+        let mut before = resume::stored(&loaded.bytes);
+        // Every payload field and string byte survives apart from the migrated keys.
+        before
+            .get_mut(&0)
+            .unwrap()
+            .insert("answers".into(), json!(expected));
         let after = resume::stored(&back.bytes);
         assert_eq!(
             resume::encode(&json!(before[&0])),
@@ -515,12 +555,27 @@ fn unresolved_saved_answers_reach_review_and_leave_questions_open() {
     assert!(warnings[0].contains("hole.function:holes:999"));
     assert_eq!(analysis["resume"]["unresolved"][0]["answer"], value);
     assert_eq!(analysis["resume"]["unresolved"][0]["feature"], "holes:999");
+    // File-only consumers get applicable answers, while analysis keeps the
+    // unsupported answer above for review instead of applying an unknown ID.
+    assert!(
+        !resume::answers_for(&part)
+            .unwrap()
+            .unwrap()
+            .contains_key("hole.function:holes:999")
+    );
     let review = api::review(
         &analysis,
         analysis["resume"]["answers"].as_object().unwrap(),
     )
     .unwrap();
-    assert!(review["open"].as_array().unwrap().contains(&json!(key)));
+    // The unanswered current question includes the floor; the orphan retains its saved key.
+    assert_eq!(key, "hole.function:holes:3");
+    assert!(
+        review["open"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("hole.function:holes:3.5"))
+    );
     assert!(
         review["problems"]
             .as_array()
@@ -619,4 +674,62 @@ fn real_alpha6_ftc10_answers_migrate_to_larger_geometric_supports() {
     for pair in resumed["migrated"].as_array().unwrap() {
         assert!(!review["open"].as_array().unwrap().contains(&pair[1]));
     }
+}
+
+/// Sidecars/projects and legacy payloads lack face evidence: only an exact ID or
+/// a unique same-family strict superset of the ID faces may carry an answer.
+#[test]
+fn id_only_answers_require_a_unique_same_family_strict_id_face_superset() {
+    let loaded = part::load(&fixture("parts/plate.step"), None).unwrap();
+    let answers = json!({"hole.function:holes:6":"tapped:M2", "part.material":"steel"});
+    let run = |features: Vec<Feature>| {
+        resume::rematch_answers(&loaded, &features, answers.as_object().unwrap(), None, None)
+            .unwrap()
+    };
+    let unique = run(vec![feature("holes:6.7", "holes", vec![6, 7])]);
+    assert_eq!(
+        unique.answers,
+        json!({"hole.function:holes:6.7":"tapped:M2", "part.material":"steel"})
+            .as_object()
+            .unwrap()
+            .clone()
+    );
+    assert_eq!(
+        unique.migrated,
+        [(
+            "hole.function:holes:6".into(),
+            "hole.function:holes:6.7".into()
+        )]
+    );
+    assert!(unique.unresolved.is_empty());
+    assert!(unique.unverified.is_some());
+    for features in [
+        vec![
+            feature("holes:6.7", "holes", vec![6, 7]),
+            feature("holes:6.8", "holes", vec![6, 8]),
+        ],
+        vec![feature("bosses:6.7", "bosses", vec![6, 7])],
+        // Record faces alone do not establish an ID-face superset.
+        vec![feature("holes:7", "holes", vec![6, 7])],
+    ] {
+        let refused = run(features);
+        assert_eq!(
+            refused.answers,
+            json!({"part.material":"steel"})
+                .as_object()
+                .unwrap()
+                .clone()
+        );
+        assert!(refused.migrated.is_empty());
+        assert_eq!(refused.unresolved.len(), 1);
+        assert_eq!(refused.unresolved[0].id, "hole.function:holes:6");
+        assert_eq!(refused.unresolved[0].answer, "tapped:M2");
+    }
+    let exact = run(vec![
+        feature("holes:6", "holes", vec![6]),
+        feature("holes:6.7", "holes", vec![6, 7]),
+    ]);
+    assert_eq!(exact.answers, *answers.as_object().unwrap());
+    assert!(exact.migrated.is_empty());
+    assert!(exact.unresolved.is_empty());
 }

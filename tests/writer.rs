@@ -956,11 +956,14 @@ fn a_nist_part_keeps_all_its_pmi() {
 #[test]
 fn a_typed_thread_depth_is_written_and_read_back() {
     let dir = temp("depth");
-    let analysis = analysis("parts/pin");
+    let pin = load(&fixture("pin"), None).unwrap();
+    // This native save/reopen check needs the current question ID. The frozen
+    // Python ID already includes the floor that v0.4.9 has not yet claimed.
+    // Keep the exact 5.6/8 mm STEP and complete saved-answer assertions.
+    let analysis = specify_core::api::analyse(&pin).unwrap();
     let hole = format!("hole.function:{}", feature(&analysis, "holes", 4.2));
     let given = json!({"part.material": "brass", hole: "tapped:M5@5.6"});
     let out = dir.join("deep.step");
-    let pin = load(&fixture("pin"), None).unwrap();
     let report = write(
         &pin,
         &apply(&analysis, given.clone()),

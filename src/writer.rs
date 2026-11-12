@@ -654,9 +654,7 @@ fn write_verified(
     let mut scoped = Vec::new();
     for (loaded, _, _) in jobs {
         if resume::scoped(&original.doc, loaded.binding.part)
-            && resume::answers_for(loaded)
-                .map_err(|e| WriteError::Failed(e.to_string()))?
-                .is_some()
+            && resume::has_answers(loaded).map_err(|e| WriteError::Failed(e.to_string()))?
         {
             scoped.push(loaded.binding.part);
         }
@@ -686,7 +684,7 @@ fn write_verified(
             let current = if k >= first.part_count {
                 None
             } else if let Some((l, _, _)) = jobs.iter().find(|(l, _, _)| l.binding.part == k) {
-                resume::answers_for(l).map_err(failed)?
+                resume::has_answers(l).map_err(failed)?.then_some(())
             } else {
                 let load_failed = |e: part::LoadError| WriteError::Failed(e.to_string());
                 if file.is_none() {
@@ -700,7 +698,7 @@ fn write_verified(
                     .expect("read above")
                     .load(Some(k))
                     .map_err(load_failed)?;
-                resume::answers_for(&l).map_err(failed)?
+                resume::has_answers(&l).map_err(failed)?.then_some(())
             };
             if current.is_none() {
                 stale.push(k.to_string());
@@ -724,7 +722,7 @@ fn write_verified(
     for (loaded, _, _) in jobs {
         let foreign = source.has_pmi(loaded.binding.part)
             && (scoped.contains(&loaded.binding.part)
-                || resume::answers_for(loaded).map_err(failed)?.is_none());
+                || !resume::has_answers(loaded).map_err(failed)?);
         modes.push(if foreign { Mode::Add } else { Mode::Replace });
     }
 
@@ -1899,6 +1897,7 @@ fn part_pmi_observed(
             if mode == Mode::Add && thread_carries_planned(before, &planned) {
                 continue;
             }
+            planned.bore_supports(&loaded.part);
             let dimension_kind = planned_kind(&planned, &mut f, &mut p.geometry, &point_unit)?;
             // Keep generated measurements at Specify's established six decimal places in mm;
             // sub-nanometre frame-inference noise must not create inspection revisions.

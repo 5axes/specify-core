@@ -27,6 +27,9 @@ fn no_opt_in_matches_v046_presentation_through_api_and_cli() {
     // assembly) and repeats the material id as its description; #193 adds the PMI RP 4.1
     // reference to FILE_DESCRIPTION and names curve sets `note`/`label`; and on assemblies
     // the second part's callout model is named `PMI callouts (2)`.
+    // #216: the two complete-assembly byte pins change only for the imported
+    // pin answer keys holes:3 -> holes:3.5. The frozen legacy fixture stays keyed
+    // as saved and passes through the public matcher; every value and PMI stays exact.
     // Keep #95/#96's history-schema projection: only schema/role/specification
     // text is normalized. Every other STEP byte, counter, support and numeric ID
     // remains pinned; API and CLI bytes must still match exactly.
@@ -41,13 +44,13 @@ fn no_opt_in_matches_v046_presentation_through_api_and_cli() {
             "assembly",
             true,
             false,
-            "a9ed9c8ca0bfb433e3b28b71b36c314c754031dab7ec89076452da2e5e6de08d",
+            "bd30af3b131cb2aecadd6a0badb866529d0c7121888dfff2b66611caa6cb827f",
         ),
         (
             "assembly",
             true,
             true,
-            "a9ed9c8ca0bfb433e3b28b71b36c314c754031dab7ec89076452da2e5e6de08d",
+            "bd30af3b131cb2aecadd6a0badb866529d0c7121888dfff2b66611caa6cb827f",
         ),
         (
             "assembly",
@@ -87,6 +90,29 @@ fn no_opt_in_matches_v046_presentation_through_api_and_cli() {
                     .as_object()
                     .unwrap()
                     .clone()
+            };
+            // The frozen fixtures are saved plain answer files, with no face evidence.
+            // Import them through the public ID matcher before the strict current-ID
+            // question/apply APIs. Keep their old keys to exercise floor-ID migration.
+            let answers = if all_answered {
+                let imported = specify_core::resume::rematch_answers(
+                    &part,
+                    &specify_core::features::recognise(&part).unwrap(),
+                    &answers,
+                    None,
+                    None,
+                )
+                .unwrap();
+                assert!(imported.unresolved.is_empty(), "{:?}", imported.unresolved);
+                assert_eq!(imported.answers.len(), answers.len());
+                for (old, new) in &imported.migrated {
+                    assert_eq!(new, &format!("{}.5", old));
+                    assert!(old.ends_with(":holes:3"));
+                    assert_eq!(imported.answers[new], answers[old]);
+                }
+                imported.answers
+            } else {
+                answers
             };
             if all_answered {
                 assert!(

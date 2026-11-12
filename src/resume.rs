@@ -395,13 +395,54 @@ fn schema_of(payload: &Map<String, Value>) -> Option<i64> {
 }
 
 /// Stored answers for this part. Schemas 1/2 require their existing face-count and
-/// fingerprint checks (including [`Check::Legacy`]); their original keys are preserved.
+/// fingerprint checks (including [`Check::Legacy`]). Verified supports are rematched to
+/// current feature IDs; legacy unverified answers are matched by ID.
 /// Schema 3 rematches authored names and unnamed evidence to the current geometry and
 /// returns only applicable answers, even across a rebuild. Missing or ambiguous supports
 /// are excluded. Use [`report_for_parsed`] or [`crate::api::analyse`] to retain those
 /// unresolved values and their diagnostics. [`stored`] exposes the original raw payload.
 /// An error describing faces or recognising named supports is returned to the caller.
 pub fn answers_for(loaded: &LoadedPart) -> Result<Option<Map<String, Value>>, FeatureError> {
+    stored_answers(loaded, Need::Answers(None))
+}
+
+/// [`answers_for`], matched against `features`, `loaded`'s features already recognised.
+pub(crate) fn answers_with(
+    loaded: &LoadedPart,
+    features: &[crate::features::Feature],
+) -> Result<Option<Map<String, Value>>, FeatureError> {
+    stored_answers(loaded, Need::Answers(Some(features)))
+}
+
+/// Whether [`answers_for`] returns answers, without rematching schema-1/2 feature answers.
+pub(crate) fn has_answers(loaded: &LoadedPart) -> Result<bool, FeatureError> {
+    Ok(stored_answers(loaded, Need::Presence)?.is_some())
+}
+
+/// What [`stored_answers`] is asked for.
+#[derive(Clone, Copy)]
+enum Need<'a> {
+    /// Only whether there are answers.
+    Presence,
+    /// The answers, matched to the part's features (recognised here when not given).
+    Answers(Option<&'a [crate::features::Feature]>),
+}
+
+/// `known`, or `loaded`'s features recognised now.
+fn recognised<'a>(
+    loaded: &LoadedPart,
+    known: Option<&'a [crate::features::Feature]>,
+) -> Result<std::borrow::Cow<'a, [crate::features::Feature]>, FeatureError> {
+    Ok(match known {
+        Some(features) => std::borrow::Cow::Borrowed(features),
+        None => std::borrow::Cow::Owned(crate::features::recognise(loaded)?),
+    })
+}
+
+fn stored_answers(
+    loaded: &LoadedPart,
+    need: Need,
+) -> Result<Option<Map<String, Value>>, FeatureError> {
     let Ok(doc) = Document::parse(loaded.bytes.to_vec()) else {
         return Ok(None);
     };
@@ -409,13 +450,35 @@ pub fn answers_for(loaded: &LoadedPart) -> Result<Option<Map<String, Value>>, Fe
         return Ok(None);
     };
     if schema_of(&payload) == Some(3) {
-        let features = crate::features::recognise(loaded)?;
+        let known = match need {
+            Need::Answers(known) => known,
+            Need::Presence => None,
+        };
+        let features = recognised(loaded, known)?;
         return Ok(report_for_parsed(loaded, Some(&doc), &features)?.map(|r| r.answers));
     }
     let mut answers = match check(loaded, &payload, form)? {
         Check::Mismatch => None,
-        Check::Verified | Check::Legacy => {
-            payload.get("answers").and_then(Value::as_object).cloned()
+        state @ (Check::Verified | Check::Legacy) => {
+            if let Some(answers) = payload.get("answers").and_then(Value::as_object) {
+                // Part/datum-only payloads need no feature recognition. Keep
+                // geometry work off the common settings-only reopen/write path.
+                let Need::Answers(known) = need else {
+                    return Ok(Some(answers.clone()));
+                };
+                let features = if answers.keys().any(|id| answer_feature(id).is_some()) {
+                    recognised(loaded, known)?
+                } else {
+                    std::borrow::Cow::Owned(Vec::new())
+                };
+                Some(if state == Check::Verified {
+                    rematch(answers, &features).answers
+                } else {
+                    by_id(answers, &features, loaded, NO_EVIDENCE).answers
+                })
+            } else {
+                None
+            }
         }
     };
     if let Some(answers) = &mut answers {
@@ -801,7 +864,8 @@ fn rematch_named(
 }
 
 /// Answers without face evidence, `why`, trusted by ID: a feature answer is kept on the
-/// feature with the same ID, a datum when its faces exist ([`Matching::Exact`]).
+/// feature with the same ID or a unique same-family strict ID-face superset,
+/// a datum when its faces exist ([`Matching::Exact`]).
 fn by_id(
     answers: &Map<String, Value>,
     features: &[crate::features::Feature],
@@ -864,17 +928,14 @@ fn answer_feature(id: &str) -> Option<(&str, &str)> {
     .then_some((question, feature))
 }
 
-/// Match geometric supports, never feature list positions or dimensions. Defining faces
-/// can grow (e.g. a bore gaining its floor): allow a unique same-family superset, but never
-/// partial overlap, a family change or a choice between candidates. Collisions, even with
 /// How saved feature IDs are matched to this part's features.
 #[derive(Clone, Copy)]
 enum Matching<'a> {
     /// By geometric face support: the saved face indices are proven to be this part's.
     Support,
     Mapped(&'a BTreeMap<usize, Result<usize, String>>),
-    /// Only to the feature with the same ID; face indices are not proven, so a datum's faces
-    /// must at least exist on the part.
+    /// Prefer the same ID, then a unique same-family strict ID-face superset.
+    /// Face indices are not proven, so a datum's faces must at least exist on the part.
     Exact {
         face_count: usize,
     },
@@ -980,6 +1041,23 @@ fn rematch_by(
             .unwrap_or_default();
         let exact: Vec<_> = candidates.iter().copied().filter(|f| f.id == old).collect();
         let candidates = match matching {
+            Matching::Exact { .. } if exact.is_empty() => candidates
+                .into_iter()
+                .filter(|f| {
+                    let Some((_, faces)) = f.id.split_once(':') else {
+                        return false;
+                    };
+                    let Some(faces) = faces
+                        .split('.')
+                        .map(|i| i.parse::<usize>().ok())
+                        .collect::<Option<BTreeSet<_>>>()
+                    else {
+                        return false;
+                    };
+                    let saved: BTreeSet<_> = support.as_ref().unwrap().iter().copied().collect();
+                    saved.len() < faces.len() && saved.is_subset(&faces)
+                })
+                .collect(),
             Matching::Exact { .. } => exact,
             Matching::Support if exact.is_empty() => candidates,
             Matching::Support => exact,
@@ -996,11 +1074,7 @@ fn rematch_by(
                 id: id.clone(),
                 feature: Some(old.into()),
                 answer: answer.clone(),
-                reason: if let Matching::Exact { .. } = matching {
-                    "this part has no feature with the saved ID, and without verified face \
-                     evidence its faces cannot be matched"
-                        .into()
-                } else if candidates.is_empty() {
+                reason: if candidates.is_empty() {
                     "no same-family feature contains the saved geometric faces".into()
                 } else {
                     format!(

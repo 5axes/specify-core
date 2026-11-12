@@ -6,6 +6,32 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+### Changed
+
+- quiddity and haecceity 0.5.0 (release tag `v0.5.0`). Fingerprints are now version 4,
+  and quiddity refuses to correspond version 3. Saved answers still attach by face name
+  or by the unchanged faces; where neither holds and only version 3 geometry is saved
+  (answers kept outside the STEP for a changed part), unnamed faces are left for review.
+
+### Fixed
+
+- BOM item numbers survive the fingerprint version change: a BOM history written before
+  quiddity 0.5.0 is re-fingerprinted from its own file, by each entry's item number or
+  unique part name, so its parts keep their numbers and answers instead of being renumbered.
+
+- Planner dimensions on floor-bearing holes leave the planar floor out of their
+  depth and location dimension carriers; the bore (and any cone) carries them.
+
+- Revision reports fold a pocket and its section recess into one change when their
+  supports differ only by the pocket’s adjacent planar floor.
+
+- Answers without face evidence can follow a unique same-family feature whose ID
+  adds faces to the saved ID. Ambiguous matches stay unresolved for review.
+
+- Reopening a STEP with verified schema-1/2 saved answers keeps current thread and
+  position editor IDs when a kernel upgrade adds a hole floor to its feature ID,
+  avoiding false removals and duplicate position changes in revision reports.
+
 ### Added
 
 - `mesh` accepts CLI `--max-deviation-mm` and `max_deviation_mm` in serve, Python

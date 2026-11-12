@@ -45,13 +45,41 @@ fn v024_boss_answers_and_pmi_resume_after_chamfer_and_round_height_corrections()
             }
         }
         assert_eq!(resume::evidence(&loaded).unwrap(), base["evidence"]);
-        let answers = base["answers"].as_object().unwrap();
+        // #216 adds the chamfered shaft hole's floor: the three saved keys migrate,
+        // with unchanged saved values and answered contracts. The exact legacy
+        // floor-to-datum span is checked separately below.
+        let rekey = |s: &str| {
+            s.strip_suffix("holes:15")
+                .map(|q| format!("{q}holes:15.16"))
+                .unwrap_or_else(|| s.into())
+        };
+        let expected: Map<String, Value> = base["answers"]
+            .as_object()
+            .unwrap()
+            .iter()
+            .map(|(id, value)| (rekey(id), value.clone()))
+            .collect();
+        let answers = &expected;
         assert_eq!(
             resume::answers_for(&loaded).unwrap().as_ref(),
             Some(answers)
         );
         let a = api::analyse(&loaded).unwrap();
-        assert_eq!(a["resume"]["answers"], base["answers"]);
+        assert_eq!(a["resume"]["answers"], json!(expected));
+        let migrated: Vec<_> = base["answers"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .filter(|id| rekey(id) != **id)
+            .map(|id| json!([id, rekey(id)]))
+            .collect();
+        assert_eq!(
+            a["resume"]
+                .get("migrated")
+                .cloned()
+                .unwrap_or_else(|| json!([])),
+            json!(migrated)
+        );
         assert!(a["resume"]["unresolved"].is_null());
         let mut unchanged = revision::diff(&loaded, &loaded, &Map::new()).unwrap();
         let numbers = unchanged
@@ -97,9 +125,42 @@ fn v024_boss_answers_and_pmi_resume_after_chamfer_and_round_height_corrections()
             .shift_remove("dimensioning_stated");
         let mut legacy = rules::apply(&legacy_analysis, answers).unwrap().to_dict();
         let mut prior = base["intent"].clone();
+        // Only identity fields change; literal notes and every other value stay exact.
+        for list in ["requirements", "general"] {
+            for row in prior[list].as_array_mut().unwrap() {
+                for field in ["feature", "question"] {
+                    if let Some(Value::String(id)) = row.get_mut(field) {
+                        *id = rekey(id);
+                    }
+                }
+            }
+        }
         legacy.as_object_mut().unwrap().shift_remove("binding");
         prior.as_object_mut().unwrap().shift_remove("binding");
-        assert_eq!(legacy, prior, "{name}: complete legacy intent");
+        let mut expected_legacy = prior.clone();
+        if name == "chamfer" {
+            // #216 claims plane 16 as the M2 floor. The legacy path now omits
+            // its floor-to-datum span too; the live planner already omitted it
+            // under #75. Pin that exact row and compare every remaining field.
+            assert!(
+                fs.iter()
+                    .find(|f| f.id == "holes:15.16")
+                    .unwrap()
+                    .faces
+                    .contains(&16)
+            );
+            assert_eq!(a["faces"][16]["kind"], "plane");
+            let rows = expected_legacy["general"].as_array_mut().unwrap();
+            let index = rows.iter().position(|r| r["faces"] == json!([16])).unwrap();
+            assert_eq!(
+                rows.remove(index),
+                json!({
+                    "kind":"location", "feature":"", "faces":[16], "reference":[7,11],
+                    "distance":5.0, "upper":0.1, "lower":-0.1, "general":true,
+                })
+            );
+        }
+        assert_eq!(legacy, expected_legacy, "{name}: complete legacy intent");
         assert_eq!(json!(intent.part), prior["part"]);
         assert_eq!(json!(intent.datums), prior["datums"]);
         let rows = |rs: &[Value], general: bool| {

@@ -97,43 +97,43 @@ fn left_open(out: &resume::Resumed, answers: &Map<String, Value>, why: &str) {
 }
 
 // A legacy project, saved without evidence, is trusted by feature ID (the maintainer's
-// decision, #35): answers on IDs this part has are kept. #100 cone claims change six more
-// IDs in addition to the two schema-6 pattern moves: all eight stay unresolved without evidence.
+// decision, #35): exact IDs stay, and unique same-family ID-face supersets now carry.
+// #100's six cone moves and the two schema-6 pattern moves remain explicitly unverified.
 #[test]
 fn without_evidence_answers_are_matched_by_feature_id() {
     let (loaded, analysis, answers, _) = ftc10();
     let out = resume::rematch_answers(&loaded, &features(&analysis), &answers, None, None).unwrap();
-    assert!(out.migrated.is_empty());
+    // The unique same-family ID-face-superset fallback now carries all eight
+    // FTC-10 moves, including #100's cones. The values and answer order stay exact.
+    let renamed = |id: &str| {
+        let Some((question, feature)) = id.split_once(':') else {
+            return id.to_string();
+        };
+        common::upgrade::FTC10
+            .iter()
+            .find(|(old, _)| *old == feature)
+            .map_or_else(|| id.into(), |(_, new)| format!("{question}:{new}"))
+    };
+    let expected: Map<String, Value> = answers
+        .iter()
+        .map(|(id, value)| (renamed(id), value.clone()))
+        .collect();
+    let moves: Vec<_> = answers
+        .keys()
+        .filter(|id| renamed(id) != **id)
+        .map(|id| (id.clone(), renamed(id)))
+        .collect();
+    assert_eq!(moves.len(), 8);
+    assert_eq!(out.migrated, moves);
+    assert!(out.unresolved.is_empty());
+    assert_eq!(out.answers, expected);
+    assert_eq!(
+        out.answers.keys().collect::<Vec<_>>(),
+        expected.keys().collect::<Vec<_>>()
+    );
     let why = out.unverified.as_deref().unwrap();
     assert!(why.contains("no saved face fingerprint"), "{why}");
     assert!(why.contains("matched by feature ID"), "{why}");
-    assert_eq!(out.unresolved.len(), 8);
-    let moved: Vec<_> = analysis["resume"]["migrated"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|pair| pair[0].as_str().unwrap())
-        .collect();
-    assert_eq!(
-        out.unresolved
-            .iter()
-            .map(|u| u.id.as_str())
-            .collect::<Vec<_>>(),
-        moved
-    );
-    for unresolved in &out.unresolved {
-        assert_eq!(unresolved.answer, answers[&unresolved.id]);
-        assert!(unresolved.reason.contains("no feature with the saved ID"));
-        assert!(!unresolved.automatic);
-    }
-    // Every other answer is kept as it was, in order, feature answers included; nothing is
-    // dropped.
-    let kept: Vec<_> = answers
-        .keys()
-        .filter(|id| !out.unresolved.iter().any(|u| &u.id == *id))
-        .collect();
-    assert_eq!(out.answers.keys().collect::<Vec<_>>(), kept);
-    assert!(kept.iter().any(|id| id.starts_with("hole.")));
     // The kept answers are valid for this part: a review takes them.
     api::review(&analysis, &out.answers).unwrap();
 }
@@ -215,7 +215,7 @@ fn automatic_answers_are_marked_and_their_ids_follow_migration() {
     }
     assert_eq!(migrated.automatic.as_ref().unwrap(), &expected);
 
-    let unmatched = resume::rematch_answers(
+    let id_only = resume::rematch_answers(
         &loaded,
         &features(&analysis),
         &answers,
@@ -223,34 +223,41 @@ fn automatic_answers_are_marked_and_their_ids_follow_migration() {
         Some(&automatic),
     )
     .unwrap();
-    // #100 leaves six further answers unresolved by ID. Only the original two pattern
-    // answers were marked automatic; the newly moved bore/row answers remain manual.
-    assert_eq!(unmatched.unresolved.len(), 8);
-    assert_eq!(
-        unmatched.unresolved.iter().filter(|u| u.automatic).count(),
-        2
-    );
+    // The requested fallback carries these same eight unique support supersets
+    // without evidence, and their automatic IDs follow the accepted migrations.
+    assert_eq!(id_only.migrated, migrated.migrated);
+    assert_eq!(id_only.migrated.len(), 8);
+    assert_eq!(id_only.answers, migrated.answers);
+    assert!(id_only.unresolved.is_empty());
+    assert!(id_only.unverified.is_some());
+    assert_eq!(id_only.automatic.as_ref().unwrap(), &expected);
+
+    // Unsupported answers still retain both their original values and automatic
+    // status. Serialization marks only the automatic refusal, as before.
+    let mut stale = answers.clone();
+    stale.insert("hole.function:holes:999".into(), json!("tapped:M2"));
+    stale.insert("hole.position:holes:999".into(), json!("0.05"));
+    let mut automatic = automatic;
+    automatic.push("hole.function:holes:999".into());
+    let unmatched = resume::rematch_answers(
+        &loaded,
+        &features(&analysis),
+        &stale,
+        None,
+        Some(&automatic),
+    )
+    .unwrap();
+    assert_eq!(unmatched.unresolved.len(), 2);
+    assert_eq!(unmatched.unresolved[0].id, "hole.function:holes:999");
+    assert_eq!(unmatched.unresolved[1].id, "hole.position:holes:999");
     for u in &unmatched.unresolved {
-        assert_eq!(u.automatic, moved.contains(&u.id));
+        assert_eq!(u.answer, stale[&u.id]);
+        assert_eq!(u.automatic, u.id == "hole.function:holes:999");
     }
     let value = serde_json::to_value(&unmatched).unwrap();
-    for u in value["unresolved"].as_array().unwrap() {
-        assert_eq!(
-            u.get("automatic"),
-            moved
-                .iter()
-                .any(|id| u["id"] == *id)
-                .then_some(&json!(true))
-        );
-    }
-    // The automatic answers kept by ID stay automatic; the unresolved ones are left out.
-    let kept: Vec<String> = automatic
-        .iter()
-        .filter(|id| unmatched.answers.contains_key(*id))
-        .cloned()
-        .collect();
-    assert!(kept.iter().all(|id| !moved.contains(id)));
-    assert_eq!(unmatched.automatic.unwrap(), kept);
+    assert_eq!(value["unresolved"][0]["automatic"], true);
+    assert!(value["unresolved"][1].get("automatic").is_none());
+    assert_eq!(unmatched.automatic.as_ref().unwrap(), &expected);
 }
 
 // Without evidence a datum is kept when its faces exist on the part; one on a face the part

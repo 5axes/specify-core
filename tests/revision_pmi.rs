@@ -911,13 +911,18 @@ fn thread_manufacturing_changes_show_drawing_wording_on_both_sides() {
         "{:?}",
         report.pmi.items
     );
+    // #216 adds the floor to this hole ID; keep the one-change wording assertion.
     let old = write(
         &bare,
-        &answers(json!({"hole.function:holes:14":"tapped:M2", "hole.full_thread:holes:14":"2"})),
+        &answers(
+            json!({"hole.function:holes:14.15":"tapped:M2", "hole.full_thread:holes:14.15":"2"}),
+        ),
     );
     let new = write(
         &old,
-        &answers(json!({"hole.function:holes:14":"tapped:M2", "hole.full_thread:holes:14":"1.8"})),
+        &answers(
+            json!({"hole.function:holes:14.15":"tapped:M2", "hole.full_thread:holes:14.15":"1.8"}),
+        ),
     );
     let report = revision::diff(&old, &new, &Map::new()).unwrap();
     // Depth lives in the manufacturing attribute, so the folded thread must still

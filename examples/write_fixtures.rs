@@ -15,6 +15,11 @@
 //! /Users/paul/repos/specify-core/.venv/bin/python tools/capture.py cross-engine tests/fixtures/cross_engine
 //! ```
 //!
+//! **For floor ownership (#216, unreleased `b590592`).** Regenerate all sixteen
+//! cases: only CTC-05's planner identities gain floor 38. Its actual hole dimension
+//! carriers remain cylinder 37, with the same 92.08 mm depth. Independently recapture
+//! its readback/hash; the fixture README records the actual local reader and command.
+//!
 //! **For quiddity 0.4.8 (`449ab51d`).** Regenerated all sixteen cases. Fourteen goldens
 //! change only for #198's Notes saved view, material description and unique model names,
 //! and #193's RP 4.1 FILE_DESCRIPTION reference and curve-set names. They were recaptured

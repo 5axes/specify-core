@@ -384,9 +384,11 @@ fn bulk_acceptance_round_trips_grm03() {
         );
         return;
     };
+    // #216 adds planar floor 13 to this hole ID. Keep the same M2 answer and
+    // every complete-intent, accepted-default and exact written-byte comparison.
     check_bulk_acceptance(
         &root.join("gramel/GRM-03_thumbwheel_drive_screw.step"),
-        json!({"part.material": "steel", "hole.function:holes:12": "tapped:M2", "diameter.fit:turned_steps:6": "thread:M3", "diameter.fit:turned_steps:3": "knurl:straight"}).as_object().unwrap().clone(),
+        json!({"part.material": "steel", "hole.function:holes:12.13": "tapped:M2", "diameter.fit:turned_steps:6": "thread:M3", "diameter.fit:turned_steps:3": "knurl:straight"}).as_object().unwrap().clone(),
     );
 }
 

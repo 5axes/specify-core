@@ -877,3 +877,80 @@ fn a_position_frames_bolt_circle_is_basic_even_without_cartesian_basics() {
         1
     );
 }
+
+#[test]
+fn blind_hole_planner_dimensions_attach_only_to_the_bore_cylinders() {
+    // CTC-05 exercises the supported depth/location writer path from the
+    // independent oracle intent, including the writer's legacy-input upgrade.
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+    let nist = part::load(&root.join("nist/nist_ctc_05_asme1_ap242.stp.gz"), None).unwrap();
+    let file = std::fs::File::open(root.join("oracle/nist/nist_ctc_05_asme1_ap242/apply.json.gz"))
+        .unwrap();
+    let captured: Value = serde_json::from_reader(flate2::read::GzDecoder::new(file)).unwrap();
+    let intent = rules::Intent::from_dict(&captured).unwrap();
+    let back = part::load_bytes(
+        "nist.step",
+        writer::write_bytes(&nist, &intent, None).unwrap().0,
+    )
+    .unwrap();
+    // The existing-PMI interview deliberately omits owned General dimensions;
+    // inspect the actual semantic dimension arena instead.
+    let read = model(&back);
+    let pmi = &read.parts[0];
+    fn faces(p: &pmi::PartPmi, id: pmi::FeatureId) -> Vec<usize> {
+        match &p.features[id.0] {
+            pmi::Feature::Items(items) => items
+                .iter()
+                .filter_map(|a| match a {
+                    pmi::Anchor::Face(f) => Some(f.0),
+                    _ => None,
+                })
+                .collect(),
+            pmi::Feature::Group { members, .. } => {
+                members.iter().flat_map(|id| faces(p, *id)).collect()
+            }
+            pmi::Feature::Derived { from, .. } => {
+                from.iter().flat_map(|id| faces(p, *id)).collect()
+            }
+        }
+    }
+    let mut depth = 0;
+    let mut location = 0;
+    for d in &pmi.dimensions {
+        let id = match d.kind {
+            pmi::DimensionKind::Size { feature, .. } => feature,
+            pmi::DimensionKind::Location { to, .. } => to,
+        };
+        let support = faces(pmi, id);
+        if !support.contains(&37) {
+            continue;
+        }
+        // A location can target a consolidated group of holes. Each member is
+        // bore-only; the group may legitimately contain other bore cylinders.
+        assert!(!support.contains(&38), "{d:?}");
+        assert!(
+            support.iter().all(|f| matches!(
+                back.part.faces[*f].surface,
+                haecceity::geom::Surface::Cylinder { .. }
+            )),
+            "{d:?}"
+        );
+        if d.tolerance != pmi::DimTolerance::None {
+            continue;
+        }
+        match d.kind {
+            pmi::DimensionKind::Size { .. } => {
+                assert_eq!(support, [37]);
+                let pmi::Quantity::Length(length) = &d.nominal.as_ref().unwrap().quantity else {
+                    panic!("length")
+                };
+                if (length.mm() - 92.08).abs() < 1e-8 {
+                    depth += 1;
+                }
+            }
+            pmi::DimensionKind::Location { .. } => location += 1,
+        }
+    }
+    assert_eq!(depth, 1);
+    assert!(location > 0);
+}

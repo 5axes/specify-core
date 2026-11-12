@@ -1063,7 +1063,7 @@
   ],
   "features": [
    {
-    "id": "holes:3",
+    "id": "holes:3.5",
     "family": "holes",
     "record": {
      "axis": [
@@ -1084,7 +1084,8 @@
      "csink": null
     },
     "faces": [
-     3
+     3,
+     5
     ]
    },
    {
@@ -1426,9 +1427,10 @@
    "holes": [
     {
      "support": {
-      "feature": "hole:3",
+      "feature": "hole:3.5",
       "faces": [
-       3
+       3,
+       5
       ],
       "body": 0,
       "at": [

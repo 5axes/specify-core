@@ -435,10 +435,10 @@
  },
  {
   "case": "corpus/cadgenbench_inputs/cgb202",
-  "path": "write.not_written[shared planner dim:envelope:0:min/to/hole:1287/0: General contract conflicts with an answered requirement; retained answered intent instead]",
+  "path": "write.not_written[shared planner dim:envelope:0:min/to/hole:1287.1288/0: General contract conflicts with an answered requirement; retained answered intent instead]",
   "pattern": "Exact unsupported planner proposal is reported, not written (shared planner, #75)",
   "verdict": "rust-correct",
-  "evidence": "Shared planner, #75: fresh writer-oracle report has this exact diagnostic absent from the frozen Python writer. The shared General proposal cannot replace the answered/stored tolerance contract. It is omitted and explicitly reported; the existing intent path remains authoritative. This entry covers the exact not_written diagnostic, never an extra dimension. tests/planner_dimensions.rs verifies actual STEP supports, unique pairs, independent plane chains and Required/readback correspondence across the corpus; writer-oracle also checks EXPRESS conformance."
+  "evidence": "Shared planner, #75: fresh writer-oracle report has this exact diagnostic absent from the frozen Python writer. The shared General proposal cannot replace the answered/stored tolerance contract. It is omitted and explicitly reported; the existing intent path remains authoritative. This entry covers the exact not_written diagnostic, never an extra dimension. tests/planner_dimensions.rs verifies actual STEP supports, unique pairs, independent plane chains and Required/readback correspondence across the corpus; writer-oracle also checks EXPRESS conformance. At quiddity b590592 (#216), re-key this exact diagnostic for planar floor ownership: hole:1287 becomes hole:1287.1288 and hole:1296 becomes hole:1296.1297. The same General conflict is still refused once; its wording, contract and all other writer comparisons remain unchanged."
  },
  {
   "case": "corpus/cadgenbench_inputs/cgb202",
@@ -491,10 +491,10 @@
  },
  {
   "case": "corpus/cadgenbench_inputs/cgb202",
-  "path": "write.not_written[shared planner dim:envelope:0:min/to/hole:1296/0: General contract conflicts with an answered requirement; retained answered intent instead]",
+  "path": "write.not_written[shared planner dim:envelope:0:min/to/hole:1296.1297/0: General contract conflicts with an answered requirement; retained answered intent instead]",
   "pattern": "Exact unsupported planner proposal is reported, not written (shared planner, #75)",
   "verdict": "rust-correct",
-  "evidence": "Shared planner, #75: fresh writer-oracle report has this exact diagnostic absent from the frozen Python writer. The shared General proposal cannot replace the answered/stored tolerance contract. It is omitted and explicitly reported; the existing intent path remains authoritative. This entry covers the exact not_written diagnostic, never an extra dimension. tests/planner_dimensions.rs verifies actual STEP supports, unique pairs, independent plane chains and Required/readback correspondence across the corpus; writer-oracle also checks EXPRESS conformance."
+  "evidence": "Shared planner, #75: fresh writer-oracle report has this exact diagnostic absent from the frozen Python writer. The shared General proposal cannot replace the answered/stored tolerance contract. It is omitted and explicitly reported; the existing intent path remains authoritative. This entry covers the exact not_written diagnostic, never an extra dimension. tests/planner_dimensions.rs verifies actual STEP supports, unique pairs, independent plane chains and Required/readback correspondence across the corpus; writer-oracle also checks EXPRESS conformance. At quiddity b590592 (#216), re-key this exact diagnostic for planar floor ownership: hole:1287 becomes hole:1287.1288 and hole:1296 becomes hole:1296.1297. The same General conflict is still refused once; its wording, contract and all other writer comparisons remain unchanged."
  },
  {
   "case": "corpus/cadgenbench_inputs/cgb202",
@@ -526,10 +526,10 @@
  },
  {
   "case": "corpus/cadgenbench_inputs/cgb202",
-  "path": "write.not_written[shared planner dim:envelope:2:min/to/hole:1287/2: General contract conflicts with an answered requirement; retained answered intent instead]",
+  "path": "write.not_written[shared planner dim:envelope:2:min/to/hole:1287.1288/2: General contract conflicts with an answered requirement; retained answered intent instead]",
   "pattern": "Exact unsupported planner proposal is reported, not written (shared planner, #75)",
   "verdict": "rust-correct",
-  "evidence": "Shared planner, #75: fresh writer-oracle report has this exact diagnostic absent from the frozen Python writer. The shared General proposal cannot replace the answered/stored tolerance contract. It is omitted and explicitly reported; the existing intent path remains authoritative. This entry covers the exact not_written diagnostic, never an extra dimension. tests/planner_dimensions.rs verifies actual STEP supports, unique pairs, independent plane chains and Required/readback correspondence across the corpus; writer-oracle also checks EXPRESS conformance."
+  "evidence": "Shared planner, #75: fresh writer-oracle report has this exact diagnostic absent from the frozen Python writer. The shared General proposal cannot replace the answered/stored tolerance contract. It is omitted and explicitly reported; the existing intent path remains authoritative. This entry covers the exact not_written diagnostic, never an extra dimension. tests/planner_dimensions.rs verifies actual STEP supports, unique pairs, independent plane chains and Required/readback correspondence across the corpus; writer-oracle also checks EXPRESS conformance. At quiddity b590592 (#216), re-key this exact diagnostic for planar floor ownership: hole:1287 becomes hole:1287.1288 and hole:1296 becomes hole:1296.1297. The same General conflict is still refused once; its wording, contract and all other writer comparisons remain unchanged."
  },
  {
   "case": "corpus/cadgenbench_inputs/cgb202",
@@ -582,10 +582,10 @@
  },
  {
   "case": "corpus/cadgenbench_inputs/cgb202",
-  "path": "write.not_written[shared planner dim:envelope:2:min/to/hole:1296/2: General contract conflicts with an answered requirement; retained answered intent instead]",
+  "path": "write.not_written[shared planner dim:envelope:2:min/to/hole:1296.1297/2: General contract conflicts with an answered requirement; retained answered intent instead]",
   "pattern": "Exact unsupported planner proposal is reported, not written (shared planner, #75)",
   "verdict": "rust-correct",
-  "evidence": "Shared planner, #75: fresh writer-oracle report has this exact diagnostic absent from the frozen Python writer. The shared General proposal cannot replace the answered/stored tolerance contract. It is omitted and explicitly reported; the existing intent path remains authoritative. This entry covers the exact not_written diagnostic, never an extra dimension. tests/planner_dimensions.rs verifies actual STEP supports, unique pairs, independent plane chains and Required/readback correspondence across the corpus; writer-oracle also checks EXPRESS conformance."
+  "evidence": "Shared planner, #75: fresh writer-oracle report has this exact diagnostic absent from the frozen Python writer. The shared General proposal cannot replace the answered/stored tolerance contract. It is omitted and explicitly reported; the existing intent path remains authoritative. This entry covers the exact not_written diagnostic, never an extra dimension. tests/planner_dimensions.rs verifies actual STEP supports, unique pairs, independent plane chains and Required/readback correspondence across the corpus; writer-oracle also checks EXPRESS conformance. At quiddity b590592 (#216), re-key this exact diagnostic for planar floor ownership: hole:1287 becomes hole:1287.1288 and hole:1296 becomes hole:1296.1297. The same General conflict is still refused once; its wording, contract and all other writer comparisons remain unchanged."
  },
  {
   "case": "corpus/cadgenbench_inputs/cgb202",
@@ -667,9 +667,9 @@
  {
   "case": "corpus/mfcadpp/10103",
   "path": "write.not_written[shared planner dim:plane:2/to/step:29/2: support has no matching physical principal-plane station; retained legacy measured plane dimension]",
-  "pattern": "Exact unsupported planner proposal is reported, not written (shared planner, #75)",
-  "verdict": "rust-correct",
-  "evidence": "Shared planner, #75: fresh writer-oracle report has this exact diagnostic absent from the frozen Python writer. This shared projected step support is not the matching physical principal plane (or its station disagrees with the measured plane). The proposal is explicitly reported and omitted; measured legacy dimensions retain their previous supports. No projected or faceless location is written. tests/planner_dimensions.rs verifies actual STEP supports, unique pairs, independent plane chains and Required/readback correspondence across the corpus; writer-oracle also checks EXPRESS conformance."
+  "pattern": "Resolved exact unsupported planner proposal (shared planner, #75)",
+  "verdict": "resolved",
+  "evidence": "At b590592 quiddity #241 recognises prismatic_through_cuts:28.29.30, so face 29 (Python's step_levels:9.14.29.36) is a through-cut wall and the planner no longer proposes the projected plane:2/to/step:29 location. The diagnostic, previously reported and not written, must not return; no other writer output for this part changes."
  },
  {
   "case": "corpus/mfcadpp/10156",
@@ -7674,5 +7674,6 @@
   "verdict": "rust-correct",
   "evidence": "For nist/nist_ctc_03_asme1_ap242, the archived Python writer deliberately stored no Add-mode answers, so its frozen readback is null. The requested provenance-scoped Add implementation now stores exactly meta.answers, {\"part.material\":\"steel\"}, and native answers_for resumes that map. The independently recaptured cross_engine Python 3.12.13 readback of this exact updated Rust byte golden also resumes the same answers using the frozen cc341dd + 63e67bd + d97d030 reference (2cb6499). Dedicated NIST CTC/FTC regressions in tests/add_mode_answers.rs compare every original foreign entity span at its original id across write/resume/edited write; the characteristic number remains stable and the changed control appears once. This entry covers only this case and the newly available answer map. All archived Python-written inputs, answer expectations, semantic comparisons and other ledger entries remain unchanged."
  },
-{"case": "*", "path": "existing[key=dimension|*].basic", "pattern": "Basic dimensions are marked basic", "verdict": "rust-correct", "evidence": "Specify's existing records now mark a basic (theoretically exact) dimension with basic: true, which haecceity reads as DimTolerance::Basic; the archived Python reader has no such field. The key is emitted only when true, so the only differences are python (missing) rust true at existing[key=dimension|...].basic. Values, tolerances and all other fields are unchanged; tests/existing.rs basic_dimensions_are_marked_basic_in_existing_and_the_scene verifies the NIST CTC-04 basics. Specify writes basic location dimensions for answered positions, so every written case with one reads basic: true on readback."}
+{"case": "*", "path": "existing[key=dimension|*].basic", "pattern": "Basic dimensions are marked basic", "verdict": "rust-correct", "evidence": "Specify's existing records now mark a basic (theoretically exact) dimension with basic: true, which haecceity reads as DimTolerance::Basic; the archived Python reader has no such field. The key is emitted only when true, so the only differences are python (missing) rust true at existing[key=dimension|...].basic. Values, tolerances and all other fields are unchanged; tests/existing.rs basic_dimensions_are_marked_basic_in_existing_and_the_scene verifies the NIST CTC-04 basics. Specify writes basic location dimensions for answered positions, so every written case with one reads basic: true on readback."},
+ {"case": "scenarios/turned_a_typed_thread_depth_is_written", "path": "resume.hole.function:holes:3.5", "pattern": "Verified saved answers exclude feature IDs absent from the current recogniser", "verdict": "resolved", "evidence": "Resolved by quiddity #216: the native pin hole now claims its planar floor 5 and has exactly the frozen Python ID holes:3.5. The frozen tapped:M5@5.6 value resumes unchanged, with the same 5.6 mm full-thread and 8 mm drilling depths. This exact resolved entry is a negative regression assertion: losing that answer again fails the writer oracle. Before #216, v0.4.9 recognised only holes:3, so verified rematching retained the frozen answer in the raw payload and unresolved review rather than applying an unsupported feature ID."}
 ]

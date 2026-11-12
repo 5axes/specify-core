@@ -88,7 +88,7 @@ the resume correspondence rule below handles feature-ID changes.
 ## Dependency plan
 
 - `quiddity` and `haecceity` by git from `https://github.com/pzfreo/quiddity`,
-  pinned to tag `v0.4.9` (`17a883aa`) in both manifests and Cargo.lock; the root crate takes
+  pinned to release tag `v0.5.0` in both manifests and Cargo.lock; the root crate takes
   quiddity with `default-features = false, features = ["presentation"]`, so clap stays out.
   Update only these packages with `cargo update -p quiddity -p haecceity`, then run
   the named local profile below and the full suite in CI, and rejudge any departures from the frozen Python captures with

@@ -9,7 +9,7 @@
 //! - Features come from quiddity-rust (`quiddity::correspondence::recognise`, framed
 //!   records converted/labelled at this boundary), not Python quiddity's evidence view. A feature's faces are its
 //!   *defining* faces (the published recognition document), not its constituent faces (upstream need U2): a
-//!   flat-bottomed blind hole can omit its floor (drill-point tips are now claimed), so ids can differ between
+//!   hole now claims its proved planar floor as well as drill-point tips, while other defining/constituent ids can still differ between
 //!   the engines. The families are quiddity-rust's: Python's cross-family reconciliation
 //!   (`step_levels`) is not there; quiddity #123 now suppresses full-length OD bosses on turned bodies.
 //! - A pattern's member holes are found among the hole records by equality, the first not yet

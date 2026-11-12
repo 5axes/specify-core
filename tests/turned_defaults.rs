@@ -238,10 +238,11 @@ fn live_corpus_turned_datums() {
         "gramel/GRM-05_depth_lock_bolt",
     ] {
         let a = api::analyse_file(&root.join(format!("{name}.step")), None).unwrap();
-        // The same assertions run against the actual kernel recognition, not just the capture.
+        // The same assertions run against actual recognition. Quiddity #216 adds the
+        // planar floors (19 and 13) to these hole IDs; datum expectations stay exact.
         match name {
-            "gramel/string_post" => check(&a, &[0], &[8], Some("holes:17")),
-            "gramel/GRM-03_thumbwheel_drive_screw" => check(&a, &[6], &[0], Some("holes:12")),
+            "gramel/string_post" => check(&a, &[0], &[8], Some("holes:17.19")),
+            "gramel/GRM-03_thumbwheel_drive_screw" => check(&a, &[6], &[0], Some("holes:12.13")),
             _ => check(&a, &[0], &[2], None),
         }
     }
@@ -290,7 +291,7 @@ fn cylinder_ties_use_total_seat_area_and_a_needs_no_plane() {
 
 fn thumbwheel_answers() -> Map<String, Value> {
     // Keep the reviewer's supplied map verbatim. The pinned kernel names the M2 bore
-    // holes:12, rather than holes:14; its default is already tapped:M2.
+    // holes:12.13, rather than holes:14; its default is already tapped:M2.
     json!({
         "hole.function:holes:14": "tapped:M2",
         "diameter.fit:turned_steps:6": "thread:M3",
