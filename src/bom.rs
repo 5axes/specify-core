@@ -892,6 +892,63 @@ fn check_history(h: &History) -> Result<(), String> {
     Ok(())
 }
 
+/// The item number a row states, as a number or as numeric text.
+fn number(row: &Item) -> Option<u64> {
+    row.item_number
+        .value
+        .as_u64()
+        .or_else(|| row.item_number.value.as_str().and_then(|s| s.parse().ok()))
+}
+
+/// Re-fingerprint the entries an earlier quiddity fingerprinted (fingerprint/3, before 0.5.0).
+/// `correspond` refuses those rather than migrating them, so they would match no part and every
+/// part would be renumbered. Each such entry takes the fingerprints of the part of the history's
+/// own file (`rows`, `names`) that carries its item number, or failing that the one part with
+/// its name. An entry matching no part keeps its old fingerprints and so matches nothing; its
+/// number stays reserved by the high-water mark.
+fn refingerprint(
+    h: &mut History,
+    rows: &[Item],
+    names: &[String],
+    mut fingerprints: impl FnMut(usize) -> Fingerprints,
+) {
+    let unique = |found: Vec<usize>| (found.len() == 1).then(|| found[0]);
+    let mut taken = BTreeSet::new();
+    for e in &mut h.entries {
+        if e.geometry.fingerprint_version == qc::FINGERPRINT_VERSION {
+            continue;
+        }
+        let part = unique(
+            (0..rows.len())
+                .filter(|&i| number(&rows[i]) == Some(e.number))
+                .collect(),
+        )
+        .or_else(|| unique((0..names.len()).filter(|&i| names[i] == e.name).collect()));
+        if let Some(i) = part
+            && taken.insert(i)
+        {
+            e.geometry = fingerprints(i);
+        }
+    }
+}
+
+/// [`refingerprint`] `h`, read from `file`, recognising its parts only when an entry needs it.
+fn refingerprint_in(h: &mut History, file: &File) -> Result<(), String> {
+    if h.entries
+        .iter()
+        .all(|e| e.geometry.fingerprint_version == qc::FINGERPRINT_VERSION)
+    {
+        return Ok(());
+    }
+    let parts = file.load_all().map_err(|e| e.to_string())?;
+    let rows = read(file)?;
+    let names: Vec<_> = parts.iter().map(|p| p.name.clone()).collect();
+    refingerprint(h, &rows, &names, |i| {
+        qc::recognise(&parts[i].part).fingerprints
+    });
+    Ok(())
+}
+
 fn uda(edit: &mut Edit, owner: u64, name: &str, values: &Map<String, Value>) {
     let s = |v: &str| A::String(v.into());
     // Keep string tokens below OpenCascade's STEP scanner limit. Geometry history
@@ -1005,8 +1062,15 @@ pub(crate) fn append(bytes: Vec<u8>, jobs: &[crate::writer::Job<'_>]) -> Result<
     let file = File::of_bytes(Path::new("bom.step"), bytes.clone()).map_err(|e| e.to_string())?;
     let parts = file.load_all().map_err(|e| e.to_string())?;
     let rows = read(&file)?;
+    let geometry: Vec<_> = parts
+        .iter()
+        .map(|p| qc::recognise(&p.part).fingerprints)
+        .collect();
+    let names: Vec<_> = parts.iter().map(|p| p.name.clone()).collect();
     let existing = history(&original)?;
-    let mut old = if let Some(h) = existing {
+    let mut old = if let Some(mut h) = existing {
+        // This file's own history: its entries are these parts.
+        refingerprint(&mut h, &rows, &names, |i| geometry[i].clone());
         h
     } else {
         let transported = jobs
@@ -1029,10 +1093,6 @@ pub(crate) fn append(bytes: Vec<u8>, jobs: &[crate::writer::Job<'_>]) -> Result<
         })
     };
     check_history(&old)?;
-    let geometry: Vec<_> = parts
-        .iter()
-        .map(|p| qc::recognise(&p.part).fingerprints)
-        .collect();
     if old.high_water == 0 {
         for (i, row) in rows.iter().enumerate() {
             if row.item_number.source == "file"
@@ -1056,7 +1116,7 @@ pub(crate) fn append(bytes: Vec<u8>, jobs: &[crate::writer::Job<'_>]) -> Result<
     }
     let numbers = allocate(
         &mut old,
-        &parts.iter().map(|p| p.name.clone()).collect::<Vec<_>>(),
+        &names,
         &geometry,
         &rows
             .iter()
@@ -1328,7 +1388,10 @@ fn allocate(
 
 pub(crate) fn carry(old: &LoadedPart, answers: &mut Map<String, Value>) -> Result<(), String> {
     let doc = Document::parse(old.bytes.as_ref().clone()).map_err(|e| e.to_string())?;
-    if let Some(h) = history(&doc)? {
+    if let Some(mut h) = history(&doc)? {
+        let file = File::of_shared(&old.path, std::sync::Arc::clone(&old.bytes))
+            .map_err(|e| e.to_string())?;
+        refingerprint_in(&mut h, &file)?;
         answers.insert(
             CARRY.into(),
             serde_json::to_value(h).map_err(|e| e.to_string())?,
@@ -1409,6 +1472,9 @@ pub(crate) fn assembly_answers(
     let Some(mut h) = history(&doc)? else {
         return Ok(out);
     };
+    let file = File::of_shared(&first.path, std::sync::Arc::clone(&first.bytes))
+        .map_err(|e| e.to_string())?;
+    refingerprint_in(&mut h, &file)?;
     let source = serde_json::to_value(&h).map_err(|e| e.to_string())?;
     let geometry: Vec<_> = new
         .iter()

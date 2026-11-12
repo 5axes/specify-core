@@ -737,25 +737,7 @@ fn pmi_and_bom_share_one_verified_write_and_partial_edits_keep_other_rows() {
 fn an_assembly_with_every_part_renamed_keeps_bom_answers_and_numbers() {
     let source = fixture();
     let old = file(write(&source, &answers()));
-    let doc = Document::parse(source.bytes().as_ref().clone()).unwrap();
-    let mut edit = Edit::new();
-    for id in doc.ids() {
-        if let Some(mut a) = attrs(&doc, id, "PRODUCT")
-            && matches!(a.get(1),Some(A::String(s)) if s=="plate" || s=="pin")
-        {
-            let A::String(name) = &a[1] else { panic!() };
-            a[1] = A::String(format!("renamed {name}"));
-            edit.replace(id, p21::simple("PRODUCT", a));
-        }
-        if let Some(mut a) = attrs(&doc, id, "NEXT_ASSEMBLY_USAGE_OCCURRENCE")
-            && matches!(a.get(1),Some(A::String(s)) if s=="plate" || s=="pin")
-        {
-            let A::String(name) = &a[1] else { panic!() };
-            a[1] = A::String(format!("renamed {name}"));
-            edit.replace(id, p21::simple("NEXT_ASSEMBLY_USAGE_OCCURRENCE", a));
-        }
-    }
-    let new = file(doc.apply(&edit).unwrap().bytes);
+    let new = renamed(&source);
     let compared = revision::assembly::diff(
         &old.load_all().unwrap(),
         &new.load_all().unwrap(),
@@ -779,6 +761,29 @@ fn an_assembly_with_every_part_renamed_keeps_bom_answers_and_numbers() {
     assert_eq!(rows[0].description.value, "Mounting plate");
     assert_eq!(rows[1].description.value, "Locating pin");
     assert_eq!(rows[0].material.value, "brass");
+}
+
+/// `source` with the plate and the pin renamed.
+fn renamed(source: &part::File) -> part::File {
+    let doc = Document::parse(source.bytes().as_ref().clone()).unwrap();
+    let mut edit = Edit::new();
+    for id in doc.ids() {
+        if let Some(mut a) = attrs(&doc, id, "PRODUCT")
+            && matches!(a.get(1),Some(A::String(s)) if s=="plate" || s=="pin")
+        {
+            let A::String(name) = &a[1] else { panic!() };
+            a[1] = A::String(format!("renamed {name}"));
+            edit.replace(id, p21::simple("PRODUCT", a));
+        }
+        if let Some(mut a) = attrs(&doc, id, "NEXT_ASSEMBLY_USAGE_OCCURRENCE")
+            && matches!(a.get(1),Some(A::String(s)) if s=="plate" || s=="pin")
+        {
+            let A::String(name) = &a[1] else { panic!() };
+            a[1] = A::String(format!("renamed {name}"));
+            edit.replace(id, p21::simple("NEXT_ASSEMBLY_USAGE_OCCURRENCE", a));
+        }
+    }
+    file(doc.apply(&edit).unwrap().bytes)
 }
 
 #[test]
@@ -1113,4 +1118,113 @@ fn bom_questions_are_routine_with_their_proposal_as_the_reason() {
         checks[0].reason,
         "Its name says bolt, but it has machined pockets: made to your drawing, or bought?"
     );
+}
+
+/// `bytes` as Specify wrote them before quiddity 0.5.0: the BOM history's fingerprints are
+/// version 3, which quiddity now refuses to correspond. Only the version differs; that alone
+/// makes every stored entry unmatchable.
+fn aged(bytes: Vec<u8>, entries: usize) -> part::File {
+    let text = String::from_utf8(bytes).unwrap();
+    let current = quiddity::correspondence::FINGERPRINT_VERSION;
+    assert_eq!(text.matches(current).count(), entries);
+    file(
+        text.replace(current, "quiddity-rust/fingerprint/3")
+            .into_bytes(),
+    )
+}
+fn item_numbers(bytes: Vec<u8>) -> Vec<Value> {
+    bom::read_bytes(bytes)
+        .unwrap()
+        .into_iter()
+        .map(|r| r.item_number.value)
+        .collect()
+}
+
+#[test]
+fn a_history_fingerprinted_before_quiddity_0_5_keeps_its_numbers() {
+    let old = aged(write(&fixture(), &answers()), 2);
+    let rows = bom::read_bytes(write(&old, &answers())).unwrap();
+    assert_eq!(rows[0].item_number.value, 1);
+    assert_eq!(rows[1].item_number.value, 2);
+    assert_eq!(rows[0].description.value, "Mounting plate");
+    assert_eq!(rows[1].description.value, "Locating pin");
+}
+
+#[test]
+fn a_part_removed_from_an_old_history_keeps_its_number_retired() {
+    let first = file(write(&fixture(), &answers()));
+    let expanded = added(&fixture());
+    let mut given = answers();
+    given[0].extend(
+        revision::diff(
+            &first.load(Some(0)).unwrap(),
+            &expanded.load(Some(0)).unwrap(),
+            &Map::new(),
+        )
+        .unwrap()
+        .answers,
+    );
+    given.push(json!({"bom.make_buy":"made"}).as_object().unwrap().clone());
+    let grown = aged(write(&expanded, &given), 3);
+    assert_eq!(
+        item_numbers(grown.bytes().as_ref().clone()),
+        [json!(1), json!(2), json!(3)]
+    );
+    let shrunk = removed(&expanded, 0);
+    let mut surviving = given[1..].to_vec();
+    surviving[0].extend(
+        revision::diff(
+            &grown.load(Some(1)).unwrap(),
+            &shrunk.load(Some(0)).unwrap(),
+            &Map::new(),
+        )
+        .unwrap()
+        .answers,
+    );
+    let shrunk_written = file(write(&shrunk, &surviving));
+    assert_eq!(
+        item_numbers(shrunk_written.bytes().as_ref().clone()),
+        [json!(2), json!(3)]
+    );
+    // The removed plate's number stays retired: a part added now takes the next one.
+    let restored = added(&shrunk);
+    let mut a = surviving;
+    a.push(json!({"bom.make_buy":"made"}).as_object().unwrap().clone());
+    a[0].extend(
+        revision::diff(
+            &shrunk_written.load(Some(0)).unwrap(),
+            &restored.load(Some(0)).unwrap(),
+            &Map::new(),
+        )
+        .unwrap()
+        .answers,
+    );
+    assert_eq!(
+        item_numbers(write(&restored, &a)),
+        [json!(2), json!(3), json!(4)]
+    );
+}
+
+#[test]
+fn renamed_parts_of_an_old_history_keep_their_numbers() {
+    let source = fixture();
+    let old = aged(write(&source, &answers()), 2);
+    let new = renamed(&source);
+    let compared = revision::assembly::diff(
+        &old.load_all().unwrap(),
+        &new.load_all().unwrap(),
+        &Map::new(),
+    )
+    .unwrap();
+    let transport = compared.answers();
+    let a: Vec<_> = new
+        .parts()
+        .iter()
+        .map(|p| transport[&p.name].as_object().unwrap().clone())
+        .collect();
+    let rows = bom::read_bytes(write(&new, &a)).unwrap();
+    assert_eq!(rows[0].item_number.value, 1);
+    assert_eq!(rows[1].item_number.value, 2);
+    assert_eq!(rows[0].description.value, "Mounting plate");
+    assert_eq!(rows[1].description.value, "Locating pin");
 }

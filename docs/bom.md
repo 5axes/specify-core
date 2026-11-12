@@ -139,6 +139,12 @@ items `history.000001`, `history.000002`, … each hold up to 2,048 characters. 
 them to obtain compact JSON:
 `{"schema":1,"high_water":12,"entries":[{"number":1,"name":"…","geometry":{…}}]}`.
 `geometry` is quiddity's versioned recognition fingerprint, including faces/features.
+quiddity never matches fingerprints of another version, so entries written before
+quiddity 0.5.0 (fingerprint/3) are re-fingerprinted from the file that holds the history,
+whenever that file is at hand (a write into it, `revision::diff` and
+`revision::assembly::diff` from it): each entry takes the part carrying its item number,
+or failing that the one part with its name. A transported history kept from before the
+upgrade without its file cannot be re-fingerprinted, and its parts receive new numbers.
 An entry also carries `fields`, a snapshot of the answered BOM UDA items, so a renamed
 part can retain its BOM data through geometric matching. An optional `material` snapshot
 holds an answered material for assembly revision carry; the revision API restores it as
