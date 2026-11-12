@@ -43,6 +43,8 @@ export interface Picker {
       pending?: ReadonlySet<string>;
       /** Labels drawn even where their group is not shown: those chosen. */
       reveal?: ReadonlySet<string>;
+      /** false hides the datum labels (none until tolerancing is chosen). */
+      datums?: boolean;
     },
   ): void;
   /** The review's rows, as the panel names them, with their faces: a view with a tree lists
@@ -199,8 +201,9 @@ export function createPicker(
   return {
     navigator: nav,
     missing: mesh.missing,
-    annotate(intent, { current = null, show = {}, balloons = new Map(), pending, reveal } = {}) {
+    annotate(intent, { current = null, show = {}, balloons = new Map(), pending, reveal, datums = true } = {}) {
       const labels = toLabels(intent, analysis, pending)
+        .filter((label) => datums || label.kind !== 'datum')
         .filter((label) => show[label.group] !== false || reveal?.has(label.id));
       annotations.set(labels, { current, anchors: intent?.anchors ?? {}, balloons });
       // The opening view is chosen before the labels arrive; the first time they

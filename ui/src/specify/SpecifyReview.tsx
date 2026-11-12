@@ -44,7 +44,7 @@ function asError(error: unknown): PmiLabError {
   return { code: 'failed', message: String(error) };
 }
 
-export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, onExport, gated, after, onPick, showFaces, tints, externalAnswers, externalReview, disabled, focusRequest, toReview, onKeep, drawn: drawnPmi = null }: {
+export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, onExport, gated, after, onPick, showFaces, tints, externalAnswers, externalReview, disabled, focusRequest, toReview, onKeep, drawn: drawnPmi = null, datums = true }: {
   engine: SpecifyEngine; session: PmiLabSession; slots: SpecifySlots;
   /** The question the queue's selected row is about: what the question slot shows. */
   slotQuestion?: string | null;
@@ -68,6 +68,8 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   onKeep?: (ids: readonly string[]) => void;
   /** The PMI as drawn (Specify's pmiScene, less its notes block), when it has any graphics. */
   drawn?: DrawnPmi | null;
+  /** Datum labels shown on the part: not until tolerancing is chosen (drawing-first plan). */
+  datums?: boolean;
 }) {
   const stage = useRef<HTMLDivElement>(null);
   const picker = useRef<Picker | null>(null);
@@ -261,11 +263,11 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   useEffect(() => {
     picker.current?.annotate(preview, {
       current, show: { default: show.defaults, existing: show.existing, general: show.general }, balloons,
-      pending: new Set(questions.filter((q) => needs(q, answers)).map((q) => q.id)), reveal,
+      pending: new Set(questions.filter((q) => needs(q, answers)).map((q) => q.id)), reveal, datums,
     });
     picker.current?.setLabelsVisible(show.labels && !(drawnPmi && showing === 'drawn'));
     picker.current?.setFarSideHidden(show.farSide);
-  }, [preview, current, show, balloons, questions, answers, reveal, drawnPmi, showing]);
+  }, [preview, current, show, balloons, questions, answers, reveal, drawnPmi, showing, datums]);
   useEffect(() => {
     picker.current?.drawn?.(drawnPmi, showing !== 'semantic');
   }, [drawnPmi, showing, session]);
