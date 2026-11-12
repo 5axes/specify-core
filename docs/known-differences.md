@@ -16,13 +16,13 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | [cli](#cli) | 270 | 0 | 52 | 0 | 2 | 1 | 325 |
 | [cross_engine](#cross_engine) | 55 | 2 | 0 | 1 | 1 | 20 | 79 |
 | [existing](#existing) | 31 | 0 | 0 | 0 | 7 | 0 | 38 |
-| [features](#features) | 3454 | 1414 | 570 | 2484 | 1066 | 1886 | 10874 |
+| [features](#features) | 3454 | 1414 | 570 | 2491 | 1066 | 1886 | 10881 |
 | [iso286](#iso286) | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | [mates](#mates) | 1 | 0 | 0 | 0 | 3 | 0 | 4 |
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 0 | 40 |
 | [rules](#rules) | 114 | 0 | 615 | 0 | 0 | 0 | 729 |
 | [writer](#writer) | 1090 | 0 | 0 | 0 | 15 | 2 | 1107 |
-| **all** | 5029 | 1433 | 1248 | 2490 | 1101 | 1909 | 13210 |
+| **all** | 5029 | 1433 | 1248 | 2497 | 1101 | 1909 | 13217 |
 
 ## analysis
 
@@ -674,7 +674,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   quiddity #217 marks a hole or boss that duplicates an annular groove's bore or core with superseded_by="annular_grooves/0"; it adds only this field and changes no face, id or other record field (published faces of this record are identical at #216's head 923c853c and #217's merge b04b4a0d). The frozen Python record has no such field. The feature still pairs with Python's under its id, and its faces and every other field remain compared.
 
-### features: undetermined (2484 entries)
+### features: undetermined (2491 entries)
 
 - **face numbering differs from OpenCascade's** (`corpus/inventory_refusal/13975` at `faces[*`)
 
@@ -827,6 +827,10 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 - **Native prismatic through-cut inventory addition (quiddity #241)** (6 entries, 4 case globs)
 
   The evidence is stated per entry (6 distinct; all in `features.json`). The first, for `corpus/mfcadpp/10033` at `features[id=prismatic_through_cuts:8.9.10.16]`: At b590592 quiddity #241 proves polygonal through cuts across interrupted mouths and adds this record, while the frozen Python inventory has no such record. Quiddity reviewed the corpus additions in #241; against Python this is recorded as an unverified inventory addition, not an equivalence or a certified correction. Exact native observation: {"id": "prismatic_through_cuts:8.9.10.16", "family": "prismatic_through_cuts", "record": {"cut": {"frame": {"origin": [9.766, 0.0, 34.951], "run": [0.0, 1.0, 0.0], "u": [0.0, 0.0, 1.0], "v": [1.0, 0.0, 0.0]}, "run_interval": [0.0, 34.363], "section": {"boundary": [{"point": [-2.4076, -3.6038], "bulge": 0.0}, {"point": [2.4076, -3.6038], "bulge": 0.0}, {"point": [2.4076, 3.6038], "bulge": 0.0}, {"point": [-2.4076, 3.6038], "bulge": 0.0}]}, "ends": {"low_capped": false, "high_capped": false, "low_gradient": [0.0, 0.0], "high_gradient": [0.0, 0.0]}}, "core_interval": [5.763422, 34.363463], "extent": "observed_walls"}, "faces": [8, 9, 10, 16]}. Every other field, face and feature remains compared.
+
+- **Native hole mouth chamfers are absent from the frozen Python record** (7 entries, 4 case globs)
+
+  The evidence is stated per entry (4 distinct; all in `features.json`). The first, for `corpus/cadgenbench/flanged_spool_132` at `features[id=holes:*].record.mouth_chamfers`: At quiddity v0.5.0 (#247) holes publish measured coaxial conical mouth edge breaks as mouth_chamfers; the frozen Python record has no such field. First, holes:17 (diameter 10, at [-45,0,140]): size 1.0, depth 1.0, angle 45, face 36; the six bolt-circle holes each have one. Recorded as an unverified addition, not a certified measurement. Only the added mouth_chamfers field is explained: every other hole field, face and feature remains compared.
 
 ### features: not-applicable (1066 entries)
 
@@ -1759,6 +1763,11 @@ Every `rust-wrong` entry (a bug kept visible) and every `undetermined` entry (a 
   - `corpus/mfcadpp/10103`: `features[id=prismatic_through_cuts:16.17.18.19.20.21]`, `features[id=prismatic_through_cuts:28.29.30]`
   - `corpus/mfcadpp/10163`: `features[id=prismatic_through_cuts:20.21.22]`
   - `corpus/mfcadpp_holdout/467`: `features[id=prismatic_through_cuts:20.21.22.23.24.25]`, `features[id=prismatic_through_cuts:37.38.39.40.41.42]`
+- **Native hole mouth chamfers are absent from the frozen Python record** (7 entries)
+  - `corpus/cadgenbench/flanged_spool_132`: `features[id=holes:*].record.mouth_chamfers`, `features[id=hole_patterns.*].record.holes[*].mouth_chamfers`
+  - `corpus/cadgenbench_inputs/cgb202`: `features[id=holes:*].record.mouth_chamfers`, `features[id=hole_patterns.*].record.holes[*].mouth_chamfers`
+  - `corpus/cadgenbench_inputs/cgb217`: `features[id=holes:*].record.mouth_chamfers`, `features[id=hole_patterns.*].record.holes[*].mouth_chamfers`
+  - `nist/nist_ctc_05_asme1_ap242`: `features[id=holes:*].record.mouth_chamfers`
 
 ### mesh: rust-wrong
 

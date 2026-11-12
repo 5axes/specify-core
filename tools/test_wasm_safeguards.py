@@ -17,10 +17,8 @@ import wasm_size
 class WorkspacePinTests(unittest.TestCase):
     def test_release_and_wasm_use_the_reviewed_kernel(self):
         local = kernel.pins(kernel.tomllib.loads((kernel.ROOT / "Cargo.toml").read_text()))
-        # Reviewed #216 revision pending its release tag; the advisory still tracks
-        # the last released kernel independently of this temporary exact rev pin.
-        self.assertEqual(set(local.values()), {("rev", "b590592035733d8ac9fa5b3144bb5d969bda89a0")})
-        self.assertEqual(kernel.REQUIRED_TAG, "v0.4.9")
+        self.assertEqual(set(local.values()), {("tag", "v0.5.0")})
+        self.assertEqual(kernel.REQUIRED_TAG, "v0.5.0")
         kernel.check_wasm_pin(local)
 
     def test_mismatched_wasm_pin_is_rejected(self):
