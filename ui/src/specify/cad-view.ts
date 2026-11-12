@@ -73,6 +73,8 @@ export interface CadView {
   /** What the orientation cube frames besides the part when it turns the view: the drawn
    * callouts, say. */
   alsoFrame(also: () => THREE.Box3 | null): void;
+  /** The viewer's toolbar and its tools panel, shown or hidden (see ``tools``). */
+  showTools(on: boolean): void;
   /** The tree opened one level again, its nodes closed. */
   collapse(): void;
   dispose(): void;
@@ -151,7 +153,8 @@ function shapeOf(leaf: CadLeaf, soup: ReturnType<typeof soupOf>) {
  */
 export function createCadView(
   container: HTMLElement, nodes: CadNode[],
-  { onPick, control = 'orbit' }: { onPick?: (path: string) => void; control?: 'orbit' | 'trackball' } = {},
+  { onPick, control = 'orbit', tools = true }: { onPick?: (path: string) => void; control?: 'orbit' | 'trackball';
+    /** Whether the viewer shows its toolbar and tools panel; ``showTools`` changes it later. */ tools?: boolean } = {},
 ): CadView {
   const box = new THREE.Box3();
   // Each leaf drawn, by path, with what a ray needs to find its faces.
@@ -190,6 +193,9 @@ export function createCadView(
   const bb = { xmin: box.min.x, xmax: box.max.x, ymin: box.min.y, ymax: box.max.y, zmin: box.min.z, zmax: box.max.z };
   const shapes = { version: 3, name: ROOT, id: pathOf(), loc: null, parts, bb } as unknown as Shapes;
 
+  // Hidden by a class, not by the viewer's own ``tools: false``: with that, hovering a node in its
+  // tree (how ``light`` lights a pick) no longer lights its faces on the part.
+  container.classList.toggle('cad-tools-hidden', !tools);
   const size = () => [Math.max(container.clientWidth, 200), Math.max(container.clientHeight, 200)] as const;
   const [width, height] = size();
   // Studio mode is off: it fetches its lighting from polyhaven.org, which the CSP refuses.
@@ -399,6 +405,7 @@ export function createCadView(
     dolly(factor) { viewer.setCameraZoom(Math.min(40, Math.max(0.05, viewer.getCameraZoom() / factor)), false); },
     moved: () => moved,
     alsoFrame(also) { alsoFramed = also; },
+    showTools(on) { container.classList.toggle('cad-tools-hidden', !on); fit(); },
     collapse() { viewer.collapseNodes(CollapseState.ROOT, false); },
     replace(group, ...leaves) {
       const names = group === null ? [] : [group];

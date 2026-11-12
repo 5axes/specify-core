@@ -25,6 +25,8 @@ export type SpecifyEngine = Pick<PmiLabEngine, 'questions' | 'interpret' | 'prev
 /** Where the workspace shows Specify: the part in the 3D pane, the questions in the edit pane. */
 export interface SpecifySlots {
   view: HTMLElement; panel: HTMLElement; exports: HTMLElement | null;
+  /** Where the exports for specialists go (under the menu's More); with none, they join ``exports``. */
+  more?: HTMLElement | null;
   /** The selected queue row's: the current question, answered where it is listed. */
   question?: HTMLElement | null;
 }
@@ -44,7 +46,7 @@ function asError(error: unknown): PmiLabError {
   return { code: 'failed', message: String(error) };
 }
 
-export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, onExport, gated, after, onPick, showFaces, tints, externalAnswers, externalReview, disabled, focusRequest, toReview, onKeep, drawn: drawnPmi = null }: {
+export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, onExport, gated, after, onPick, showFaces, tints, externalAnswers, externalReview, disabled, focusRequest, toReview, onKeep, drawn: drawnPmi = null, datums = true }: {
   engine: SpecifyEngine; session: PmiLabSession; slots: SpecifySlots;
   /** The question the queue's selected row is about: what the question slot shows. */
   slotQuestion?: string | null;
@@ -68,9 +70,12 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   onKeep?: (ids: readonly string[]) => void;
   /** The PMI as drawn (Specify's pmiScene, less its notes block), when it has any graphics. */
   drawn?: DrawnPmi | null;
+  /** Datum labels shown on the part: not until tolerancing is chosen (drawing-first plan). */
+  datums?: boolean;
 }) {
   const stage = useRef<HTMLDivElement>(null);
   const picker = useRef<Picker | null>(null);
+  const [moreTools, setMoreTools] = useState(false);
   const [questions, setQuestions] = useState<readonly PmiQuestion[]>(session.questions);
   const [answers, setAnswers] = useState<PmiAnswers>(session.answers ?? {});
   const [resumed, setResumed] = useState(false);
@@ -261,11 +266,11 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   useEffect(() => {
     picker.current?.annotate(preview, {
       current, show: { default: show.defaults, existing: show.existing, general: show.general }, balloons,
-      pending: new Set(questions.filter((q) => needs(q, answers)).map((q) => q.id)), reveal,
+      pending: new Set(questions.filter((q) => needs(q, answers)).map((q) => q.id)), reveal, datums,
     });
     picker.current?.setLabelsVisible(show.labels && !(drawnPmi && showing === 'drawn'));
     picker.current?.setFarSideHidden(show.farSide);
-  }, [preview, current, show, balloons, questions, answers, reveal, drawnPmi, showing]);
+  }, [preview, current, show, balloons, questions, answers, reveal, drawnPmi, showing, datums]);
   useEffect(() => {
     picker.current?.drawn?.(drawnPmi, showing !== 'semantic');
   }, [drawnPmi, showing, session]);
@@ -279,6 +284,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     ? drawnViews(drawnPmi, (g, item) => drawnShown(g.source, item === null ? undefined : drawnPmi.links[item]?.status, drawnShow), partCentre(session.mesh.positions))
     : []), [drawnPmi, drawnShow, session]);
 
+  useEffect(() => { picker.current?.setTools?.(moreTools); }, [moreTools, session]);
   useEffect(() => {
     picker.current?.setTransparency(transparency / 100);
   }, [transparency, session]);
@@ -777,6 +783,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
               ))}
             </div>
           </details>
+          <button type="button" className="pmi-lab-more-tools" aria-pressed={moreTools} title="The 3D viewer's own toolbar and tree: measuring, clipping, zebra" onClick={() => setMoreTools(on => !on)}>More view tools</button>
           <div>
             <button type="button" title="Roll a quarter turn anticlockwise" onClick={() => picker.current?.navigator.roll(-1)}>↺</button>
             <button type="button" title="Roll a quarter turn clockwise" onClick={() => picker.current?.navigator.roll(1)}>↻</button>
@@ -1032,14 +1039,14 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
         ? <PartField key={`${q.id}:${JSON.stringify(answers[q.id])}`} q={q} answers={answers} error={errorAt(q.id)} onAnswer={(value) => answer(q, value)} />
         : questionItem(q, g, false)}</div>, slots.question);
     })()}
-    {slots.exports && createPortal(<>
-      <button type="button" onClick={downloadCsv} disabled={!chars.length} title="Every dimension and tolerance, numbered, with its nominal and limits">
+    {slots.exports && <>
+      {createPortal(<button type="button" onClick={downloadCsv} disabled={!chars.length} title="Every dimension and tolerance, numbered, with its nominal and limits">
         {gated ? 'Inspection list (CSV) · Sign in' : 'Inspection list (CSV)'}
-      </button>
-      <button type="button" onClick={downloadFai} disabled={!chars.length} title="AS9102 first article inspection Forms 1–3 as an Excel workbook: the part, its materials and processes, and each characteristic with its requirement, for the results">
+      </button>, slots.exports)}
+      {createPortal(<button type="button" onClick={downloadFai} disabled={!chars.length} title="AS9102 first article inspection Forms 1–3 as an Excel workbook: the part, its materials and processes, and each characteristic with its requirement, for the results">
         {gated ? 'AS9102 FAI (Excel) · Sign in' : 'AS9102 FAI (Excel)'}
-      </button>
-    </>, slots.exports)}
+      </button>, slots.more ?? slots.exports)}
+    </>}
   </>);
 }
 
