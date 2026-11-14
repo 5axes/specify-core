@@ -6,6 +6,15 @@ import type { PmiAnswers, PmiQuestion } from '../types/pmi';
 /** How the tolerancing is specified: not yet (the default path), ± only, or geometric (GD&T). */
 export type GdtMode = 'plusminus' | 'geometric';
 
+/** The scheme actually chosen, including older projects that store only the locating answer.
+ * The untouched path's automatic ± answer is deliberately not a chosen scheme. */
+export function tolerancingMode(edits: { gdt?: GdtMode; answers?: PmiAnswers; auto?: readonly string[] }): GdtMode | undefined {
+  if (edits.gdt) return edits.gdt;
+  if (edits.auto?.includes('part.locating')) return;
+  const locating = edits.answers?.['part.locating'];
+  return locating === '± dimensions' ? 'plusminus' : locating === 'position tolerances' ? 'geometric' : undefined;
+}
+
 /** The groups of the intent, in the order stage 1 shows them. */
 export type IntentPart = 'material' | 'threads' | 'notes' | 'bom' | 'faces' | 'scheme';
 export const intentParts: Record<IntentPart, string> = {

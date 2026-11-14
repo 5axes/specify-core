@@ -63,7 +63,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   showFaces?: { faces: readonly number[]; n: number };
   /** The queue's state on the part, by face; a new map when it changes. */
   tints?: ReadonlyMap<number, PartTint>;
-  externalAnswers: PmiAnswers; externalReview: IntentReview; disabled: boolean; focusRequest?: { questionId: string; faces?: readonly number[]; scroll?: boolean } | null;
+  externalAnswers: PmiAnswers; externalReview: IntentReview; disabled: boolean; focusRequest?: { questionId: string; faces?: readonly number[]; scroll?: boolean; focusInput?: boolean } | null;
   /** The editor's decisions to review, by question: the suggestions are exactly these (agreed 2026-10-16). */
   toReview?: readonly string[];
   /** Keeps suggestions as they stand, the editor's way: accepted, as in its list, not answered. */
@@ -164,11 +164,12 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     if (slots.question && slotQuestion && slotQuestion !== current && questions.some((q) => q.id === slotQuestion)) setCurrent(slotQuestion);
   }, [slots.question, slotQuestion, current, questions]);
 
+  // Only a banner or blank-cell request moves focus off the drawing into its answer input.
   useEffect(() => {
-    if (!slots.question || !slotQuestion) return;
+    if (!focusRequest?.focusInput || focusRequest.questionId !== slotQuestion || !slots.question) return;
     const timer = window.setTimeout(() => slots.question?.querySelector<HTMLElement>('input, select, button')?.focus({ preventScroll: true }), 50);
     return () => window.clearTimeout(timer);
-  }, [slots.question, slotQuestion]);
+  }, [slots.question, slotQuestion, focusRequest]);
 
   useEffect(() => {
     const id = focusRequest?.questionId;
