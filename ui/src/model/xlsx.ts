@@ -46,11 +46,11 @@ const CRC = (() => {
 const crc32 = (bytes: Uint8Array) => { let c = 0xffffffff; for (const b of bytes) c = CRC[(c ^ b) & 0xff]! ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; };
 
 /** A zip of ``files``, stored (not compressed): what .xlsx readers accept. */
-export function zip(files: readonly [string, string][]): Uint8Array {
+export function zip(files: readonly [string, string | Uint8Array][]): Uint8Array {
   const enc = new TextEncoder(), parts: Uint8Array[] = [], central: Uint8Array[] = [];
   let offset = 0;
   for (const [path, text] of files) {
-    const name = enc.encode(path), data = enc.encode(text), crc = crc32(data);
+    const name = enc.encode(path), data = typeof text === 'string' ? enc.encode(text) : text, crc = crc32(data);
     const local = new DataView(new ArrayBuffer(30));
     local.setUint32(0, 0x04034b50, true); local.setUint16(4, 20, true); local.setUint16(6, 0x0800, true);
     local.setUint32(14, crc, true); local.setUint32(18, data.length, true); local.setUint32(22, data.length, true);

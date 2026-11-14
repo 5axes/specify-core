@@ -285,6 +285,7 @@ export function ExtraEditor({
               autoCapitalize="off" autoCorrect="off" spellCheck={false}
               onChange={(event) => onChange({ ...draft, value: event.target.value })}
             />
+            {kind !== 'fit' && kind !== 'finish' && <span className="tolerance-unit">mm</span>}
           </div>
           {/* No ± key on most keyboards: the usual ones are a tap, and 0.05 alone means ±0.05. */}
           {(kind === 'size' || kind === 'distance') && (
