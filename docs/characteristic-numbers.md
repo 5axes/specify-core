@@ -156,6 +156,10 @@ The first-allocation rule is:
    This includes a part default finish and whole-part controls. Face textures, threads
    and knurls participate by position; they are not collected at the end by category.
 
+Planned hole depths retain their underlying cylindrical quantity's bounds, view
+and size tie rank for this sort. Changing their STEP form to a linear location
+between endpoint aspects does not renumber unrelated requirements.
+
 Only a first allocation with `high_water == 0` uses this sort. Subsequent writes match all
 existing requirements first, then append unmatched ones in the existing semantic model
 order above the counter. Read APIs retain their semantic array order for compatibility;

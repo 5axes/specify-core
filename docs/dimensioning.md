@@ -50,8 +50,10 @@ following CAx-IF PMI RP 4.1 §§5.1.1 and 5.1.9. Adjacent parallel planar faces
 carry flat-bottom depths; a drill-point bottom uses the circular shoulder rim,
 whose centre defines the cylindrical depth rather than the cone's slant length
 or apex. Each enlargement starts at its own cylinder entry. Pattern depths
-include every member's endpoints. Nominal rounding resolves to nearby real rims;
-no endpoint geometry is invented. Older cylinder-only hole identities resolve
+include every member's endpoints. Nominal rounding resolves to measured cylinder
+extents. A sloping entry without a circular rim uses an explicit derived point on
+the hole axis at the trimmed extent (RP §5.1.4); the rounded nominal alone never
+establishes an endpoint. Older cylinder-only hole identities resolve
 through their physical face supports. Genuine curve lengths retain Table 4's
 `curve length` size form; angular quantities use degrees. Countersinks retain
 their diameter and angle dimensions, and thread/tapping-drill depths retain

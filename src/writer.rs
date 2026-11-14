@@ -1394,6 +1394,8 @@ fn planned_depth_kind(
     input: &quiddity::dimensioning::Input,
     part: &haecceity::Part,
     features: &mut Features<'_>,
+    pmi: &mut PartPmi,
+    unit: &LengthUnit,
 ) -> Result<DimensionKind, WriteError> {
     use haecceity::geom::{Curve, Surface, dot, sub};
     // Recognition publishes these nominal lengths to 0.01 mm. Resolve to the
@@ -1456,29 +1458,45 @@ fn planned_depth_kind(
                 ))
             })
             .collect();
-        // Bore depth starts at the bore cylinder, which may lie below an enlargement.
-        // Each counterbore/spotface/outer step likewise starts at its own cylinder.
-        let start = rings
+        // A sloping entry need not have a circular rim. The cylinder's actual
+        // trimmed extent establishes its entry, including such oblique mouths.
+        let cylinders: Vec<_> = hole.support.faces.iter().copied().filter(|&i|
+            matches!(&part.faces[i].surface, Surface::Cylinder { frame, radius }
+                if dot(frame.z, direction).abs() > 0.999999 && (2. * radius - diameter).abs() < NEAR))
+            .collect();
+        let start = cylinders
             .iter()
-            .filter(|(_, _, radius)| (2. * radius - diameter).abs() < NEAR)
-            .map(|(_, station, _)| *station)
+            .filter_map(|&i| part.face_projection_bounds(i, direction))
+            .map(|(lo, _)| lo - dot(origin, direction))
             .min_by(f64::total_cmp)
-            .ok_or_else(|| WriteError::Invalid(format!("depth {id}/{role} has no entry rim")))?;
+            .ok_or_else(|| {
+                WriteError::Invalid(format!("depth {id}/{role} has no entry station"))
+            })?;
+        let stations: Vec<_> = hole
+            .support
+            .faces
+            .iter()
+            .copied()
+            .filter(|&i| matches!(&part.faces[i].surface, Surface::Cylinder { .. }))
+            .filter_map(|i| part.face_projection_bounds(i, direction))
+            .flat_map(|(lo, hi)| [lo - dot(origin, direction), hi - dot(origin, direction)])
+            .chain(rings.iter().map(|(_, station, _)| *station))
+            .collect();
         for (end, station) in [start, start + planned.required.nominal]
             .into_iter()
             .enumerate()
         {
-            let nearest = rings
+            let actual = stations
                 .iter()
-                .map(|(_, s, _)| (s - station).abs())
-                .min_by(f64::total_cmp)
-                .filter(|d| *d < NEAR)
+                .copied()
+                .min_by(|a, b| (a - station).abs().total_cmp(&(b - station).abs()))
+                .filter(|s| (s - station).abs() < NEAR)
                 .ok_or_else(|| {
-                    WriteError::Invalid(format!("depth {id}/{role} has no endpoint rim"))
+                    WriteError::Invalid(format!("depth {id}/{role} has no endpoint station"))
                 })?;
             let rims: BTreeSet<_> = rings
                 .iter()
-                .filter(|(_, s, _)| ((s - station).abs() - nearest).abs() < 1e-7)
+                .filter(|(_, s, _)| (s - actual).abs() < 1e-7)
                 .map(|(e, _, _)| *e)
                 .collect();
             let planes: Vec<_> = part
@@ -1490,14 +1508,72 @@ fn planned_depth_kind(
                         return None;
                     };
                     (dot(frame.z, direction).abs() > 0.999999
+                        && (dot(sub(frame.origin, origin), direction) - actual).abs() < 1e-7
                         && face
                             .loops
                             .iter()
                             .flat_map(|l| &l.edges)
-                            .any(|(e, _)| rims.contains(e)))
+                            .any(|(e, _)| edges.contains(e)))
                     .then_some(Anchor::Face(FaceIndex(i)))
                 })
                 .collect();
+            if planes.is_empty() && rims.is_empty() {
+                // RP §5.1.4: a point on the hole axis is a derived shape aspect
+                // with explicit supplemental geometry. Its station comes from
+                // the trimmed cylinder, never from the rounded nominal alone.
+                let mut deriving = cylinders.clone();
+                deriving.sort_unstable();
+                let Surface::Cylinder { frame, radius } = &part.faces[deriving[0]].surface else {
+                    unreachable!()
+                };
+                let point: [f64; 3] = std::array::from_fn(|k| {
+                    frame.origin[k]
+                        + direction[k]
+                            * (dot(origin, direction) + actual - dot(frame.origin, direction))
+                });
+                let coords = point
+                    .into_iter()
+                    .map(|v| decimal(crate::rules::round(v, 9) / unit.millimetres() + 0.0))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let g = pmi::GeometryId(pmi.geometry.len());
+                pmi.geometry.push(pmi::Geometry {
+                    item: pmi::GeometryItem {
+                        leaves: vec![(
+                            "CARTESIAN_POINT".into(),
+                            vec![
+                                pmi::GeometryValue::Text(PMI_PROVENANCE.into()),
+                                pmi::GeometryValue::List(
+                                    coords.into_iter().map(pmi::GeometryValue::Real).collect(),
+                                ),
+                            ],
+                        )],
+                    },
+                    length_unit: Some(unit.clone()),
+                });
+                let base = features.intern(Feature::Items(
+                    deriving
+                        .iter()
+                        .map(|&i| Anchor::Face(FaceIndex(i)))
+                        .collect(),
+                ));
+                let dg = pmi::DerivedGeometryId(pmi.derived_geometry.len());
+                let axis = haecceity::geom::unit(frame.z).expect("cylinder axis is nonzero");
+                pmi.derived_geometry.push(pmi::DerivedGeometry {
+                    kind: pmi::DerivedGeometryKind::Axis,
+                    deriving_faces: deriving.iter().copied().map(FaceIndex).collect(),
+                    point: [length(frame.origin[0])?, length(frame.origin[1])?, length(frame.origin[2])?],
+                    direction: pmi::Direction([decimal(axis[0])?, decimal(axis[1])?, decimal(axis[2])?]),
+                    radius: deriving.iter().all(|&i| matches!(&part.faces[i].surface, Surface::Cylinder {radius: r,..} if (r-radius).abs() <= 1e-7))
+                        .then(|| length(*radius)).transpose()?,
+                    supplemental: vec![g],
+                });
+                ends[end].push(features.intern(Feature::Derived {
+                    kind: pmi::DerivedKind::Derived,
+                    from: vec![base],
+                    geometry: Some(dg),
+                }));
+                continue;
+            }
             let anchors = if planes.is_empty() {
                 rims.into_iter()
                     .map(|e| Anchor::Edge(pmi::EdgeIndex(e)))
@@ -1884,7 +1960,13 @@ fn part_pmi_observed(
                 .and_then(Json::as_array)
                 .is_some_and(Vec::is_empty)
         });
-    let point_unit = if has_points {
+    let has_depths = intent.requirements.iter().chain(&intent.general).any(|r| {
+        r.get("planner")
+            .and_then(|p| p.pointer("/required/kind/size/role"))
+            .and_then(Json::as_str)
+            .is_some_and(|role| role.ends_with(".depth"))
+    });
+    let point_unit = if has_points || has_depths {
         let (model, _) = step_io::read(loaded.bytes.as_slice())
             .map_err(|e| WriteError::Failed(format!("planner point units: {e}")))?;
         let u =
@@ -2068,6 +2150,8 @@ fn part_pmi_observed(
                     depth_input.as_ref().unwrap(),
                     &loaded.part,
                     &mut f,
+                    &mut p,
+                    &point_unit,
                 )?
             } else {
                 planned_kind(&planned, &mut f, &mut p.geometry, &point_unit)?

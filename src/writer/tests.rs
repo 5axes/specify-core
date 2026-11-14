@@ -353,8 +353,15 @@ fn drill_point_depth_ends_at_the_cylindrical_shoulder_not_the_cone_length() {
         witnesses: None,
     };
     let mut features = Vec::new();
-    let kind =
-        planned_depth_kind(&planned, &input, &loaded.part, &mut Features(&mut features)).unwrap();
+    let kind = planned_depth_kind(
+        &planned,
+        &input,
+        &loaded.part,
+        &mut Features(&mut features),
+        &mut PartPmi::default(),
+        &LengthUnit::Millimetre,
+    )
+    .unwrap();
     let DimensionKind::Location {
         from,
         to,
@@ -463,8 +470,15 @@ fn enlargement_depth_roles_measure_between_their_own_parallel_planes() {
             witnesses: None,
         };
         let mut features = Vec::new();
-        let kind = planned_depth_kind(&planned, &input, &loaded.part, &mut Features(&mut features))
-            .unwrap();
+        let kind = planned_depth_kind(
+            &planned,
+            &input,
+            &loaded.part,
+            &mut Features(&mut features),
+            &mut PartPmi::default(),
+            &LengthUnit::Millimetre,
+        )
+        .unwrap();
         let DimensionKind::Location {
             from,
             to,
@@ -493,4 +507,123 @@ fn enlargement_depth_roles_measure_between_their_own_parallel_planes() {
         let depth = haecceity::geom::dot(haecceity::geom::sub(a.origin, b.origin), a.z).abs();
         assert!((depth - 3.).abs() < 1e-8, "{prefix}: {depth}");
     }
+}
+
+#[test]
+fn an_oblique_counterbore_entry_uses_a_derived_axial_point() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/nist/nist_ctc_02_asme1_ap242.stp.gz");
+    let loaded = crate::part::load(&path, None).unwrap();
+    let input = crate::dimensioning::input(&loaded.part).unwrap();
+    let hole = input
+        .holes
+        .iter()
+        .find(|h| h.support.feature == "hole:98.99.101.102")
+        .unwrap();
+    let planned = crate::dimensioning::Planned {
+        required: quiddity::dimensioning::Required {
+            id: "test:oblique-counterbore.depth".into(),
+            kind: quiddity::dimensioning::Kind::Size {
+                feature: hole.support.feature.clone(),
+                role: "counterbore.depth".into(),
+                kind: quiddity::dimensioning::SizeKind::Length,
+            },
+            nominal: 23.49,
+            count: 1,
+            pattern: None,
+            tolerance: quiddity::dimensioning::Tolerance::General,
+            reference: None,
+            covers: vec![hole.support.feature.clone()],
+        },
+        supports: vec![hole.support.clone()],
+        groups: Default::default(),
+        frame: input.frame,
+        witnesses: None,
+    };
+    let mut features = Vec::new();
+    let mut model = PartPmi::default();
+    let kind = planned_depth_kind(
+        &planned,
+        &input,
+        &loaded.part,
+        &mut Features(&mut features),
+        &mut model,
+        &LengthUnit::Millimetre,
+    )
+    .unwrap();
+    let DimensionKind::Location {
+        from,
+        to,
+        kind: LocationKind::LinearDistance,
+        ..
+    } = kind
+    else {
+        panic!("straight depth");
+    };
+    let Feature::Derived {
+        geometry: Some(g), ..
+    } = features[from.0]
+    else {
+        panic!("derived entry point");
+    };
+    let geometry = &model.geometry[model.derived_geometry[g.0].supplemental[0].0];
+    let pmi::GeometryValue::List(coords) = &geometry.item.leaves[0].1[1] else {
+        panic!("Cartesian point");
+    };
+    let coords: Vec<_> = coords
+        .iter()
+        .map(|v| match v {
+            pmi::GeometryValue::Real(n) => n.to_f64(),
+            _ => panic!("coordinate"),
+        })
+        .collect();
+    assert!((coords[0] + 201.50733163).abs() < 1e-7);
+    assert!((coords[1] - 200.).abs() < 1e-7);
+    assert!((coords[2] + 185.).abs() < 1e-7);
+    let Feature::Items(anchors) = &features[to.0] else {
+        panic!("counterbore shoulder plane");
+    };
+    assert!(anchors.iter().all(|a| matches!(a, Anchor::Face(_))));
+    model.features = features;
+    model.dimensions.push(Dimension {
+        kind,
+        nominal: Some(mm(23.49).unwrap()),
+        tolerance: DimTolerance::None,
+        qualifier: None,
+        modifiers: vec![],
+        principle: None,
+    });
+    let source = Source::of(&loaded.bytes).unwrap();
+    let (edit, _) = pmi::write(
+        &source.doc,
+        &source.defs,
+        &[(PartId(0), model)],
+        Mode::Replace,
+        PresentationPolicy::RemovePresentation,
+    )
+    .unwrap();
+    let bytes = source.doc.apply(&edit).unwrap().bytes;
+    let text = std::str::from_utf8(&bytes).unwrap();
+    assert!(text.contains("DIMENSIONAL_LOCATION('linear distance'"));
+    assert!(text.contains("DERIVED_SHAPE_ASPECT("));
+    assert!(text.contains("CONSTRUCTIVE_GEOMETRY_REPRESENTATION("));
+    let read = pmi::read(&Document::parse(bytes).unwrap(), &source.defs).unwrap();
+    let d = read.parts[0]
+        .dimensions
+        .iter()
+        .find(|d| {
+            matches!(&d.nominal.as_ref().unwrap().quantity,
+        pmi::Quantity::Length(n) if (n.mm()-23.49).abs()<1e-8)
+        })
+        .unwrap();
+    let DimensionKind::Location { from, .. } = d.kind else {
+        panic!("linear location on readback");
+    };
+    assert!(matches!(
+        read.parts[0].features[from.0],
+        Feature::Derived {
+            geometry: Some(_),
+            ..
+        }
+    ));
 }
