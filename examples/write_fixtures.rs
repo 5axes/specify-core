@@ -15,6 +15,11 @@
 //! /Users/paul/repos/specify-core/.venv/bin/python tools/capture.py cross-engine tests/fixtures/cross_engine
 //! ```
 //!
+//! **For straight hole depths (PMI RP 4.1).** Only CTC-01 and CTC-05 change:
+//! six former curve-length sizes become linear locations on their physical depth
+//! endpoints. Independent before/after Python captures preserve every other field
+//! and resume evidence; the fixture README records the reader and exact scope.
+//!
 //! **For floor ownership (#216, unreleased `b590592`).** Regenerate all sixteen
 //! cases: only CTC-05's planner identities gain floor 38. Its actual hole dimension
 //! carriers remain cylinder 37, with the same 92.08 mm depth. Independently recapture
