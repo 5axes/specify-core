@@ -43,9 +43,19 @@ locations lower through the shared `dimension_kind` helper with a real feature
 arena. Actual patterns use `PatternOfFeatures`, counted unpatterned groups use
 `MultipleElements`. Locations require nonempty face supports at both ends.
 The turned-envelope deferrals survive the hole-only passes; faceless box offsets
-are not written. The writer also rejects faceless planned locations defensively. AP242 Table
-4's `curve length` names axial length quantities (the helper's generic `length`
-name is rejected by the kernel's own reader); angular quantities use degrees.
+are not written. The writer also rejects faceless planned locations defensively.
+Straight bore, counterbore, spotface and outer-step depths use
+`DIMENSIONAL_LOCATION('linear distance')` between physical endpoint aspects,
+following CAx-IF PMI RP 4.1 §§5.1.1 and 5.1.9. Adjacent parallel planar faces
+carry flat-bottom depths; a drill-point bottom uses the circular shoulder rim,
+whose centre defines the cylindrical depth rather than the cone's slant length
+or apex. Each enlargement starts at its own cylinder entry. Pattern depths
+include every member's endpoints. Nominal rounding resolves to nearby real rims;
+no endpoint geometry is invented. Older cylinder-only hole identities resolve
+through their physical face supports. Genuine curve lengths retain Table 4's
+`curve length` size form; angular quantities use degrees. Countersinks retain
+their diameter and angle dimensions, and thread/tapping-drill depths retain
+their existing manufacturing attributes.
 The exact role, count, pitch intervals, covered IDs, supports, frame and optional
 reference proof round-trip in a dimension-owned `specify dimension plan` UDA.
 Persistent planner metadata canonicalizes frame noise to nine decimal places;

@@ -15,6 +15,13 @@ fn anchors(p: &pmi::PartPmi, id: pmi::FeatureId) -> Vec<pmi::Anchor> {
 }
 
 fn write_depths(name: &str) -> (part::LoadedPart, pmi::PartPmi, BTreeSet<String>) {
+    write_depths_with_legacy_ids(name, false)
+}
+
+fn write_depths_with_legacy_ids(
+    name: &str,
+    legacy: bool,
+) -> (part::LoadedPart, pmi::PartPmi, BTreeSet<String>) {
     let source = part::load(
         &Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("tests/fixtures/parts")
@@ -37,7 +44,7 @@ fn write_depths(name: &str) -> (part::LoadedPart, pmi::PartPmi, BTreeSet<String>
     let mut intent = rules::apply_with_defaults(&analysis, &answers, true).unwrap();
     // Reproduce legacy analyses whose hole identities/supports contain only the
     // cylindrical faces, before recognition began including their flat floors.
-    if name.contains("electronics-enclosure") {
+    if legacy {
         for row in intent.requirements.iter_mut().chain(&mut intent.general) {
             let Some(planned) = row.get_mut("planner") else {
                 continue;
@@ -73,6 +80,17 @@ fn write_depths(name: &str) -> (part::LoadedPart, pmi::PartPmi, BTreeSet<String>
                 if let Some(new) = renames.get(id.as_str().unwrap()) {
                     *id = json!(new);
                 }
+            }
+            for members in planned["groups"].as_object_mut().unwrap().values_mut() {
+                for id in members.as_array_mut().unwrap() {
+                    if let Some(new) = renames.get(id.as_str().unwrap()) {
+                        *id = json!(new);
+                    }
+                }
+            }
+            let feature = &mut planned["required"]["kind"]["size"]["feature"];
+            if let Some(new) = renames.get(feature.as_str().unwrap()) {
+                *feature = json!(new);
             }
         }
     }
@@ -128,9 +146,9 @@ fn write_depths(name: &str) -> (part::LoadedPart, pmi::PartPmi, BTreeSet<String>
     (source, p, roles)
 }
 
-#[test]
-fn enclosure_blind_pattern_depth_uses_boss_tops_and_flat_floors() {
-    let (source, p, roles) = write_depths("electronics-enclosure-base.step.gz");
+fn check_enclosure(legacy: bool) {
+    let (source, p, roles) =
+        write_depths_with_legacy_ids("electronics-enclosure-base.step.gz", legacy);
     assert_eq!(roles, BTreeSet::from(["bore.depth".into()]));
     let depths: Vec<_> = p.dimensions.iter().filter(|d|
         matches!(d.kind, pmi::DimensionKind::Location { .. })
@@ -156,6 +174,16 @@ fn enclosure_blind_pattern_depth_uses_boss_tops_and_flat_floors() {
             .collect();
         assert_eq!(faces.len(), 4);
     }
+}
+
+#[test]
+fn enclosure_blind_pattern_depth_uses_boss_tops_and_flat_floors() {
+    check_enclosure(false);
+}
+
+#[test]
+fn legacy_cylinder_only_hole_ids_resolve_the_same_depth_planes() {
+    check_enclosure(true);
 }
 
 #[test]
