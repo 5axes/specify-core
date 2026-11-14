@@ -627,3 +627,85 @@ fn an_oblique_counterbore_entry_uses_a_derived_axial_point() {
         }
     ));
 }
+
+#[test]
+fn a_circular_entry_wins_over_a_conservative_cylinder_trim_bound() {
+    use haecceity::geom::{Curve, Surface, dot, sub};
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/resume_alpha7/cgb217.step.gz");
+    let loaded = crate::part::load(&path, None).unwrap();
+    let input = crate::dimensioning::input(&loaded.part).unwrap();
+    let hole = input
+        .holes
+        .iter()
+        .find(|h| h.support.feature == "hole:105.106")
+        .unwrap();
+    let planned = crate::dimensioning::Planned {
+        required: quiddity::dimensioning::Required {
+            id: "test:circular-entry.depth".into(),
+            kind: quiddity::dimensioning::Kind::Size {
+                feature: hole.support.feature.clone(),
+                role: "bore.depth".into(),
+                kind: quiddity::dimensioning::SizeKind::Length,
+            },
+            nominal: 24.5,
+            count: 1,
+            pattern: None,
+            tolerance: quiddity::dimensioning::Tolerance::General,
+            reference: None,
+            covers: vec![hole.support.feature.clone()],
+        },
+        supports: vec![hole.support.clone()],
+        groups: Default::default(),
+        frame: input.frame,
+        witnesses: None,
+    };
+    let mut features = Vec::new();
+    let mut model = PartPmi::default();
+    let kind = planned_depth_kind(
+        &planned,
+        &input,
+        &loaded.part,
+        &mut Features(&mut features),
+        &mut model,
+        &LengthUnit::Millimetre,
+    )
+    .unwrap();
+    let DimensionKind::Location {
+        from,
+        to,
+        kind: LocationKind::LinearDistance,
+        ..
+    } = kind
+    else {
+        panic!("straight depth");
+    };
+    let origin = input.frame.to_world(hole.support.at);
+    let direction = sub(
+        input.frame.to_world(std::array::from_fn(|k| {
+            hole.support.at[k] + hole.direction[k]
+        })),
+        origin,
+    );
+    for (id, station) in [(from, 0.), (to, 24.5)] {
+        let Feature::Items(anchors) = &features[id.0] else {
+            panic!("physical endpoint");
+        };
+        assert!(!anchors.is_empty());
+        for anchor in anchors {
+            let point = match anchor {
+                Anchor::Face(f) => match &loaded.part.faces[f.0].surface {
+                    Surface::Plane { frame } => frame.origin,
+                    _ => panic!("plane"),
+                },
+                Anchor::Edge(e) => match &loaded.part.edges[e.0].curve {
+                    Curve::Circle { frame, .. } => frame.origin,
+                    _ => panic!("circle"),
+                },
+                _ => panic!("actual geometry required"),
+            };
+            assert!((dot(sub(point, origin), direction) - station).abs() < 1e-7);
+        }
+    }
+    assert!(model.geometry.is_empty());
+}

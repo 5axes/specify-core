@@ -1464,7 +1464,7 @@ fn planned_depth_kind(
             matches!(&part.faces[i].surface, Surface::Cylinder { frame, radius }
                 if dot(frame.z, direction).abs() > 0.999999 && (2. * radius - diameter).abs() < NEAR))
             .collect();
-        let start = cylinders
+        let bound_start = cylinders
             .iter()
             .filter_map(|&i| part.face_projection_bounds(i, direction))
             .map(|(lo, _)| lo - dot(origin, direction))
@@ -1482,6 +1482,20 @@ fn planned_depth_kind(
             .flat_map(|(lo, hi)| [lo - dot(origin, direction), hi - dot(origin, direction)])
             .chain(rings.iter().map(|(_, station, _)| *station))
             .collect();
+        // Prefer a real circular entry when it and the established end span the
+        // published depth. Conservative trim bounds can extend slightly beyond
+        // that rim (legacy cgb217); sloping mouths instead need their extent.
+        let start = rings
+            .iter()
+            .filter(|(_, _, radius)| (2. * radius - diameter).abs() < NEAR)
+            .map(|(_, station, _)| *station)
+            .min_by(f64::total_cmp)
+            .filter(|s| {
+                stations
+                    .iter()
+                    .any(|end| (end - s - planned.required.nominal).abs() < NEAR)
+            })
+            .unwrap_or(bound_start);
         for (end, station) in [start, start + planned.required.nominal]
             .into_iter()
             .enumerate()
@@ -1492,7 +1506,7 @@ fn planned_depth_kind(
                 .min_by(|a, b| (a - station).abs().total_cmp(&(b - station).abs()))
                 .filter(|s| (s - station).abs() < NEAR)
                 .ok_or_else(|| {
-                    WriteError::Invalid(format!("depth {id}/{role} has no endpoint station"))
+                    WriteError::Invalid(format!("depth {id}/{role} has no endpoint station (start {start}, nominal {}, stations {stations:?})", planned.required.nominal))
                 })?;
             let rims: BTreeSet<_> = rings
                 .iter()
