@@ -157,10 +157,60 @@ pub(super) fn order(loaded: &LoadedPart, p: &PartPmi, items: &[Item]) -> Vec<usi
             if item.key.kind == "datum" {
                 return (0, item.key.r#type.as_str(), 0, 0.0, 0.0, 0);
             }
-            let dimension = i
-                .checked_sub(p.datums.len())
-                .and_then(|i| p.dimensions.get(i));
-            let rank = match dimension.map(|d| &d.kind) {
+            let dimension_index = i.checked_sub(p.datums.len());
+            let dimension = dimension_index.and_then(|i| p.dimensions.get(i));
+            // A depth's RP-correct endpoint aspects do not change the inspection
+            // walk of its underlying hole quantity. Retain the bore-based sort
+            // position/rank used before its semantic form became a location.
+            let depth = dimension_index
+                .and_then(|i| {
+                    p.attributes.iter().find(|a| {
+                        a.name == "specify dimension plan"
+                            && a.on
+                                == Some(haecceity::pmi::NoteOwner::Dimension(
+                                    haecceity::pmi::DimensionId(i),
+                                ))
+                    })
+                })
+                .and_then(|a| {
+                    a.items.iter().find_map(|(k, v)| match v {
+                        haecceity::pmi::AttributeValue::Text(s) if k == "requirement" => {
+                            serde_json::from_str::<crate::dimensioning::Planned>(s).ok()
+                        }
+                        _ => None,
+                    })
+                })
+                .filter(|p| crate::dimensioning::is_straight_depth(&p.required.kind));
+            let surrogate = depth.as_ref().map(|p| {
+                let mut key = item.key.clone();
+                key.faces = p
+                    .supports
+                    .iter()
+                    .filter(|s| p.required.covers.contains(&s.feature))
+                    .flat_map(|s| s.faces.iter().copied())
+                    .collect();
+                key.faces.sort_unstable();
+                key.faces.dedup();
+                key.reference.clear();
+                super::Item {
+                    key,
+                    entity: 0,
+                    value_hint: super::ValueHint::None,
+                }
+            });
+            let item = surrogate.as_ref().unwrap_or(item);
+            let depth_kind = DimensionKind::Size {
+                feature: haecceity::pmi::FeatureId(0),
+                kind: haecceity::pmi::SizeKind::CurveLength,
+                path: None,
+                angle: None,
+            };
+            let kind = if depth.is_some() {
+                Some(&depth_kind)
+            } else {
+                dimension.map(|d| &d.kind)
+            };
+            let rank = match kind {
                 Some(DimensionKind::Size { .. }) => 0,
                 Some(DimensionKind::Location { .. }) => 1,
                 None if item.key.kind == "geometric_tolerance" => 2,
@@ -169,8 +219,8 @@ pub(super) fn order(loaded: &LoadedPart, p: &PartPmi, items: &[Item]) -> Vec<usi
             let Some(b) = Box3::of(loaded, &item.key.faces) else {
                 return (2, "", 0, 0.0, 0.0, rank);
             };
-            let view = if let Some(d) = dimension {
-                dimension_view(loaded, item, &d.kind, b)
+            let view = if let Some(kind) = kind {
+                dimension_view(loaded, item, kind, b)
             } else {
                 match item.key.kind.as_str() {
                     "surface_texture" => {

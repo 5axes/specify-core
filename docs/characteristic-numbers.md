@@ -103,6 +103,21 @@ an old `specification:"0.200000000|[MaximumMaterialRequirement]|..."` becomes
 `role:"feature"`. A unique requirement keeps its number across either edit.
 Temporary matching hints compare typed values and are never serialized.
 
+A Specify-authored `Size_CurveLength` with planner measure `*.depth` retains its
+number when rewritten as `Location_LinearDistance`. Migration matches the exact
+measurement role and the original hole support, with the same unique two-way
+matching rule; the location's new entry/bottom aspects do not retire that depth.
+The new history records the real location type and endpoints. Unmarked foreign
+PMI and genuine curve-length measures do not receive this exception.
+
+The authored curve-length depth is matched before ordinary location/support
+fallback. If a legacy General plane span also states that depth (CTC-04), its
+number retires with a conveyed-by-depth reason; the depth keeps its own number.
+An unresolved depth is omitted with a `not_written` reason. On resume its number
+therefore retires and is never reused. We do not fall back to `curve length`:
+that would again describe the straight depth as a length along a curve. Resolving
+the geometry later creates a new characteristic above the high-water mark.
+
 ## Allocation and carry
 
 The **first allocation is in inspection order**, consecutively 1…N without gaps on a
@@ -155,6 +170,10 @@ The first-allocation rule is:
 6. Requirements without finite target face bounds go last in the same tie order.
    This includes a part default finish and whole-part controls. Face textures, threads
    and knurls participate by position; they are not collected at the end by category.
+
+Planned hole depths retain their underlying cylindrical quantity's bounds, view
+and size tie rank for this sort. Changing their STEP form to a linear location
+between endpoint aspects does not renumber unrelated requirements.
 
 Only a first allocation with `high_water == 0` uses this sort. Subsequent writes match all
 existing requirements first, then append unmatched ones in the existing semantic model

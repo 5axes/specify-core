@@ -288,3 +288,22 @@ was downloaded. The available reader uses Python 3.14.7, quiddity 0.3.9, build12
 and cadquery-ocp-novtk/proxy 7.9.3.1. Before capturing the changed file, this reader gave
 identical complete semantic readbacks and resume face evidence for the original CTC-05
 fixture. Metadata records the actual runtime and command.
+
+## Straight hole depths (PMI RP 4.1)
+
+Regenerated all sixteen cases. Only CTC-01 and CTC-05 change: one 45 mm depth in
+CTC-01 and five depths in CTC-05 (92.08, 12.7 and three 30.48 mm groups) now use
+`DIMENSIONAL_LOCATION('linear distance')` between physical endpoint aspects.
+Flat floors use their planes; drill points use their cylindrical shoulder rims.
+All other successful STEP outputs and both refusals remain byte-identical.
+
+Independently recaptured those two files with the documented clean `2cb6499`
+reference, Python 3.14.7, quiddity 0.3.9, build123d 0.11.1 and
+cadquery-ocp-novtk/proxy 7.9.3.1 (`tools/capture.py cross-engine <staging-root>
+--rust-only`). Before recapture, this reader reproduced both previous complete
+semantic readbacks exactly. Afterwards, only those six dimensions' types and
+endpoint faces change; their nominal values, tolerances, all other semantic
+fields and complete resume evidence agree exactly. Capture-generated metadata
+records the actual file hashes, runtime and command. The six existing General
+PMI ledger entries retain their verdicts and exact matching, with paths following
+the new endpoint faces. Historical Python-written inputs/evidence stay frozen.

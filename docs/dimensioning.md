@@ -41,11 +41,31 @@ Requirements already carried by threads do not need separate dimensions; quantit
 without physical supports or a reconciled contract are omitted or reported below. Sizes and
 locations lower through the shared `dimension_kind` helper with a real feature
 arena. Actual patterns use `PatternOfFeatures`, counted unpatterned groups use
-`MultipleElements`. Locations require nonempty face supports at both ends.
+`MultipleElements`. Ordinary face-to-face locations require nonempty face supports
+at both ends; depth endpoint aspects follow the geometric rules below.
 The turned-envelope deferrals survive the hole-only passes; faceless box offsets
-are not written. The writer also rejects faceless planned locations defensively. AP242 Table
-4's `curve length` names axial length quantities (the helper's generic `length`
-name is rejected by the kernel's own reader); angular quantities use degrees.
+are not written. The writer also rejects faceless planned locations defensively.
+Straight bore, counterbore, spotface and outer-step depths use
+`DIMENSIONAL_LOCATION('linear distance')` between physical endpoint aspects,
+following CAx-IF PMI RP 4.1 §§5.1.1 and 5.1.9. Adjacent parallel planar faces
+carry flat-bottom depths; a drill-point bottom uses the circular shoulder rim,
+whose centre defines the cylindrical depth rather than the cone's slant length
+or apex. Each enlargement starts at its own cylinder entry. Pattern depths
+include every member's endpoints. Nominal rounding resolves to measured cylinder
+extents; established circular endpoints take precedence over conservative trim
+bounds. A sloping planar entry without a circular rim uses the actual axis/plane
+intersection, named `axis point` (RP §5.1.4); its straight-depth nominal follows
+that intersection, rather than the cylinder's trim extreme. A nonplanar entry
+retains the measured trim station because no supporting plane establishes a unique
+axis intersection. Names are applied through written plan provenance; no private
+point-discovery tag is emitted. The rounded nominal alone never establishes an endpoint.
+An unresolved endpoint omits only
+that depth, with a `not_written` reason; partial endpoint geometry is discarded
+and no legacy span is claimed as conveyed. Older cylinder-only hole identities resolve
+through their physical face supports. Genuine curve lengths retain Table 4's
+`curve length` size form; angular quantities use degrees. Countersinks retain
+their diameter and angle dimensions, and thread/tapping-drill depths retain
+their existing manufacturing attributes.
 The exact role, count, pitch intervals, covered IDs, supports, frame and optional
 reference proof round-trip in a dimension-owned `specify dimension plan` UDA.
 Persistent planner metadata canonicalizes frame noise to nine decimal places;
@@ -87,7 +107,11 @@ be ambiguous, so no arbitrary station is chosen.
 
 Deferred legacy spans are dropped when the planner states the same physical
 plane interval in either direction. Hole floors are excluded from part lengths,
-including floors absent from legacy defining-face lists. Hole depths are published
+including floors absent from legacy defining-face lists. At the writer boundary,
+a legacy General plane span already conveyed by a depth's linear location is
+omitted once the same physical carriers and nominal (within published depth
+rounding) are proved. Disjoint coplanar faces, explicit requirements and stored
+requirements are retained. Hole depths are published
 to 0.01 mm upstream; floor ownership and reference proofs account for that rounding
 while keeping the planner's nominal unchanged. When two retained
 turned baselines determine a generated hole enlargement's depth, that depth
