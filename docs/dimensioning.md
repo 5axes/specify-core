@@ -41,7 +41,8 @@ Requirements already carried by threads do not need separate dimensions; quantit
 without physical supports or a reconciled contract are omitted or reported below. Sizes and
 locations lower through the shared `dimension_kind` helper with a real feature
 arena. Actual patterns use `PatternOfFeatures`, counted unpatterned groups use
-`MultipleElements`. Locations require nonempty face supports at both ends.
+`MultipleElements`. Ordinary face-to-face locations require nonempty face supports
+at both ends; depth endpoint aspects follow the geometric rules below.
 The turned-envelope deferrals survive the hole-only passes; faceless box offsets
 are not written. The writer also rejects faceless planned locations defensively.
 Straight bore, counterbore, spotface and outer-step depths use
