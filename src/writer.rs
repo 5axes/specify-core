@@ -1386,6 +1386,73 @@ fn faceless(kind: &str, req: &Map<String, Json>) -> Option<String> {
     }
 }
 
+#[derive(Clone)]
+struct DepthPlane {
+    at: [f64; 3],
+    normal: [f64; 3],
+    body: Option<usize>,
+    faces: Vec<usize>,
+}
+
+impl DepthPlane {
+    fn of(part: &haecceity::Part, faces: &[usize]) -> Option<Self> {
+        use haecceity::geom::{Surface, dot, sub};
+        let first = part.faces.get(*faces.first()?)?;
+        let Surface::Plane { frame } = &first.surface else {
+            return None;
+        };
+        let plane = Self {
+            at: frame.origin,
+            normal: frame.z,
+            body: first.solid,
+            faces: faces.to_vec(),
+        };
+        faces
+            .iter()
+            .all(|&i| {
+                part.faces.get(i).is_some_and(|face| {
+                    matches!(&face.surface, Surface::Plane { frame } if face.solid == plane.body
+                && dot(frame.z, plane.normal).abs() > 0.999999
+                && dot(sub(frame.origin, plane.at), plane.normal).abs() < 1e-4)
+                })
+            })
+            .then_some(plane)
+    }
+
+    fn same(&self, other: &Self) -> bool {
+        use haecceity::geom::{dot, sub};
+        self.body == other.body
+            && self.faces.iter().any(|f| other.faces.contains(f))
+            && dot(self.normal, other.normal).abs() > 0.999999
+            && dot(sub(self.at, other.at), self.normal).abs() < 1e-4
+    }
+
+    fn feature(part: &haecceity::Part, features: &[Feature], id: FeatureId) -> Option<Self> {
+        fn faces(features: &[Feature], id: FeatureId) -> Option<Vec<usize>> {
+            match &features[id.0] {
+                Feature::Items(items) => items
+                    .iter()
+                    .map(|a| match a {
+                        Anchor::Face(f) => Some(f.0),
+                        _ => None,
+                    })
+                    .collect(),
+                Feature::Group { members, .. } => Some(
+                    members
+                        .iter()
+                        .map(|&f| faces(features, f))
+                        .collect::<Option<Vec<_>>>()?
+                        .into_iter()
+                        .flatten()
+                        .collect(),
+                ),
+                Feature::Derived { .. } => None,
+            }
+        }
+        Self::of(part, &faces(features, id)?)
+    }
+}
+
 /// A depth is the straight separation of two stations, not a length along a curve
 /// (CAx-IF PMI RP 4.1 §§5.1.1, 5.1.5, 5.1.9). Prefer the actual adjacent planes;
 /// a drill-point shoulder has no plane, so use its circular rim's centre instead.
@@ -2078,6 +2145,79 @@ fn part_pmi_observed(
     // written with its nominal alone: the general tolerance written for the part governs it, as
     // on a drawing (#63). They are counted in one report line. Shared slice-one rows account
     // for stored PMI; deferred General rows keep their original Add-mode omission.
+    // A legacy General plane span may already state an enlargement depth,
+    // including on nonprincipal planes outside the planner's plane ladder.
+    // Once depth is a location, retain that quantity once, on its depth plan.
+    // Explicit/stored requirements and all other legacy dimensions stay intact.
+    let legacy_spans: Vec<_> = if mode == Mode::Replace {
+        intent
+            .general
+            .iter()
+            .filter(|r| {
+                !r.contains_key("planner")
+                    && r.get("kind").and_then(Json::as_str) == Some("location")
+                    && truthy(r.get("general"))
+                    && !truthy(r.get("stored"))
+                    && r.get("not_written_reason").and_then(Json::as_str).is_none()
+            })
+            .filter_map(|r| {
+                Some((
+                    DepthPlane::of(&loaded.part, &face_ids(r.get("reference"))?)?,
+                    DepthPlane::of(&loaded.part, &face_ids(r.get("faces"))?)?,
+                    r.get("distance")?.as_f64()?,
+                ))
+            })
+            .collect()
+    } else {
+        vec![]
+    };
+    let mut depth_spans = Vec::new();
+    for row in intent.requirements.iter().chain(&intent.general) {
+        if legacy_spans.is_empty()
+            || truthy(row.get("stored"))
+            || row
+                .get("not_written_reason")
+                .and_then(Json::as_str)
+                .is_some()
+        {
+            continue;
+        }
+        let Some(value) = row.get("planner") else {
+            continue;
+        };
+        let mut plan: crate::dimensioning::Planned = serde_json::from_value(value.clone())
+            .map_err(|e| WriteError::Invalid(format!("planned dimension: {e}")))?;
+        if !matches!(&plan.required.kind, quiddity::dimensioning::Kind::Size {
+            kind: quiddity::dimensioning::SizeKind::Length, role, .. } if role.ends_with(".depth"))
+            || !legacy_spans
+                .iter()
+                .any(|(_, _, n)| (n - plan.required.nominal).abs() < 0.0051)
+        {
+            continue;
+        }
+        if depth_input.is_none() {
+            depth_input =
+                Some(crate::dimensioning::input(&loaded.part).map_err(WriteError::Failed)?);
+        }
+        plan.bore_supports(&loaded.part);
+        let mut scratch = Vec::new();
+        let kind = planned_depth_kind(
+            &plan,
+            depth_input.as_ref().unwrap(),
+            &loaded.part,
+            &mut Features(&mut scratch),
+            &mut PartPmi::default(),
+            &point_unit,
+        )?;
+        if let DimensionKind::Location { from, to, .. } = kind
+            && let (Some(from), Some(to)) = (
+                DepthPlane::feature(&loaded.part, &scratch, from),
+                DepthPlane::feature(&loaded.part, &scratch, to),
+            )
+        {
+            depth_spans.push((from, to, plan.required.nominal));
+        }
+    }
     let mut general = 0usize;
     // The shared planner has accounted for stored dimensions. Its slice-one rows are
     // required in Add mode too; only later-slice legacy General rows retain the old omission.
@@ -2091,6 +2231,26 @@ fn part_pmi_observed(
         }
         let kind = req.get("kind").and_then(Json::as_str).unwrap_or("");
         let under_general = truthy(req.get("general"));
+        if under_general
+            && kind == "location"
+            && !req.contains_key("planner")
+            && req
+                .get("not_written_reason")
+                .and_then(Json::as_str)
+                .is_none()
+            && let (Some(from), Some(to), Some(nominal)) = (
+                face_ids(req.get("reference")).and_then(|f| DepthPlane::of(&loaded.part, &f)),
+                face_ids(req.get("faces")).and_then(|f| DepthPlane::of(&loaded.part, &f)),
+                req.get("distance").and_then(Json::as_f64),
+            )
+            && depth_spans.iter().any(|(a, b, n)| {
+                (n - nominal).abs() < 0.0051
+                    && (a.same(&from) && b.same(&to) || a.same(&to) && b.same(&from))
+            })
+        {
+            continue;
+        }
+
         // Not on a datum's own faces: a size there makes the datum a datum feature of size
         // (dimensional_size_with_datum_feature), a complex instance the authorship contract
         // does not mark (docs/pmi-provenance.md), so a resumed write would not keep its bytes.

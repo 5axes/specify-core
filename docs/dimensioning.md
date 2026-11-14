@@ -100,7 +100,11 @@ be ambiguous, so no arbitrary station is chosen.
 
 Deferred legacy spans are dropped when the planner states the same physical
 plane interval in either direction. Hole floors are excluded from part lengths,
-including floors absent from legacy defining-face lists. Hole depths are published
+including floors absent from legacy defining-face lists. At the writer boundary,
+a legacy General plane span already conveyed by a depth's linear location is
+omitted once the same physical carriers and nominal (within published depth
+rounding) are proved. Disjoint coplanar faces, explicit requirements and stored
+requirements are retained. Hole depths are published
 to 0.01 mm upstream; floor ownership and reference proofs account for that rounding
 while keeping the planner's nominal unchanged. When two retained
 turned baselines determine a generated hole enlargement's depth, that depth

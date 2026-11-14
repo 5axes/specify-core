@@ -197,3 +197,76 @@ fn counterbore_depths_use_linear_locations() {
     let (_, _, roles) = write_depths("../revisions/complex_counterbore.new.step.gz");
     assert!(roles.contains("counterbore.depth"), "{roles:?}");
 }
+
+#[test]
+fn a_depth_conveys_only_the_duplicate_legacy_general_plane_span() {
+    let source = part::load(
+        &Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/revisions/complex_counterbore.new.step.gz"),
+        None,
+    )
+    .unwrap();
+    let analysis = api::analyse(&source).unwrap();
+    let given = json!({"part.material":"steel"});
+    let intent = rules::apply_with_defaults(&analysis, given.as_object().unwrap(), true).unwrap();
+    let (bytes, _) = writer::write_bytes(&source, &intent, None).unwrap();
+    let doc = Document::parse(bytes).unwrap();
+    let read = pmi::read(&doc, std::slice::from_ref(&source.definition)).unwrap();
+    let p = &read.parts[0];
+    let dim = p
+        .attributes
+        .iter()
+        .find_map(|a| {
+            if a.name != "specify dimension plan" {
+                return None;
+            }
+            let pmi::AttributeValue::Text(text) = &a.items[0].1 else {
+                return None;
+            };
+            let plan: Value = serde_json::from_str(text).unwrap();
+            if plan["required"]["kind"]["size"]["role"] != "counterbore.depth" {
+                return None;
+            }
+            let Some(pmi::NoteOwner::Dimension(id)) = a.on else {
+                return None;
+            };
+            Some(&p.dimensions[id.0])
+        })
+        .unwrap();
+    let pmi::DimensionKind::Location { from, to, .. } = dim.kind else {
+        panic!("depth location");
+    };
+    let face_ids = |f| {
+        anchors(p, f)
+            .iter()
+            .map(|a| match a {
+                pmi::Anchor::Face(f) => f.0,
+                _ => panic!("plane"),
+            })
+            .collect::<Vec<_>>()
+    };
+    let row = json!({"kind":"location","feature":"legacy depth span","faces":face_ids(to),"reference":face_ids(from),"distance":3.000001,"general":true});
+    let mut duplicate = intent.clone();
+    duplicate.general.push(row.as_object().unwrap().clone());
+    let (bytes, _) = writer::write_bytes(&source, &duplicate, None).unwrap();
+    let read = pmi::read(
+        &Document::parse(bytes).unwrap(),
+        std::slice::from_ref(&source.definition),
+    )
+    .unwrap();
+    assert_eq!(read.parts[0].dimensions.len(), p.dimensions.len());
+    // A separately specified tolerance remains authoritative, even at the same span.
+    let mut stated = row.as_object().unwrap().clone();
+    stated.remove("general");
+    stated.insert("upper".into(), json!(0.03));
+    stated.insert("lower".into(), json!(-0.03));
+    duplicate.requirements.push(stated);
+    let (bytes, _) = writer::write_bytes(&source, &duplicate, None).unwrap();
+    let read = pmi::read(
+        &Document::parse(bytes).unwrap(),
+        std::slice::from_ref(&source.definition),
+    )
+    .unwrap();
+    assert!(read.parts[0].dimensions.iter().any(|d|matches!(d.tolerance,pmi::DimTolerance::Deviations(_))
+        && matches!(&d.nominal.as_ref().unwrap().quantity,pmi::Quantity::Length(n) if (n.mm()-3.000001).abs()<1e-9)));
+}

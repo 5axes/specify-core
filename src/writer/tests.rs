@@ -709,3 +709,22 @@ fn a_circular_entry_wins_over_a_conservative_cylinder_trim_bound() {
     }
     assert!(model.geometry.is_empty());
 }
+
+#[test]
+fn disjoint_coplanar_features_do_not_convey_each_others_dimensions() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/revisions/complex_counterbore.new.step.gz");
+    let loaded = crate::part::load(&path, None).unwrap();
+    let a = DepthPlane::of(&loaded.part, &[21]).unwrap();
+    let b = DepthPlane::of(&loaded.part, &[22]).unwrap();
+    assert!(haecceity::geom::dot(haecceity::geom::sub(a.at, b.at), a.normal).abs() < 1e-8);
+    assert!(
+        !a.same(&b),
+        "different hole floors remain different physical carriers"
+    );
+    let group = DepthPlane::of(&loaded.part, &[21, 22]).unwrap();
+    assert!(
+        a.same(&group),
+        "a witness within the depth's group is the same carrier"
+    );
+}

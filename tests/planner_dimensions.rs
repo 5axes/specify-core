@@ -374,27 +374,196 @@ fn an_old_general_only_analysis_is_upgraded_at_the_writer_boundary() {
 
 mod common;
 
+fn faces(p: &pmi::PartPmi, id: pmi::FeatureId) -> BTreeSet<usize> {
+    match &p.features[id.0] {
+        pmi::Feature::Items(items) => items
+            .iter()
+            .filter_map(|a| match a {
+                pmi::Anchor::Face(f) => Some(f.0),
+                _ => None,
+            })
+            .collect(),
+        pmi::Feature::Group { members, .. } => {
+            members.iter().flat_map(|id| faces(p, *id)).collect()
+        }
+        pmi::Feature::Derived { from, .. } => from.iter().flat_map(|id| faces(p, *id)).collect(),
+    }
+}
+struct DepthEnd {
+    at: [f64; 3],
+    normal: [f64; 3],
+    faces: BTreeSet<usize>,
+    edges: BTreeSet<usize>,
+    plane: bool,
+}
+fn depth_ends(p: &pmi::PartPmi, part: &haecceity::Part, id: pmi::FeatureId) -> Vec<DepthEnd> {
+    use haecceity::geom::{Curve, Surface};
+    match &p.features[id.0] {
+        pmi::Feature::Items(items) => {
+            assert!(!items.is_empty(), "empty depth endpoint");
+            items
+                .iter()
+                .map(|a| match a {
+                    pmi::Anchor::Face(f) => {
+                        let Surface::Plane { frame } = &part.faces[f.0].surface else {
+                            panic!("depth face must be planar");
+                        };
+                        DepthEnd {
+                            at: frame.origin,
+                            normal: frame.z,
+                            faces: BTreeSet::from([f.0]),
+                            edges: BTreeSet::new(),
+                            plane: true,
+                        }
+                    }
+                    pmi::Anchor::Edge(e) => {
+                        let Curve::Circle { frame, radius } = &part.edges[e.0].curve else {
+                            panic!("depth edge must establish a circular centre");
+                        };
+                        assert!(*radius > 0.);
+                        assert!(part.faces.iter().any(|f| {
+                            f.loops
+                                .iter()
+                                .flat_map(|l| &l.edges)
+                                .any(|(i, _)| *i == e.0)
+                        }));
+                        DepthEnd {
+                            at: frame.origin,
+                            normal: frame.z,
+                            faces: BTreeSet::new(),
+                            edges: BTreeSet::from([e.0]),
+                            plane: false,
+                        }
+                    }
+                    pmi::Anchor::Geometry(_) => {
+                        panic!("a supplemental depth point needs a deriving aspect")
+                    }
+                })
+                .collect()
+        }
+        pmi::Feature::Group { members, .. } => {
+            assert!(!members.is_empty());
+            members
+                .iter()
+                .flat_map(|&f| depth_ends(p, part, f))
+                .collect()
+        }
+        pmi::Feature::Derived { geometry, .. } => {
+            let g = &p.derived_geometry[geometry
+                .expect("depth derivation must read back geometrically")
+                .0];
+            assert_eq!(g.kind, pmi::DerivedGeometryKind::Axis);
+            assert!(!g.deriving_faces.is_empty());
+            assert_eq!(faces(p, id), g.deriving_faces.iter().map(|f| f.0).collect());
+            assert!(!g.supplemental.is_empty());
+            g.supplemental
+                .iter()
+                .map(|g_id| {
+                    let geometry = &p.geometry[g_id.0];
+                    assert_eq!(geometry.item.leaves.len(), 1);
+                    assert_eq!(geometry.item.leaves[0].0, "CARTESIAN_POINT");
+                    let pmi::GeometryValue::List(coords) = &geometry.item.leaves[0].1[1] else {
+                        panic!("point coordinates");
+                    };
+                    assert_eq!(coords.len(), 3);
+                    let unit = geometry
+                        .length_unit
+                        .as_ref()
+                        .expect("point units")
+                        .millimetres();
+                    let at = std::array::from_fn(|i| match &coords[i] {
+                        pmi::GeometryValue::Real(n) => n.to_f64() * unit,
+                        _ => panic!("real coordinate"),
+                    });
+                    DepthEnd {
+                        at,
+                        normal: g.direction.0.each_ref().map(pmi::Decimal::to_f64),
+                        faces: g.deriving_faces.iter().map(|f| f.0).collect(),
+                        edges: BTreeSet::new(),
+                        plane: false,
+                    }
+                })
+                .collect()
+        }
+    }
+}
+
+fn checked_depth_ends(
+    pmi: &pmi::PartPmi,
+    part: &haecceity::Part,
+    input: &Input,
+    from: pmi::FeatureId,
+    to: pmi::FeatureId,
+    r: &Required,
+    path: &Path,
+) -> (Vec<DepthEnd>, Vec<DepthEnd>) {
+    use haecceity::geom::{cross, dot, norm, sub};
+    let (from_ends, to_ends) = (depth_ends(pmi, part, from), depth_ends(pmi, part, to));
+    assert!(!r.covers.is_empty());
+    assert_eq!(
+        input
+            .holes
+            .iter()
+            .filter(|h| r.covers.contains(&h.support.feature))
+            .count(),
+        r.covers.len()
+    );
+    for h in input
+        .holes
+        .iter()
+        .filter(|h| r.covers.contains(&h.support.feature))
+    {
+        let origin = input.frame.to_world(h.support.at);
+        let direction = sub(
+            input
+                .frame
+                .to_world(std::array::from_fn(|k| h.support.at[k] + h.direction[k])),
+            origin,
+        );
+        let hole_edges: BTreeSet<_> = h
+            .support
+            .faces
+            .iter()
+            .flat_map(|&f| part.faces[f].loops.iter())
+            .flat_map(|l| l.edges.iter().map(|&(e, _)| e))
+            .collect();
+        let stations = |ends: &[DepthEnd]| {
+            ends.iter()
+                .filter(|e| {
+                    e.at.iter().chain(&e.normal).all(|v| v.is_finite())
+                        && dot(e.normal, direction).abs() > 0.999999
+                        && (e.plane || norm(cross(sub(e.at, origin), direction)) < 1e-6)
+                        && (e.edges.iter().any(|i| hole_edges.contains(i))
+                            || e.faces.iter().any(|f| {
+                                h.support.faces.contains(f)
+                                    || part.faces[*f]
+                                        .loops
+                                        .iter()
+                                        .flat_map(|l| &l.edges)
+                                        .any(|(i, _)| hole_edges.contains(i))
+                            }))
+                })
+                .map(|e| dot(sub(e.at, origin), direction))
+                .collect::<Vec<_>>()
+        };
+        let (from_stations, to_stations) = (stations(&from_ends), stations(&to_ends));
+        assert!(
+            from_stations.iter().any(|a| to_stations
+                .iter()
+                .any(|b| ((b - a).abs() - r.nominal).abs() < 0.0051)),
+            "{} {}: depth {} is not established by its real endpoints: {from_stations:?} -> {to_stations:?}",
+            path.display(),
+            r.id,
+            r.nominal
+        );
+    }
+    (from_ends, to_ends)
+}
+
 /// Check the written PMI, including retained later-slice rows, rather than only
 /// the shared planner's output. References do not add independent constraints.
 #[test]
 fn corpus_locations_have_faces_unique_pairs_and_no_closed_plane_chains() {
-    fn faces(p: &pmi::PartPmi, id: pmi::FeatureId) -> BTreeSet<usize> {
-        match &p.features[id.0] {
-            pmi::Feature::Items(items) => items
-                .iter()
-                .filter_map(|a| match a {
-                    pmi::Anchor::Face(f) => Some(f.0),
-                    _ => None,
-                })
-                .collect(),
-            pmi::Feature::Group { members, .. } => {
-                members.iter().flat_map(|id| faces(p, *id)).collect()
-            }
-            pmi::Feature::Derived { from, .. } => {
-                from.iter().flat_map(|id| faces(p, *id)).collect()
-            }
-        }
-    }
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
     let corpus = common::corpus_dir();
     let mut paths = vec![root.join("parts/plate.step"), root.join("parts/pin.step")];
@@ -545,7 +714,9 @@ fn corpus_locations_have_faces_unique_pairs_and_no_closed_plane_chains() {
                     continue;
                 };
                 let (mut a, mut b) = (faces(pmi, *from), faces(pmi, *to));
-                if a.is_empty() || b.is_empty() {
+                let depth = claims.get(&dimension_index).filter(|r| matches!(&r.kind,
+                    quiddity::dimensioning::Kind::Size {kind:quiddity::dimensioning::SizeKind::Length, role,..} if role.ends_with(".depth")));
+                if depth.is_none() && (a.is_empty() || b.is_empty()) {
                     errors
                         .borrow_mut()
                         .push(format!("faceless location: {} {d:?}", path.display()));
@@ -559,15 +730,54 @@ fn corpus_locations_have_faces_unique_pairs_and_no_closed_plane_chains() {
                         .find(|p| f.iter().all(|id| p.support.faces.contains(id)))
                         .map_or_else(|| f.clone(), |p| p.support.faces.iter().copied().collect())
                 };
+                let depth_facts = depth
+                    .map(|r| checked_depth_ends(pmi, &back.part, &input, *from, *to, r, &path));
+                // Preserve face-only checks for every original location. Depths may
+                // instead use RP circular centres or explicit derived axis points;
+                // their topology, units, derivation and actual span are checked above.
+                let endpoint_key = |f: BTreeSet<usize>, ends: Option<&[DepthEnd]>| {
+                    if let Some(ends) = ends
+                        && ends.iter().any(|e| !e.plane)
+                    {
+                        let mut keys = ends
+                            .iter()
+                            .map(|e| {
+                                if e.plane {
+                                    format!("faces:{:?}", canonical(e.faces.clone()))
+                                } else {
+                                    format!(
+                                        "point:{:?}",
+                                        e.at.map(|x| (x * 1e9).round() / 1e9 + 0.0)
+                                    )
+                                }
+                            })
+                            .collect::<Vec<_>>();
+                        keys.sort();
+                        keys.dedup();
+                        format!("{keys:?}")
+                    } else {
+                        format!("faces:{:?}", canonical(f))
+                    }
+                };
+                let (mut ka, mut kb) = (
+                    endpoint_key(a.clone(), depth_facts.as_ref().map(|v| v.0.as_slice())),
+                    endpoint_key(b.clone(), depth_facts.as_ref().map(|v| v.1.as_slice())),
+                );
+                if ka > kb {
+                    std::mem::swap(&mut ka, &mut kb);
+                }
+                if !pairs.insert((ka.clone(), kb.clone())) {
+                    errors
+                        .borrow_mut()
+                        .push(format!("duplicate pair: {} {ka} {kb}", path.display()));
+                }
+                if a.is_empty() || b.is_empty() {
+                    continue;
+                }
                 a = canonical(a);
                 b = canonical(b);
                 if a > b {
                     std::mem::swap(&mut a, &mut b);
-                }
-                if !pairs.insert((a.clone(), b.clone())) {
-                    errors
-                        .borrow_mut()
-                        .push(format!("duplicate pair: {} {a:?} {b:?}", path.display()));
                 }
                 if d.modifiers.contains(&pmi::DimensionModifier::Reference) {
                     continue;
@@ -977,4 +1187,73 @@ fn blind_hole_diameters_and_axis_locations_stay_on_bores_but_depth_uses_planes()
     }
     assert_eq!(depth, 1);
     assert!(location > 0);
+}
+
+#[test]
+fn ctc04_depths_have_measurable_endpoints_and_do_not_repeat_a_legacy_span() {
+    let Some(corpus) = common::corpus_dir() else {
+        return;
+    };
+    let path = corpus.join("nist/nist_ctc_04_asme1_rd.stp");
+    let loaded = part::load(&path, None).unwrap();
+    let analysis = api::analyse(&loaded).unwrap();
+    let input: Input = serde_json::from_value(analysis["dimensioning"].clone()).unwrap();
+    let given = json!({"part.material":"steel"});
+    let intent = rules::apply_with_defaults(&analysis, given.as_object().unwrap(), true).unwrap();
+    let (bytes, _) = writer::write_bytes(&loaded, &intent, None).unwrap();
+    let back = part::load_bytes("ctc04.step", bytes).unwrap();
+    let read = model(&back);
+    let p = &read.parts[0];
+    let mut depths = 0;
+    for a in p
+        .attributes
+        .iter()
+        .filter(|a| a.name == "specify dimension plan")
+    {
+        let pmi::AttributeValue::Text(text) = &a.items[0].1 else {
+            panic!("plan");
+        };
+        let value: Value = serde_json::from_str(text).unwrap();
+        let r: Required = serde_json::from_value(value["required"].clone()).unwrap();
+        if !matches!(&r.kind,quiddity::dimensioning::Kind::Size {role,..} if role.ends_with(".depth"))
+        {
+            continue;
+        }
+        let Some(pmi::NoteOwner::Dimension(id)) = a.on else {
+            panic!("dimension owner");
+        };
+        let pmi::DimensionKind::Location {
+            from,
+            to,
+            kind: pmi::LocationKind::LinearDistance,
+            ..
+        } = p.dimensions[id.0].kind
+        else {
+            panic!("straight depth");
+        };
+        checked_depth_ends(p, &back.part, &input, from, to, &r, &path);
+        depths += 1;
+    }
+    assert!(depths > 0);
+    let pair = [BTreeSet::from([68, 73, 82, 87]), BTreeSet::from([393, 400])];
+    let spans: Vec<_> = p
+        .dimensions
+        .iter()
+        .filter(|d| match d.kind {
+            pmi::DimensionKind::Location { from, to, .. } => {
+                let mut actual = [faces(p, from), faces(p, to)];
+                actual.sort();
+                actual == pair
+            }
+            _ => false,
+        })
+        .collect();
+    assert_eq!(
+        spans.len(),
+        1,
+        "the new depth conveys the old General plane span"
+    );
+    assert!(
+        matches!(&spans[0].nominal.as_ref().unwrap().quantity,pmi::Quantity::Length(n) if n.mm()==20.)
+    );
 }
