@@ -1391,9 +1391,16 @@ fn presentation_shapes_keep_requirement_ids_history_and_face_supports() {
 
 #[test]
 fn ctc04_main_depth_precedes_the_conveyed_general_span_when_resuming() {
-    // Captured from origin/main 68b26e9's unmodified writer on the real corpus
-    // nist_ctc_04_asme1_rd.stp, steel + --accept-defaults, with stored answers.
-    let old = load("characteristic-numbers-ctc04-main.step.gz");
+    check_ctc04_depth_predecessor("characteristic-numbers-ctc04-main.step.gz", false);
+    check_ctc04_depth_predecessor("characteristic-numbers-ctc04-main-equal-span.step.gz", true);
+}
+
+fn check_ctc04_depth_predecessor(name: &str, equal_hint: bool) {
+    // Both were captured by origin/main 68b26e9's unmodified writer on the real
+    // CTC-04 corpus part, steel + defaults, with stored answers. The second
+    // gives the legacy General span the conventional nominal 20 (instead of
+    // 20.000001), so it and the old depth have identical value hints.
+    let old = load(name);
     let prior = numbers(&old);
     let depth = prior.iter().find(|c| c.number == 59).unwrap();
     assert_eq!(depth.r#type, "Size_CurveLength");
@@ -1405,6 +1412,30 @@ fn ctc04_main_depth_precedes_the_conveyed_general_span_when_resuming() {
     assert_eq!(span.r#type, "Location_LinearDistance");
     assert_eq!(span.faces, [393, 400]);
     assert_eq!(span.reference, [68, 73, 82, 87]);
+    if equal_hint {
+        let doc = Document::parse(old.bytes.to_vec()).unwrap();
+        let read = haecceity::pmi::read(&doc, std::slice::from_ref(&old.definition)).unwrap();
+        for entity in [depth.entity, span.entity] {
+            let i = read.provenance.parts[0]
+                .dimensions
+                .iter()
+                .position(|ids| ids.contains(&entity))
+                .unwrap();
+            let haecceity::pmi::Quantity::Length(n) = &read.parts[0].dimensions[i]
+                .nominal
+                .as_ref()
+                .unwrap()
+                .quantity
+            else {
+                panic!("length");
+            };
+            assert_eq!(
+                n.mm(),
+                20.,
+                "the depth and legacy span must have identical value hints"
+            );
+        }
+    }
     let answers = resume::answers_for(&old).unwrap().unwrap();
     let intent = rules::apply_with_defaults(&api::analyse(&old).unwrap(), &answers, true).unwrap();
     let (bytes, report) = writer::write_bytes(&old, &intent, Some(&answers)).unwrap();
