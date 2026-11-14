@@ -165,6 +165,12 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   }, [slots.question, slotQuestion, current, questions]);
 
   useEffect(() => {
+    if (!slots.question || !slotQuestion) return;
+    const timer = window.setTimeout(() => slots.question?.querySelector<HTMLElement>('input, select, button')?.focus({ preventScroll: true }), 50);
+    return () => window.clearTimeout(timer);
+  }, [slots.question, slotQuestion]);
+
+  useEffect(() => {
     const id = focusRequest?.questionId;
     if (!id) return;
     // Opened from the queue above, it is not followed down the list unless asked.
