@@ -777,7 +777,7 @@ fn add_mode_references_never_depend_on_unwritten_legacy_baselines() {
     let back = part::load_bytes("added.step", bytes).unwrap();
     let read = model(&back);
     let depths: Vec<_> = read.parts[0].dimensions.iter().filter(|d|
-        matches!(d.kind,pmi::DimensionKind::Size {kind:pmi::SizeKind::CurveLength,..})
+        matches!(d.kind,pmi::DimensionKind::Location {kind:pmi::LocationKind::LinearDistance,..})
         && matches!(d.nominal.as_ref().map(|v| &v.quantity),Some(pmi::Quantity::Length(n)) if n.value.to_f64()==10.)).collect();
     assert_eq!(depths.len(), 1);
     assert!(
@@ -879,7 +879,7 @@ fn a_position_frames_bolt_circle_is_basic_even_without_cartesian_basics() {
 }
 
 #[test]
-fn blind_hole_planner_dimensions_attach_only_to_the_bore_cylinders() {
+fn blind_hole_diameters_and_axis_locations_stay_on_bores_but_depth_uses_planes() {
     // CTC-05 exercises the supported depth/location writer path from the
     // independent oracle intent, including the writer's legacy-input upgrade.
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
@@ -917,6 +917,29 @@ fn blind_hole_planner_dimensions_attach_only_to_the_bore_cylinders() {
     let mut depth = 0;
     let mut location = 0;
     for d in &pmi.dimensions {
+        if d.tolerance == pmi::DimTolerance::None
+            && matches!(d.nominal.as_ref().map(|n| &n.quantity),
+                Some(pmi::Quantity::Length(length)) if (length.mm() - 92.08).abs() < 1e-8)
+        {
+            let pmi::DimensionKind::Location {
+                from,
+                to,
+                kind: pmi::LocationKind::LinearDistance,
+                ..
+            } = d.kind
+            else {
+                panic!("blind depth must be a straight location: {d:?}");
+            };
+            assert_eq!(faces(pmi, to), [38]);
+            for f in faces(pmi, from).into_iter().chain(faces(pmi, to)) {
+                assert!(matches!(
+                    back.part.faces[f].surface,
+                    haecceity::geom::Surface::Plane { .. }
+                ));
+            }
+            depth += 1;
+            continue;
+        }
         let id = match d.kind {
             pmi::DimensionKind::Size { feature, .. } => feature,
             pmi::DimensionKind::Location { to, .. } => to,
@@ -944,9 +967,10 @@ fn blind_hole_planner_dimensions_attach_only_to_the_bore_cylinders() {
                 let pmi::Quantity::Length(length) = &d.nominal.as_ref().unwrap().quantity else {
                     panic!("length")
                 };
-                if (length.mm() - 92.08).abs() < 1e-8 {
-                    depth += 1;
-                }
+                assert!(
+                    (length.mm() - 92.08).abs() >= 1e-8,
+                    "depth must not be a dimensional size"
+                );
             }
             pmi::DimensionKind::Location { .. } => location += 1,
         }

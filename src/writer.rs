@@ -1386,6 +1386,150 @@ fn faceless(kind: &str, req: &Map<String, Json>) -> Option<String> {
     }
 }
 
+/// A depth is the straight separation of two stations, not a length along a curve
+/// (CAx-IF PMI RP 4.1 §§5.1.1, 5.1.5, 5.1.9). Prefer the actual adjacent planes;
+/// a drill-point shoulder has no plane, so use its circular rim's centre instead.
+fn planned_depth_kind(
+    planned: &crate::dimensioning::Planned,
+    input: &quiddity::dimensioning::Input,
+    part: &haecceity::Part,
+    features: &mut Features<'_>,
+) -> Result<DimensionKind, WriteError> {
+    use haecceity::geom::{Curve, Surface, dot, sub};
+    // Recognition publishes these nominal lengths to 0.01 mm. Resolve to the
+    // nearest real rim within that quantisation, never an invented endpoint.
+    const NEAR: f64 = 0.0051;
+    let quiddity::dimensioning::Kind::Size { role, .. } = &planned.required.kind else {
+        unreachable!("depth is a planner size");
+    };
+    let mut ends = [Vec::new(), Vec::new()];
+    for id in &planned.required.covers {
+        let hole = input
+            .holes
+            .iter()
+            .find(|h| &h.support.feature == id)
+            .or_else(|| {
+                // Older analyses name only the cylinders; recognition now adds
+                // flat floors to hole identities. The same physical faces still
+                // establish the hole, without changing stored planner identities.
+                let support = planned.supports.iter().find(|s| &s.feature == id)?;
+                input
+                    .holes
+                    .iter()
+                    .find(|h| support.faces.iter().any(|f| h.support.faces.contains(f)))
+            })
+            .ok_or_else(|| WriteError::Invalid(format!("depth hole {id} is absent")))?;
+        let origin = input.frame.to_world(hole.support.at);
+        let direction = sub(
+            input.frame.to_world(std::array::from_fn(|k| {
+                hole.support.at[k] + hole.direction[k]
+            })),
+            origin,
+        );
+        let diameter = if role == "bore.depth" {
+            hole.diameter
+        } else {
+            let diameter_role = role.replace(".depth", ".diameter");
+            hole.details
+                .iter()
+                .find(|s| s.role == diameter_role)
+                .ok_or_else(|| WriteError::Invalid(format!("depth diameter {role} is absent")))?
+                .nominal
+        };
+        let edges: BTreeSet<_> = hole
+            .support
+            .faces
+            .iter()
+            .flat_map(|&f| part.faces[f].loops.iter())
+            .flat_map(|l| l.edges.iter().map(|&(e, _)| e))
+            .collect();
+        let rings: Vec<_> = edges
+            .iter()
+            .filter_map(|&e| {
+                let Curve::Circle { frame, radius } = &part.edges[e].curve else {
+                    return None;
+                };
+                (dot(frame.z, direction).abs() > 0.999999).then_some((
+                    e,
+                    dot(sub(frame.origin, origin), direction),
+                    *radius,
+                ))
+            })
+            .collect();
+        // Bore depth starts at the bore cylinder, which may lie below an enlargement.
+        // Each counterbore/spotface/outer step likewise starts at its own cylinder.
+        let start = rings
+            .iter()
+            .filter(|(_, _, radius)| (2. * radius - diameter).abs() < NEAR)
+            .map(|(_, station, _)| *station)
+            .min_by(f64::total_cmp)
+            .ok_or_else(|| WriteError::Invalid(format!("depth {id}/{role} has no entry rim")))?;
+        for (end, station) in [start, start + planned.required.nominal]
+            .into_iter()
+            .enumerate()
+        {
+            let nearest = rings
+                .iter()
+                .map(|(_, s, _)| (s - station).abs())
+                .min_by(f64::total_cmp)
+                .filter(|d| *d < NEAR)
+                .ok_or_else(|| {
+                    WriteError::Invalid(format!("depth {id}/{role} has no endpoint rim"))
+                })?;
+            let rims: BTreeSet<_> = rings
+                .iter()
+                .filter(|(_, s, _)| ((s - station).abs() - nearest).abs() < 1e-7)
+                .map(|(e, _, _)| *e)
+                .collect();
+            let planes: Vec<_> = part
+                .faces
+                .iter()
+                .enumerate()
+                .filter_map(|(i, face)| {
+                    let Surface::Plane { frame } = &face.surface else {
+                        return None;
+                    };
+                    (dot(frame.z, direction).abs() > 0.999999
+                        && face
+                            .loops
+                            .iter()
+                            .flat_map(|l| &l.edges)
+                            .any(|(e, _)| rims.contains(e)))
+                    .then_some(Anchor::Face(FaceIndex(i)))
+                })
+                .collect();
+            let anchors = if planes.is_empty() {
+                rims.into_iter()
+                    .map(|e| Anchor::Edge(pmi::EdgeIndex(e)))
+                    .collect()
+            } else {
+                planes
+            };
+            ends[end].push(features.intern(Feature::Items(anchors)));
+        }
+    }
+    let [from, to] = ends.map(|mut members| {
+        members.sort();
+        members.dedup();
+        if members.len() == 1 {
+            members[0]
+        } else {
+            features.intern(Feature::Group {
+                members,
+                kind: pmi::GroupKind::MultipleElements,
+            })
+        }
+    });
+    Ok(DimensionKind::Location {
+        from,
+        to,
+        kind: LocationKind::LinearDistance,
+        path: None,
+        directed: false,
+        angle: None,
+    })
+}
+
 fn planned_kind(
     planned: &crate::dimensioning::Planned,
     features: &mut Features<'_>,
@@ -1495,8 +1639,8 @@ fn planned_kind(
     }
     // Both (or the sole size) resolver keys were checked above.
     let mut kind = planned.required.dimension_kind(|id| ids[id]);
-    // The planner's generic "length" is not an AP242 Table 4 size name. Axial
-    // lengths use its standard curve-length size; the exact depth role stays in the UDA.
+    // Non-depth curve lengths retain their existing size form. Straight depths
+    // are lowered separately, with two physical endpoint aspects.
     if matches!(
         &planned.required.kind,
         quiddity::dimensioning::Kind::Size {
@@ -1511,6 +1655,18 @@ fn planned_kind(
 }
 
 impl Features<'_> {
+    fn intern(&mut self, feature: Feature) -> FeatureId {
+        let i = self
+            .0
+            .iter()
+            .position(|f| *f == feature)
+            .unwrap_or_else(|| {
+                self.0.push(feature);
+                self.0.len() - 1
+            });
+        FeatureId(i)
+    }
+
     fn of(&mut self, faces: Option<&Json>, what: &str) -> Result<FeatureId, WriteError> {
         let Some(ids) = face_ids(faces) else {
             return invalid(format!("{what} names no faces"));
@@ -1754,6 +1910,7 @@ fn part_pmi_observed(
     let mut p = PartPmi::default();
     let origins = crate::pmi_origin::Planner::new(loaded).map_err(WriteError::Failed)?;
     let mut lines = Lines::default();
+    let mut depth_input = None;
     let mut features = Vec::new();
     let mut f = Features(&mut features);
 
@@ -1898,7 +2055,23 @@ fn part_pmi_observed(
                 continue;
             }
             planned.bore_supports(&loaded.part);
-            let dimension_kind = planned_kind(&planned, &mut f, &mut p.geometry, &point_unit)?;
+            let dimension_kind = if matches!(&planned.required.kind,
+                quiddity::dimensioning::Kind::Size { kind: quiddity::dimensioning::SizeKind::Length, role, .. }
+                    if role.ends_with(".depth"))
+            {
+                if depth_input.is_none() {
+                    depth_input =
+                        Some(crate::dimensioning::input(&loaded.part).map_err(WriteError::Failed)?);
+                }
+                planned_depth_kind(
+                    &planned,
+                    depth_input.as_ref().unwrap(),
+                    &loaded.part,
+                    &mut f,
+                )?
+            } else {
+                planned_kind(&planned, &mut f, &mut p.geometry, &point_unit)?
+            };
             // Keep generated measurements at Specify's established six decimal places in mm;
             // sub-nanometre frame-inference noise must not create inspection revisions.
             let measured = if planned.required.id.starts_with("specified:")

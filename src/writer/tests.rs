@@ -70,7 +70,7 @@ fn upstream_reader_keeps_three_independent_lands_on_a_multi_face_datum() {
 }
 
 #[test]
-fn lm10uu_semantics_match_the_v042_workaround_build() {
+fn lm10uu_semantics_match_the_v042_workaround_build_except_straight_depth() {
     let (loaded, intent, answers) = lm10uu();
     let (bytes, _) = write_bytes(&loaded, &intent, Some(&answers)).unwrap();
     let back = crate::part::load_bytes("lm10uu.step", bytes).unwrap();
@@ -116,10 +116,35 @@ fn lm10uu_semantics_match_the_v042_workaround_build() {
         rows.sort_by_key(Json::to_string);
         actual[area] = Json::Array(rows);
     }
-    let expected: Json = serde_json::from_str(include_str!(
+    let mut expected: Json = serde_json::from_str(include_str!(
         "../../tests/fixtures/freecad/lm10uu-v042-semantics.json"
     ))
     .unwrap();
+    // Keep the historical baseline intact. The sole intentional semantic change
+    // is the 1.4 mm recess depth: its actual entry/floor planes replace a curve
+    // length on three cylinders. Every other value and support still compares.
+    let depths: Vec<_> = expected["dimensions"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .filter(|d| d["kind"]["size"]["kind"] == "curve length")
+        .collect();
+    assert_eq!(depths.len(), 1);
+    for depth in depths {
+        assert_eq!(
+            depth["kind"]["size"]["feature"],
+            json!([{"face":10},{"face":14},{"face":18}])
+        );
+        assert_eq!(depth["nominal"]["quantity"]["length"]["value"], "1.4");
+        depth["kind"] = json!({"location": {
+            "from":[{"face":19}], "to":[{"face":17}], "kind":"linear distance",
+            "path":null, "directed":false, "angle":null
+        }});
+    }
+    expected["dimensions"]
+        .as_array_mut()
+        .unwrap()
+        .sort_by_key(Json::to_string);
     assert_eq!(
         actual, expected,
         "semantic content must survive workaround removal"
@@ -293,4 +318,179 @@ fn add_upgrade_refusal_reaches_specify_without_retrying_replace() {
     );
     assert!(message.contains("Replace re-authors that PMI"), "{message}");
     assert_eq!(loaded.bytes.as_slice(), bytes);
+}
+
+#[test]
+fn drill_point_depth_ends_at_the_cylindrical_shoulder_not_the_cone_length() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/nist/nist_ctc_01_asme1_ap242.stp.gz");
+    let loaded = crate::part::load(&path, None).unwrap();
+    let input = crate::dimensioning::input(&loaded.part).unwrap();
+    let hole = input
+        .holes
+        .iter()
+        .find(|h| h.bottom == quiddity::features::holes::Bottom::DrillPoint)
+        .unwrap();
+    let required = quiddity::dimensioning::Required {
+        id: "test:drill-point.depth".into(),
+        kind: quiddity::dimensioning::Kind::Size {
+            feature: hole.support.feature.clone(),
+            role: "bore.depth".into(),
+            kind: quiddity::dimensioning::SizeKind::Length,
+        },
+        nominal: hole.depth.unwrap(),
+        count: 1,
+        pattern: None,
+        tolerance: quiddity::dimensioning::Tolerance::General,
+        reference: None,
+        covers: vec![hole.support.feature.clone()],
+    };
+    let mut planned = crate::dimensioning::Planned {
+        required,
+        supports: vec![hole.support.clone()],
+        groups: Default::default(),
+        frame: input.frame,
+        witnesses: None,
+    };
+    let mut features = Vec::new();
+    let kind =
+        planned_depth_kind(&planned, &input, &loaded.part, &mut Features(&mut features)).unwrap();
+    let DimensionKind::Location {
+        from,
+        to,
+        kind: LocationKind::LinearDistance,
+        ..
+    } = kind
+    else {
+        panic!("straight depth expected");
+    };
+    assert!(
+        matches!(&features[from.0], Feature::Items(a) if a.iter().all(|a| matches!(a, Anchor::Face(_))))
+    );
+    assert!(
+        matches!(&features[to.0], Feature::Items(a) if a.iter().all(|a| matches!(a, Anchor::Edge(_))))
+    );
+    let model = PartPmi {
+        features: features.clone(),
+        dimensions: vec![Dimension {
+            kind,
+            nominal: Some(mm(planned.required.nominal).unwrap()),
+            tolerance: DimTolerance::None,
+            qualifier: None,
+            modifiers: vec![],
+            principle: None,
+        }],
+        ..PartPmi::default()
+    };
+    let source = Source::of(&loaded.bytes).unwrap();
+    let (edit, _) = pmi::write(
+        &source.doc,
+        &source.defs,
+        &[(PartId(0), model)],
+        Mode::Replace,
+        PresentationPolicy::RemovePresentation,
+    )
+    .unwrap();
+    let bytes = source.doc.apply(&edit).unwrap().bytes;
+    assert!(
+        std::str::from_utf8(&bytes)
+            .unwrap()
+            .contains("DIMENSIONAL_LOCATION('linear distance'")
+    );
+    let read = pmi::read(&Document::parse(bytes).unwrap(), &source.defs).unwrap();
+    assert!(matches!(
+        read.parts[0].dimensions[0].kind,
+        DimensionKind::Location {
+            kind: LocationKind::LinearDistance,
+            ..
+        }
+    ));
+
+    // A genuine curve length still follows the existing single-feature path.
+    let quiddity::dimensioning::Kind::Size { role, .. } = &mut planned.required.kind else {
+        unreachable!()
+    };
+    *role = "curve.length".into();
+    let kind = planned_kind(
+        &planned,
+        &mut Features(&mut features),
+        &mut Vec::new(),
+        &LengthUnit::Millimetre,
+    )
+    .unwrap();
+    assert!(matches!(
+        kind,
+        DimensionKind::Size {
+            kind: SizeKind::CurveLength,
+            ..
+        }
+    ));
+}
+
+#[test]
+fn enlargement_depth_roles_measure_between_their_own_parallel_planes() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/revisions/complex_counterbore.new.step.gz");
+    let loaded = crate::part::load(&path, None).unwrap();
+    let original = crate::dimensioning::input(&loaded.part).unwrap();
+    // Exercise the lowering contract for each cylindrical enlargement role on
+    // a real 12 mm x 3 mm recess; their independent dimension semantics agree.
+    for prefix in ["counterbore", "spotface", "outer_steps.0"] {
+        let mut input = original.clone();
+        let hole = &mut input.holes[0];
+        for detail in &mut hole.details {
+            detail.role = detail.role.replace("counterbore", prefix);
+        }
+        let required = quiddity::dimensioning::Required {
+            id: format!("test:{prefix}.depth"),
+            kind: quiddity::dimensioning::Kind::Size {
+                feature: hole.support.feature.clone(),
+                role: format!("{prefix}.depth"),
+                kind: quiddity::dimensioning::SizeKind::Length,
+            },
+            nominal: 3.,
+            count: 1,
+            pattern: None,
+            tolerance: quiddity::dimensioning::Tolerance::General,
+            reference: None,
+            covers: vec![hole.support.feature.clone()],
+        };
+        let planned = crate::dimensioning::Planned {
+            required,
+            supports: vec![hole.support.clone()],
+            groups: Default::default(),
+            frame: input.frame,
+            witnesses: None,
+        };
+        let mut features = Vec::new();
+        let kind = planned_depth_kind(&planned, &input, &loaded.part, &mut Features(&mut features))
+            .unwrap();
+        let DimensionKind::Location {
+            from,
+            to,
+            kind: LocationKind::LinearDistance,
+            path: None,
+            ..
+        } = kind
+        else {
+            panic!("{prefix}: straight location required");
+        };
+        let plane = |id: FeatureId| {
+            let Feature::Items(anchors) = &features[id.0] else {
+                panic!("plane support");
+            };
+            assert_eq!(anchors.len(), 1);
+            let Anchor::Face(f) = anchors[0] else {
+                panic!("real planar face");
+            };
+            let haecceity::geom::Surface::Plane { frame } = &loaded.part.faces[f.0].surface else {
+                panic!("plane");
+            };
+            frame
+        };
+        let (a, b) = (plane(from), plane(to));
+        assert!(haecceity::geom::dot(a.z, b.z).abs() > 0.999999);
+        let depth = haecceity::geom::dot(haecceity::geom::sub(a.origin, b.origin), a.z).abs();
+        assert!((depth - 3.).abs() < 1e-8, "{prefix}: {depth}");
+    }
 }
