@@ -639,6 +639,7 @@ struct Lines {
     written: Vec<String>,
     not_written: Vec<String>,
     warnings: Vec<String>,
+    conveyed_depth_spans: Vec<(DepthPlane, DepthPlane, f64)>,
 }
 
 /// Writes `jobs` and verifies the result by reading it back: the file's bytes and the report
@@ -790,6 +791,26 @@ fn write_verified(
                     &source.read.provenance.parts[loaded.binding.part],
                 );
                 retired.retain(|n| !foreign.iter().any(|c| c.number == *n));
+            }
+            if !lines.conveyed_depth_spans.is_empty() {
+                for c in crate::characteristics::read_parsed(
+                    &original.doc,
+                    &original.read.parts[loaded.binding.part],
+                    &original.read.provenance.parts[loaded.binding.part],
+                ) {
+                    if retired.contains(&c.number)
+                        && c.r#type == "Location_LinearDistance"
+                        && let (Some(from), Some(to)) = (
+                            DepthPlane::of(&loaded.part, &c.reference),
+                            DepthPlane::of(&loaded.part, &c.faces),
+                        )
+                        && lines.conveyed_depth_spans.iter().any(|(a, b, _)| {
+                            a.same(&from) && b.same(&to) || a.same(&to) && b.same(&from)
+                        })
+                    {
+                        lines.warnings.push(format!("retired characteristic {}: legacy General plane span is conveyed by straight depth", c.number));
+                    }
+                }
             }
             if !retired.is_empty() {
                 lines.warnings.push(format!(
@@ -1049,7 +1070,7 @@ fn write_by_modes(
         let after =
             Document::parse(applied.bytes).map_err(|e| WriteError::Failed(e.to_string()))?;
         let mut marker_edit = provenance::mark_new(current, &after);
-        name_depth_points(current, &after, &mut marker_edit);
+        name_depth_points(current, &after, defs, &mut marker_edit)?;
         let marked = after
             .apply(&marker_edit)
             .map_err(|e| WriteError::Failed(format!("cannot mark written PMI: {e}")))?;
@@ -1068,36 +1089,94 @@ fn write_by_modes(
     Ok((written.expect("at least one part is written"), report))
 }
 
-const DEPTH_AXIS_POINT: &str = "specify-core:depth axis point";
-
-/// The pinned kernel does not expose shape-aspect names in its feature arena.
-/// Name only newly emitted derived points identified by our supplemental item.
-fn name_depth_points(before: &Document, after: &Document, edit: &mut p21::Edit) {
-    for (&id, entity) in &after.graph().entities {
-        let RawEntity::Simple {
-            name, attributes, ..
-        } = entity
-        else {
-            continue;
-        };
-        if before.get(id).is_some() || name != "DERIVED_SHAPE_ASPECT" {
-            continue;
-        }
-        let is_depth_point = after.referrers(id).iter().any(|&usage| {
-            matches!(after.get(usage), Some(RawEntity::Simple { name, attributes, .. })
-                if name == "GEOMETRIC_ITEM_SPECIFIC_USAGE"
-                    && matches!(attributes.as_slice(), [_, _, Attribute::EntityRef(aspect), _, Attribute::EntityRef(point)]
-                        if *aspect == id && matches!(after.get(*point), Some(RawEntity::Simple { name, attributes, .. })
-                            if name == "CARTESIAN_POINT" && attributes.first() == Some(&Attribute::String(DEPTH_AXIS_POINT.into())))))
-        });
-        if is_depth_point && attributes.first() == Some(&Attribute::String(String::new())) {
-            let mut record = entity.clone();
-            if let RawEntity::Simple { attributes, .. } = &mut record {
-                attributes[0] = Attribute::String("axis point".into());
+/// The pinned kernel has no feature-name field. Find our newly written depth
+/// endpoints through their dimension plans and provenance, without embedding a
+/// private discovery tag in the STEP geometry.
+fn name_depth_points(
+    before: &Document,
+    after: &Document,
+    defs: &[PartDefinition],
+    edit: &mut p21::Edit,
+) -> Result<(), WriteError> {
+    if !after.graph().entities.iter().any(|(&id, e)| {
+        before.get(id).is_none()
+            && matches!(e,RawEntity::Simple{name,..} if name=="DERIVED_SHAPE_ASPECT")
+    }) {
+        return Ok(());
+    }
+    let read = pmi::read(after, defs).map_err(|e| WriteError::Failed(e.to_string()))?;
+    fn points(p: &PartPmi, f: FeatureId, out: &mut BTreeSet<usize>) {
+        match &p.features[f.0] {
+            Feature::Group { members, .. } => {
+                for &m in members {
+                    points(p, m, out);
+                }
             }
-            edit.replace(id, record);
+            Feature::Derived {
+                geometry: Some(g), ..
+            } if p.derived_geometry[g.0].supplemental.iter().any(|g| {
+                p.geometry[g.0]
+                    .item
+                    .leaves
+                    .iter()
+                    .any(|(name, _)| name == "CARTESIAN_POINT")
+            }) =>
+            {
+                out.insert(f.0);
+            }
+            _ => {}
         }
     }
+    for (part, p) in read.parts.iter().enumerate() {
+        let mut endpoints = BTreeSet::new();
+        for a in p
+            .attributes
+            .iter()
+            .filter(|a| a.name == "specify dimension plan")
+        {
+            let Some(NoteOwner::Dimension(d)) = a.on else {
+                continue;
+            };
+            let Some(plan) = a.items.iter().find_map(|(k, v)| match v {
+                AttributeValue::Text(s) if k == "requirement" => {
+                    serde_json::from_str::<crate::dimensioning::Planned>(s).ok()
+                }
+                _ => None,
+            }) else {
+                continue;
+            };
+            if !crate::dimensioning::is_straight_depth(&plan.required.kind) {
+                continue;
+            }
+            if let DimensionKind::Location { from, to, .. } = p.dimensions[d.0].kind {
+                points(p, from, &mut endpoints);
+                points(p, to, &mut endpoints);
+            }
+        }
+        for f in endpoints {
+            for &id in &read.provenance.parts[part].features[f] {
+                if before.get(id).is_some() {
+                    continue;
+                }
+                let Some(RawEntity::Simple {
+                    name, attributes, ..
+                }) = after.get(id)
+                else {
+                    continue;
+                };
+                if name == "DERIVED_SHAPE_ASPECT"
+                    && attributes.first() == Some(&Attribute::String(String::new()))
+                {
+                    let mut record = after.get(id).unwrap().clone();
+                    if let RawEntity::Simple { attributes, .. } = &mut record {
+                        attributes[0] = Attribute::String("axis point".into());
+                    }
+                    edit.replace(id, record);
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 /// The instances of Python's form of stored answers on `part` (`PROPERTY_DEFINITION('pmi-assist
@@ -1419,6 +1498,9 @@ fn faceless(kind: &str, req: &Map<String, Json>) -> Option<String> {
     }
 }
 
+const NEAR: f64 = crate::dimensioning::DEPTH_NEAR;
+const PARALLEL: f64 = 0.999999;
+
 #[derive(Clone)]
 struct DepthPlane {
     at: [f64; 3],
@@ -1445,7 +1527,7 @@ impl DepthPlane {
             .all(|&i| {
                 part.faces.get(i).is_some_and(|face| {
                     matches!(&face.surface, Surface::Plane { frame } if face.solid == plane.body
-                && dot(frame.z, plane.normal).abs() > 0.999999
+                && dot(frame.z, plane.normal).abs() > PARALLEL
                 && dot(sub(frame.origin, plane.at), plane.normal).abs() < 1e-4)
                 })
             })
@@ -1456,7 +1538,7 @@ impl DepthPlane {
         use haecceity::geom::{dot, sub};
         self.body == other.body
             && self.faces.iter().any(|f| other.faces.contains(f))
-            && dot(self.normal, other.normal).abs() > 0.999999
+            && dot(self.normal, other.normal).abs() > PARALLEL
             && dot(sub(self.at, other.at), self.normal).abs() < 1e-4
     }
 
@@ -1486,11 +1568,219 @@ impl DepthPlane {
     }
 }
 
+fn legacy_depth_span(
+    part: &haecceity::Part,
+    row: &Map<String, Json>,
+) -> Option<(DepthPlane, DepthPlane, f64)> {
+    if row.contains_key("planner")
+        || row.get("kind").and_then(Json::as_str) != Some("location")
+        || !truthy(row.get("general"))
+        || truthy(row.get("stored"))
+        || row
+            .get("not_written_reason")
+            .and_then(Json::as_str)
+            .is_some()
+    {
+        return None;
+    }
+    Some((
+        DepthPlane::of(part, &face_ids(row.get("reference"))?)?,
+        DepthPlane::of(part, &face_ids(row.get("faces"))?)?,
+        row.get("distance")?.as_f64()?,
+    ))
+}
+
 /// A depth is the straight separation of two stations, not a length along a curve
 /// (CAx-IF PMI RP 4.1 §§5.1.1, 5.1.5, 5.1.9). Prefer the actual adjacent planes;
 /// a drill-point shoulder has no plane, so use its circular rim's centre instead.
+fn depth_edges(part: &haecceity::Part, faces: &[usize]) -> BTreeSet<usize> {
+    faces
+        .iter()
+        .flat_map(|&f| part.faces[f].loops.iter())
+        .flat_map(|l| l.edges.iter().map(|&(e, _)| e))
+        .collect()
+}
+
+fn depth_cylinders(
+    part: &haecceity::Part,
+    hole: &quiddity::dimensioning::Hole,
+    role: &str,
+    diameter: f64,
+    nominal: f64,
+    direction: [f64; 3],
+) -> Result<(Vec<usize>, f64), WriteError> {
+    use haecceity::geom::{Curve, Surface, dot};
+    let cylinders: Vec<_> = hole
+        .support
+        .faces
+        .iter()
+        .copied()
+        .filter(|&i| {
+            matches!(&part.faces[i].surface, Surface::Cylinder{frame,radius}
+            if dot(frame.z,direction).abs() > PARALLEL && (2.*radius-diameter).abs()<NEAR)
+        })
+        .collect();
+    if role == "bore.depth" {
+        return Ok((cylinders, 1.));
+    }
+    // Equal diameters can occur at opposite mouths. Split actual connected
+    // stages before assigning quantities, rather than searching all their rims.
+    let mut remaining = cylinders;
+    let mut stages = Vec::new();
+    while let Some(seed) = remaining.pop() {
+        let mut group = vec![seed];
+        let mut edges = depth_edges(part, &group);
+        loop {
+            let n = group.len();
+            remaining.retain(|&f| {
+                if depth_edges(part, &[f]).iter().any(|e| edges.contains(e)) {
+                    group.push(f);
+                    edges.extend(depth_edges(part, &[f]));
+                    false
+                } else {
+                    true
+                }
+            });
+            if n == group.len() {
+                break;
+            }
+        }
+        let bounds: Vec<_> = group
+            .iter()
+            .filter_map(|&f| part.face_projection_bounds(f, direction))
+            .collect();
+        let mut lo = bounds
+            .iter()
+            .map(|b| b.0)
+            .min_by(f64::total_cmp)
+            .unwrap_or(f64::INFINITY);
+        let mut hi = bounds
+            .iter()
+            .map(|b| b.1)
+            .max_by(f64::total_cmp)
+            .unwrap_or(f64::NEG_INFINITY);
+        let rim_stations: Vec<_> = edges
+            .iter()
+            .filter_map(|&e| match &part.edges[e].curve {
+                Curve::Circle { frame, radius }
+                    if dot(frame.z, direction).abs() > PARALLEL
+                        && (2. * radius - diameter).abs() < NEAR =>
+                {
+                    Some(dot(frame.origin, direction))
+                }
+                _ => None,
+            })
+            .collect();
+        if let (Some(&a), Some(&b)) = (
+            rim_stations.iter().min_by(|a, b| a.total_cmp(b)),
+            rim_stations.iter().max_by(|a, b| a.total_cmp(b)),
+        ) && (b - a - nominal).abs() < NEAR
+        {
+            lo = a;
+            hi = b;
+        }
+        let Surface::Cylinder { frame, radius } = &part.faces[seed].surface else {
+            unreachable!()
+        };
+        let axis_lo =
+            planar_depth_entry(part, &edges, frame.origin, *radius, [0.; 3], direction, lo)
+                .map_or(lo, |(_, s)| s);
+        let axis_hi =
+            planar_depth_entry(part, &edges, frame.origin, *radius, [0.; 3], direction, hi)
+                .map_or(hi, |(_, s)| s);
+        if (hi - lo - nominal).abs() < NEAR || ((axis_hi - axis_lo).abs() - nominal).abs() < NEAR {
+            stages.push((lo, hi, group));
+        }
+    }
+    stages.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let role_nominal = hole
+        .details
+        .iter()
+        .find(|s| s.role == role)
+        .map_or(nominal, |s| s.nominal);
+    let mut roles: Vec<_> = hole
+        .details
+        .iter()
+        .filter_map(|s| {
+            if !crate::dimensioning::is_straight_depth(&quiddity::dimensioning::Kind::Size {
+                feature: hole.support.feature.clone(),
+                role: s.role.clone(),
+                kind: s.kind,
+            }) || (s.nominal - role_nominal).abs() >= NEAR
+            {
+                return None;
+            }
+            let diameter_role = s.role.replace(".depth", ".diameter");
+            hole.details
+                .iter()
+                .any(|d| d.role == diameter_role && (d.nominal - diameter).abs() < NEAR)
+                .then_some(s.role.as_str())
+        })
+        .collect();
+    roles.sort_by_key(|r| match *r {
+        "counterbore.depth" => (0, 0),
+        "spotface.depth" => (1, 0),
+        _ => (
+            2,
+            r.strip_prefix("outer_steps.")
+                .and_then(|r| r.strip_suffix(".depth"))
+                .and_then(|r| r.parse::<usize>().ok())
+                .unwrap_or(usize::MAX),
+        ),
+    });
+    let ordinal = roles.iter().position(|r| *r == role).unwrap_or(0);
+    let (lo, _, faces) = stages.into_iter().nth(ordinal).ok_or_else(|| {
+        WriteError::Invalid(format!("depth {role} has no distinct cylindrical stage"))
+    })?;
+    let bore_end = hole.support.faces.iter().copied().filter(|&f|
+        matches!(&part.faces[f].surface,Surface::Cylinder{radius,..} if (2.*radius-hole.diameter).abs()<NEAR))
+        .filter_map(|f|part.face_projection_bounds(f,direction)).map(|b|b.1).max_by(f64::total_cmp);
+    let inward = if bore_end.is_some_and(|end| lo >= end - NEAR) {
+        -1.
+    } else {
+        1.
+    };
+    Ok((faces, inward))
+}
+
+fn planar_depth_entry(
+    part: &haecceity::Part,
+    edges: &BTreeSet<usize>,
+    axis: [f64; 3],
+    radius: f64,
+    origin: [f64; 3],
+    direction: [f64; 3],
+    extreme: f64,
+) -> Option<([f64; 3], f64)> {
+    use haecceity::geom::{Surface, dot, sub};
+    part.faces
+        .iter()
+        .filter_map(|face| {
+            let Surface::Plane { frame } = &face.surface else {
+                return None;
+            };
+            let cos = dot(frame.z, direction);
+            if cos.abs() < 1e-9
+                || cos.abs() > PARALLEL
+                || !face
+                    .loops
+                    .iter()
+                    .flat_map(|l| &l.edges)
+                    .any(|(e, _)| edges.contains(e))
+            {
+                return None;
+            }
+            let travel = dot(sub(frame.origin, axis), frame.z) / cos;
+            let point = std::array::from_fn(|k| axis[k] + travel * direction[k]);
+            let station = dot(sub(point, origin), direction);
+            let swing = radius * (1. - cos * cos).max(0.).sqrt() / cos.abs();
+            ((station - extreme).abs() <= swing + NEAR).then_some((point, station))
+        })
+        .min_by(|a, b| (a.1 - extreme).abs().total_cmp(&(b.1 - extreme).abs()))
+}
+
 fn planned_depth_kind(
-    planned: &crate::dimensioning::Planned,
+    planned: &mut crate::dimensioning::Planned,
     input: &quiddity::dimensioning::Input,
     part: &haecceity::Part,
     features: &mut Features<'_>,
@@ -1508,7 +1798,12 @@ fn planned_depth_kind(
         pmi.geometry.truncate(checkpoint.1);
         pmi.derived_geometry.truncate(checkpoint.2);
     }
-    result
+    result.map(|(kind, nominal)| {
+        if let Some(nominal) = nominal {
+            planned.required.nominal = crate::rules::round(nominal, 6);
+        }
+        kind
+    })
 }
 
 fn resolve_depth_kind(
@@ -1518,11 +1813,10 @@ fn resolve_depth_kind(
     features: &mut Features<'_>,
     pmi: &mut PartPmi,
     unit: &LengthUnit,
-) -> Result<DimensionKind, WriteError> {
+) -> Result<(DimensionKind, Option<f64>), WriteError> {
     use haecceity::geom::{Curve, Surface, dot, sub};
     // Recognition publishes these nominal lengths to 0.01 mm. Resolve to the
     // nearest real rim within that quantisation, never an invented endpoint.
-    const NEAR: f64 = 0.0051;
     let quiddity::dimensioning::Kind::Size { role, .. } = &planned.required.kind else {
         unreachable!("depth is a planner size");
     };
@@ -1533,6 +1827,8 @@ fn resolve_depth_kind(
         ));
     }
     let mut ends = [Vec::new(), Vec::new()];
+    let mut corrected = false;
+    let mut measured = Vec::new();
     for id in &planned.required.covers {
         let hole = input
             .holes
@@ -1566,41 +1862,45 @@ fn resolve_depth_kind(
                 .ok_or_else(|| WriteError::Invalid(format!("depth diameter {role} is absent")))?
                 .nominal
         };
-        let edges: BTreeSet<_> = hole
-            .support
-            .faces
-            .iter()
-            .flat_map(|&f| part.faces[f].loops.iter())
-            .flat_map(|l| l.edges.iter().map(|&(e, _)| e))
-            .collect();
+        let (cylinders, inward) = depth_cylinders(
+            part,
+            hole,
+            role,
+            diameter,
+            planned.required.nominal,
+            direction,
+        )?;
+        let edges = depth_edges(
+            part,
+            if role == "bore.depth" {
+                &hole.support.faces
+            } else {
+                &cylinders
+            },
+        );
         let rings: Vec<_> = edges
             .iter()
             .filter_map(|&e| {
                 let Curve::Circle { frame, radius } = &part.edges[e].curve else {
                     return None;
                 };
-                (dot(frame.z, direction).abs() > 0.999999).then_some((
+                (dot(frame.z, direction).abs() > PARALLEL).then_some((
                     e,
                     dot(sub(frame.origin, origin), direction),
                     *radius,
                 ))
             })
             .collect();
-        // A sloping entry need not have a circular rim. The cylinder's actual
-        // trimmed extent establishes its entry, including such oblique mouths.
-        let cylinders: Vec<_> = hole.support.faces.iter().copied().filter(|&i|
-            matches!(&part.faces[i].surface, Surface::Cylinder { frame, radius }
-                if dot(frame.z, direction).abs() > 0.999999 && (2. * radius - diameter).abs() < NEAR))
-            .collect();
         let bound_start = cylinders
             .iter()
             .filter_map(|&i| part.face_projection_bounds(i, direction))
-            .map(|(lo, _)| lo - dot(origin, direction))
-            .min_by(f64::total_cmp)
+            .map(|(lo, hi)| if inward > 0. { lo } else { hi })
+            .min_by(|a, b| (a * inward).total_cmp(&(b * inward)))
+            .map(|s| s - dot(origin, direction))
             .ok_or_else(|| {
                 WriteError::Invalid(format!("depth {id}/{role} has no entry station"))
             })?;
-        let stations: Vec<_> = hole
+        let mut stations: Vec<_> = hole
             .support
             .faces
             .iter()
@@ -1617,17 +1917,51 @@ fn resolve_depth_kind(
             .iter()
             .filter(|(_, _, radius)| (2. * radius - diameter).abs() < NEAR)
             .map(|(_, station, _)| *station)
-            .min_by(f64::total_cmp)
+            .min_by(|a, b| (a * inward).total_cmp(&(b * inward)))
             .filter(|s| {
                 stations
                     .iter()
-                    .any(|end| (end - s - planned.required.nominal).abs() < NEAR)
+                    .any(|end| (end - s - inward * planned.required.nominal).abs() < NEAR)
             })
             .unwrap_or(bound_start);
-        for (end, station) in [start, start + planned.required.nominal]
-            .into_iter()
-            .enumerate()
-        {
+        let Surface::Cylinder { frame, radius } = &part.faces[cylinders[0]].surface else {
+            unreachable!()
+        };
+        let axis_start = planar_depth_entry(
+            part,
+            &edges,
+            frame.origin,
+            *radius,
+            origin,
+            direction,
+            start,
+        )
+        .map(|(_, s)| s);
+        for &f in &cylinders {
+            if let Some((lo, hi)) = part.face_projection_bounds(f, direction) {
+                for s in [lo - dot(origin, direction), hi - dot(origin, direction)] {
+                    if let Some((_, s)) = planar_depth_entry(
+                        part,
+                        &edges,
+                        frame.origin,
+                        *radius,
+                        origin,
+                        direction,
+                        s,
+                    ) {
+                        stations.push(s);
+                    }
+                }
+            }
+        }
+        let raw_end = start + inward * planned.required.nominal;
+        let end = if stations.iter().any(|s| (s - raw_end).abs() < NEAR) {
+            raw_end
+        } else {
+            axis_start.map_or(raw_end, |s| s + inward * planned.required.nominal)
+        };
+        let mut resolved = [start, end];
+        for (end, station) in resolved.into_iter().enumerate() {
             let actual = stations
                 .iter()
                 .copied()
@@ -1636,6 +1970,7 @@ fn resolve_depth_kind(
                 .ok_or_else(|| {
                     WriteError::Invalid(format!("depth {id}/{role} has no endpoint station (start {start}, nominal {}, stations {stations:?})", planned.required.nominal))
                 })?;
+            resolved[end] = actual;
             let rims: BTreeSet<_> = rings
                 .iter()
                 .filter(|(_, s, _)| (s - actual).abs() < 1e-7)
@@ -1649,7 +1984,7 @@ fn resolve_depth_kind(
                     let Surface::Plane { frame } = &face.surface else {
                         return None;
                     };
-                    (dot(frame.z, direction).abs() > 0.999999
+                    (dot(frame.z, direction).abs() > PARALLEL
                         && (dot(sub(frame.origin, origin), direction) - actual).abs() < 1e-7
                         && face
                             .loops
@@ -1668,11 +2003,29 @@ fn resolve_depth_kind(
                 let Surface::Cylinder { frame, radius } = &part.faces[deriving[0]].surface else {
                     unreachable!()
                 };
-                let point: [f64; 3] = std::array::from_fn(|k| {
-                    frame.origin[k]
-                        + direction[k]
-                            * (dot(origin, direction) + actual - dot(frame.origin, direction))
-                });
+                let at = planar_depth_entry(
+                    part,
+                    &edges,
+                    frame.origin,
+                    *radius,
+                    origin,
+                    direction,
+                    actual,
+                );
+                let point: [f64; 3] = if let Some((point, station)) = at {
+                    corrected = true;
+                    resolved[end] = station;
+                    point
+                } else {
+                    // A nonplanar entry has no supporting plane whose axis
+                    // intersection establishes one point. Retain the measured
+                    // trim extreme; never invent a nonplanar intersection.
+                    std::array::from_fn(|k| {
+                        frame.origin[k]
+                            + direction[k]
+                                * (dot(origin, direction) + actual - dot(frame.origin, direction))
+                    })
+                };
                 let coords = point
                     .into_iter()
                     .map(|v| decimal(crate::rules::round(v, 9) / unit.millimetres() + 0.0))
@@ -1683,7 +2036,7 @@ fn resolve_depth_kind(
                         leaves: vec![(
                             "CARTESIAN_POINT".into(),
                             vec![
-                                pmi::GeometryValue::Text(DEPTH_AXIS_POINT.into()),
+                                pmi::GeometryValue::Text(String::new()),
                                 pmi::GeometryValue::List(
                                     coords.into_iter().map(pmi::GeometryValue::Real).collect(),
                                 ),
@@ -1729,7 +2082,17 @@ fn resolve_depth_kind(
             };
             ends[end].push(features.intern(Feature::Items(anchors)));
         }
+        measured.push((resolved[1] - resolved[0]).abs());
     }
+    let nominal = if corrected {
+        let n = measured[0];
+        if measured.iter().any(|m| (m - n).abs() > NEAR) {
+            return invalid("axis/entry depths differ across the planned hole group");
+        }
+        Some(n)
+    } else {
+        None
+    };
     let [from, to] = ends.map(|mut members| {
         members.sort();
         members.dedup();
@@ -1742,14 +2105,17 @@ fn resolve_depth_kind(
             })
         }
     });
-    Ok(DimensionKind::Location {
-        from,
-        to,
-        kind: LocationKind::LinearDistance,
-        path: None,
-        directed: false,
-        angle: None,
-    })
+    Ok((
+        DimensionKind::Location {
+            from,
+            to,
+            kind: LocationKind::LinearDistance,
+            path: None,
+            directed: false,
+            angle: None,
+        },
+        nominal,
+    ))
 }
 
 fn planned_kind(
@@ -2106,12 +2472,13 @@ fn part_pmi_observed(
                 .and_then(Json::as_array)
                 .is_some_and(Vec::is_empty)
         });
-    let has_depths = intent.requirements.iter().chain(&intent.general).any(|r| {
-        r.get("planner")
-            .and_then(|p| p.pointer("/required/kind/size/role"))
-            .and_then(Json::as_str)
-            .is_some_and(|role| role.ends_with(".depth"))
-    });
+    let has_depths = intent
+        .requirements
+        .iter()
+        .chain(&intent.general)
+        .filter_map(|r| r.get("planner"))
+        .filter_map(|p| serde_json::from_value::<crate::dimensioning::Planned>(p.clone()).ok())
+        .any(|p| crate::dimensioning::is_straight_depth(&p.required.kind));
     let point_unit = if has_points || has_depths {
         let (model, _) = step_io::read(loaded.bytes.as_slice())
             .map_err(|e| WriteError::Failed(format!("planner point units: {e}")))?;
@@ -2218,20 +2585,7 @@ fn part_pmi_observed(
         intent
             .general
             .iter()
-            .filter(|r| {
-                !r.contains_key("planner")
-                    && r.get("kind").and_then(Json::as_str) == Some("location")
-                    && truthy(r.get("general"))
-                    && !truthy(r.get("stored"))
-                    && r.get("not_written_reason").and_then(Json::as_str).is_none()
-            })
-            .filter_map(|r| {
-                Some((
-                    DepthPlane::of(&loaded.part, &face_ids(r.get("reference"))?)?,
-                    DepthPlane::of(&loaded.part, &face_ids(r.get("faces"))?)?,
-                    r.get("distance")?.as_f64()?,
-                ))
-            })
+            .filter_map(|r| legacy_depth_span(&loaded.part, r))
             .collect()
     } else {
         vec![]
@@ -2252,11 +2606,10 @@ fn part_pmi_observed(
         };
         let mut plan: crate::dimensioning::Planned = serde_json::from_value(value.clone())
             .map_err(|e| WriteError::Invalid(format!("planned dimension: {e}")))?;
-        if !matches!(&plan.required.kind, quiddity::dimensioning::Kind::Size {
-            kind: quiddity::dimensioning::SizeKind::Length, role, .. } if role.ends_with(".depth"))
+        if !crate::dimensioning::is_straight_depth(&plan.required.kind)
             || !legacy_spans
                 .iter()
-                .any(|(_, _, n)| (n - plan.required.nominal).abs() < 0.0051)
+                .any(|(_, _, n)| (n - plan.required.nominal).abs() < NEAR)
         {
             continue;
         }
@@ -2267,7 +2620,7 @@ fn part_pmi_observed(
         plan.bore_supports(&loaded.part);
         let mut scratch = Vec::new();
         let Ok(kind) = planned_depth_kind(
-            &plan,
+            &mut plan,
             input,
             &loaded.part,
             &mut Features(&mut scratch),
@@ -2300,23 +2653,13 @@ fn part_pmi_observed(
         }
         let kind = req.get("kind").and_then(Json::as_str).unwrap_or("");
         let under_general = truthy(req.get("general"));
-        if under_general
-            && kind == "location"
-            && !req.contains_key("planner")
-            && req
-                .get("not_written_reason")
-                .and_then(Json::as_str)
-                .is_none()
-            && let (Some(from), Some(to), Some(nominal)) = (
-                face_ids(req.get("reference")).and_then(|f| DepthPlane::of(&loaded.part, &f)),
-                face_ids(req.get("faces")).and_then(|f| DepthPlane::of(&loaded.part, &f)),
-                req.get("distance").and_then(Json::as_f64),
-            )
+        if let Some((from, to, nominal)) = legacy_depth_span(&loaded.part, req)
             && depth_spans.iter().any(|(a, b, n)| {
-                (n - nominal).abs() < 0.0051
+                (n - nominal).abs() < NEAR
                     && (a.same(&from) && b.same(&to) || a.same(&to) && b.same(&from))
             })
         {
+            lines.conveyed_depth_spans.push((from, to, nominal));
             continue;
         }
 
@@ -2380,15 +2723,12 @@ fn part_pmi_observed(
                 continue;
             }
             planned.bore_supports(&loaded.part);
-            let dimension_kind = if matches!(&planned.required.kind,
-                quiddity::dimensioning::Kind::Size { kind: quiddity::dimensioning::SizeKind::Length, role, .. }
-                    if role.ends_with(".depth"))
-            {
+            let dimension_kind = if crate::dimensioning::is_straight_depth(&planned.required.kind) {
                 let result = match depth_input
                     .get_or_insert_with(|| crate::dimensioning::input(&loaded.part))
                 {
                     Ok(input) => planned_depth_kind(
-                        &planned,
+                        &mut planned,
                         input,
                         &loaded.part,
                         &mut f,

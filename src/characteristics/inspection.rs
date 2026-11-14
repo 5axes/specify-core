@@ -162,26 +162,54 @@ pub(super) fn order(loaded: &LoadedPart, p: &PartPmi, items: &[Item]) -> Vec<usi
             // A depth's RP-correct endpoint aspects do not change the inspection
             // walk of its underlying hole quantity. Retain the bore-based sort
             // position/rank used before its semantic form became a location.
-            let depth = dimension_index.and_then(|i| p.attributes.iter().find(|a|
-                a.name == "specify dimension plan" && a.on == Some(haecceity::pmi::NoteOwner::Dimension(haecceity::pmi::DimensionId(i)))))
-                .and_then(|a| a.items.iter().find_map(|(k,v)| match v {
-                    haecceity::pmi::AttributeValue::Text(s) if k == "requirement" => serde_json::from_str::<crate::dimensioning::Planned>(s).ok(),
-                    _ => None,
-                })).filter(|p| matches!(&p.required.kind, quiddity::dimensioning::Kind::Size { kind: quiddity::dimensioning::SizeKind::Length, role, .. } if role.ends_with(".depth")));
+            let depth = dimension_index
+                .and_then(|i| {
+                    p.attributes.iter().find(|a| {
+                        a.name == "specify dimension plan"
+                            && a.on
+                                == Some(haecceity::pmi::NoteOwner::Dimension(
+                                    haecceity::pmi::DimensionId(i),
+                                ))
+                    })
+                })
+                .and_then(|a| {
+                    a.items.iter().find_map(|(k, v)| match v {
+                        haecceity::pmi::AttributeValue::Text(s) if k == "requirement" => {
+                            serde_json::from_str::<crate::dimensioning::Planned>(s).ok()
+                        }
+                        _ => None,
+                    })
+                })
+                .filter(|p| crate::dimensioning::is_straight_depth(&p.required.kind));
             let surrogate = depth.as_ref().map(|p| {
                 let mut key = item.key.clone();
-                key.faces = p.supports.iter().filter(|s| p.required.covers.contains(&s.feature))
-                    .flat_map(|s| s.faces.iter().copied()).collect();
+                key.faces = p
+                    .supports
+                    .iter()
+                    .filter(|s| p.required.covers.contains(&s.feature))
+                    .flat_map(|s| s.faces.iter().copied())
+                    .collect();
                 key.faces.sort_unstable();
                 key.faces.dedup();
                 key.reference.clear();
-                super::Item { key, entity: 0, value_hint: super::ValueHint::None }
+                super::Item {
+                    key,
+                    entity: 0,
+                    value_hint: super::ValueHint::None,
+                }
             });
             let item = surrogate.as_ref().unwrap_or(item);
             let depth_kind = DimensionKind::Size {
-                feature: haecceity::pmi::FeatureId(0), kind: haecceity::pmi::SizeKind::CurveLength, path: None, angle: None,
+                feature: haecceity::pmi::FeatureId(0),
+                kind: haecceity::pmi::SizeKind::CurveLength,
+                path: None,
+                angle: None,
             };
-            let kind = if depth.is_some() { Some(&depth_kind) } else { dimension.map(|d| &d.kind) };
+            let kind = if depth.is_some() {
+                Some(&depth_kind)
+            } else {
+                dimension.map(|d| &d.kind)
+            };
             let rank = match kind {
                 Some(DimensionKind::Size { .. }) => 0,
                 Some(DimensionKind::Location { .. }) => 1,

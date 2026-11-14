@@ -17,7 +17,12 @@ use crate::rules::Intent;
 
 // quiddity's hole/enlargement depths are published to 0.01 mm. Ownership and
 // reference checks must account for that quantisation, not invent a new floor.
-const DEPTH_NEAR: f64 = 0.0051;
+pub(crate) const DEPTH_NEAR: f64 = 0.0051;
+
+pub(crate) fn is_straight_depth(kind: &Kind) -> bool {
+    matches!(kind, Kind::Size { kind: shared::SizeKind::Length, role, .. }
+        if role.ends_with(".depth"))
+}
 
 pub(crate) fn input(part: &haecceity::Part) -> Result<Input, String> {
     Input::from_recognition(part, vec![], Policy::default())

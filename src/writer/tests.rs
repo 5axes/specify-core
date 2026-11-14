@@ -354,7 +354,7 @@ fn drill_point_depth_ends_at_the_cylindrical_shoulder_not_the_cone_length() {
     };
     let mut features = Vec::new();
     let kind = planned_depth_kind(
-        &planned,
+        &mut planned,
         &input,
         &loaded.part,
         &mut Features(&mut features),
@@ -462,7 +462,7 @@ fn enlargement_depth_roles_measure_between_their_own_parallel_planes() {
             reference: None,
             covers: vec![hole.support.feature.clone()],
         };
-        let planned = crate::dimensioning::Planned {
+        let mut planned = crate::dimensioning::Planned {
             required,
             supports: vec![hole.support.clone()],
             groups: Default::default(),
@@ -471,7 +471,7 @@ fn enlargement_depth_roles_measure_between_their_own_parallel_planes() {
         };
         let mut features = Vec::new();
         let kind = planned_depth_kind(
-            &planned,
+            &mut planned,
             &input,
             &loaded.part,
             &mut Features(&mut features),
@@ -520,7 +520,7 @@ fn an_oblique_counterbore_entry_uses_a_derived_axial_point() {
         .iter()
         .find(|h| h.support.feature == "hole:98.99.101.102")
         .unwrap();
-    let planned = crate::dimensioning::Planned {
+    let mut planned = crate::dimensioning::Planned {
         required: quiddity::dimensioning::Required {
             id: "test:oblique-counterbore.depth".into(),
             kind: quiddity::dimensioning::Kind::Size {
@@ -549,6 +549,11 @@ fn an_oblique_counterbore_entry_uses_a_derived_axial_point() {
         .clone(),
     );
     let (written, report) = write_bytes(&loaded, &intent, None).unwrap();
+    assert!(
+        !std::str::from_utf8(&written)
+            .unwrap()
+            .contains("specify-core:depth axis point")
+    );
     assert!(report.not_written.is_empty(), "{:?}", report.not_written);
     assert!(
         std::str::from_utf8(&written)
@@ -558,7 +563,7 @@ fn an_oblique_counterbore_entry_uses_a_derived_axial_point() {
     let mut features = Vec::new();
     let mut model = PartPmi::default();
     let kind = planned_depth_kind(
-        &planned,
+        &mut planned,
         &input,
         &loaded.part,
         &mut Features(&mut features),
@@ -592,9 +597,36 @@ fn an_oblique_counterbore_entry_uses_a_derived_axial_point() {
             _ => panic!("coordinate"),
         })
         .collect();
-    assert!((coords[0] + 201.50733163).abs() < 1e-7);
+    // The actual axis/entry-plane intersection, not the tilted ellipse's extreme.
+    assert!((coords[0] + 203.515275872).abs() < 1e-7);
+    assert!((planned.required.nominal - 21.484724).abs() < 1e-9);
+    let haecceity::geom::Surface::Plane { frame } = loaded.part.faces[619].surface else {
+        panic!("entry plane");
+    };
+    assert!(
+        haecceity::geom::dot(
+            haecceity::geom::sub([coords[0], coords[1], coords[2]], frame.origin),
+            frame.z
+        )
+        .abs()
+            < 1e-7
+    );
     assert!((coords[1] - 200.).abs() < 1e-7);
     assert!((coords[2] + 185.).abs() < 1e-7);
+    let mut repeated_features = Vec::new();
+    let mut repeated_model = PartPmi::default();
+    let repeated = planned_depth_kind(
+        &mut planned,
+        &input,
+        &loaded.part,
+        &mut Features(&mut repeated_features),
+        &mut repeated_model,
+        &LengthUnit::Millimetre,
+    )
+    .unwrap();
+    assert_eq!(repeated, kind);
+    assert_eq!(repeated_features, features);
+    assert_eq!(repeated_model, model);
     let Feature::Items(anchors) = &features[to.0] else {
         panic!("counterbore shoulder plane");
     };
@@ -602,7 +634,7 @@ fn an_oblique_counterbore_entry_uses_a_derived_axial_point() {
     model.features = features;
     model.dimensions.push(Dimension {
         kind,
-        nominal: Some(mm(23.49).unwrap()),
+        nominal: Some(mm(planned.required.nominal).unwrap()),
         tolerance: DimTolerance::None,
         qualifier: None,
         modifiers: vec![],
@@ -628,7 +660,7 @@ fn an_oblique_counterbore_entry_uses_a_derived_axial_point() {
         .iter()
         .find(|d| {
             matches!(&d.nominal.as_ref().unwrap().quantity,
-        pmi::Quantity::Length(n) if (n.mm()-23.49).abs()<1e-8)
+        pmi::Quantity::Length(n) if (n.mm()-21.484724).abs()<1e-8)
         })
         .unwrap();
     let DimensionKind::Location { from, .. } = d.kind else {
@@ -678,7 +710,7 @@ fn unresolved_pattern_depth_rolls_back_its_partial_endpoint_geometry() {
     let prior = features.clone();
     let mut model = PartPmi::default();
     let error = planned_depth_kind(
-        &planned,
+        &mut planned,
         &input,
         &loaded.part,
         &mut Features(&mut features),
@@ -703,7 +735,7 @@ fn a_circular_entry_wins_over_a_conservative_cylinder_trim_bound() {
         .iter()
         .find(|h| h.support.feature == "hole:105.106")
         .unwrap();
-    let planned = crate::dimensioning::Planned {
+    let mut planned = crate::dimensioning::Planned {
         required: quiddity::dimensioning::Required {
             id: "test:circular-entry.depth".into(),
             kind: quiddity::dimensioning::Kind::Size {
@@ -726,7 +758,7 @@ fn a_circular_entry_wins_over_a_conservative_cylinder_trim_bound() {
     let mut features = Vec::new();
     let mut model = PartPmi::default();
     let kind = planned_depth_kind(
-        &planned,
+        &mut planned,
         &input,
         &loaded.part,
         &mut Features(&mut features),
@@ -790,4 +822,221 @@ fn disjoint_coplanar_features_do_not_convey_each_others_dimensions() {
         a.same(&group),
         "a witness within the depth's group is the same carrier"
     );
+}
+
+#[test]
+fn equal_counterbores_at_opposite_ends_have_distinct_mouth_to_floor_depths() {
+    use haecceity::{
+        Part,
+        brep::{Edge, Face, Loop, Solid},
+        geom::{Curve, Frame, Surface},
+    };
+    let rings = [
+        (20., 0.),
+        (20., 40.),
+        (13., 40.),
+        (13., 33.),
+        (5., 33.),
+        (5., 7.),
+        (13., 7.),
+        (13., 0.),
+    ];
+    let frame = |z| Frame {
+        origin: [0., 0., z],
+        x: [1., 0., 0.],
+        y: [0., 1., 0.],
+        z: [0., 0., 1.],
+    };
+    let mut edges: Vec<_> = rings
+        .iter()
+        .enumerate()
+        .map(|(i, &(radius, z))| {
+            let curve = Curve::Circle {
+                frame: frame(z),
+                radius,
+            };
+            Edge {
+                start: curve.value(0.),
+                end: curve.value(0.),
+                samples: (0..=32)
+                    .map(|j| curve.value(std::f64::consts::TAU * j as f64 / 32.))
+                    .collect(),
+                curve,
+                vertices: (i, i),
+                same_sense: true,
+            }
+        })
+        .collect();
+    let mut faces = Vec::new();
+    for (i, &(radius, z)) in rings.iter().enumerate() {
+        let j = (i + 1) % rings.len();
+        let (next_radius, next_z) = rings[j];
+        let (surface, reversed, boundaries) = if radius == next_radius {
+            let (bottom, top) = if z < next_z { (i, j) } else { (j, i) };
+            let seam = edges.len();
+            let (start, end) = (edges[bottom].start, edges[top].start);
+            edges.push(Edge {
+                curve: Curve::Line {
+                    origin: start,
+                    dir: [0., 0., 1.],
+                },
+                start,
+                end,
+                vertices: (bottom, top),
+                same_sense: true,
+                samples: vec![start, end],
+            });
+            (
+                Surface::Cylinder {
+                    frame: frame(0.),
+                    radius,
+                },
+                z > next_z,
+                vec![vec![
+                    (bottom, z < next_z),
+                    (seam, true),
+                    (top, z > next_z),
+                    (seam, false),
+                ]],
+            )
+        } else {
+            assert_eq!(z, next_z);
+            (
+                Surface::Plane { frame: frame(z) },
+                radius < next_radius,
+                vec![vec![(i, true)], vec![(j, false)]],
+            )
+        };
+        faces.push(Face {
+            surface,
+            reversed,
+            solid: Some(0),
+            pcurves: vec![],
+            loops: boundaries
+                .into_iter()
+                .map(|edges| Loop {
+                    edges,
+                    vertex: None,
+                })
+                .collect(),
+        });
+    }
+    let part = Part::new(
+        faces,
+        edges,
+        vec![Solid {
+            faces: (0..rings.len()).collect(),
+        }],
+    );
+    let mut input = crate::dimensioning::input(&part).unwrap();
+    let h = input
+        .holes
+        .iter_mut()
+        .find(|h| (h.diameter - 10.).abs() < 1e-8)
+        .unwrap();
+    // #169's published contract has equal diameter/depth quantities at both
+    // mouths. Preserve the actual geometry and exercise those two distinct roles.
+    use quiddity::dimensioning::{Kind, Required, Size, SizeKind, Tolerance};
+    h.details = vec![
+        Size {
+            role: "counterbore.diameter".into(),
+            nominal: 26.,
+            kind: SizeKind::Diameter,
+        },
+        Size {
+            role: "counterbore.depth".into(),
+            nominal: 7.,
+            kind: SizeKind::Length,
+        },
+        Size {
+            role: "outer_steps.0.diameter".into(),
+            nominal: 26.,
+            kind: SizeKind::Diameter,
+        },
+        Size {
+            role: "outer_steps.0.depth".into(),
+            nominal: 7.,
+            kind: SizeKind::Length,
+        },
+    ];
+    let h = h.clone();
+    let origin = input.frame.to_world(h.support.at);
+    let direction = haecceity::geom::sub(
+        input
+            .frame
+            .to_world(std::array::from_fn(|k| h.support.at[k] + h.direction[k])),
+        origin,
+    );
+    let expected = if direction[2] < 0. {
+        [[40., 33.], [0., 7.]]
+    } else {
+        [[0., 7.], [40., 33.]]
+    };
+    let mut all_faces = Vec::new();
+    for (i, role) in ["counterbore.depth", "outer_steps.0.depth"]
+        .into_iter()
+        .enumerate()
+    {
+        let mut plan = crate::dimensioning::Planned {
+            required: Required {
+                id: format!("test:{role}"),
+                kind: Kind::Size {
+                    feature: h.support.feature.clone(),
+                    role: role.into(),
+                    kind: SizeKind::Length,
+                },
+                nominal: 7.,
+                count: 1,
+                pattern: None,
+                tolerance: Tolerance::General,
+                reference: None,
+                covers: vec![h.support.feature.clone()],
+            },
+            supports: vec![h.support.clone()],
+            groups: Default::default(),
+            frame: input.frame,
+            witnesses: None,
+        };
+        let mut features = Vec::new();
+        let kind = planned_depth_kind(
+            &mut plan,
+            &input,
+            &part,
+            &mut Features(&mut features),
+            &mut PartPmi::default(),
+            &LengthUnit::Millimetre,
+        )
+        .unwrap();
+        let DimensionKind::Location {
+            from,
+            to,
+            kind: LocationKind::LinearDistance,
+            ..
+        } = kind
+        else {
+            panic!("linear depth")
+        };
+        let mut supports = Vec::new();
+        for (end, z) in [from, to].into_iter().zip(expected[i]) {
+            let Feature::Items(items) = &features[end.0] else {
+                panic!("physical endpoint")
+            };
+            assert_eq!(items.len(), 1);
+            let Anchor::Face(f) = items[0] else {
+                panic!("plane endpoint")
+            };
+            let Surface::Plane { frame } = &part.faces[f.0].surface else {
+                panic!("plane")
+            };
+            assert!(
+                (frame.origin[2] - z).abs() < 1e-8,
+                "{role}: {} != {z}",
+                frame.origin[2]
+            );
+            supports.push(f.0);
+        }
+        assert_eq!(plan.required.nominal, 7.);
+        all_faces.push(supports);
+    }
+    assert!(all_faces[0].iter().all(|f| !all_faces[1].contains(f)));
 }

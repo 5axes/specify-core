@@ -1388,3 +1388,51 @@ fn presentation_shapes_keep_requirement_ids_history_and_face_supports() {
                 && e.provenance.as_deref() == Some("specify-core:written:v1"))
     );
 }
+
+#[test]
+fn ctc04_main_depth_precedes_the_conveyed_general_span_when_resuming() {
+    // Captured from origin/main 68b26e9's unmodified writer on the real corpus
+    // nist_ctc_04_asme1_rd.stp, steel + --accept-defaults, with stored answers.
+    let old = load("characteristic-numbers-ctc04-main.step.gz");
+    let prior = numbers(&old);
+    let depth = prior.iter().find(|c| c.number == 59).unwrap();
+    assert_eq!(depth.r#type, "Size_CurveLength");
+    assert_eq!(
+        depth.source.as_ref().unwrap().parameter,
+        "counterbore.depth"
+    );
+    let span = prior.iter().find(|c| c.number == 67).unwrap();
+    assert_eq!(span.r#type, "Location_LinearDistance");
+    assert_eq!(span.faces, [393, 400]);
+    assert_eq!(span.reference, [68, 73, 82, 87]);
+    let answers = resume::answers_for(&old).unwrap().unwrap();
+    let intent = rules::apply_with_defaults(&api::analyse(&old).unwrap(), &answers, true).unwrap();
+    let (bytes, report) = writer::write_bytes(&old, &intent, Some(&answers)).unwrap();
+    let rewritten = back(bytes);
+    let current = numbers(&rewritten);
+    let depth = current.iter().find(|c| c.number == 59).unwrap();
+    assert_eq!(depth.r#type, "Location_LinearDistance");
+    assert_eq!(
+        depth.source.as_ref().unwrap().parameter,
+        "counterbore.depth"
+    );
+    assert!(!current.iter().any(|c| c.number == 67));
+    assert!(report.warnings.iter().any(|w|w=="retired characteristic 67: legacy General plane span is conveyed by straight depth"),"{:?}",report.warnings);
+    for old_depth in prior.iter().filter(|c| c.r#type == "Size_CurveLength") {
+        let new = current
+            .iter()
+            .find(|c| c.number == old_depth.number)
+            .unwrap();
+        assert_eq!(new.r#type, "Location_LinearDistance");
+        assert_eq!(
+            new.source.as_ref().unwrap().parameter,
+            old_depth.source.as_ref().unwrap().parameter
+        );
+    }
+    let retired: BTreeSet<_> = prior
+        .iter()
+        .map(|c| c.number)
+        .filter(|n| !current.iter().any(|c| c.number == *n))
+        .collect();
+    assert_eq!(retired, BTreeSet::from([67]));
+}

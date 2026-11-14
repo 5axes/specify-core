@@ -521,15 +521,9 @@ fn legacy_depth_key(p: &PartPmi, index: usize) -> Option<Key> {
         return None;
     };
     let plan: crate::dimensioning::Planned = serde_json::from_str(text).ok()?;
-    let quiddity::dimensioning::Kind::Size {
-        kind: quiddity::dimensioning::SizeKind::Length,
-        role,
-        ..
-    } = &plan.required.kind
-    else {
-        return None;
-    };
-    if !role.ends_with(".depth") || plan.required.covers.is_empty() {
+    if !crate::dimensioning::is_straight_depth(&plan.required.kind)
+        || plan.required.covers.is_empty()
+    {
         return None;
     }
     let mut faces = BTreeSet::new();
@@ -690,12 +684,14 @@ pub(crate) fn allocate(
             .flatten()
         })
         .collect();
+    let depth_predecessor = |entry: &Entry, n: usize| {
+        legacy_depths.contains(&entry.number)
+            && depth_keys
+                .get(&n)
+                .is_some_and(|key| entry.key.role == key.role && same_support(&entry.key, key))
+    };
     let supports = |entry: &Entry, n: usize| {
-        same_support(&entry.key, &new[n].key)
-            || (legacy_depths.contains(&entry.number)
-                && depth_keys
-                    .get(&n)
-                    .is_some_and(|key| entry.key.role == key.role && same_support(&entry.key, key)))
+        same_support(&entry.key, &new[n].key) || depth_predecessor(entry, n)
     };
     if !replace && new.is_empty() {
         return Ok(());
@@ -719,6 +715,33 @@ pub(crate) fn allocate(
         }) {
             used.insert(i);
             matched[n] = Some(i);
+        }
+    }
+    // A corrected depth's predecessor is its authored depth measure, even if
+    // an old General location states the same span. Match it before ordinary
+    // support/value fallback can make the two entries ambiguous (CTC-04).
+    for (n, item) in new.iter().enumerate() {
+        if matched[n].is_some() || !eligible(item) {
+            continue;
+        }
+        let candidates: Vec<_> = old
+            .entries
+            .iter()
+            .enumerate()
+            .filter(|(i, e)| !used.contains(i) && depth_predecessor(e, n))
+            .collect();
+        if let [(i, entry)] = candidates.as_slice()
+            && new
+                .iter()
+                .enumerate()
+                .filter(|(n, item)| {
+                    matched[*n].is_none() && eligible(item) && depth_predecessor(entry, *n)
+                })
+                .count()
+                == 1
+        {
+            used.insert(*i);
+            matched[n] = Some(*i);
         }
     }
     // Planner role ids distinguish equal quantities on one support. When upgrading older

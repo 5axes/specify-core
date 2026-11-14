@@ -110,6 +110,14 @@ matching rule; the location's new entry/bottom aspects do not retire that depth.
 The new history records the real location type and endpoints. Unmarked foreign
 PMI and genuine curve-length measures do not receive this exception.
 
+The authored curve-length depth is matched before ordinary location/support
+fallback. If a legacy General plane span also states that depth (CTC-04), its
+number retires with a conveyed-by-depth reason; the depth keeps its own number.
+An unresolved depth is omitted with a `not_written` reason. On resume its number
+therefore retires and is never reused. We do not fall back to `curve length`:
+that would again describe the straight depth as a length along a curve. Resolving
+the geometry later creates a new characteristic above the high-water mark.
+
 ## Allocation and carry
 
 The **first allocation is in inspection order**, consecutively 1…N without gaps on a

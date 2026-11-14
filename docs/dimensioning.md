@@ -53,9 +53,13 @@ whose centre defines the cylindrical depth rather than the cone's slant length
 or apex. Each enlargement starts at its own cylinder entry. Pattern depths
 include every member's endpoints. Nominal rounding resolves to measured cylinder
 extents; established circular endpoints take precedence over conservative trim
-bounds. A sloping entry without a circular rim uses an explicit derived point on
-the hole axis at the trimmed extent, named `axis point` (RP §5.1.4); the rounded
-nominal alone never establishes an endpoint. An unresolved endpoint omits only
+bounds. A sloping planar entry without a circular rim uses the actual axis/plane
+intersection, named `axis point` (RP §5.1.4); its straight-depth nominal follows
+that intersection, rather than the cylinder's trim extreme. A nonplanar entry
+retains the measured trim station because no supporting plane establishes a unique
+axis intersection. Names are applied through written plan provenance; no private
+point-discovery tag is emitted. The rounded nominal alone never establishes an endpoint.
+An unresolved endpoint omits only
 that depth, with a `not_written` reason; partial endpoint geometry is discarded
 and no legacy span is claimed as conveyed. Older cylinder-only hole identities resolve
 through their physical face supports. Genuine curve lengths retain Table 4's

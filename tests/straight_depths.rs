@@ -96,11 +96,16 @@ fn write_depths_with_legacy_ids(
     }
     let (bytes, report) = writer::write_bytes(&source, &intent, Some(&answers)).unwrap();
     assert!(report.not_written.is_empty(), "{:?}", report.not_written);
-    let text = std::str::from_utf8(&bytes).unwrap();
-    assert!(!text.contains("DIMENSIONAL_SIZE('curve length'"));
     let doc = Document::parse(bytes).unwrap();
     let read = pmi::read(&doc, std::slice::from_ref(&source.definition)).unwrap();
     let p = read.parts.into_iter().next().unwrap();
+    assert!(!p.dimensions.iter().any(|d| matches!(
+        d.kind,
+        pmi::DimensionKind::Size {
+            kind: pmi::SizeKind::CurveLength,
+            ..
+        }
+    )));
     let mut roles = BTreeSet::new();
     for attribute in &p.attributes {
         if attribute.name != "specify dimension plan" {
