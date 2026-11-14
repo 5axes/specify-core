@@ -53,6 +53,127 @@ fn rebind(i: &rules::Intent, p: &part::LoadedPart) -> rules::Intent {
 }
 
 #[test]
+fn the_pre_depth_fix_enclosure_keeps_characteristic_13_on_resume() {
+    // Captured Specify 0.1.15 output supplied with the enclosure case. It uses
+    // origin/main's old curve-length form; never regenerate it with this writer.
+    let old = load("characteristic-numbers-enclosure-curve-depth.step.gz");
+    let prior = numbers(&old);
+    let depth = prior.iter().find(|c| c.number == 13).unwrap();
+    assert_eq!(depth.r#type, "Size_CurveLength");
+    assert_eq!(depth.faces, [3, 24, 25, 26]);
+    assert_eq!(depth.source.as_ref().unwrap().parameter, "bore.depth");
+    let answers = resume::answers_for(&old).unwrap().unwrap();
+    let analysis = api::analyse(&old).unwrap();
+    let intent = rules::apply_with_defaults(&analysis, &answers, true).unwrap();
+    let (bytes, report) = writer::write_bytes(&old, &intent, Some(&answers)).unwrap();
+    assert!(report.not_written.is_empty(), "{:?}", report.not_written);
+    let upgraded = back(bytes);
+    let current = numbers(&upgraded);
+    let depth = current.iter().find(|c| c.number == 13).unwrap();
+    assert_eq!(depth.r#type, "Location_LinearDistance");
+    assert_eq!(depth.faces.len(), 4);
+    assert_eq!(depth.reference.len(), 4);
+    assert_eq!(depth.source.as_ref().unwrap().parameter, "bore.depth");
+    assert_eq!(
+        current.iter().map(|c| c.number).collect::<BTreeSet<_>>(),
+        prior.iter().map(|c| c.number).collect()
+    );
+    let unchanged = |rows: Vec<characteristics::Characteristic>| {
+        rows.into_iter()
+            .filter(|c| c.number != 13)
+            .map(|c| (c.number, c.kind, c.r#type, c.faces, c.reference))
+            .collect::<BTreeSet<_>>()
+    };
+    assert_eq!(unchanged(current), unchanged(prior));
+    assert_eq!(
+        upgraded.bytes.as_slice(),
+        writer::write_bytes(&upgraded, &rebind(&intent, &upgraded), Some(&answers))
+            .unwrap()
+            .0
+            .as_slice()
+    );
+}
+
+#[test]
+fn a_foreign_or_non_depth_curve_length_cannot_claim_the_depth_number() {
+    let captured = load("characteristic-numbers-enclosure-curve-depth.step.gz");
+    for foreign in [false, true] {
+        let doc = Document::parse(captured.bytes.to_vec()).unwrap();
+        let read = haecceity::pmi::read(&doc, std::slice::from_ref(&captured.definition)).unwrap();
+        let i = read.parts[0]
+            .dimensions
+            .iter()
+            .position(|d| {
+                matches!(
+                    d.kind,
+                    haecceity::pmi::DimensionKind::Size {
+                        kind: haecceity::pmi::SizeKind::CurveLength,
+                        ..
+                    }
+                )
+            })
+            .unwrap();
+        let ids = &read.provenance.parts[0].dimensions[i];
+        let mut edit = Edit::new();
+        let mut changed = 0;
+        for (&id, entity) in &doc.graph().entities {
+            let RawEntity::Simple {
+                name, attributes, ..
+            } = entity
+            else {
+                continue;
+            };
+            if foreign {
+                if name == "DESCRIPTION_ATTRIBUTE"
+                    && matches!(attributes.as_slice(),
+                    [Attribute::String(s), Attribute::EntityRef(owner)]
+                    if s == "specify-core:written:v1" && ids.contains(owner))
+                {
+                    edit.remove(id);
+                    changed += 1;
+                }
+            } else if name == "DESCRIPTIVE_REPRESENTATION_ITEM"
+                && let Some(Attribute::String(text)) = attributes.get(1)
+                && let Ok(mut plan) = serde_json::from_str::<Value>(text)
+                && let Some(role) = plan.pointer_mut("/required/kind/size/role")
+                && role == "bore.depth"
+            {
+                *role = json!("bore.path_length");
+                let mut record = entity.clone();
+                let RawEntity::Simple { attributes, .. } = &mut record else {
+                    unreachable!()
+                };
+                attributes[1] = Attribute::String(serde_json::to_string(&plan).unwrap());
+                edit.replace(id, record);
+                changed += 1;
+            }
+        }
+        assert_eq!(changed, 1);
+        let old = back(doc.apply(&edit).unwrap().bytes);
+        let answers = resume::answers_for(&old).unwrap().unwrap();
+        let intent =
+            rules::apply_with_defaults(&api::analyse(&old).unwrap(), &answers, true).unwrap();
+        let rewritten = back(
+            writer::write_bytes(&old, &intent, Some(&answers))
+                .unwrap()
+                .0,
+        );
+        let current = numbers(&rewritten);
+        assert!(!current.iter().any(|c| c.number == 13));
+        let depth = current
+            .iter()
+            .find(|c| {
+                c.source
+                    .as_ref()
+                    .is_some_and(|s| s.parameter == "bore.depth")
+            })
+            .unwrap();
+        assert_eq!(depth.r#type, "Location_LinearDistance");
+        assert!(depth.number > 23);
+    }
+}
+
+#[test]
 fn release_016_debug_history_upgrades_every_number_to_schema_2() {
     // Captured by the unmodified v0.1.6 tag (d6f65a8), using this exact intent
     // on parts/pin.step. Never regenerate this fixture with the current writer.

@@ -509,6 +509,46 @@ fn same_support(old: &Key, new: &Key) -> bool {
                 && grows(&old.reference, &new.faces)))
 }
 
+/// The old depth carrier was the hole itself, rather than the two endpoint aspects.
+/// This compatibility key is used only in memory; current history keeps the real
+/// location key and no other size/location pair is interchangeable.
+fn legacy_depth_key(p: &PartPmi, index: usize) -> Option<Key> {
+    let plan = p.attributes.iter().find(|a| {
+        a.name == "specify dimension plan"
+            && a.on == Some(pmi::NoteOwner::Dimension(pmi::DimensionId(index)))
+    })?;
+    let AttributeValue::Text(text) = &plan.items.iter().find(|(k, _)| k == "requirement")?.1 else {
+        return None;
+    };
+    let plan: crate::dimensioning::Planned = serde_json::from_str(text).ok()?;
+    let quiddity::dimensioning::Kind::Size {
+        kind: quiddity::dimensioning::SizeKind::Length,
+        role,
+        ..
+    } = &plan.required.kind
+    else {
+        return None;
+    };
+    if !role.ends_with(".depth") || plan.required.covers.is_empty() {
+        return None;
+    }
+    let mut faces = BTreeSet::new();
+    for id in &plan.required.covers {
+        let support = plan.supports.iter().find(|s| &s.feature == id)?;
+        if support.faces.is_empty() {
+            return None;
+        }
+        faces.extend(&support.faces);
+    }
+    Some(Key {
+        role: format!("size|planner:{}", keys::planner(&plan.required)),
+        kind: "dimension".into(),
+        r#type: "Size_CurveLength".into(),
+        faces: faces.into_iter().collect(),
+        reference: vec![],
+    })
+}
+
 #[derive(Clone, Copy)]
 pub(crate) enum Allocation {
     Add,
@@ -615,6 +655,48 @@ pub(crate) fn allocate(
         old.entries.retain(|e| owned.contains(&e.number));
     }
     let new = items(p, None, None);
+    let legacy_depths: BTreeSet<_> = before
+        .dimensions
+        .iter()
+        .enumerate()
+        .filter_map(|(i, d)| {
+            (matches!(
+                d.kind,
+                DimensionKind::Size {
+                    kind: pmi::SizeKind::CurveLength,
+                    ..
+                }
+            ) && legacy_depth_key(before, i).is_some()
+                && crate::provenance::dimension(doc, &prov.dimensions[i]))
+            .then(|| number(doc, before_items[before.datums.len() + i].entity))
+            .flatten()
+        })
+        .collect();
+    let depth_keys: BTreeMap<_, _> = p
+        .dimensions
+        .iter()
+        .enumerate()
+        .filter_map(|(i, d)| {
+            matches!(
+                d.kind,
+                DimensionKind::Location {
+                    kind: pmi::LocationKind::LinearDistance,
+                    path: None,
+                    angle: None,
+                    ..
+                }
+            )
+            .then(|| legacy_depth_key(p, i).map(|key| (p.datums.len() + i, key)))
+            .flatten()
+        })
+        .collect();
+    let supports = |entry: &Entry, n: usize| {
+        same_support(&entry.key, &new[n].key)
+            || (legacy_depths.contains(&entry.number)
+                && depth_keys
+                    .get(&n)
+                    .is_some_and(|key| entry.key.role == key.role && same_support(&entry.key, key)))
+    };
     if !replace && new.is_empty() {
         return Ok(());
     }
@@ -652,7 +734,7 @@ pub(crate) fn allocate(
             .enumerate()
             .filter(|(i, e)| {
                 !used.contains(i)
-                    && same_support(&e.key, &item.key)
+                    && supports(e, n)
                     && value_hints
                         .get(&e.number)
                         .is_some_and(|hint| **hint == item.value_hint)
@@ -664,7 +746,7 @@ pub(crate) fn allocate(
                 .enumerate()
                 .filter(|(n, item)| {
                     matched[*n].is_none()
-                        && same_support(&e.key, &item.key)
+                        && supports(e, *n)
                         && value_hints
                             .get(&e.number)
                             .is_some_and(|hint| **hint == item.value_hint)
@@ -684,13 +766,13 @@ pub(crate) fn allocate(
             .entries
             .iter()
             .enumerate()
-            .filter(|(i, e)| !used.contains(i) && same_support(&e.key, &item.key))
+            .filter(|(i, e)| !used.contains(i) && supports(e, n))
             .collect();
         if let [(i, e)] = candidates.as_slice()
             && new
                 .iter()
                 .enumerate()
-                .filter(|(n, item)| matched[*n].is_none() && same_support(&e.key, &item.key))
+                .filter(|(n, _)| matched[*n].is_none() && supports(e, *n))
                 .count()
                 == 1
         {

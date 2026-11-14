@@ -1048,7 +1048,8 @@ fn write_by_modes(
             .map_err(|e| WriteError::Failed(format!("haecceity could not apply the edit: {e}")))?;
         let after =
             Document::parse(applied.bytes).map_err(|e| WriteError::Failed(e.to_string()))?;
-        let marker_edit = provenance::mark_new(current, &after);
+        let mut marker_edit = provenance::mark_new(current, &after);
+        name_depth_points(current, &after, &mut marker_edit);
         let marked = after
             .apply(&marker_edit)
             .map_err(|e| WriteError::Failed(format!("cannot mark written PMI: {e}")))?;
@@ -1065,6 +1066,38 @@ fn write_by_modes(
     }
     // jobs is checked nonempty and every edit group assigns written before reaching this return.
     Ok((written.expect("at least one part is written"), report))
+}
+
+const DEPTH_AXIS_POINT: &str = "specify-core:depth axis point";
+
+/// The pinned kernel does not expose shape-aspect names in its feature arena.
+/// Name only newly emitted derived points identified by our supplemental item.
+fn name_depth_points(before: &Document, after: &Document, edit: &mut p21::Edit) {
+    for (&id, entity) in &after.graph().entities {
+        let RawEntity::Simple {
+            name, attributes, ..
+        } = entity
+        else {
+            continue;
+        };
+        if before.get(id).is_some() || name != "DERIVED_SHAPE_ASPECT" {
+            continue;
+        }
+        let is_depth_point = after.referrers(id).iter().any(|&usage| {
+            matches!(after.get(usage), Some(RawEntity::Simple { name, attributes, .. })
+                if name == "GEOMETRIC_ITEM_SPECIFIC_USAGE"
+                    && matches!(attributes.as_slice(), [_, _, Attribute::EntityRef(aspect), _, Attribute::EntityRef(point)]
+                        if *aspect == id && matches!(after.get(*point), Some(RawEntity::Simple { name, attributes, .. })
+                            if name == "CARTESIAN_POINT" && attributes.first() == Some(&Attribute::String(DEPTH_AXIS_POINT.into())))))
+        });
+        if is_depth_point && attributes.first() == Some(&Attribute::String(String::new())) {
+            let mut record = entity.clone();
+            if let RawEntity::Simple { attributes, .. } = &mut record {
+                attributes[0] = Attribute::String("axis point".into());
+            }
+            edit.replace(id, record);
+        }
+    }
 }
 
 /// The instances of Python's form of stored answers on `part` (`PROPERTY_DEFINITION('pmi-assist
@@ -1464,6 +1497,28 @@ fn planned_depth_kind(
     pmi: &mut PartPmi,
     unit: &LengthUnit,
 ) -> Result<DimensionKind, WriteError> {
+    let checkpoint = (
+        features.0.len(),
+        pmi.geometry.len(),
+        pmi.derived_geometry.len(),
+    );
+    let result = resolve_depth_kind(planned, input, part, features, pmi, unit);
+    if result.is_err() {
+        features.0.truncate(checkpoint.0);
+        pmi.geometry.truncate(checkpoint.1);
+        pmi.derived_geometry.truncate(checkpoint.2);
+    }
+    result
+}
+
+fn resolve_depth_kind(
+    planned: &crate::dimensioning::Planned,
+    input: &quiddity::dimensioning::Input,
+    part: &haecceity::Part,
+    features: &mut Features<'_>,
+    pmi: &mut PartPmi,
+    unit: &LengthUnit,
+) -> Result<DimensionKind, WriteError> {
     use haecceity::geom::{Curve, Surface, dot, sub};
     // Recognition publishes these nominal lengths to 0.01 mm. Resolve to the
     // nearest real rim within that quantisation, never an invented endpoint.
@@ -1471,6 +1526,12 @@ fn planned_depth_kind(
     let quiddity::dimensioning::Kind::Size { role, .. } = &planned.required.kind else {
         unreachable!("depth is a planner size");
     };
+    if planned.required.covers.is_empty() {
+        return invalid(format!(
+            "depth {} has no hole supports",
+            planned.required.id
+        ));
+    }
     let mut ends = [Vec::new(), Vec::new()];
     for id in &planned.required.covers {
         let hole = input
@@ -1622,7 +1683,7 @@ fn planned_depth_kind(
                         leaves: vec![(
                             "CARTESIAN_POINT".into(),
                             vec![
-                                pmi::GeometryValue::Text(PMI_PROVENANCE.into()),
+                                pmi::GeometryValue::Text(DEPTH_AXIS_POINT.into()),
                                 pmi::GeometryValue::List(
                                     coords.into_iter().map(pmi::GeometryValue::Real).collect(),
                                 ),
@@ -1639,7 +1700,10 @@ fn planned_depth_kind(
                 ));
                 let dg = pmi::DerivedGeometryId(pmi.derived_geometry.len());
                 let axis = haecceity::geom::unit(frame.z).expect("cylinder axis is nonzero");
-                pmi.derived_geometry.push(pmi::DerivedGeometry {
+                // This descriptor validates the deriving cylinder axis. The
+                // supplemental CARTESIAN_POINT alone is emitted, not an axis;
+                // the pinned API has no point descriptor variant.
+                let deriving_axis = pmi::DerivedGeometry {
                     kind: pmi::DerivedGeometryKind::Axis,
                     deriving_faces: deriving.iter().copied().map(FaceIndex).collect(),
                     point: [length(frame.origin[0])?, length(frame.origin[1])?, length(frame.origin[2])?],
@@ -1647,7 +1711,8 @@ fn planned_depth_kind(
                     radius: deriving.iter().all(|&i| matches!(&part.faces[i].surface, Surface::Cylinder {radius: r,..} if (r-radius).abs() <= 1e-7))
                         .then(|| length(*radius)).transpose()?,
                     supplemental: vec![g],
-                });
+                };
+                pmi.derived_geometry.push(deriving_axis);
                 ends[end].push(features.intern(Feature::Derived {
                     kind: pmi::DerivedKind::Derived,
                     from: vec![base],
@@ -2195,20 +2260,24 @@ fn part_pmi_observed(
         {
             continue;
         }
-        if depth_input.is_none() {
-            depth_input =
-                Some(crate::dimensioning::input(&loaded.part).map_err(WriteError::Failed)?);
-        }
+        let Ok(input) = depth_input.get_or_insert_with(|| crate::dimensioning::input(&loaded.part))
+        else {
+            continue;
+        };
         plan.bore_supports(&loaded.part);
         let mut scratch = Vec::new();
-        let kind = planned_depth_kind(
+        let Ok(kind) = planned_depth_kind(
             &plan,
-            depth_input.as_ref().unwrap(),
+            input,
             &loaded.part,
             &mut Features(&mut scratch),
             &mut PartPmi::default(),
             &point_unit,
-        )?;
+        ) else {
+            // An unresolved depth cannot convey a valid legacy plane span. The
+            // normal lowering pass below records its single not_written reason.
+            continue;
+        };
         if let DimensionKind::Location { from, to, .. } = kind
             && let (Some(from), Some(to)) = (
                 DepthPlane::feature(&loaded.part, &scratch, from),
@@ -2315,18 +2384,29 @@ fn part_pmi_observed(
                 quiddity::dimensioning::Kind::Size { kind: quiddity::dimensioning::SizeKind::Length, role, .. }
                     if role.ends_with(".depth"))
             {
-                if depth_input.is_none() {
-                    depth_input =
-                        Some(crate::dimensioning::input(&loaded.part).map_err(WriteError::Failed)?);
+                let result = match depth_input
+                    .get_or_insert_with(|| crate::dimensioning::input(&loaded.part))
+                {
+                    Ok(input) => planned_depth_kind(
+                        &planned,
+                        input,
+                        &loaded.part,
+                        &mut f,
+                        &mut p,
+                        &point_unit,
+                    ),
+                    Err(reason) => Err(WriteError::Failed(reason.clone())),
+                };
+                match result {
+                    Ok(kind) => kind,
+                    Err(reason) => {
+                        lines.not_written.push(format!(
+                            "depth {}: {reason}; not written",
+                            planned.required.id
+                        ));
+                        continue;
+                    }
                 }
-                planned_depth_kind(
-                    &planned,
-                    depth_input.as_ref().unwrap(),
-                    &loaded.part,
-                    &mut f,
-                    &mut p,
-                    &point_unit,
-                )?
             } else {
                 planned_kind(&planned, &mut f, &mut p.geometry, &point_unit)?
             };

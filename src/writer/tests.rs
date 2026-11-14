@@ -540,6 +540,21 @@ fn an_oblique_counterbore_entry_uses_a_derived_axial_point() {
         frame: input.frame,
         witnesses: None,
     };
+    let mut intent = Intent::new(serde_json::to_value(&loaded.binding).unwrap());
+    intent.general.push(
+        json!({"kind":"size", "feature":hole.support.feature,
+        "faces":hole.support.faces, "nominal":23.49, "general":true, "planner":planned})
+        .as_object()
+        .unwrap()
+        .clone(),
+    );
+    let (written, report) = write_bytes(&loaded, &intent, None).unwrap();
+    assert!(report.not_written.is_empty(), "{:?}", report.not_written);
+    assert!(
+        std::str::from_utf8(&written)
+            .unwrap()
+            .contains("DERIVED_SHAPE_ASPECT('axis point'")
+    );
     let mut features = Vec::new();
     let mut model = PartPmi::default();
     let kind = planned_depth_kind(
@@ -626,6 +641,54 @@ fn an_oblique_counterbore_entry_uses_a_derived_axial_point() {
             ..
         }
     ));
+}
+
+#[test]
+fn unresolved_pattern_depth_rolls_back_its_partial_endpoint_geometry() {
+    let loaded = crate::part::load(
+        &std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/parts/electronics-enclosure-base.step.gz"),
+        None,
+    )
+    .unwrap();
+    let input = crate::dimensioning::input(&loaded.part).unwrap();
+    let hole = input.holes.iter().find(|h| h.depth == Some(8.)).unwrap();
+    let mut planned = crate::dimensioning::Planned {
+        required: quiddity::dimensioning::Required {
+            id: "test:unresolved-pattern.depth".into(),
+            kind: quiddity::dimensioning::Kind::Size {
+                feature: hole.support.feature.clone(),
+                role: "bore.depth".into(),
+                kind: quiddity::dimensioning::SizeKind::Length,
+            },
+            nominal: 8.,
+            count: 2,
+            pattern: None,
+            tolerance: quiddity::dimensioning::Tolerance::General,
+            reference: None,
+            covers: vec![hole.support.feature.clone(), "missing hole".into()],
+        },
+        supports: vec![hole.support.clone()],
+        groups: Default::default(),
+        frame: input.frame,
+        witnesses: None,
+    };
+    planned.bore_supports(&loaded.part);
+    let mut features = vec![Feature::Items(vec![Anchor::Face(FaceIndex(0))])];
+    let prior = features.clone();
+    let mut model = PartPmi::default();
+    let error = planned_depth_kind(
+        &planned,
+        &input,
+        &loaded.part,
+        &mut Features(&mut features),
+        &mut model,
+        &LengthUnit::Millimetre,
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("missing hole"));
+    assert_eq!(features, prior);
+    assert_eq!(model, PartPmi::default());
 }
 
 #[test]

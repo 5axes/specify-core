@@ -54,8 +54,10 @@ or apex. Each enlargement starts at its own cylinder entry. Pattern depths
 include every member's endpoints. Nominal rounding resolves to measured cylinder
 extents; established circular endpoints take precedence over conservative trim
 bounds. A sloping entry without a circular rim uses an explicit derived point on
-the hole axis at the trimmed extent (RP §5.1.4); the rounded nominal alone never
-establishes an endpoint. Older cylinder-only hole identities resolve
+the hole axis at the trimmed extent, named `axis point` (RP §5.1.4); the rounded
+nominal alone never establishes an endpoint. An unresolved endpoint omits only
+that depth, with a `not_written` reason; partial endpoint geometry is discarded
+and no legacy span is claimed as conveyed. Older cylinder-only hole identities resolve
 through their physical face supports. Genuine curve lengths retain Table 4's
 `curve length` size form; angular quantities use degrees. Countersinks retain
 their diameter and angle dimensions, and thread/tapping-drill depths retain

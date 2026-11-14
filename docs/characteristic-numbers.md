@@ -103,6 +103,13 @@ an old `specification:"0.200000000|[MaximumMaterialRequirement]|..."` becomes
 `role:"feature"`. A unique requirement keeps its number across either edit.
 Temporary matching hints compare typed values and are never serialized.
 
+A Specify-authored `Size_CurveLength` with planner measure `*.depth` retains its
+number when rewritten as `Location_LinearDistance`. Migration matches the exact
+measurement role and the original hole support, with the same unique two-way
+matching rule; the location's new entry/bottom aspects do not retire that depth.
+The new history records the real location type and endpoints. Unmarked foreign
+PMI and genuine curve-length measures do not receive this exception.
+
 ## Allocation and carry
 
 The **first allocation is in inspection order**, consecutively 1…N without gaps on a

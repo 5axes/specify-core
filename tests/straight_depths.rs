@@ -270,3 +270,144 @@ fn a_depth_conveys_only_the_duplicate_legacy_general_plane_span() {
     assert!(read.parts[0].dimensions.iter().any(|d|matches!(d.tolerance,pmi::DimTolerance::Deviations(_))
         && matches!(&d.nominal.as_ref().unwrap().quantity,pmi::Quantity::Length(n) if (n.mm()-3.000001).abs()<1e-9)));
 }
+
+#[test]
+fn an_unresolved_depth_is_reported_without_losing_other_pmi_or_a_legacy_span() {
+    let source = part::load(
+        &Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/parts/electronics-enclosure-base.step.gz"),
+        None,
+    )
+    .unwrap();
+    let analysis = api::analyse(&source).unwrap();
+    let given = json!({"part.material":"steel"});
+    let intent = rules::apply_with_defaults(&analysis, given.as_object().unwrap(), true).unwrap();
+    let (baseline, _) = writer::write_bytes(&source, &intent, None).unwrap();
+    let read = |bytes| {
+        pmi::read(
+            &Document::parse(bytes).unwrap(),
+            std::slice::from_ref(&source.definition),
+        )
+        .unwrap()
+        .parts
+        .remove(0)
+    };
+    let baseline = read(baseline);
+    let depth_id = baseline
+        .attributes
+        .iter()
+        .find_map(|a| {
+            if a.name != "specify dimension plan" {
+                return None;
+            }
+            let pmi::AttributeValue::Text(text) = &a.items[0].1 else {
+                return None;
+            };
+            let plan: Value = serde_json::from_str(text).unwrap();
+            (plan["required"]["kind"]["size"]["role"] == "bore.depth")
+                .then_some(a.on)
+                .flatten()
+        })
+        .unwrap();
+    let pmi::NoteOwner::Dimension(depth_id) = depth_id else {
+        panic!("depth dimension");
+    };
+    let pmi::DimensionKind::Location { from, to, .. } = baseline.dimensions[depth_id.0].kind else {
+        panic!("depth location");
+    };
+    let faces = |id| {
+        anchors(&baseline, id)
+            .into_iter()
+            .map(|a| match a {
+                pmi::Anchor::Face(f) => f.0,
+                _ => panic!("flat endpoint"),
+            })
+            .collect::<Vec<_>>()
+    };
+    for with_legacy in [false, true] {
+        let mut broken = intent.clone();
+        let row = broken
+            .requirements
+            .iter_mut()
+            .chain(&mut broken.general)
+            .find(|r| {
+                r.get("planner")
+                    .and_then(|p| p.pointer("/required/kind/size/role"))
+                    == Some(&json!("bore.depth"))
+            })
+            .unwrap();
+        // Exercise both an unmatched station and an unresolved pattern member.
+        // Neither may abort writing; the latter must not convey a valid span.
+        let required = &mut row.get_mut("planner").unwrap()["required"];
+        let reason = if with_legacy {
+            required["covers"]
+                .as_array_mut()
+                .unwrap()
+                .push(json!("missing hole"));
+            "depth hole missing hole is absent"
+        } else {
+            required["nominal"] = json!(8.2);
+            "no endpoint station"
+        };
+        if with_legacy {
+            broken.general.push(
+                json!({"kind":"location", "feature":"legacy span", "faces":faces(to),
+                "reference":faces(from), "distance":8., "general":true})
+                .as_object()
+                .unwrap()
+                .clone(),
+            );
+        }
+        let (bytes, report) = writer::write_bytes(&source, &broken, None).unwrap();
+        assert_eq!(report.not_written.len(), 1, "{:?}", report.not_written);
+        assert!(
+            report.not_written[0].contains(reason),
+            "{:?}",
+            report.not_written
+        );
+        let actual = read(bytes);
+        assert_eq!(
+            actual.dimensions.len(),
+            baseline.dimensions.len() - 1 + usize::from(with_legacy)
+        );
+        assert!(!actual.attributes.iter().any(|a| {
+            a.name == "specify dimension plan"
+                && a.items.iter().any(
+                    |(_, v)| matches!(v, pmi::AttributeValue::Text(s) if s.contains("bore.depth")),
+                )
+        }));
+        assert_eq!(actual.datums, baseline.datums);
+        let physical_tolerances = |p: &pmi::PartPmi| {
+            p.tolerances
+                .iter()
+                .map(|t| {
+                    let pmi::ToleranceTarget::Feature(f) = t.target else {
+                        panic!("feature tolerance");
+                    };
+                    let support: BTreeSet<_> = anchors(p, f)
+                        .into_iter()
+                        .map(|a| match a {
+                            pmi::Anchor::Face(f) => f.0,
+                            _ => panic!("face tolerance support"),
+                        })
+                        .collect();
+                    let mut t = t.clone();
+                    // Arena indices change when a dimension is omitted. Compare the
+                    // actual physical target and every other typed tolerance field.
+                    t.target = pmi::ToleranceTarget::Feature(pmi::FeatureId(0));
+                    (t, support)
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(physical_tolerances(&actual), physical_tolerances(&baseline));
+        if with_legacy {
+            assert!(
+                actual
+                    .dimensions
+                    .iter()
+                    .any(|d| matches!(&d.nominal.as_ref().unwrap().quantity,
+                pmi::Quantity::Length(n) if (n.mm() - 8.).abs() < 1e-9))
+            );
+        }
+    }
+}
