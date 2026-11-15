@@ -2186,14 +2186,13 @@ pub fn diff_with_options(
         [&old_q.fingerprints, &new_q.fingerprints],
         &feature_changes,
     )?;
-    // The faces listed there show in the picture too: changed, or the old face as a ghost.
+    // The faces listed there show in the picture too: changed, with the old face as a ghost.
+    // A face only trimmed by its neighbours' moves stays plain, so the moved face stands out.
     for c in &other_faces {
         match (c.class.as_str(), c.old, c.new) {
-            ("adapted" | "moved", Some(o), Some(n)) => {
+            ("adapted" | "moved", Some(o), Some(n)) if !c.trimmed() => {
                 face_class.entry(n).or_insert("changed");
-                if !c.trimmed() {
-                    gone.push(o);
-                }
+                gone.push(o);
             }
             ("ambiguous", _, _) => {
                 for &n in &c.candidates {
