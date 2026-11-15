@@ -8,6 +8,9 @@ All notable changes to specify-core-rust. The format follows
 
 ### Added
 
+- The Python wheel supports CPython 3.11 and later (abi3-py311; was 3.12). Nothing in the
+  package needs 3.12; the wheel smoke suite now also runs on 3.11 (#183).
+
 - A loaded part recognises its features once: a `LoadedPart` keeps quiddity's recognition, so
   `analyse(old)` followed by several `diff(old, new_i)` recognises `old` once (#180).
 - Python `load` takes the STEP file's `bytes` (with an optional `name`) as well as a path, and

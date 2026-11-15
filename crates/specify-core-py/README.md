@@ -14,7 +14,7 @@ too, so a later revision of the part can be opened and carried on with.
 
 - No dependencies: no OpenCascade, build123d or quiddity. The engine is Rust, in one wheel.
 - Wheels for Linux (x86_64, aarch64), macOS (Apple silicon, Intel) and Windows, for
-  CPython 3.12 and later.
+  CPython 3.11 and later.
 - Apache-2.0.
 
 It is the engine behind [Draftwright Specify](https://draftwright.io/specify), which adds

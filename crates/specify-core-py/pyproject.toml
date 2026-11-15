@@ -23,7 +23,7 @@ classifiers = [
   "Programming Language :: Rust",
   "Topic :: Scientific/Engineering",
 ]
-requires-python = ">=3.12"
+requires-python = ">=3.11"
 # None: the Rust engine needs neither quiddity, build123d nor OCP.
 dependencies = []
 
