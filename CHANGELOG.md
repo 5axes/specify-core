@@ -23,6 +23,12 @@ All notable changes to specify-core-rust. The format follows
 
 ### Changed
 
+- quiddity and haecceity 0.5.3 (release tag `v0.5.3`). A top-filleted or domed boss's height
+  includes its end round however short the boss is, so shortening one reports its real
+  change (13 → 8, not 13 → 5; #181). Sloping-entry hole depths are planned from the
+  axis/entry-plane intersection, which the writer already wrote; it now writes the planned
+  nominal as is, and a plan that disagrees with the geometry is not written rather than
+  corrected.
 - quiddity and haecceity 0.5.2 (release tag `v0.5.2`; recognition is that of 0.5.1, which
   lays GD&T frames out CAD-like in written presentations).
 - quiddity and haecceity 0.5.0 (release tag `v0.5.0`). Fingerprints are now version 4,

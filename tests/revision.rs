@@ -767,6 +767,20 @@ fn a_real_boss_shortening_alongside_a_chamfer_still_reports() {
 }
 
 #[test]
+fn a_top_filleted_boss_shortened_reports_its_real_height_change() {
+    // #181: both bosses include their R3 top fillet and cap, so 13 → 8, not 13 → 5.
+    let r = revised("boss_shortened", json!({}));
+    let boss = r
+        .features
+        .iter()
+        .find(|f| f.family == "bosses")
+        .unwrap_or_else(|| panic!("{:?}", r.features));
+    assert!(boss.changes.contains_key("sizes.height"), "{boss:?}");
+    let md = r.markdown("Boss", None);
+    assert!(md.contains("height 13 → 8"), "{md}");
+}
+
+#[test]
 fn real_flat_moves_alongside_a_chamfer_still_report() {
     // Move the shaft's flat perpendicular to its support plane.
     let r = shaft_control("flat_moved");

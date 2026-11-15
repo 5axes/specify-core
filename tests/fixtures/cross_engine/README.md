@@ -175,7 +175,12 @@ metadata records the actual written hashes and clean reference. No known-differe
 entry is removed or changed. Original input spans, foreign dependencies, shared
 carrier removal and stable characteristic numbers are checked in native tests.
 
-## Current pin: v0.5.2 (`aacfdc5c`)
+## Current pin: v0.5.3 (`7e8ddc08`)
+
+No golden changes: every byte golden, refusal and Python readback passes unchanged on
+v0.5.3 (its boss-height and sloping-entry depth changes touch none of these cases).
+
+## Previous pin: v0.5.2 (`aacfdc5c`)
 
 Regenerated all sixteen cases (fourteen written, two refused) with `cargo run --release --example write_fixtures`. Nine
 successful byte goldens change, and only for quiddity 0.5.1's CAD-like GD&T frame layout
