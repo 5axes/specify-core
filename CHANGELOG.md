@@ -4,13 +4,12 @@ All notable changes to specify-core-rust. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## 0.1.16 (2026-11-15)
 
 ### Added
 
 - The Python wheel supports CPython 3.11 and later (abi3-py311; was 3.12). Nothing in the
   package needs 3.12; the wheel smoke suite now also runs on 3.11 (#183).
-
 - A loaded part recognises its features once: a `LoadedPart` keeps quiddity's recognition, so
   `analyse(old)` followed by several `diff(old, new_i)` recognises `old` once (#180).
 - Python `load` takes the STEP file's `bytes` (with an optional `name`) as well as a path, and
@@ -20,6 +19,19 @@ All notable changes to specify-core-rust. The format follows
   with `unchanged_faces` and `context_faces`, and a Markdown section "Other faces" (#180).
 - Python `diff(..., image_width=N)` also returns the change picture as PNG bytes under
   `"image"`, from the same comparison (#180).
+- `mesh` accepts CLI `--max-deviation-mm` and `max_deviation_mm` in serve, Python
+  and WASM snapshots, from 0.001 mm (#162). It measures the emitted triangles and boundary
+  chords against the exact surfaces and trim curves, refines until the bound is met, and
+  reports both the requested and the achieved deviation; a face that cannot be verified
+  refuses the whole mesh, naming that face and why. The achieved value is exact (to the
+  0.0001 mm output rounding) on planes, spheres, and line and circle trims, and a sampled
+  maximum on other surfaces and trims. Omitting the option keeps mesh v2 bytes unchanged.
+  Faces are meshed independently, so the result is not guaranteed watertight. See
+  [mesh tolerance](docs/mesh-tolerance.md).
+- Analyses whose shared dimension planner cannot build an input now include
+  `dimensioning: {applicable: false, reason}` rather than omitting it (#162).
+- `analyse` and `mesh` take `-o -`: the JSON goes to stdout and the one-line summary to stderr,
+  so the output can be piped into another program. With a file, nothing changes.
 
 ### Changed
 
@@ -35,42 +47,25 @@ All notable changes to specify-core-rust. The format follows
   and quiddity refuses to correspond version 3. Saved answers still attach by face name
   or by the unchanged faces; where neither holds and only version 3 geometry is saved
   (answers kept outside the STEP for a changed part), unnamed faces are left for review.
+- `same_as` now counts a stated manufacturing process, using the saved answer before the
+  file’s value, so congruent parts group as draftwright’s pack does. Guessed and defaulted
+  processes do not count; bought parts have no process.
+- The reviewed WASM size ceiling is raised from 15,000,000 to **16,500,000** bytes (maintainer, 2026-11-09), after the deviation-checked mesher (#162) measured 15,002,152 bytes.
 
 ### Fixed
 
 - BOM item numbers survive the fingerprint version change: a BOM history written before
   quiddity 0.5.0 is re-fingerprinted from its own file, by each entry's item number or
   unique part name, so its parts keep their numbers and answers instead of being renumbered.
-
 - Planner dimensions on floor-bearing holes leave the planar floor out of their
   depth and location dimension carriers; the bore (and any cone) carries them.
-
 - Revision reports fold a pocket and its section recess into one change when their
   supports differ only by the pocket’s adjacent planar floor.
-
 - Answers without face evidence can follow a unique same-family feature whose ID
   adds faces to the saved ID. Ambiguous matches stay unresolved for review.
-
 - Reopening a STEP with verified schema-1/2 saved answers keeps current thread and
   position editor IDs when a kernel upgrade adds a hole floor to its feature ID,
   avoiding false removals and duplicate position changes in revision reports.
-
-### Added
-
-- `mesh` accepts CLI `--max-deviation-mm` and `max_deviation_mm` in serve, Python
-  and WASM snapshots, from 0.001 mm (#162). It measures the emitted triangles and boundary
-  chords against the exact surfaces and trim curves, refines until the bound is met, and
-  reports both the requested and the achieved deviation; a face that cannot be verified
-  refuses the whole mesh, naming that face and why. The achieved value is exact (to the
-  0.0001 mm output rounding) on planes, spheres, and line and circle trims, and a sampled
-  maximum on other surfaces and trims. Omitting the option keeps mesh v2 bytes unchanged.
-  Faces are meshed independently, so the result is not guaranteed watertight. See
-  [mesh tolerance](docs/mesh-tolerance.md).
-- Analyses whose shared dimension planner cannot build an input now include
-  `dimensioning: {applicable: false, reason}` rather than omitting it (#162).
-
-- `analyse` and `mesh` take `-o -`: the JSON goes to stdout and the one-line summary to stderr,
-  so the output can be piped into another program. With a file, nothing changes.
 
 ### WASM API
 
@@ -79,14 +74,6 @@ All notable changes to specify-core-rust. The format follows
 - docs/wasm.md links to pzfreo/draftwright, renamed from draftwright-rust; the API is unchanged.
 - `IntentEngine.parts` `same_as` also requires the same stated process (docs/wasm.md); the API
   is unchanged. The reviewed snapshot drops a doc comment (#162) that the API check strips.
-
-### Changed
-
-- `same_as` now counts a stated manufacturing process, using the saved answer before the
-  file’s value, so congruent parts group as draftwright’s pack does. Guessed and defaulted
-  processes do not count; bought parts have no process.
-
-- The reviewed WASM size ceiling is raised from 15,000,000 to **16,500,000** bytes (maintainer, 2026-11-09), after the deviation-checked mesher (#162) measured 15,002,152 bytes.
 
 ## 0.1.15 (2026-11-07)
 
