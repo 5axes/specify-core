@@ -52,7 +52,7 @@ One engine, one set of answers and files, whichever way you call it:
 | --- | --- | --- |
 | **In the browser** | nothing: [draftwright.io/specify](https://draftwright.io/specify) and [draftwright.io/diff](https://draftwright.io/diff) | |
 | **Command line** | `uv tool install specify-core` (or `pipx install specify-core`), a [release](https://github.com/pzfreo/specify-core/releases) binary, or `cargo build --release` | [install](#install-the-command-line), [use](#command-line) |
-| **Python** | `pip install specify-core` (CPython 3.12+, no dependencies) | [below](#python), [package README](crates/specify-core-py/README.md) |
+| **Python** | `pip install specify-core` (CPython 3.11+, no dependencies) | [below](#python), [package README](crates/specify-core-py/README.md) |
 | **Rust** | `specify-core = { git = "https://github.com/pzfreo/specify-core", tag = "v0.1.15" }` | [below](#rust), [docs/library.md](docs/library.md) |
 | **Browser** (WebAssembly) | `specify-core-wasm-<version>.tgz` on each release | [docs/wasm.md](docs/wasm.md) |
 | **Host process** (JSON lines) | `specify-core serve` | [below](#host-process) |

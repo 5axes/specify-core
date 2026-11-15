@@ -2,7 +2,7 @@ name: Python package
 
 # The specify-core Python package (crates/specify-core-py): an abi3 wheel per platform and an
 # sdist. Each wheel is installed and its smoke suite (tests/python) run on CPython 3.12, and the
-# Linux x86_64 wheel on the newest CPython too, as abi3 promises. Published to PyPI for a
+# Linux x86_64 wheel on the oldest (3.11) and newest CPython too, as abi3 promises. Published to PyPI for a
 # release. A change to the package, the engine or this workflow builds and tests on its pull
 # request, without publishing.
 on:
@@ -97,7 +97,8 @@ jobs:
           - { name: macos-arm64, os: macos-latest, python: '3.12' }
           - { name: macos-x86_64, os: macos-15-intel, python: '3.12' }
           - { name: windows-x64, os: windows-latest, python: '3.12' }
-          # The abi3 wheel on the newest CPython.
+          # The abi3 wheel on the oldest and the newest CPython.
+          - { name: linux-x86_64, os: ubuntu-22.04, python: '3.11' }
           - { name: linux-x86_64, os: ubuntu-22.04, python: '3.15' }
     runs-on: ${{ matrix.os }}
     defaults:

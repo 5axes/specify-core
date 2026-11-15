@@ -97,7 +97,7 @@ feature explains (see [diff](diff.md)). With `image_width` (pixels) the result a
 the PNG of the change that `specify-core diff` writes as `model.png`, drawn from the same
 comparison, so loaded parts are not read or recognised again.
 
-It is a PyO3 extension built with maturin (abi3, one wheel per platform for CPython 3.12 and
+It is a PyO3 extension built with maturin (abi3, one wheel per platform for CPython 3.11 and
 later): `maturin build --release -m crates/specify-core-py/Cargo.toml`. `tests/python` is a
 smoke suite of the package; `.github/workflows/python.yml` builds, tests and publishes the
 wheels. The engine itself is tested in Rust.
