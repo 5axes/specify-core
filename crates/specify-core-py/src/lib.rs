@@ -193,6 +193,14 @@ fn diff<'py>(
     scenes: bool,
     image_width: Option<u32>,
 ) -> PyResult<(String, Option<Bound<'py, PyBytes>>)> {
+    if let Some(width) = image_width
+        && !(1..=specify_core::revision::MAX_PICTURE_WIDTH).contains(&width)
+    {
+        return Err(PyValueError::new_err(format!(
+            "image_width must be 1 to {} pixels, not {width}",
+            specify_core::revision::MAX_PICTURE_WIDTH
+        )));
+    }
     let answers = answers_of(answers)?;
     let old_owned;
     let old = match loaded(old, part)? {

@@ -128,3 +128,19 @@ def part(height):
     return Pos(0, 0, height / 2) * Box(60, 40, height)
 export_step(part(20), "block_face_pushed.old.step"); export_step(part(25), "block_face_pushed.new.step")
 ```
+
+`plate_side_pushed` (#180, same tools and licence) is a 60 × 60 × 10 plate on the origin with four
+Ø6 through holes at (15, 15), (15, 45), (45, 15) and (45, 45), whose +X side face is then pushed
+5 mm (65 wide). The holes anchor the match, so an alignment is found (the aligned branch of the
+report's `other_faces`):
+
+```python
+from build123d import Align, Box, Cylinder, Pos, export_step
+MIN = (Align.MIN, Align.MIN, Align.MIN)
+def plate(width):
+    p = Box(width, 60, 10, align=MIN)
+    for x, y in [(15, 15), (15, 45), (45, 15), (45, 45)]:
+        p = p - Pos(x, y, 0) * Cylinder(3, 10, align=(Align.CENTER, Align.CENTER, Align.MIN))
+    return p
+export_step(plate(60), "plate_side_pushed.old.step"); export_step(plate(65), "plate_side_pushed.new.step")
+```

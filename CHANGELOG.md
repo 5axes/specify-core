@@ -14,7 +14,7 @@ All notable changes to specify-core-rust. The format follows
   `part=` selects a part of an assembly from bytes (#180).
 - The diff report lists `other_faces`, the changed, removed, new or ambiguous faces that no
   feature explains (a plane's offset along its normal, a cylinder's radius and axis move, area),
-  with `unchanged_faces`, and a Markdown section "Other faces" (#180).
+  with `unchanged_faces` and `context_faces`, and a Markdown section "Other faces" (#180).
 - Python `diff(..., image_width=N)` also returns the change picture as PNG bytes under
   `"image"`, from the same comparison (#180).
 

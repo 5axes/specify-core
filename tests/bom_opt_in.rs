@@ -29,8 +29,9 @@ fn no_opt_in_matches_v046_presentation_through_api_and_cli() {
     // the second part's callout model is named `PMI callouts (2)`.
     // quiddity 0.5.1 (pinned at v0.5.2) lays GD&T frames out CAD-like: 2.5 mm text, 5 mm
     // boxes and font strokes. All four hashes change for that only: the written STEP differs
-    // from v0.4.9's in its tessellated annotation curve sets (COORDINATES_LIST points and the
-    // curve index lists) and nothing else (checked on the plate and pin goldens: same entity
+    // from v0.5.0's (the previous pin) in its tessellated annotation curves (COORDINATES_LIST
+    // points, TESSELLATED_CURVE_SET index lists) and the CARTESIAN_POINT placement points of
+    // those annotations, and nothing else (checked on the plate and pin goldens: same entity
     // count, same entity kinds changed).
     // #216: the two complete-assembly byte pins change only for the imported
     // pin answer keys holes:3 -> holes:3.5. The frozen legacy fixture stays keyed

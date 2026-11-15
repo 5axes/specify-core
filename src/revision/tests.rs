@@ -19,6 +19,7 @@ fn report() -> Revised {
         features: vec![],
         other_faces: vec![],
         unchanged_faces: 0,
+        context_faces: 0,
         measures: Measures {
             old: size.clone(),
             new: size,

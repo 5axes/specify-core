@@ -1094,7 +1094,10 @@ fn a_face_pushed_5_mm_that_no_feature_holds_is_a_face_change_with_its_offset() {
     assert!(sides.iter().all(|f| f.class == "adapted"));
     // The bottom, still on z = 0, is the one unchanged face.
     assert_eq!(r.unchanged_faces, 1);
-    assert_eq!(r.other_faces.len() + r.unchanged_faces, 6);
+    assert_eq!(r.other_faces.len() + r.unchanged_faces + r.context_faces, 6);
+    // The picture shows it: the pushed face is changed, its old place a ghost.
+    assert_eq!(r.faces.get(&5), Some(&"changed"));
+    assert!(r.gone.contains(&5));
     // The pushed face is listed first, then the faces only trimmed by it.
     assert_eq!(r.other_faces[0].offset, Some(5.0));
     let md = r.markdown("Block", None);
@@ -1112,10 +1115,54 @@ fn a_face_pushed_5_mm_that_no_feature_holds_is_a_face_change_with_its_offset() {
 }
 
 #[test]
+fn a_side_pushed_on_a_part_the_holes_anchor_is_found_after_the_alignment() {
+    // `plate_side_pushed`: four holes anchor the match (an alignment is found, so the faces are
+    // `adapted`, not `moved`); the +X side face is pushed 5 mm.
+    let (old, new) = pair("plate_side_pushed");
+    let r = diff(&old, &new, &Map::new()).unwrap();
+    assert!(r.correspondence.as_ref().unwrap().alignment.found);
+    assert!(r.features.is_empty(), "{:?}", r.features);
+    assert!(r.other_faces.iter().all(|f| f.class == "adapted"));
+    let side = &r.other_faces[0];
+    assert_eq!(
+        (side.kind.as_str(), side.normal, side.offset),
+        ("plane", Some([1.0, 0.0, 0.0]), Some(5.0))
+    );
+    // The other four planes only trimmed (top, bottom, front, back: 60 → 65 long); the holes and
+    // the −X side are unchanged.
+    assert_eq!(r.other_faces.len(), 5, "{:#?}", r.other_faces);
+    assert!(r.other_faces[1..].iter().all(|f| f.offset == Some(0.0)));
+    assert_eq!(r.unchanged_faces, 5);
+    assert_eq!(r.context_faces, 0);
+    assert_eq!(r.faces.get(&5), Some(&"changed"));
+    // Pushed the other way, the sign flips: the side moves inward.
+    let back = diff(&new, &old, &Map::new()).unwrap();
+    assert_eq!(back.other_faces[0].offset, Some(-5.0));
+    assert!(back.markdown("Back", None).contains("moved 5 mm inward"));
+}
+
+#[test]
+fn the_picture_of_a_bare_face_change_colours_it() {
+    let (old, new) = pair("block_face_pushed");
+    let r = diff(&old, &new, &Map::new()).unwrap();
+    let png = picture(&old, &new, &r, 300);
+    assert_eq!(&png[..8], b"\x89PNG\r\n\x1a\n");
+    // A zero or an enormous width is clamped, not a crash.
+    assert_eq!(&picture(&old, &new, &r, 0)[..4], b"\x89PNG");
+}
+
+#[test]
 fn faces_a_feature_explains_are_not_listed_again() {
     for case in ["hole_moved", "hole_removed", "hole_added", "boss_resized"] {
         let r = revised(case, json!({}));
         assert!(!r.features.is_empty(), "{case}");
+        // Everything these edits change is a feature's or its context: nothing is left over.
+        assert!(r.other_faces.is_empty(), "{case}: {:?}", r.other_faces);
+        assert!(r.context_faces > 0, "{case}");
+        assert!(
+            r.unchanged_faces + r.context_faces <= r.measures.new.faces,
+            "{case}"
+        );
         for face in &r.other_faces {
             for f in &r.features {
                 assert!(

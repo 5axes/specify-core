@@ -56,3 +56,23 @@ def test_the_diff_report_lists_faces_no_feature_explains():
     assert report["features"] == []
     assert report["unchanged_faces"] > 0
     assert [f["offset"] for f in report["other_faces"] if f.get("offset")] == [5.0]
+
+
+@pytest.mark.parametrize("width", [0, -1, 4097, 10**9])
+def test_the_picture_width_is_checked(width):
+    old = load(REVISIONS / "block_face_pushed.old.step.gz")
+    new = load(REVISIONS / "block_face_pushed.new.step.gz")
+    with pytest.raises(ValueError, match="image_width"):
+        api.diff(old, new, image_width=width)
+
+
+def test_a_bare_face_change_is_in_the_picture_and_the_report():
+    old = load(REVISIONS / "block_face_pushed.old.step.gz")
+    new = load(REVISIONS / "block_face_pushed.new.step.gz")
+    plain = api.diff(old, new, image_width=300)
+    other = api.diff(old, new, image_width=300)
+    assert plain["image"] == other["image"]
+    # Without the change listed the picture would be all grey; the block's top face is changed.
+    same = api.diff(new, new, image_width=300)["image"]
+    assert plain["image"] != same
+    assert plain["report"]["context_faces"] == 0

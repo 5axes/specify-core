@@ -70,6 +70,11 @@ pub struct Revised {
     /// How many faces the correspondence found unchanged (carried), whether or not a feature
     /// holds them.
     pub unchanged_faces: usize,
+    /// Faces left out of `other_faces` as the context of a feature's change: a face that only
+    /// changed area beside a face a feature holds, or a new or removed face all of whose
+    /// neighbours a feature holds. Faces a feature holds are counted nowhere here: they are in
+    /// `features`.
+    pub context_faces: usize,
     /// The whole part's volume, area, box and face count, before and after.
     pub measures: Measures,
     /// Requirement changes on pmiScene identities, plus deprecated legacy comparisons.
@@ -96,8 +101,10 @@ pub struct Revised {
 }
 
 /// One face's change that no feature of the report explains (see [`Revised::other_faces`]).
-/// Positions are in the new part's frame: the old face is moved by the alignment found first, so
-/// a part that moved as a whole does not read as every face offset.
+/// Positions are in the new part's frame: where an alignment of the parts was found, the old face
+/// is moved by it first, so a part that moved as a whole does not read as every face offset.
+/// Where none was found (a part with too few features to anchor it) the faces are compared in the
+/// parts' own frames, class `moved`, and an offset then includes any rigid motion of the part.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct FaceChange {
     /// `adapted` (the face is still there, changed), `moved` (the same face, found elsewhere:
@@ -2173,12 +2180,31 @@ pub fn diff_with_options(
     }
     gone.sort_unstable();
     gone.dedup();
-    let (other_faces, unchanged_faces) = other_faces(
+    let (other_faces, unchanged_faces, context_faces) = other_faces(
         &corr,
         [&old_analysis, &new_analysis],
         [&old_q.fingerprints, &new_q.fingerprints],
         &feature_changes,
     )?;
+    // The faces listed there show in the picture too: changed, or the old face as a ghost.
+    for c in &other_faces {
+        match (c.class.as_str(), c.old, c.new) {
+            ("adapted" | "moved", Some(o), Some(n)) => {
+                face_class.entry(n).or_insert("changed");
+                if !c.trimmed() {
+                    gone.push(o);
+                }
+            }
+            ("ambiguous", _, _) => {
+                for &n in &c.candidates {
+                    face_class.entry(n).or_insert("ambiguous");
+                }
+            }
+            _ => {}
+        }
+    }
+    gone.sort_unstable();
+    gone.dedup();
 
     // The PMI: Specify's in the new file against the answers carried, and the files' own.
     let new_prompts: BTreeMap<String, String> = api::questions(&new_analysis, readable)?
@@ -2398,6 +2424,7 @@ pub fn diff_with_options(
         features: feature_changes,
         other_faces,
         unchanged_faces,
+        context_faces,
         measures: Measures {
             old: old_size,
             new: new_size,
@@ -2425,7 +2452,7 @@ fn other_faces(
     analyses: [&Value; 2],
     prints: [&qc::Fingerprints; 2],
     features: &[FeatureChange],
-) -> Result<(Vec<FaceChange>, usize)> {
+) -> Result<(Vec<FaceChange>, usize, usize)> {
     use crate::features::Face;
     let described = |a: &Value| -> Result<Vec<Face>> {
         serde_json::from_value(a["faces"].clone())
@@ -2521,6 +2548,7 @@ fn other_faces(
     };
     let mut out = Vec::new();
     let mut unchanged = 0;
+    let mut context = 0;
     for e in &corr.faces {
         match e.class {
             // With no alignment found the correspondence compares no placement: a carried face
@@ -2528,22 +2556,28 @@ fn other_faces(
             Class::Carried if a.found => unchanged += 1,
             Class::Orphaned => {
                 if unclaimed(Some(e.old), None)
-                    && !borders(0, e.old, true)
                     && let Some(f) = old_faces.get(e.old)
                 {
-                    out.push(alone("orphaned", Some(e.old), None, f));
+                    if borders(0, e.old, true) {
+                        context += 1;
+                    } else {
+                        out.push(alone("orphaned", Some(e.old), None, f));
+                    }
                 }
             }
             Class::Ambiguous => {
                 let covered = e.candidates.iter().any(|c| claimed_new.contains(c));
                 if unclaimed(Some(e.old), None)
                     && !covered
-                    && !borders(0, e.old, true)
                     && let Some(f) = old_faces.get(e.old)
                 {
-                    let mut c = alone("ambiguous", Some(e.old), None, f);
-                    c.candidates = e.candidates.clone();
-                    out.push(c);
+                    if borders(0, e.old, true) {
+                        context += 1;
+                    } else {
+                        let mut c = alone("ambiguous", Some(e.old), None, f);
+                        c.candidates = e.candidates.clone();
+                        out.push(c);
+                    }
                 }
             }
             Class::Carried | Class::Adapted => {
@@ -2595,6 +2629,7 @@ fn other_faces(
                         continue;
                     }
                 } else if trimmed && (borders(0, e.old, false) || borders(1, n, false)) {
+                    context += 1;
                     continue;
                 }
                 out.push(c);
@@ -2604,15 +2639,18 @@ fn other_faces(
     }
     for &n in &corr.new_faces {
         if unclaimed(None, Some(n))
-            && !borders(1, n, true)
             && let Some(f) = new_faces.get(n)
         {
-            out.push(alone("new", None, Some(n), f));
+            if borders(1, n, true) {
+                context += 1;
+            } else {
+                out.push(alone("new", None, Some(n), f));
+            }
         }
     }
     // What moved or changed shape first, then faces only trimmed by their neighbours' changes.
     out.sort_by_key(FaceChange::trimmed);
-    Ok((out, unchanged))
+    Ok((out, unchanged, context))
 }
 
 /// Whether *a* takes a part onto itself: each face, moved, has a face of the same surface and
@@ -2648,7 +2686,9 @@ fn onto_itself(prints: &qc::Fingerprints, a: &qc::Alignment) -> bool {
 impl FaceChange {
     /// Whether the face is the same surface in the same place and only its area differs.
     fn trimmed(&self) -> bool {
+        // Only kinds whose placement was compared can be said to have kept it.
         matches!(self.class.as_str(), "adapted" | "moved")
+            && self.kind != "other"
             && self.was_kind.is_none()
             && self.offset.is_none_or(|d| d.abs() < 0.005)
             && self.tilt.is_none()
@@ -3145,10 +3185,14 @@ pub fn view(old: &LoadedPart, new: &LoadedPart, revised: &Revised) -> Value {
     })
 }
 
+/// The widest picture drawn, in pixels; a caller asking for more gets this.
+pub const MAX_PICTURE_WIDTH: u32 = 4096;
+
 /// The new part's picture: an isometric view, its faces coloured by what changed (changed
 /// orange, new green, ambiguous purple, the rest grey) with the old part's gone or moved faces
 /// over it in translucent red, as a PNG *width* pixels wide.
 pub fn picture(old: &LoadedPart, new: &LoadedPart, revised: &Revised, width: u32) -> Vec<u8> {
+    let width = width.clamp(1, MAX_PICTURE_WIDTH);
     let colour = |class: Option<&&str>| -> [f64; 3] {
         match class.copied() {
             Some("changed") => [0.88, 0.48, 0.0],
