@@ -6,8 +6,22 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+### Added
+
+- A loaded part recognises its features once: a `LoadedPart` keeps quiddity's recognition, so
+  `analyse(old)` followed by several `diff(old, new_i)` recognises `old` once (#180).
+- Python `load` takes the STEP file's `bytes` (with an optional `name`) as well as a path, and
+  `part=` selects a part of an assembly from bytes (#180).
+- The diff report lists `other_faces`, the changed, removed, new or ambiguous faces that no
+  feature explains (a plane's offset along its normal, a cylinder's radius and axis move, area),
+  with `unchanged_faces`, and a Markdown section "Other faces" (#180).
+- Python `diff(..., image_width=N)` also returns the change picture as PNG bytes under
+  `"image"`, from the same comparison (#180).
+
 ### Changed
 
+- quiddity and haecceity 0.5.2 (release tag `v0.5.2`; recognition is that of 0.5.1, which
+  lays GD&T frames out CAD-like in written presentations).
 - quiddity and haecceity 0.5.0 (release tag `v0.5.0`). Fingerprints are now version 4,
   and quiddity refuses to correspond version 3. Saved answers still attach by face name
   or by the unchanged faces; where neither holds and only version 3 geometry is saved

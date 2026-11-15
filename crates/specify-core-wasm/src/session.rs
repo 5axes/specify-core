@@ -203,6 +203,7 @@ impl Session {
             },
             unresolved_faces: part.unresolved_faces().to_vec(),
             unresolved_edges: part.unresolved_edges().to_vec(),
+            recognition: Default::default(),
             part,
             // A file of one part used once keeps the name `open` has always given it (the file's);
             // any other part, a part placed twice included, is named as `part::File::load` names

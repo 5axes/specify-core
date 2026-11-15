@@ -57,6 +57,21 @@ class LoadedPart:
         return f"LoadedPart({str(self.path)!r}, part={self.binding.part})"
 
 
-def load(path: str | Path, *, part: int | None = None) -> LoadedPart:
-    """Read ``path`` and take its ``part``-th part; a file of several parts must say which."""
-    return LoadedPart(_native.load(os.fspath(path), part))
+def load(
+    step: str | Path | bytes,
+    *,
+    part: int | None = None,
+    name: str | None = None,
+) -> LoadedPart:
+    """Read ``step`` -- a path, or the STEP file's ``bytes`` -- and take its ``part``-th part;
+    a file of several parts must say which (``part`` takes a part of an assembly from bytes too).
+
+    ``name`` stands for the file in messages and is the part's ``path`` when ``step`` is bytes
+    (default ``memory.step``); it is only for bytes. The same file loaded from bytes and from a
+    path is the same part: the same binding, face numbering and analysis.
+    """
+    if isinstance(step, (bytes, bytearray, memoryview)):
+        return LoadedPart(_native.load(bytes(step), part, name))
+    if name is not None:
+        raise TypeError("name is for bytes; a path names itself")
+    return LoadedPart(_native.load(os.fspath(step), part))

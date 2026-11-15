@@ -70,6 +70,20 @@ the old part (a hole, a pattern, a boss, a slot, a fillet) is then:
   part's axes ("moved Z +2"), "reshaped" for a freeform surface, or "removed". A move along a
   feature's own axis isn't reported when its depth or height changed, since that move is the
   change in length. A move component of a tenth of the largest one or less is left out.
+- **Other faces** lists the changes to faces that no feature above explains: a block face or
+  a sharp-cornered pocket wall pushed 5 mm, say, which no hole, fillet or other recognised
+  feature holds. Each is a face the matching found changed (`adapted`), gone (`orphaned`),
+  new, or can't place (`ambiguous`), or `moved` (the same face found elsewhere, which only
+  happens when no motion between the parts was found, so each face is compared in the parts'
+  own frames), with what is needed to see the change: a plane's normal
+  and its signed move along it ("moved 5 mm outward"), a cylinder's radius and axis move, and
+  the area before and after. Positions are compared where the part is now, so a part that moved
+  as a whole does not read as every face moved. A face a feature above covers is not listed
+  again, nor is the context of one: a face whose area changed beside a face a feature holds, or
+  a new or removed face all of whose neighbours a feature holds (a counterbore's floor). Faces
+  that moved or changed shape come first. The count of unchanged faces follows the heading. In `report.json` these are
+  `other_faces` (`class`, `old`, `new`, `kind`, `normal`, `offset`, `tilt`, `radius`,
+  `axis_move`, `area`, `at`) and `unchanged_faces`.
 - **Ambiguous features** say what happened:
   - "are now one": several features merged into one;
   - "is now split in N": one feature split into several;

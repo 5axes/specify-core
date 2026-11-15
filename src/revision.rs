@@ -64,6 +64,12 @@ pub struct Revised {
     /// Answers carried to a feature quiddity reports changed: still applied, to be checked.
     pub check: Vec<Check>,
     pub features: Vec<FeatureChange>,
+    /// Face-level changes no entry of `features` explains: each changed, removed, new or
+    /// ambiguous face that none of the features' faces covers, with the geometry to see it by.
+    pub other_faces: Vec<FaceChange>,
+    /// How many faces the correspondence found unchanged (carried), whether or not a feature
+    /// holds them.
+    pub unchanged_faces: usize,
     /// The whole part's volume, area, box and face count, before and after.
     pub measures: Measures,
     /// Requirement changes on pmiScene identities, plus deprecated legacy comparisons.
@@ -87,6 +93,61 @@ pub struct Revised {
     pmi_graphics: Vec<pmi_picture::Graphic>,
     #[serde(skip)]
     check_lines: Vec<String>,
+}
+
+/// One face's change that no feature of the report explains (see [`Revised::other_faces`]).
+/// Positions are in the new part's frame: the old face is moved by the alignment found first, so
+/// a part that moved as a whole does not read as every face offset.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct FaceChange {
+    /// `adapted` (the face is still there, changed), `moved` (the same face, found elsewhere:
+    /// only where no alignment of the parts was found, so each is compared in its own frame),
+    /// `orphaned` (gone), `ambiguous` (several new faces fit it equally) or `new`.
+    pub class: String,
+    /// The face's index on the old part, none for a new face.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub old: Option<usize>,
+    /// The face's index on the new part, none for a removed or ambiguous face.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub new: Option<usize>,
+    /// For an ambiguous face, the new faces that fit it.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub candidates: Vec<usize>,
+    /// `plane`, `cylinder`, `cone`, `torus` or `other`: the new face's, the old face's when it is
+    /// gone.
+    pub kind: String,
+    /// The old kind, where the face became another kind of surface.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub was_kind: Option<String>,
+    /// The area before and after, mm², where the face is on both parts.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub area: Option<[f64; 2]>,
+    /// The area of a new or removed face.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub only_area: Option<f64>,
+    /// A plane's outward normal on the new part (the old part's for a removed one).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub normal: Option<[f64; 3]>,
+    /// A plane's signed move along its normal, mm: positive outward, away from the material.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub offset: Option<f64>,
+    /// How far the plane's normal turned, degrees, when it did.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tilt: Option<f64>,
+    /// A cylinder's or torus's radius before and after, mm.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub radius: Option<[f64; 2]>,
+    /// The radius of a new or removed cylinder or torus, mm.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub only_radius: Option<f64>,
+    /// A surface of revolution's axis direction on the new part.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub axis: Option<[f64; 3]>,
+    /// How far its axis moved sideways, mm, as the vector from the old axis to the new one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub axis_move: Option<[f64; 3]>,
+    /// The face's area centroid (the new one's; the old one's for a removed face).
+    pub at: [f64; 3],
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -1625,11 +1686,11 @@ pub fn diff_with_options(
     crate::answer_file::check_for_diff(old, given)
         .map_err(|why| api::Error::Rules(crate::rules::Error::Invalid(why)))?;
     // One recognition of each part, for both its analysis and its fingerprints.
-    let old_q = qc::recognise(&old.part);
-    let new_q = qc::recognise(&new.part);
+    let old_q = old.recognition();
+    let new_q = new.recognition();
     let (old_analysis, new_analysis) = (
-        api::analyse_recognised(old, &old_q)?,
-        api::analyse_recognised(new, &new_q)?,
+        api::analyse_recognised(old, old_q)?,
+        api::analyse_recognised(new, new_q)?,
     );
     // The PMI Specify wrote in a file: its answers.
     let stored = |a: &Value| a["resume"]["answers"].as_object().cloned();
@@ -2112,6 +2173,12 @@ pub fn diff_with_options(
     }
     gone.sort_unstable();
     gone.dedup();
+    let (other_faces, unchanged_faces) = other_faces(
+        &corr,
+        [&old_analysis, &new_analysis],
+        [&old_q.fingerprints, &new_q.fingerprints],
+        &feature_changes,
+    )?;
 
     // The PMI: Specify's in the new file against the answers carried, and the files' own.
     let new_prompts: BTreeMap<String, String> = api::questions(&new_analysis, readable)?
@@ -2329,6 +2396,8 @@ pub fn diff_with_options(
         unresolved,
         check,
         features: feature_changes,
+        other_faces,
+        unchanged_faces,
         measures: Measures {
             old: old_size,
             new: new_size,
@@ -2342,6 +2411,208 @@ pub fn diff_with_options(
     };
     revised.still = revised.motion().is_none() || onto_itself(&old_q.fingerprints, &alignment);
     Ok(revised)
+}
+
+/// The faces whose change no feature explains, and how many faces are unchanged: the
+/// correspondence's changed, removed, ambiguous and new faces, less those any feature of the
+/// report holds (old faces against the features' old faces, new against their new).
+///
+/// A feature's context is not listed: a face that only trimmed (its area changed, its surface did
+/// not) beside a face a feature holds, and a new or removed face all of whose neighbours a
+/// feature holds (a counterbore's floor), changed because of that feature.
+fn other_faces(
+    corr: &Correspondence,
+    analyses: [&Value; 2],
+    prints: [&qc::Fingerprints; 2],
+    features: &[FeatureChange],
+) -> Result<(Vec<FaceChange>, usize)> {
+    use crate::features::Face;
+    let described = |a: &Value| -> Result<Vec<Face>> {
+        serde_json::from_value(a["faces"].clone())
+            .map_err(|e| api::Error::Analysis(format!("the analysis's faces: {e}")))
+    };
+    let (old_faces, new_faces) = (described(analyses[0])?, described(analyses[1])?);
+    let claimed_old: BTreeSet<usize> = features
+        .iter()
+        .flat_map(|f| &f.old_faces)
+        .copied()
+        .collect();
+    let claimed_new: BTreeSet<usize> = features
+        .iter()
+        .flat_map(|f| &f.new_faces)
+        .copied()
+        .collect();
+    let a = &corr.alignment;
+    let moved = |p: [f64; 3]| -> [f64; 3] {
+        if !a.found {
+            return p;
+        }
+        [0, 1, 2].map(|i| {
+            a.rotation[i][0] * p[0]
+                + a.rotation[i][1] * p[1]
+                + a.rotation[i][2] * p[2]
+                + a.translation[i]
+        })
+    };
+    let turned = |d: [f64; 3]| -> [f64; 3] {
+        if !a.found {
+            return d;
+        }
+        [0, 1, 2]
+            .map(|i| a.rotation[i][0] * d[0] + a.rotation[i][1] * d[1] + a.rotation[i][2] * d[2])
+    };
+    let dot = |u: [f64; 3], v: [f64; 3]| u[0] * v[0] + u[1] * v[1] + u[2] * v[2];
+    let sub = |u: [f64; 3], v: [f64; 3]| [u[0] - v[0], u[1] - v[1], u[2] - v[2]];
+    let round = |x: f64| {
+        let r = (x * 1e6).round() / 1e6;
+        if r == 0.0 { 0.0 } else { r }
+    };
+    let round3 = |v: [f64; 3]| v.map(round);
+    let unclaimed = |old: Option<usize>, new: Option<usize>| {
+        !old.is_some_and(|i| claimed_old.contains(&i))
+            && !new.is_some_and(|i| claimed_new.contains(&i))
+    };
+    // A removed, ambiguous or new face: what it was or is. A face of the old part is put where
+    // the alignment takes it.
+    let alone = |class: &str, old: Option<usize>, new: Option<usize>, f: &Face| {
+        let of_old = old.is_some() && new.is_none();
+        let direction = f
+            .direction
+            .map(|d| round3(if of_old { turned(d) } else { d }));
+        FaceChange {
+            class: class.into(),
+            old,
+            new,
+            candidates: Vec::new(),
+            kind: f.kind.clone(),
+            was_kind: None,
+            area: None,
+            only_area: Some(round(f.area)),
+            normal: direction.filter(|_| f.kind == "plane"),
+            offset: None,
+            tilt: None,
+            radius: None,
+            only_radius: f.radius.map(round),
+            axis: direction.filter(|_| f.kind != "plane"),
+            axis_move: None,
+            at: round3(if of_old {
+                moved(f.centroid)
+            } else {
+                f.centroid
+            }),
+        }
+    };
+    // Whether a feature holds a face's neighbour (any of them, or every one) on that side.
+    let borders = |side: usize, face: usize, all: bool| {
+        let claimed = if side == 0 {
+            &claimed_old
+        } else {
+            &claimed_new
+        };
+        let Some(print) = prints[side].faces.get(face) else {
+            return false;
+        };
+        let held = |n: &(usize, String)| claimed.contains(&n.0);
+        if all {
+            !print.neighbours.is_empty() && print.neighbours.iter().all(held)
+        } else {
+            print.neighbours.iter().any(held)
+        }
+    };
+    let mut out = Vec::new();
+    let mut unchanged = 0;
+    for e in &corr.faces {
+        match e.class {
+            // With no alignment found the correspondence compares no placement: a carried face
+            // is the same surface, wherever it is. Here the parts' own frames are compared.
+            Class::Carried if a.found => unchanged += 1,
+            Class::Orphaned => {
+                if unclaimed(Some(e.old), None)
+                    && !borders(0, e.old, true)
+                    && let Some(f) = old_faces.get(e.old)
+                {
+                    out.push(alone("orphaned", Some(e.old), None, f));
+                }
+            }
+            Class::Ambiguous => {
+                let covered = e.candidates.iter().any(|c| claimed_new.contains(c));
+                if unclaimed(Some(e.old), None)
+                    && !covered
+                    && !borders(0, e.old, true)
+                    && let Some(f) = old_faces.get(e.old)
+                {
+                    let mut c = alone("ambiguous", Some(e.old), None, f);
+                    c.candidates = e.candidates.clone();
+                    out.push(c);
+                }
+            }
+            Class::Carried | Class::Adapted => {
+                let carried = e.class == Class::Carried;
+                let Some(n) = e.new else { continue };
+                if !unclaimed(Some(e.old), Some(n)) {
+                    continue;
+                }
+                let (Some(was), Some(now)) = (old_faces.get(e.old), new_faces.get(n)) else {
+                    continue;
+                };
+                let mut c = alone(
+                    if carried { "moved" } else { "adapted" },
+                    Some(e.old),
+                    Some(n),
+                    now,
+                );
+                c.only_area = None;
+                c.only_radius = None;
+                c.area = Some([round(was.area), round(now.area)]);
+                c.radius = was
+                    .radius
+                    .zip(now.radius)
+                    .map(|(x, y)| [round(x), round(y)]);
+                c.was_kind = (was.kind != now.kind).then(|| was.kind.clone());
+                if was.kind == now.kind
+                    && let (Some(d0), Some(d1)) = (was.direction, now.direction)
+                {
+                    let (d0, c0) = (turned(d0), moved(was.centroid));
+                    let tilt = dot(d0, d1).clamp(-1.0, 1.0).acos().to_degrees();
+                    if now.kind == "plane" {
+                        c.offset = Some(round(dot(d1, sub(now.centroid, c0))));
+                        c.tilt = (tilt > 0.01).then(|| round(tilt));
+                    } else if let (Some(o0), Some(o1)) = (was.origin, now.origin) {
+                        // The sideways move of the axis: the new origin's offset from the old
+                        // axis line, perpendicular to it.
+                        let d = sub(o1, moved(o0));
+                        let along = dot(d, d1);
+                        let side = [0, 1, 2].map(|i| d[i] - along * d1[i]);
+                        c.axis_move = Some(round3(side));
+                        let tilt = tilt.min(180.0 - tilt);
+                        c.tilt = (tilt > 0.01).then(|| round(tilt));
+                    }
+                }
+                let trimmed = c.trimmed();
+                if carried {
+                    unchanged += usize::from(trimmed);
+                    if trimmed {
+                        continue;
+                    }
+                } else if trimmed && (borders(0, e.old, false) || borders(1, n, false)) {
+                    continue;
+                }
+                out.push(c);
+            }
+            Class::New => {}
+        }
+    }
+    for &n in &corr.new_faces {
+        if unclaimed(None, Some(n))
+            && !borders(1, n, true)
+            && let Some(f) = new_faces.get(n)
+        {
+            out.push(alone("new", None, Some(n), f));
+        }
+    }
+    // What moved or changed shape first, then faces only trimmed by their neighbours' changes.
+    out.sort_by_key(FaceChange::trimmed);
+    Ok((out, unchanged))
 }
 
 /// Whether *a* takes a part onto itself: each face, moved, has a face of the same surface and
@@ -2372,6 +2643,76 @@ fn onto_itself(prints: &qc::Fingerprints, a: &qc::Alignment) -> bool {
                     <= tol
         })
     })
+}
+
+impl FaceChange {
+    /// Whether the face is the same surface in the same place and only its area differs.
+    fn trimmed(&self) -> bool {
+        matches!(self.class.as_str(), "adapted" | "moved")
+            && self.was_kind.is_none()
+            && self.offset.is_none_or(|d| d.abs() < 0.005)
+            && self.tilt.is_none()
+            && self.radius.is_none_or(|[a, b]| (a - b).abs() < 0.005)
+            && self
+                .axis_move
+                .is_none_or(|m| m.iter().all(|x| x.abs() < 0.005))
+    }
+    /// The change in a line: `face 7 → 7 (plane, normal (0, 0, 1)): moved 5 mm outward`.
+    pub fn line(&self) -> String {
+        let name = |i: Option<usize>| i.map_or("—".to_string(), |i| i.to_string());
+        let faces = if self.candidates.is_empty() {
+            format!("face {} → {}", name(self.old), name(self.new))
+        } else {
+            let any: Vec<String> = self.candidates.iter().map(usize::to_string).collect();
+            format!("face {} → one of {}", name(self.old), any.join(", "))
+        };
+        let vector = |v: &[f64; 3]| format!("({})", v.map(num).join(", "));
+        let mut what = vec![self.kind.clone()];
+        if let Some(n) = &self.normal {
+            what.push(format!("normal {}", vector(n)));
+        }
+        let mut says = Vec::new();
+        match self.class.as_str() {
+            "orphaned" => says.push("removed".to_string()),
+            "ambiguous" => says.push("can't tell which face it became".to_string()),
+            "new" => says.push("added".to_string()),
+            _ => {}
+        }
+        if let Some(was) = &self.was_kind {
+            says.push(format!("was a {was}"));
+        }
+        if let Some(d) = self.offset.filter(|d| d.abs() >= 0.005) {
+            says.push(format!(
+                "moved {} mm {}",
+                num(d.abs()),
+                if d > 0.0 { "outward" } else { "inward" }
+            ));
+        }
+        if let Some(t) = self.tilt {
+            says.push(format!("turned {}°", num(t)));
+        }
+        if let Some([a, b]) = self.radius.filter(|[a, b]| (a - b).abs() >= 0.005) {
+            says.push(format!("radius {} → {} mm", num(a), num(b)));
+        }
+        if let Some(r) = self.only_radius {
+            says.push(format!("radius {} mm", num(r)));
+        }
+        if let Some(m) = &self.axis_move
+            && m.iter().any(|x| x.abs() >= 0.005)
+        {
+            says.push(format!("axis moved {} mm", vector(m)));
+        }
+        if let Some([a, b]) = self.area.filter(|[a, b]| (a - b).abs() >= 0.005) {
+            says.push(format!("area {} → {} mm²", num(a), num(b)));
+        }
+        if let Some(a) = self.only_area {
+            says.push(format!("{} mm²", num(a)));
+        }
+        if says.is_empty() {
+            says.push("changed".to_string());
+        }
+        format!("{faces} ({}): {}", what.join(", "), says.join(", "))
+    }
 }
 
 impl Revised {
@@ -2653,6 +2994,17 @@ impl Revised {
             s += "**What changed**\n\n";
             for (line, _) in self.change_lines() {
                 let _ = writeln!(s, "- {line}");
+            }
+            s += "\n";
+        }
+        if !self.other_faces.is_empty() {
+            let _ = writeln!(
+                s,
+                "**Other faces** (no feature above explains them; {} unchanged)\n",
+                plural_of(self.unchanged_faces, "face")
+            );
+            for c in &self.other_faces {
+                let _ = writeln!(s, "- {}", c.line());
             }
             s += "\n";
         }

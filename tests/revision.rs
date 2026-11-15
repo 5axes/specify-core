@@ -1039,3 +1039,96 @@ fn an_added_requirement_on_unchanged_geometry_carries_unchanged() {
         assert_eq!(&r.answers[id], answer, "{id}");
     }
 }
+
+#[test]
+fn a_part_is_recognised_once_however_often_it_is_analysed_or_diffed() {
+    // #180: an editing loop analyses the baseline and diffs it against several candidates.
+    let (old, new) = pair("hole_moved");
+    assert!(
+        old.recognition.get().is_none(),
+        "nothing is recognised on load"
+    );
+    let first = specify_core::api::analyse(&old).unwrap();
+    let made = std::ptr::from_ref(old.recognition.get().expect("analyse recognised the part"));
+    let r1 = diff(&old, &new, &Map::new()).unwrap();
+    let r2 = diff(&old, &new, &Map::new()).unwrap();
+    assert_eq!(
+        std::ptr::from_ref(old.recognition()),
+        made,
+        "the recognition made by analyse is the one every diff reads"
+    );
+    assert!(new.recognition.get().is_some());
+    // Caching changes no output.
+    assert_eq!(specify_core::api::analyse(&old).unwrap(), first);
+    assert_eq!(
+        serde_json::to_value(&r1).unwrap(),
+        serde_json::to_value(&r2).unwrap()
+    );
+}
+
+#[test]
+fn a_face_pushed_5_mm_that_no_feature_holds_is_a_face_change_with_its_offset() {
+    // `block_face_pushed`: a 60 × 40 × 20 block whose top face is pushed to 25 high (see the
+    // fixtures' README); no hole, fillet or other feature is touched.
+    let r = revised("block_face_pushed", json!({}));
+    assert!(r.features.is_empty(), "{:?}", r.features);
+    let pushed: Vec<_> = r
+        .other_faces
+        .iter()
+        .filter(|f| f.offset.is_some_and(|d| d.abs() > 1e-6))
+        .collect();
+    assert_eq!(pushed.len(), 1, "{:#?}", r.other_faces);
+    let top = pushed[0];
+    assert_eq!(
+        (top.class.as_str(), top.kind.as_str(), top.normal),
+        ("moved", "plane", Some([0.0, 0.0, 1.0]))
+    );
+    assert_eq!(top.offset, Some(5.0), "outward along +Z: {top:?}");
+    // The four sides grow 20 → 25 high, in the same plane: the surface is unchanged.
+    let sides: Vec<_> = r
+        .other_faces
+        .iter()
+        .filter(|f| f.area.is_some() && f.offset == Some(0.0))
+        .collect();
+    assert_eq!(sides.len(), 4, "{:#?}", r.other_faces);
+    assert!(sides.iter().all(|f| f.class == "adapted"));
+    // The bottom, still on z = 0, is the one unchanged face.
+    assert_eq!(r.unchanged_faces, 1);
+    assert_eq!(r.other_faces.len() + r.unchanged_faces, 6);
+    // The pushed face is listed first, then the faces only trimmed by it.
+    assert_eq!(r.other_faces[0].offset, Some(5.0));
+    let md = r.markdown("Block", None);
+    assert!(
+        md.contains("**Other faces** (no feature above explains them; 1 face unchanged)"),
+        "{md}"
+    );
+    assert!(
+        md.contains("- face 5 → 5 (plane, normal (0, 0, 1)): moved 5 mm outward"),
+        "{md}"
+    );
+    let json = serde_json::to_value(&r).unwrap();
+    assert_eq!(json["unchanged_faces"], 1);
+    assert_eq!(json["other_faces"][0]["offset"], 5.0);
+}
+
+#[test]
+fn faces_a_feature_explains_are_not_listed_again() {
+    for case in ["hole_moved", "hole_removed", "hole_added", "boss_resized"] {
+        let r = revised(case, json!({}));
+        assert!(!r.features.is_empty(), "{case}");
+        for face in &r.other_faces {
+            for f in &r.features {
+                assert!(
+                    face.old.is_none_or(|o| !f.old_faces.contains(&o)),
+                    "{case}: old face {face:?} is held by {}",
+                    f.what
+                );
+                assert!(
+                    face.new.is_none_or(|n| !f.new_faces.contains(&n)),
+                    "{case}: new face {face:?} is held by {}",
+                    f.what
+                );
+            }
+        }
+    }
+}

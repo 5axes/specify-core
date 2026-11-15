@@ -85,6 +85,18 @@ quiddity, build123d or OpenCascade). A `LoadedPart` is a handle on the part held
 it has `path`, `binding`, `part_count` and `name`, but none of OpenCascade's objects. The
 second program name `pmi-assist` is not kept.
 
+`load(step, *, part=None, name=None)` takes a path or the STEP file's `bytes` (`name`, default
+`memory.step`, stands for the file in messages and is the part's `path`; `part` takes a part of an
+assembly from bytes too). The same file loaded from bytes and from a path is the same part, with
+the same binding and analysis. A `LoadedPart` recognises its features once, on first use: after
+`analyse(old)`, each `diff(old, new_i)` recognises only `new_i`.
+
+`diff(old, new, answers=None, *, title, part, scenes, image_width=None)` returns
+`{"report", "markdown"}`; the report's `other_faces` and `unchanged_faces` cover face changes no
+feature explains (see [diff](diff.md)). With `image_width` (pixels) the result also has `"image"`:
+the PNG of the change that `specify-core diff` writes as `model.png`, drawn from the same
+comparison, so loaded parts are not read or recognised again.
+
 It is a PyO3 extension built with maturin (abi3, one wheel per platform for CPython 3.12 and
 later): `maturin build --release -m crates/specify-core-py/Cargo.toml`. `tests/python` is a
 smoke suite of the package; `.github/workflows/python.yml` builds, tests and publishes the

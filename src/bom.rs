@@ -965,7 +965,7 @@ fn refingerprint_in(h: &mut History, part: &LoadedPart) {
     };
     let names: Vec<_> = parts.iter().map(|p| p.name.clone()).collect();
     refingerprint(h, &rows, &names, |i| {
-        qc::recognise(&parts[i].part).fingerprints
+        parts[i].recognition().fingerprints.clone()
     });
 }
 
@@ -1084,7 +1084,7 @@ pub(crate) fn append(bytes: Vec<u8>, jobs: &[crate::writer::Job<'_>]) -> Result<
     let rows = read(&file)?;
     let geometry: Vec<_> = parts
         .iter()
-        .map(|p| qc::recognise(&p.part).fingerprints)
+        .map(|p| p.recognition().fingerprints.clone())
         .collect();
     let names: Vec<_> = parts.iter().map(|p| p.name.clone()).collect();
     let existing = history(&original)?;
@@ -1494,7 +1494,7 @@ pub(crate) fn assembly_answers(
     let source = serde_json::to_value(&h).map_err(|e| e.to_string())?;
     let geometry: Vec<_> = new
         .iter()
-        .map(|p| qc::recognise(&p.part).fingerprints)
+        .map(|p| p.recognition().fingerprints.clone())
         .collect();
     allocate(
         &mut h,
@@ -1568,7 +1568,7 @@ mod tests {
             &Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/parts/pin.step"),
         )
         .unwrap();
-        qc::recognise(&f.load(None).unwrap().part).fingerprints
+        f.load(None).unwrap().recognition().fingerprints.clone()
     }
     fn initial(g: Fingerprints, names: &[&str]) -> History {
         History {
