@@ -175,7 +175,31 @@ metadata records the actual written hashes and clean reference. No known-differe
 entry is removed or changed. Original input spans, foreign dependencies, shared
 carrier removal and stable characteristic numbers are checked in native tests.
 
-## Current pin: v0.4.8 (`449ab51d`)
+## Current pin: v0.5.2 (`aacfdc5c`)
+
+Regenerated all sixteen cases (fourteen written, two refused) with `cargo run --release --example write_fixtures`. Nine
+successful byte goldens change, and only for quiddity 0.5.1's CAD-like GD&T frame layout
+(2.5 mm text, 5 mm boxes, font strokes): `nist/nist_ctc_03_asme1_ap242`,
+`nist/nist_ctc_05_asme1_ap242`, `parts/a_hole_along_x_is_labelled_from_its_rim`,
+`parts/assembly`, `parts/four_corner_holes_are_quiddity_rectangle_with_members`,
+`parts/identical_holes_no_pattern_claims_form_a_set`, `parts/pin`, `parts/plate` and
+`parts/stack`. On the plate and pin the changed lines are `COORDINATES_LIST` and
+`CARTESIAN_POINT` records and the `TESSELLATED_CURVE_SET` index lists of the annotation
+curves; the entity counts are equal, and recognition, intents and every semantic record are
+unchanged (0.5.2 is byte-identical to 0.5.1 in recognition). The other five written cases and
+both refusals are byte-identical to v0.5.0's.
+
+Independent Python recapture: `--rust-only` with the clean `2cb6499` reference
+(rebuilt from the documented recipe: `git worktree add --detach <dir> cc341dd`, then the
+cherry-pick of `63e67bd d97d030` with the fixed committer), `uv sync --frozen`, Python 3.14.7
+(the frozen 3.12 reader is not available; the metadata records the version actually used).
+Every decoded readback (all fourteen written cases) equals the previous capture, so only the
+nine rewritten cases' `python_meta.json.gz` files changed (the file's SHA-256 and the Python
+version). The `python_readback.json.gz` files and the five unchanged cases' files were left as
+committed. The four plate/assembly hashes in `tests/bom_opt_in.rs` change for
+the same cause.
+
+## Previous pin: v0.4.8 (`449ab51d`)
 
 Regenerated all sixteen cases once with `examples/write_fixtures.rs`; both refusals
 (CTC-02, CTC-04) are unchanged. All fourteen successful byte goldens change, and
@@ -265,7 +289,7 @@ no PMI (per-file repair reasons are in the NIST README).
 
 ## Floor ownership revision `b590592` (unreleased)
 
-Regenerated all sixteen cases with `cargo run --release --locked --example write_fixtures`.
+Regenerated all sixteen cases (fourteen written, two refused) with `cargo run --release --locked --example write_fixtures`.
 Only CTC-05 changes: its hole identity now includes floor 38 (`hole:37.38`) in planner
 metadata. The physical depth/location carriers remain on cylinder 37; the depth remains
 92.08 mm. Both refusals, the other thirteen successful STEP outputs and every

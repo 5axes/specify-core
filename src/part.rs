@@ -25,7 +25,7 @@
 
 use std::fmt;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use haecceity::Part;
 use haecceity::step::{PartDefinition, Placement, StepError, StepFile};
@@ -89,9 +89,20 @@ pub struct LoadedPart {
     /// The edges (indices into `part.edges`) whose curve haecceity could not resolve: the part's
     /// own `Part::unresolved_edges`.
     pub unresolved_edges: Vec<usize>,
+    /// quiddity's recognition of `part`, made on first use and kept ([`LoadedPart::recognition`]).
+    /// Callers that build a `LoadedPart` themselves start it as `Default::default()`.
+    pub recognition: OnceLock<quiddity::correspondence::Recognition>,
 }
 
 impl LoadedPart {
+    /// quiddity's recognition of the part: made on the first call and shared by every later one,
+    /// so a part analysed and then diffed (or diffed against several revisions) is recognised
+    /// once. The part is never changed after it is loaded, so the result cannot go stale.
+    pub fn recognition(&self) -> &quiddity::correspondence::Recognition {
+        self.recognition
+            .get_or_init(|| quiddity::correspondence::recognise(&self.part))
+    }
+
     /// The `#N` of the `ADVANCED_FACE` (or `FACE_SURFACE`) face `index` was read from (Python's
     /// `face_ranks` and `requirements.face_entities_of`). Panics if `index` is not a face of the
     /// part, as indexing does.
@@ -413,6 +424,7 @@ impl File {
             rebuilt: false,
             unresolved_faces,
             unresolved_edges,
+            recognition: OnceLock::new(),
         })
     }
 }

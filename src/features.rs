@@ -248,7 +248,7 @@ pub fn recognise(loaded: &LoadedPart) -> Result<Vec<Feature>, FeatureError> {
     if let Some(why) = loaded.degraded() {
         return Err(FeatureError::Degraded(why));
     }
-    recognise_from(loaded, &quiddity::correspondence::recognise(&loaded.part))
+    recognise_from(loaded, loaded.recognition())
 }
 
 /// [`recognise`], from quiddity's recognition of `loaded`'s part already made (a revision

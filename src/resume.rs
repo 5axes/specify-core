@@ -646,8 +646,7 @@ pub fn evidence(loaded: &LoadedPart) -> Result<Value, FeatureError> {
         // Only mixed parts need geometric evidence across revisions. All-named parts
         // use names alone; unnamed parts keep their existing schema and bytes.
         if names.iter().any(Option::is_none) {
-            evidence["geometry"] =
-                json!(quiddity::correspondence::recognise(&loaded.part).fingerprints);
+            evidence["geometry"] = json!(loaded.recognition().fingerprints);
         }
     }
     Ok(evidence)
@@ -839,10 +838,10 @@ fn rematch_named(
                 "saved geometry must have one face in index order per saved face",
             ));
         }
-        let new = quiddity::correspondence::recognise(&loaded.part).fingerprints;
+        let new = &loaded.recognition().fingerprints;
         // A future incompatible fingerprint format must leave unnamed faces open. Names
         // remain usable independently of the geometry format and kernel version.
-        if let Ok(correspondence) = quiddity::correspondence::correspond(&old, &new) {
+        if let Ok(correspondence) = quiddity::correspondence::correspond(&old, new) {
             for face in correspondence.faces {
                 use quiddity::correspondence::Class;
                 let binding = match face.class {

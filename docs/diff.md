@@ -70,6 +70,26 @@ the old part (a hole, a pattern, a boss, a slot, a fillet) is then:
   part's axes ("moved Z +2"), "reshaped" for a freeform surface, or "removed". A move along a
   feature's own axis isn't reported when its depth or height changed, since that move is the
   change in length. A move component of a tenth of the largest one or less is left out.
+- **Other faces** lists the changes to faces that no feature above explains: a block face or
+  a sharp-cornered pocket wall pushed 5 mm, say, which no hole, fillet or other recognised
+  feature holds. Each is a face the matching found changed (`adapted`), gone (`orphaned`),
+  new, or can't place (`ambiguous`), with what is needed to see the change: a plane's normal
+  and its signed move along it ("moved 5 mm outward"), a cylinder's radius and axis move, and
+  the area before and after.
+  - Where the matching found how the part moved between the revisions, positions are compared
+    where the part is now, so a part that moved as a whole does not read as every face moved.
+  - Where it found none (a part with too few features to anchor it), each face is compared in
+    the parts' own frames and a displaced one is `moved`; its offset then includes any rigid
+    motion of the part.
+  - A face a feature above covers is not listed again. Nor is the context of one: a face whose
+    area changed (and nothing else) beside a face a feature holds, or a new or removed face all
+    of whose neighbours a feature holds (a counterbore's floor). `context_faces` counts them,
+    so the listed faces, `unchanged_faces`, `context_faces` and the faces the features hold
+    make up the part's faces.
+  - Faces that moved or changed shape come first. In the picture they are orange (their old
+    place red), as feature faces are.
+  - In `report.json` these are `other_faces` (`class`, `old`, `new`, `kind`, `normal`, `offset`,
+    `tilt`, `radius`, `axis_move`, `area`, `at`), `unchanged_faces` and `context_faces`.
 - **Ambiguous features** say what happened:
   - "are now one": several features merged into one;
   - "is now split in N": one feature split into several;

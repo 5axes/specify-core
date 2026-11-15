@@ -23,6 +23,7 @@ use std::path::PathBuf;
 
 use pyo3::exceptions::{PyRuntimeError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
+use pyo3::types::PyBytes;
 use serde_json::{Map, Value, json};
 use specify_core::api::{self, Error};
 use specify_core::choices;
@@ -150,8 +151,7 @@ fn loaded<'a>(step: &'a Bound<'_, PyAny>, part: Option<usize>) -> PyResult<Optio
 
 /// `step` as a handle, or the `part`-th part of the path `step`, loaded.
 fn load_path(py: Python<'_>, step: &Bound<'_, PyAny>, part: Option<usize>) -> PyResult<LoadedPart> {
-    let path: PathBuf = step.extract()?;
-    load(py, path, part)
+    load_source(py, Source::Path(step.extract()?), part)
 }
 
 /// Triangles of `step` (its `part`-th part), or of a part already loaded, ranged by the face
@@ -177,18 +177,30 @@ fn mesh(
     Ok(mesh.to_string())
 }
 
-/// Revision report and Markdown, including numbered semantic PMI changes.
+/// Revision report and Markdown, including numbered semantic PMI changes, and with
+/// `image_width` the picture of the change (a PNG of that width in pixels) drawn from the same
+/// comparison: `(json, png or None)`.
 #[pyfunction]
-#[pyo3(signature = (old, new, answers="{}", title="Revision", part=None, scenes=false))]
-fn diff(
-    py: Python<'_>,
-    old: &Bound<'_, PyAny>,
-    new: &Bound<'_, PyAny>,
+#[pyo3(signature = (old, new, answers="{}", title="Revision", part=None, scenes=false, image_width=None))]
+#[allow(clippy::too_many_arguments)]
+fn diff<'py>(
+    py: Python<'py>,
+    old: &Bound<'py, PyAny>,
+    new: &Bound<'py, PyAny>,
     answers: &str,
     title: &str,
     part: Option<usize>,
     scenes: bool,
-) -> PyResult<String> {
+    image_width: Option<u32>,
+) -> PyResult<(String, Option<Bound<'py, PyBytes>>)> {
+    if let Some(width) = image_width
+        && !(1..=specify_core::revision::MAX_PICTURE_WIDTH).contains(&width)
+    {
+        return Err(PyValueError::new_err(format!(
+            "image_width must be 1 to {} pixels, not {width}",
+            specify_core::revision::MAX_PICTURE_WIDTH
+        )));
+    }
     let answers = answers_of(answers)?;
     let old_owned;
     let old = match loaded(old, part)? {
@@ -206,16 +218,24 @@ fn diff(
             &new_owned
         }
     };
-    py.detach(|| {
-        let report = specify_core::revision::diff_with_options(
-            &old.loaded,
-            &new.loaded,
-            &answers,
-            specify_core::revision::DiffOptions { scenes },
-        )?;
-        Ok(json!({"markdown": report.markdown(title, None), "report": report}).to_string())
-    })
-    .map_err(raised)
+    let (json, png) = py
+        .detach(|| {
+            let report = specify_core::revision::diff_with_options(
+                &old.loaded,
+                &new.loaded,
+                &answers,
+                specify_core::revision::DiffOptions { scenes },
+            )?;
+            let png = image_width.map(|width| {
+                specify_core::revision::picture(&old.loaded, &new.loaded, &report, width)
+            });
+            Ok::<_, Error>((
+                json!({"markdown": report.markdown(title, None), "report": report}).to_string(),
+                png,
+            ))
+        })
+        .map_err(raised)?;
+    Ok((json, png.map(|png| PyBytes::new(py, &png))))
 }
 
 /// Haecceity PMI/presentation plus Specify metadata, from bytes or an open part.
@@ -530,13 +550,46 @@ fn answers_of(text: &str) -> PyResult<Map<String, Value>> {
 }
 
 /// The `part`-th part of `step` (any part of a file of one part; a file of several must say
-/// which), loaded (`load.load`).
+/// which), loaded (`load.load`). `step` is a path, or the file's bytes, which `name` stands for
+/// in messages and in the part's `path` (default `memory.step`).
 #[pyfunction]
-#[pyo3(signature = (step, part=None))]
-fn load(py: Python<'_>, step: PathBuf, part: Option<usize>) -> PyResult<LoadedPart> {
+#[pyo3(signature = (step, part=None, name=None))]
+fn load(
+    py: Python<'_>,
+    step: &Bound<'_, PyAny>,
+    part: Option<usize>,
+    name: Option<PathBuf>,
+) -> PyResult<LoadedPart> {
+    let source = match step.cast::<PyBytes>() {
+        Ok(bytes) => Source::Bytes(
+            name.unwrap_or_else(|| PathBuf::from("memory.step")),
+            bytes.as_bytes().to_vec(),
+        ),
+        Err(_) => {
+            if name.is_some() {
+                return Err(PyTypeError::new_err(
+                    "name is for bytes; a path names itself",
+                ));
+            }
+            Source::Path(step.extract()?)
+        }
+    };
+    load_source(py, source, part)
+}
+
+/// What a part is loaded from.
+enum Source {
+    Path(PathBuf),
+    Bytes(PathBuf, Vec<u8>),
+}
+
+fn load_source(py: Python<'_>, source: Source, part: Option<usize>) -> PyResult<LoadedPart> {
     let (file, loaded) = py
         .detach(|| {
-            let file = part::File::read(&step)?;
+            let file = match source {
+                Source::Path(path) => part::File::read(&path)?,
+                Source::Bytes(name, bytes) => part::File::of_bytes(&name, bytes)?,
+            };
             let loaded = file.load(part)?;
             Ok::<_, part::LoadError>((file, loaded))
         })

@@ -184,6 +184,7 @@ def diff(
     title: str = "Revision",
     part: int | None = None,
     scenes: bool = False,
+    image_width: int | None = None,
 ) -> dict[str, Any]:
     """Compare revisions of a selected part: ``{report, markdown}``.
 
@@ -191,7 +192,20 @@ def diff(
     Omitted answers carry the old file's saved answers. Paths accept a part index;
     loaded handles already select their part. ``scenes=True`` includes the exact
     compared pmi_scene documents in ``report["pmi"]["scenes"]``.
+
+    ``report["other_faces"]`` lists the face-level changes no entry of ``report["features"]``
+    explains (a plane's ``offset`` along its ``normal``, a cylinder's ``radius`` and ``axis_move``,
+    ``area``) and ``report["unchanged_faces"]`` counts the faces carried unchanged.
+    ``image_width`` (1 to 4096 pixels) also draws the picture the command line writes as ``model.png``
+    (changed faces orange, new green, gone or moved-from red) from the same comparison and returns
+    it as PNG ``bytes`` under ``"image"``; passing loaded parts recognises each only once.
     """
-    return json.loads(_native.diff(
-        _step(old), _step(new), json.dumps(answers or {}), title, part, scenes
-    ))
+    if image_width is not None and not 1 <= image_width <= 4096:
+        raise ValueError(f"image_width must be 1 to 4096 pixels, not {image_width}")
+    text, image = _native.diff(
+        _step(old), _step(new), json.dumps(answers or {}), title, part, scenes, image_width
+    )
+    result = json.loads(text)
+    if image is not None:
+        result["image"] = image
+    return result

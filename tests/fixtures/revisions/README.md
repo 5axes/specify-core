@@ -117,3 +117,30 @@ at (0, 0, -5), splitting old bottom face 4 into new faces 4 and 8. These are
 the supplied workflow plates, gzipped with mtime 0; `plate_split.py` reproduces
 the build123d construction. They check that an orphaned datum cannot become an
 accepted default and that saved evidence detects stale face numbering.
+
+`block_face_pushed` (specify-core-rust #180, made with build123d 0.13 / OpenCascade 8.0, Apache-2.0
+with this repository) is a 60 × 40 block standing on z = 0, 20 high, its top face then pushed 5 mm
+(25 high). Sharp corners and no hole, fillet or other feature, so no feature explains the change:
+
+```python
+from build123d import Box, Pos, export_step
+def part(height):
+    return Pos(0, 0, height / 2) * Box(60, 40, height)
+export_step(part(20), "block_face_pushed.old.step"); export_step(part(25), "block_face_pushed.new.step")
+```
+
+`plate_side_pushed` (#180, same tools and licence) is a 60 × 60 × 10 plate on the origin with four
+Ø6 through holes at (15, 15), (15, 45), (45, 15) and (45, 45), whose +X side face is then pushed
+5 mm (65 wide). The holes anchor the match, so an alignment is found (the aligned branch of the
+report's `other_faces`):
+
+```python
+from build123d import Align, Box, Cylinder, Pos, export_step
+MIN = (Align.MIN, Align.MIN, Align.MIN)
+def plate(width):
+    p = Box(width, 60, 10, align=MIN)
+    for x, y in [(15, 15), (15, 45), (45, 15), (45, 45)]:
+        p = p - Pos(x, y, 0) * Cylinder(3, 10, align=(Align.CENTER, Align.CENTER, Align.MIN))
+    return p
+export_step(plate(60), "plate_side_pushed.old.step"); export_step(plate(65), "plate_side_pushed.new.step")
+```
