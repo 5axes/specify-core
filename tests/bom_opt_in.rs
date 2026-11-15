@@ -27,6 +27,11 @@ fn no_opt_in_matches_v046_presentation_through_api_and_cli() {
     // assembly) and repeats the material id as its description; #193 adds the PMI RP 4.1
     // reference to FILE_DESCRIPTION and names curve sets `note`/`label`; and on assemblies
     // the second part's callout model is named `PMI callouts (2)`.
+    // quiddity 0.5.1 (pinned at v0.5.2) lays GD&T frames out CAD-like: 2.5 mm text, 5 mm
+    // boxes and font strokes. All four hashes change for that only: the written STEP differs
+    // from v0.4.9's in its tessellated annotation curve sets (COORDINATES_LIST points and the
+    // curve index lists) and nothing else (checked on the plate and pin goldens: same entity
+    // count, same entity kinds changed).
     // #216: the two complete-assembly byte pins change only for the imported
     // pin answer keys holes:3 -> holes:3.5. The frozen legacy fixture stays keyed
     // as saved and passes through the public matcher; every value and PMI stays exact.
@@ -38,37 +43,37 @@ fn no_opt_in_matches_v046_presentation_through_api_and_cli() {
             "plate",
             false,
             true,
-            "f382716c25ab150445d4c11cf0d5bade94913816e8e3f630f3887f0eecdbbf49",
+            "1227a34aa63a6ce010edf3f33780ac7ee828506eb4b07a237cb3d874ad8e46f3",
         ),
         (
             "assembly",
             true,
             false,
-            "bd30af3b131cb2aecadd6a0badb866529d0c7121888dfff2b66611caa6cb827f",
+            "69c5773fe7fecc4f66dea2fa2dc38993d6cf382802956742cc3eef893b59d484",
         ),
         (
             "assembly",
             true,
             true,
-            "bd30af3b131cb2aecadd6a0badb866529d0c7121888dfff2b66611caa6cb827f",
+            "69c5773fe7fecc4f66dea2fa2dc38993d6cf382802956742cc3eef893b59d484",
         ),
         (
             "assembly",
             false,
             true,
-            "d9aca2bfdad4a407dfe6d0f3b1aaf623462550dc349df484d29d45ec58cf804c",
+            "99e5dff19f382adfa0fbeac36ffa709233816ed364269f07cfe63596e16bf4ad",
         ),
         (
             "plate",
             true,
             false,
-            "98d4e965e40ed5acd747c1e446b227206193e6a9398bd19e5c940cdcfbfc0583",
+            "45be4b84df123aa284b0551e1189d3df33be55de0da9f4916c219a22870049e1",
         ),
         (
             "plate",
             true,
             true,
-            "98d4e965e40ed5acd747c1e446b227206193e6a9398bd19e5c940cdcfbfc0583",
+            "45be4b84df123aa284b0551e1189d3df33be55de0da9f4916c219a22870049e1",
         ),
     ] {
         let path = Path::new(env!("CARGO_MANIFEST_DIR"))
