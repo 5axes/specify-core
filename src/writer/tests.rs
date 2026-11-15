@@ -354,7 +354,7 @@ fn drill_point_depth_ends_at_the_cylindrical_shoulder_not_the_cone_length() {
     };
     let mut features = Vec::new();
     let kind = planned_depth_kind(
-        &mut planned,
+        &planned,
         &input,
         &loaded.part,
         &mut Features(&mut features),
@@ -462,7 +462,7 @@ fn enlargement_depth_roles_measure_between_their_own_parallel_planes() {
             reference: None,
             covers: vec![hole.support.feature.clone()],
         };
-        let mut planned = crate::dimensioning::Planned {
+        let planned = crate::dimensioning::Planned {
             required,
             supports: vec![hole.support.clone()],
             groups: Default::default(),
@@ -471,7 +471,7 @@ fn enlargement_depth_roles_measure_between_their_own_parallel_planes() {
         };
         let mut features = Vec::new();
         let kind = planned_depth_kind(
-            &mut planned,
+            &planned,
             &input,
             &loaded.part,
             &mut Features(&mut features),
@@ -520,7 +520,7 @@ fn an_oblique_counterbore_entry_uses_a_derived_axial_point() {
         .iter()
         .find(|h| h.support.feature == "hole:98.99.101.102")
         .unwrap();
-    let mut planned = crate::dimensioning::Planned {
+    let planned = crate::dimensioning::Planned {
         required: quiddity::dimensioning::Required {
             id: "test:oblique-counterbore.depth".into(),
             kind: quiddity::dimensioning::Kind::Size {
@@ -528,7 +528,9 @@ fn an_oblique_counterbore_entry_uses_a_derived_axial_point() {
                 role: "counterbore.depth".into(),
                 kind: quiddity::dimensioning::SizeKind::Length,
             },
-            nominal: 23.49,
+            // quiddity 0.5.3 plans this depth from the axis/entry-plane intersection
+            // (quiddity #284); before, it planned the tilted rim's extreme, 23.49.
+            nominal: 21.484724,
             count: 1,
             pattern: None,
             tolerance: quiddity::dimensioning::Tolerance::General,
@@ -543,7 +545,7 @@ fn an_oblique_counterbore_entry_uses_a_derived_axial_point() {
     let mut intent = Intent::new(serde_json::to_value(&loaded.binding).unwrap());
     intent.general.push(
         json!({"kind":"size", "feature":hole.support.feature,
-        "faces":hole.support.faces, "nominal":23.49, "general":true, "planner":planned})
+        "faces":hole.support.faces, "nominal":21.484724, "general":true, "planner":planned})
         .as_object()
         .unwrap()
         .clone(),
@@ -560,10 +562,29 @@ fn an_oblique_counterbore_entry_uses_a_derived_axial_point() {
             .unwrap()
             .contains("DERIVED_SHAPE_ASPECT('axis point'")
     );
+    // A plan that disagrees with the geometry (the pre-0.5.3 figure) is not written
+    // rather than corrected.
+    let mut stale = planned.clone();
+    stale.required.nominal = 23.49;
+    let error = planned_depth_kind(
+        &stale,
+        &input,
+        &loaded.part,
+        &mut Features(&mut Vec::new()),
+        &mut PartPmi::default(),
+        &LengthUnit::Millimetre,
+    )
+    .unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("differs from the axis/entry depth"),
+        "{error}"
+    );
     let mut features = Vec::new();
     let mut model = PartPmi::default();
     let kind = planned_depth_kind(
-        &mut planned,
+        &planned,
         &input,
         &loaded.part,
         &mut Features(&mut features),
@@ -616,7 +637,7 @@ fn an_oblique_counterbore_entry_uses_a_derived_axial_point() {
     let mut repeated_features = Vec::new();
     let mut repeated_model = PartPmi::default();
     let repeated = planned_depth_kind(
-        &mut planned,
+        &planned,
         &input,
         &loaded.part,
         &mut Features(&mut repeated_features),
@@ -710,7 +731,7 @@ fn unresolved_pattern_depth_rolls_back_its_partial_endpoint_geometry() {
     let prior = features.clone();
     let mut model = PartPmi::default();
     let error = planned_depth_kind(
-        &mut planned,
+        &planned,
         &input,
         &loaded.part,
         &mut Features(&mut features),
@@ -735,7 +756,7 @@ fn a_circular_entry_wins_over_a_conservative_cylinder_trim_bound() {
         .iter()
         .find(|h| h.support.feature == "hole:105.106")
         .unwrap();
-    let mut planned = crate::dimensioning::Planned {
+    let planned = crate::dimensioning::Planned {
         required: quiddity::dimensioning::Required {
             id: "test:circular-entry.depth".into(),
             kind: quiddity::dimensioning::Kind::Size {
@@ -758,7 +779,7 @@ fn a_circular_entry_wins_over_a_conservative_cylinder_trim_bound() {
     let mut features = Vec::new();
     let mut model = PartPmi::default();
     let kind = planned_depth_kind(
-        &mut planned,
+        &planned,
         &input,
         &loaded.part,
         &mut Features(&mut features),
@@ -977,7 +998,7 @@ fn equal_counterbores_at_opposite_ends_have_distinct_mouth_to_floor_depths() {
         .into_iter()
         .enumerate()
     {
-        let mut plan = crate::dimensioning::Planned {
+        let plan = crate::dimensioning::Planned {
             required: Required {
                 id: format!("test:{role}"),
                 kind: Kind::Size {
@@ -999,7 +1020,7 @@ fn equal_counterbores_at_opposite_ends_have_distinct_mouth_to_floor_depths() {
         };
         let mut features = Vec::new();
         let kind = planned_depth_kind(
-            &mut plan,
+            &plan,
             &input,
             &part,
             &mut Features(&mut features),

@@ -144,3 +144,8 @@ def plate(width):
     return p
 export_step(plate(60), "plate_side_pushed.old.step"); export_step(plate(65), "plate_side_pushed.new.step")
 ```
+
+`boss_shortened` (#181, same tools and licence) is made by `top_filleted_boss.py` (build123d
+0.11.0, run with an output directory): a 120 × 120 × 10 base with a Ø65 boss whose top edge has
+an R3 fillet, shortened from 13 to 8 mm high with the same fillet. Up to quiddity 0.5.2 the
+shorter boss dropped its fillet and cap from its height (13 → 5); 0.5.3 measures both (13 → 8).

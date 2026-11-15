@@ -1780,7 +1780,7 @@ fn planar_depth_entry(
 }
 
 fn planned_depth_kind(
-    planned: &mut crate::dimensioning::Planned,
+    planned: &crate::dimensioning::Planned,
     input: &quiddity::dimensioning::Input,
     part: &haecceity::Part,
     features: &mut Features<'_>,
@@ -1798,12 +1798,7 @@ fn planned_depth_kind(
         pmi.geometry.truncate(checkpoint.1);
         pmi.derived_geometry.truncate(checkpoint.2);
     }
-    result.map(|(kind, nominal)| {
-        if let Some(nominal) = nominal {
-            planned.required.nominal = crate::rules::round(nominal, 6);
-        }
-        kind
-    })
+    result
 }
 
 fn resolve_depth_kind(
@@ -1813,7 +1808,7 @@ fn resolve_depth_kind(
     features: &mut Features<'_>,
     pmi: &mut PartPmi,
     unit: &LengthUnit,
-) -> Result<(DimensionKind, Option<f64>), WriteError> {
+) -> Result<DimensionKind, WriteError> {
     use haecceity::geom::{Curve, Surface, dot, sub};
     // Recognition publishes these nominal lengths to 0.01 mm. Resolve to the
     // nearest real rim within that quantisation, never an invented endpoint.
@@ -2084,15 +2079,19 @@ fn resolve_depth_kind(
         }
         measured.push((resolved[1] - resolved[0]).abs());
     }
-    let nominal = if corrected {
-        let n = measured[0];
-        if measured.iter().any(|m| (m - n).abs() > NEAR) {
-            return invalid("axis/entry depths differ across the planned hole group");
-        }
-        Some(n)
-    } else {
-        None
-    };
+    // quiddity 0.5.3 plans a sloping entry's depth from the same axis/entry-plane
+    // intersection (quiddity #284), so the planned nominal is written as is. A plan that
+    // disagrees with the geometry is not written rather than corrected.
+    if corrected
+        && let Some(m) = measured
+            .iter()
+            .find(|m| (*m - planned.required.nominal).abs() > NEAR)
+    {
+        return invalid(format!(
+            "planned depth {} differs from the axis/entry depth {m}",
+            planned.required.nominal
+        ));
+    }
     let [from, to] = ends.map(|mut members| {
         members.sort();
         members.dedup();
@@ -2105,17 +2104,14 @@ fn resolve_depth_kind(
             })
         }
     });
-    Ok((
-        DimensionKind::Location {
-            from,
-            to,
-            kind: LocationKind::LinearDistance,
-            path: None,
-            directed: false,
-            angle: None,
-        },
-        nominal,
-    ))
+    Ok(DimensionKind::Location {
+        from,
+        to,
+        kind: LocationKind::LinearDistance,
+        path: None,
+        directed: false,
+        angle: None,
+    })
 }
 
 fn planned_kind(
@@ -2620,7 +2616,7 @@ fn part_pmi_observed(
         plan.bore_supports(&loaded.part);
         let mut scratch = Vec::new();
         let Ok(kind) = planned_depth_kind(
-            &mut plan,
+            &plan,
             input,
             &loaded.part,
             &mut Features(&mut scratch),
@@ -2728,7 +2724,7 @@ fn part_pmi_observed(
                     .get_or_insert_with(|| crate::dimensioning::input(&loaded.part))
                 {
                     Ok(input) => planned_depth_kind(
-                        &mut planned,
+                        &planned,
                         input,
                         &loaded.part,
                         &mut f,
