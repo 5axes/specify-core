@@ -4,7 +4,7 @@ All notable changes to specify-core-rust. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## 0.1.17 (2026-11-16)
 
 ### Added
 
