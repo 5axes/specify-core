@@ -1,0 +1,124 @@
+name: crates.io
+
+on:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - 'README.md'
+      - 'CHANGELOG.md'
+      - 'LICENSE'
+      - 'NOTICE'
+      - '.github/workflows/crates.yml'
+  # A published GitHub release publishes specify-core to crates.io, as it publishes the wheel
+  # to PyPI (python.yml): the maintainer's release is the approval. A pre-release is not
+  # published (a crates.io version can be yanked but never removed); a manual run can.
+  release:
+    types: [published]
+  # Backfills an earlier release from its tag. Each run needs the maintainer's word.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The release tag to publish, e.g. v0.1.17
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+# One publish per tag at a time, whichever event started it; pull requests per branch.
+concurrency:
+  group: crates-${{ github.event.release.tag_name || inputs.tag || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # Packages the crate as crates.io would build it, against the crates.io quiddity and
+  # haecceity named by the manifest's `version`, so a packaging break shows before a release.
+  package:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      # The toolchain comes from rust-toolchain.toml.
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - run: cargo publish --dry-run --locked -p specify-core
+
+  publish:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'release' && !github.event.release.prerelease)
+    runs-on: ubuntu-latest
+    # crates.io trusted publishing: the crate trusts this repository, this workflow and this
+    # environment, and the job mints a short-lived token; no token is stored. The environment
+    # is where the maintainer can require an approval.
+    environment: crates-io
+    permissions:
+      contents: read
+      actions: read # the CI gate below reads ci.yml's runs
+      id-token: write
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: refs/tags/${{ env.TAG }}
+      - name: ci.yml passed on the tagged commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sha=$(git rev-parse HEAD)
+          n=$(gh api "repos/${{ github.repository }}/actions/workflows/ci.yml/runs?head_sha=$sha&status=success" --jq .total_count)
+          if [ "$n" -lt 1 ]; then
+            echo "::error::ci.yml has no successful run for $sha ($TAG): publish refused"
+            exit 1
+          fi
+      - run: rustup toolchain install
+      # The tag is the crate's version, and the crates.io kernel it names is the git tag it
+      # builds with: quiddity and haecceity carry `version = "=X"` beside `tag = "vX"`.
+      - name: The tag, the version and the kernel pins agree
+        run: |
+          meta=$(cargo metadata --no-deps --format-version 1)
+          version=$(jq -r '.packages[] | select(.name == "specify-core") | .version' <<<"$meta")
+          if [ "$TAG" != "v$version" ]; then
+            echo "::error::tag $TAG, specify-core $version: they must agree"
+            exit 1
+          fi
+          for kernel in quiddity haecceity; do
+            dep=$(jq -c --arg k "$kernel" '.packages[] | select(.name == "specify-core") | .dependencies[] | select(.name == $k and .kind == null)' <<<"$meta")
+            req=$(jq -r .req <<<"$dep")
+            source=$(jq -r .source <<<"$dep")
+            if [ "$source" != "git+https://github.com/pzfreo/quiddity?tag=v${req#=}" ]; then
+              echo "::error::$kernel is $req from $source: the crates.io version must equal the git tag"
+              exit 1
+            fi
+          done
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+      # A version already on crates.io is skipped, so a rerun or a backfill of a release that
+      # was published by hand does nothing.
+      - name: What crates.io lacks
+        id: missing
+        run: |
+          status=$(curl -s --retry 3 -o /dev/null -w '%{http_code}' \
+            -H 'User-Agent: pzfreo/specify-core release workflow' \
+            "https://crates.io/api/v1/crates/specify-core/$VERSION")
+          if [ "$status" = 200 ]; then
+            echo "specify-core $VERSION is already on crates.io: skipped"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          elif [ "$status" = 404 ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::crates.io answered $status for specify-core $VERSION"
+            exit 1
+          fi
+      - name: Mint a crates.io token
+        if: steps.missing.outputs.publish == 'true'
+        id: auth
+        uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9 # v1.0.6
+      - name: Publish
+        if: steps.missing.outputs.publish == 'true'
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+        run: cargo publish --locked -p specify-core

@@ -4,6 +4,16 @@ All notable changes to specify-core-rust. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### Added
+
+- specify-core is published to crates.io (`cargo add specify-core`, `cargo install
+  specify-core`). A published GitHub release publishes it through crates.io trusted publishing
+  (crates.yml), as python.yml publishes the wheel. The crate holds the library and the command
+  line; the kernel pins name the crates.io version beside the git tag. The WASM crate stays
+  unpublished there.
+
 ## 0.1.16 (2026-11-15)
 
 ### Added
