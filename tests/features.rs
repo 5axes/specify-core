@@ -456,12 +456,37 @@ fn paired(case: &str, differences: Vec<Difference>, faces: &Value) -> Vec<Differ
         // quiddity #217 marks a groove's duplicate hole/boss with `superseded_by`, which the
         // frozen Python record lacks. The marker alone must not unpair the same feature; it is
         // still compared exactly below.
+        // Likewise quiddity 0.5.4 (#285) lists a hole's `cbore`, `spotface`, `csink` and
+        // `outer_steps` faces, which the frozen Python sub-records lack (specify-core#180).
         let unmarked = |r: &Value| {
             let mut r = r["record"].clone();
-            if py["record"].get("superseded_by").is_none()
-                && let Some(r) = r.as_object_mut()
-            {
-                r.remove("superseded_by");
+            if let Some(r) = r.as_object_mut() {
+                if py["record"].get("superseded_by").is_none() {
+                    r.remove("superseded_by");
+                }
+                for key in ["cbore", "spotface", "csink"] {
+                    if py["record"][key].get("faces").is_none()
+                        && let Some(sub) = r.get_mut(key).and_then(Value::as_object_mut)
+                    {
+                        sub.remove("faces");
+                    }
+                }
+                let py_steps = py["record"]["outer_steps"].as_array();
+                for (n, step) in r
+                    .get_mut("outer_steps")
+                    .and_then(Value::as_array_mut)
+                    .into_iter()
+                    .flatten()
+                    .enumerate()
+                {
+                    if py_steps
+                        .and_then(|s| s.get(n))
+                        .is_none_or(|s| s.get("faces").is_none())
+                        && let Some(step) = step.as_object_mut()
+                    {
+                        step.remove("faces");
+                    }
+                }
             }
             r
         };

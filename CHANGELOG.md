@@ -13,6 +13,14 @@ All notable changes to specify-core-rust. The format follows
   (crates.yml), as python.yml publishes the wheel. The crate holds the library and the command
   line; the kernel pins name the crates.io version beside the git tag. The WASM crate stays
   unpublished there.
+- An analysed hole's `cbore`, `spotface`, `outer_steps` items and `csink` list their own sorted
+  `faces`, a part of the hole's `faces`, so a B-rep editor can tell the counterbore or seat
+  from the bore (#180). Omitted when quiddity does not know them.
+
+### Changed
+
+- quiddity and haecceity 0.5.4 (release tag `v0.5.4`, also on crates.io). Hole faces and
+  every other recognition output are unchanged apart from the sub-record `faces` above.
 
 ## 0.1.16 (2026-11-15)
 

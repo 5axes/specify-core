@@ -175,7 +175,12 @@ metadata records the actual written hashes and clean reference. No known-differe
 entry is removed or changed. Original input spans, foreign dependencies, shared
 carrier removal and stable characteristic numbers are checked in native tests.
 
-## Current pin: v0.5.3 (`7e8ddc08`)
+## Current pin: v0.5.4 (`f7ed5825`)
+
+No golden changes: every byte golden, refusal and Python readback passes unchanged on
+v0.5.4 (its hole sub-record `faces` are additive and its volume-check order changes no output).
+
+## Previous pin: v0.5.3 (`7e8ddc08`)
 
 No golden changes: every byte golden, refusal and Python readback passes unchanged on
 v0.5.3 (its boss-height and sloping-entry depth changes touch none of these cases).

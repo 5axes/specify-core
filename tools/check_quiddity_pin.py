@@ -18,7 +18,7 @@ SIBLING = "pzfreo/draftwright"
 KERNEL = "pzfreo/quiddity"
 # Its name before the 2026-11-03 rename; GitHub redirects it, and released siblings still use it.
 FORMER_KERNEL = "pzfreo/quiddity-rust"
-REQUIRED_TAG = "v0.5.3"
+REQUIRED_TAG = "v0.5.4"
 
 
 def api(path):

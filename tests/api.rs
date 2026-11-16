@@ -532,3 +532,44 @@ fn all_curved_analysis_explains_inapplicable_dimensioning_and_still_previews() {
     let _: quiddity::dimensioning::Input =
         serde_json::from_value(planar["dimensioning"].clone()).unwrap();
 }
+
+/// A counterbored hole's `cbore` sub-record lists its own faces (#180 item 5, from quiddity
+/// 0.5.4): agents editing the B-rep can tell the counterbore's faces from the bore's.
+#[test]
+fn a_counterbore_lists_its_own_faces_within_the_hole() {
+    let path = common::fixtures()
+        .join("revisions")
+        .join("complex_counterbore.new.step.gz");
+    let a = api::analyse_file(&path, None).unwrap();
+    let mut counterbores = 0;
+    for feature in a["features"].as_array().unwrap() {
+        let Some(cbore) = feature["record"].get("cbore").filter(|c| c.is_object()) else {
+            continue;
+        };
+        counterbores += 1;
+        let own: Vec<u64> = cbore["faces"]
+            .as_array()
+            .expect("a cbore lists its faces")
+            .iter()
+            .map(|f| f.as_u64().unwrap())
+            .collect();
+        let hole: Vec<u64> = feature["faces"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|f| f.as_u64().unwrap())
+            .collect();
+        assert!(!own.is_empty(), "{}: no counterbore faces", feature["id"]);
+        assert!(
+            own.windows(2).all(|w| w[0] < w[1]),
+            "{}: unsorted",
+            feature["id"]
+        );
+        assert!(
+            own.iter().all(|f| hole.contains(f)) && own.len() < hole.len(),
+            "{}: counterbore faces {own:?} are not a part of the hole's {hole:?}",
+            feature["id"]
+        );
+    }
+    assert_eq!(counterbores, 4);
+}
