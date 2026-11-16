@@ -16,13 +16,13 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 | [cli](#cli) | 270 | 0 | 52 | 0 | 2 | 1 | 325 |
 | [cross_engine](#cross_engine) | 55 | 2 | 0 | 1 | 1 | 20 | 79 |
 | [existing](#existing) | 31 | 0 | 0 | 0 | 7 | 0 | 38 |
-| [features](#features) | 3454 | 1414 | 570 | 2491 | 1066 | 1886 | 10881 |
+| [features](#features) | 3454 | 1414 | 571 | 2491 | 1066 | 1886 | 10882 |
 | [iso286](#iso286) | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 | [mates](#mates) | 1 | 0 | 0 | 0 | 3 | 0 | 4 |
 | [mesh](#mesh) | 5 | 17 | 9 | 4 | 5 | 0 | 40 |
 | [rules](#rules) | 114 | 0 | 615 | 0 | 0 | 0 | 729 |
 | [writer](#writer) | 1090 | 0 | 0 | 0 | 15 | 2 | 1107 |
-| **all** | 5029 | 1433 | 1248 | 2497 | 1101 | 1909 | 13217 |
+| **all** | 5029 | 1433 | 1249 | 2497 | 1101 | 1909 | 13218 |
 
 ## analysis
 
@@ -564,7 +564,7 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 
   quiddity-rust v0.1.0-alpha.2 publishes section_recesses in Features (154 records over the corpus and fixtures at v0.1.0-alpha.3); each differs only by Python's faces adding plane faces, records equal. quiddity-rust gives defining faces only (Features::defining); Python quiddity's evidence view gives constituent faces (upstream need U2).
 
-### features: equivalent (570 entries)
+### features: equivalent (571 entries)
 
 - **quiddity #134: plate under trimming** (18 entries, 8 case globs)
 
@@ -673,6 +673,10 @@ Python's outputs are the oracle, not the specification. Each difference a compar
 - **Groove duplicate marker is absent from the frozen Python record (quiddity #217)** (4 entries, 2 case globs)
 
   quiddity #217 marks a hole or boss that duplicates an annular groove's bore or core with superseded_by="annular_grooves/0"; it adds only this field and changes no face, id or other record field (published faces of this record are identical at #216's head 923c853c and #217's merge b04b4a0d). The frozen Python record has no such field. The feature still pairs with Python's under its id, and its faces and every other field remain compared.
+
+- **Hole sub-record faces are absent from the frozen Python record (quiddity 0.5.4)** (`*` at `features[id=*].record*.cbore.faces`)
+
+  quiddity 0.5.4 (#285, for specify-core#180) adds a sorted `faces` listing to a hole's nested cbore, spotface, outer_steps items and csink, the faces that locate that sub-record among the hole's own defining faces; it changes no face, id or other record field (published hole faces are identical at v0.5.3 and v0.5.4, e.g. nist_ctc_04 holes/31 [69,70,71,72,171,172] in both). The frozen Python sub-records have no such field. The feature still pairs with Python's under its id, and its faces and every other field remain compared.
 
 ### features: undetermined (2491 entries)
 
