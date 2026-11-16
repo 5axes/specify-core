@@ -94,3 +94,18 @@ with `hole.position:holes:14` 0.2 (was 0.3), `hole.position:holes:15` none (was 
 reports six PMI changes: #12 ⌖ ⌀0.2 A removed, #13 ⌖ ⌀0.3Ⓜ A → ⌖ ⌀0.2Ⓜ A, #16 and #17 (the
 tapped hole's location dimensions) and #18 ⟂ 0.05 A added, and the edges note reworded.
 `scripts/diff-browser.mjs` compares them on /diff with their PMI drawn.
+
+`spindle-specify-0.1.15.project.json` is the editor's stored-project payload for
+`19-spindle-semantic-links-only.step.gz`, generated with Specify v0.1.15
+(`7769ddad1fb1fb5723db3eeac145c258b3a1fbd4`). The released
+`specify-core-wasm-0.1.15.tgz` was verified against SHA-256
+`6d9362b767e1634642354fb541ba75ef97ae3b4f9f4830cda69317394686fa1c`.
+Its answers came from that release's `IntentEngine.acceptDefaults` with explicit material
+`6082-T6`, hole function `tapped:M2`, position `0.17`, and full-thread depth `1.4`, all
+under the old `holes:15` keys. `answerEvidence` is that release's `evidence()` output;
+`auto` lists the remaining defaulted answers and `accepted` the four explicit questions.
+The source bytes stay in the existing gzip fixture, identified by the payload's SHA-256.
+`pmi-scene-wasm.test.mjs` checks rematching and project persistence on the new kernel;
+`save-browser.mjs` imports the old project through the editor, checks saved answers,
+acceptances and automatic statuses, and checks the existing notice for a deliberately
+inapplicable `holes:99` answer. See `docs/SPECIFY-0.1.16.md` for the kernel comparison.
