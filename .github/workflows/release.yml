@@ -106,6 +106,10 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           case "$TAG" in v[0-9]*) ;; *) echo "::error::$TAG is not a release tag"; exit 1 ;; esac
+          if [ "$(gh release view "$TAG" --json isPrerelease --jq .isPrerelease)" != false ]; then
+            echo "::error::$TAG is a pre-release or has no release: not published to npm"
+            exit 1
+          fi
           version="${TAG#v}"
           archive="specify-core-wasm-${version}.tgz"
           mkdir release && cd release
@@ -116,7 +120,8 @@ jobs:
       - name: Prepare the npm package (the tag must equal its version)
         run: python3 tools/npm_package.py release/pkg --version "$VERSION"
       # A version already on npm is skipped, so a rerun or a dispatch of a published release
-      # does nothing. An older version than npm's latest keeps `latest` where it is.
+      # does nothing. An older version than npm's latest keeps `latest` where it is, under the
+      # dist-tag release-<version> (npm refuses a dist-tag that is a semver range, like v0.1.16).
       - name: What npm lacks
         id: missing
         run: |
@@ -133,7 +138,7 @@ jobs:
           echo "publish=true" >> "$GITHUB_OUTPUT"
           latest=$(curl -s --retry 3 "$url" | jq -r '."dist-tags".latest // empty')
           if [ -n "$latest" ] && [ "$(printf '%s\n' "$latest" "$VERSION" | sort -V | tail -1)" != "$VERSION" ]; then
-            echo "dist_tag=v$VERSION" >> "$GITHUB_OUTPUT"
+            echo "dist_tag=release-$VERSION" >> "$GITHUB_OUTPUT"
           else
             echo "dist_tag=latest" >> "$GITHUB_OUTPUT"
           fi

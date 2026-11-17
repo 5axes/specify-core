@@ -91,12 +91,14 @@ archive, then the `npm` job downloads it, checks its `.sha256`, prepares `packag
 `tools/npm_package.py` (scoped name, `publishConfig: {access: public, provenance: true}`,
 refusing a version other than the tag's), and publishes it with npm trusted publishing in the
 `npm` environment, where the maintainer approves. A version already on npm is skipped; a
-version older than npm's `latest` is published under the dist-tag `v<version>`. A manual run
-of `release.yml` with a `tag` publishes that existing release's archive the same way.
+version older than npm's `latest` is published under the dist-tag `release-<version>`. A manual run
+of `release.yml` with a `tag` publishes that existing release's archive the same way; a
+pre-release is refused.
 
 npm adds a trusted publisher from the package's settings, so the package's first version is
 published with a short-lived token (environment secret `NPM_TOKEN`, deleted afterwards). The
-trusted publisher is: organization `pzfreo`, repository `specify-core`, workflow
+`npm` environment needs the maintainer as a required reviewer, and any branch policy must
+allow `v*` tags. The trusted publisher is: organization `pzfreo`, repository `specify-core`, workflow
 `release.yml`, environment `npm`, with `npm publish` allowed. A new trusted publisher expires
 unless it publishes within 2 days, so add it shortly before the next release.
 
