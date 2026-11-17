@@ -18,6 +18,9 @@ All notable changes to specify-core-rust. The format follows
 
 - The WASM package's README (shown on npm) said AGPL-3.0; the package, haecceity and quiddity
   are Apache-2.0. Its documentation links are absolute, so they work on npm.
+- The WASM release archive and npm package carry NOTICE beside LICENSE (Apache-2.0 4(d)), from
+  0.1.18. CI and the npm job refuse a packed tarball without both. The `.wasm` and `.js` are
+  unchanged.
 
 ## 0.1.17 (2026-11-16)
 
