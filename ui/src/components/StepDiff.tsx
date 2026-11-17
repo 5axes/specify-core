@@ -270,7 +270,9 @@ export interface StepDiffProps {
   header?: ReactNode;
   /** An error from the host, shown where this component's own is, ahead of it. */
   hostError?: string;
-  /** Where the Specify WASM glue is served from, if not the editor's own. */
+  /** URL of specify-core-wasm's `specify_core_wasm.js` module (default `/wasm/intent/specify_core_wasm.js`), resolved against the page.
+   *  A cross-origin URL needs the host's CSP `script-src` (and `connect-src` for the .wasm) to allow it.
+   *  Read only when the component mounts; a later change has no effect. */
   wasmUrl?: string;
 }
 

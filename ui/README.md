@@ -28,12 +28,14 @@ import 'specify-ui/style.css';
 ```
 
 `createIntentEngine({ wasmUrl })` starts the Specify engine in a worker (a `WorkerClient`) for `SpecifyReview` and
-your own calls. The helpers `characteristics`, `as9102`, `xlsx`, the diff and PMI-diff functions and the `types/pmi`
+your own calls. `wasmUrl` is the URL of the `specify_core_wasm.js` module (not a folder), resolved against the page. The helpers `characteristics`, `as9102`, `xlsx`, the diff and PMI-diff functions and the `types/pmi`
 types are exported too; see `src/index.ts`.
 
 ## What the host serves
 
 - **specify-core-wasm** at `wasmUrl` (default `/wasm/intent/specify_core_wasm.js`), with its `_bg.wasm` beside it.
+  A cross-origin `wasmUrl` needs the host's CSP `script-src` (and `connect-src` for the .wasm) to allow it.
+  `StepDiff` reads `wasmUrl` only when it mounts; a later change has no effect.
   The WASM is not bundled. `engines.lock.json` pins the release the tests use; `npm run fetch:wasm` installs it
   (checksum-verified) into `public/wasm/intent/`.
 - **The font**: `/fonts/IBMPlexMono-Regular.ttf` (IBM Plex Mono, SIL OFL), loaded by `src/specify/PmiLab.css`.
