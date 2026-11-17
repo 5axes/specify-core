@@ -5,8 +5,8 @@ import { gunzipSync } from 'node:zlib';
 import { bestFitNormal, drawnFromScene, drawnShown, drawnViews, facesAway, graphicNormal, hasFileGraphics, hasGraphics, linksFromPmi, partCentre, readPresentation } from '../src/specify/drawn.ts';
 
 // The spindle's haecceity.presentation/1 and haecceity.pmi/1, from quiddity's json feature
-// (scripts/fixtures/README.md).
-const fixture = (kind) => JSON.parse(gunzipSync(readFileSync(`scripts/fixtures/19-spindle-semantic-links-only.${kind}.json.gz`)));
+// (test/fixtures/README.md).
+const fixture = (kind) => JSON.parse(gunzipSync(readFileSync(`test/fixtures/19-spindle-semantic-links-only.${kind}.json.gz`)));
 const spindle = fixture('presentation');
 const graphic = { source: 'file', name: 'x', polylines: [[[0, 0, 0], [1, 0, 0]]], triangles: [], text: ['A'], step_ids: [1], unsupported: [] };
 const doc = (over = {}) => ({ schema: 'haecceity.presentation/1', length_unit: 'millimetre', items: { 1: [graphic] }, unlinked: [], semantic_ids: ['1'], ...over });

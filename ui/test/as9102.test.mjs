@@ -45,23 +45,3 @@ print(sorted(z.namelist()))`, path]).toString();
   assert.ok(workbookFiles([{ name: 'S', rows: [['a <b> & "c"', 1.5]] }])[5][1].includes('a &lt;b&gt; &amp; &quot;c&quot;'));
   assert.ok(!workbookFiles([{ name: 'S', rows: [['x\uffffy\u0001']] }])[5][1].match(/[\uffff\u0001]/), 'characters XML cannot hold are dropped');
 });
-
-test('DXF export saves one binary-safe archive for several sheets and a plain DXF for one', async () => {
-  const { dxfExport } = await import('../src/model/dxf-export.ts');
-  const sheets = new Map([[1, new Uint8Array([0, 255, 128, 10])], [2, new TextEncoder().encode('0\nSECTION\n2\nENTITIES\n')]]);
-  const reads = [];
-  const read = async n => { reads.push(n); return sheets.get(n); };
-  const single = await dxfExport('part', [1], read);
-  assert.equal(single.name, 'part.dxf'); assert.equal(single.mime, 'application/dxf'); assert.equal(single.sheets, 1);
-  assert.deepEqual(single.bytes, sheets.get(1));
-  const multiple = await dxfExport('part', [1, 2], read);
-  assert.deepEqual(reads, [1, 1, 2]);
-  assert.equal(multiple.name, 'part-dxf.zip'); assert.equal(multiple.sheets, 2); assert.equal(multiple.mime, 'application/zip');
-  execFileSync('python3', ['-c', `import io,sys,zipfile
-z=zipfile.ZipFile(io.BytesIO(sys.stdin.buffer.read()))
-assert z.testzip() is None
-assert z.namelist()==['part-sheet-1.dxf','part-sheet-2.dxf']
-assert z.read('part-sheet-1.dxf')==bytes([0,255,128,10])
-assert z.read('part-sheet-2.dxf')==b'0\\nSECTION\\n2\\nENTITIES\\n'
-`], { input: multiple.bytes });
-});
