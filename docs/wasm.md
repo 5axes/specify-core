@@ -44,7 +44,16 @@ PMI writer as native Specify; there is no copied writer.
 Each published GitHub release whose tag starts with `v` gets
 `specify-core-wasm-<version>.tgz` and `specify-core-wasm-<version>.tgz.sha256`. The archive
 contains `pkg/`: the web ES module, `.wasm`, TypeScript declarations, package metadata and
-README. Nothing is published to npm. Pin an exact release and verify the archive before
+README. The same files are on npm as
+[`@draftwright/specify-core-wasm`](https://www.npmjs.com/package/@draftwright/specify-core-wasm)
+(from 0.1.17), with only `package.json` renamed to the scope; the module is still
+`specify_core_wasm.js`:
+
+```sh
+npm install @draftwright/specify-core-wasm@0.1.17
+```
+
+To use the release archive instead, pin an exact release and verify the archive before
 extracting it:
 
 ```sh
@@ -74,6 +83,24 @@ try {
   engine.free();
 }
 ```
+
+### Publishing to npm
+
+A published, non-pre-release GitHub release runs `release.yml`: the `wasm` job attaches the
+archive, then the `npm` job downloads it, checks its `.sha256`, prepares `package.json` with
+`tools/npm_package.py` (scoped name, `publishConfig: {access: public, provenance: true}`,
+refusing a version other than the tag's), and publishes it with npm trusted publishing in the
+`npm` environment, where the maintainer approves. A version already on npm is skipped; a
+version older than npm's `latest` is published under the dist-tag `release-<version>`. A manual run
+of `release.yml` with a `tag` publishes that existing release's archive the same way; a
+pre-release is refused.
+
+npm adds a trusted publisher from the package's settings, so the package's first version is
+published with a short-lived token (environment secret `NPM_TOKEN`, deleted afterwards). The
+`npm` environment needs the maintainer as a required reviewer, and any branch policy must
+allow `v*` tags. The trusted publisher is: organization `pzfreo`, repository `specify-core`, workflow
+`release.yml`, environment `npm`, with `npm publish` allowed. A new trusted publisher expires
+unless it publishes within 2 days, so add it shortly before the next release.
 
 ## JavaScript API
 

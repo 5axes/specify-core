@@ -3,13 +3,21 @@ name: Release WASM
 on:
   release:
     types: [published]
+  # Publishes an existing release's WASM package to npm from its attached archive, e.g. a
+  # release made before the npm job existed. Each run needs the maintainer's word.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The release tag whose WASM archive to publish to npm, e.g. v0.1.17
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 jobs:
   wasm:
-    if: startsWith(github.event.release.tag_name, 'v')
+    if: github.event_name == 'release' && startsWith(github.event.release.tag_name, 'v')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -59,3 +67,87 @@ jobs:
           tar -czf "$archive" -C crates/specify-core-wasm pkg
           sha256sum "$archive" > "$archive.sha256"
           gh release upload "$TAG" "$archive" "$archive.sha256" --clobber
+
+  # Publishes the archive the wasm job attached to npm as @draftwright/specify-core-wasm: the
+  # same files, with only package.json renamed to the scope and given publishConfig
+  # (tools/npm_package.py). npm trusted publishing: the package trusts this repository, this
+  # workflow and the `npm` environment, where the maintainer approves; no token is stored. A
+  # pre-release is not published (an npm version can be deprecated but not reused).
+  npm:
+    needs: wasm
+    if: >-
+      ${{ !cancelled() && (
+        github.event_name == 'workflow_dispatch' ||
+        (needs.wasm.result == 'success' && !github.event.release.prerelease)) }}
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+      PACKAGE: '@draftwright/specify-core-wasm'
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+      - name: npm supports trusted publishing (11.5.1 or later)
+        run: |
+          v=$(npm --version)
+          if [ "$(printf '%s\n' 11.5.1 "$v" | sort -V | head -1)" != 11.5.1 ]; then
+            echo "::error::npm $v is older than 11.5.1"
+            exit 1
+          fi
+      - name: Download and verify the release archive
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          case "$TAG" in v[0-9]*) ;; *) echo "::error::$TAG is not a release tag"; exit 1 ;; esac
+          if [ "$(gh release view "$TAG" --json isPrerelease --jq .isPrerelease)" != false ]; then
+            echo "::error::$TAG is a pre-release or has no release: not published to npm"
+            exit 1
+          fi
+          version="${TAG#v}"
+          archive="specify-core-wasm-${version}.tgz"
+          mkdir release && cd release
+          gh release download "$TAG" -p "$archive" -p "$archive.sha256"
+          sha256sum -c "$archive.sha256"
+          tar -xzf "$archive"
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+      - name: Prepare the npm package (the tag must equal its version)
+        run: python3 tools/npm_package.py release/pkg --version "$VERSION"
+      # A version already on npm is skipped, so a rerun or a dispatch of a published release
+      # does nothing. An older version than npm's latest keeps `latest` where it is, under the
+      # dist-tag release-<version> (npm refuses a dist-tag that is a semver range, like v0.1.16).
+      - name: What npm lacks
+        id: missing
+        run: |
+          url="https://registry.npmjs.org/@draftwright%2fspecify-core-wasm"
+          status=$(curl -s --retry 3 -o /dev/null -w '%{http_code}' "$url/$VERSION")
+          if [ "$status" = 200 ]; then
+            echo "$PACKAGE $VERSION is already on npm: skipped"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          elif [ "$status" != 404 ]; then
+            echo "::error::npm answered $status for $PACKAGE $VERSION"
+            exit 1
+          fi
+          echo "publish=true" >> "$GITHUB_OUTPUT"
+          latest=$(curl -s --retry 3 "$url" | jq -r '."dist-tags".latest // empty')
+          if [ -n "$latest" ] && [ "$(printf '%s\n' "$latest" "$VERSION" | sort -V | tail -1)" != "$VERSION" ]; then
+            echo "dist_tag=release-$VERSION" >> "$GITHUB_OUTPUT"
+          else
+            echo "dist_tag=latest" >> "$GITHUB_OUTPUT"
+          fi
+      - run: npm pack --dry-run ./release/pkg
+      # With trusted publishing configured, npm exchanges the job's OIDC token and needs no
+      # secret. NPM_TOKEN is only for the package's very first publish, before npm lets a
+      # trusted publisher be added (docs/wasm.md); delete it afterwards.
+      - name: Publish
+        if: steps.missing.outputs.publish == 'true'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish ./release/pkg --tag "${{ steps.missing.outputs.dist_tag }}"
