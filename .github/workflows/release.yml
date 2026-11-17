@@ -64,6 +64,8 @@ jobs:
         run: |
           version="${TAG#v}"
           archive="specify-core-wasm-${version}.tgz"
+          # Apache-2.0 4(d): the NOTICE travels with the package (wasm-pack copies only LICENSE).
+          cp NOTICE crates/specify-core-wasm/pkg/NOTICE
           tar -czf "$archive" -C crates/specify-core-wasm pkg
           sha256sum "$archive" > "$archive.sha256"
           gh release upload "$TAG" "$archive" "$archive.sha256" --clobber
@@ -117,8 +119,9 @@ jobs:
           sha256sum -c "$archive.sha256"
           tar -xzf "$archive"
           echo "VERSION=$version" >> "$GITHUB_ENV"
-      - name: Prepare the npm package (the tag must equal its version)
-        run: python3 tools/npm_package.py release/pkg --version "$VERSION"
+      # The tag must equal its version; the tarball must carry LICENSE and NOTICE.
+      - name: Prepare and check the npm package
+        run: python3 tools/npm_package.py release/pkg --version "$VERSION" --check-pack
       # A version already on npm is skipped, so a rerun or a dispatch of a published release
       # does nothing. An older version than npm's latest keeps `latest` where it is, under the
       # dist-tag release-<version> (npm refuses a dist-tag that is a semver range, like v0.1.16).
@@ -142,7 +145,6 @@ jobs:
           else
             echo "dist_tag=latest" >> "$GITHUB_OUTPUT"
           fi
-      - run: npm pack --dry-run ./release/pkg
       # With trusted publishing configured, npm exchanges the job's OIDC token and needs no
       # secret. NPM_TOKEN is only for the package's very first publish, before npm lets a
       # trusted publisher be added (docs/wasm.md); delete it afterwards.
