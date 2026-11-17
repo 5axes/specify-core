@@ -4,6 +4,16 @@ All notable changes to specify-core-rust. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### Added
+
+- The WASM package is published to npm as `@draftwright/specify-core-wasm`, from 0.1.17: the
+  release archive's files, with `package.json` scoped (`tools/npm_package.py`). A published
+  release publishes it through npm trusted publishing (`release.yml`, environment `npm`); a
+  manual run publishes an existing release. The `specify-core-wasm-<version>.tgz` release
+  assets are unchanged.
+
 ## 0.1.17 (2026-11-16)
 
 ### Added

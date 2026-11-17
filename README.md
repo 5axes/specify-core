@@ -54,7 +54,7 @@ One engine, one set of answers and files, whichever way you call it:
 | **Command line** | `uv tool install specify-core` (or `pipx install specify-core`), a [release](https://github.com/pzfreo/specify-core/releases) binary, `cargo install specify-core`, or `cargo build --release` | [install](#install-the-command-line), [use](#command-line) |
 | **Python** | `pip install specify-core` (CPython 3.11+, no dependencies) | [below](#python), [package README](crates/specify-core-py/README.md) |
 | **Rust** | `specify-core = "0.1.17"` (crates.io) | [below](#rust), [docs/library.md](docs/library.md) |
-| **Browser** (WebAssembly) | `specify-core-wasm-<version>.tgz` on each release | [docs/wasm.md](docs/wasm.md) |
+| **Browser** (WebAssembly) | `@draftwright/specify-core-wasm` (npm), or `specify-core-wasm-<version>.tgz` on each release | [docs/wasm.md](docs/wasm.md) |
 | **Host process** (JSON lines) | `specify-core serve` | [below](#host-process) |
 | **GitHub pull requests** | `uses: pzfreo/specify-core/step-diff@main` | [step-diff/README.md](step-diff/README.md) |
 

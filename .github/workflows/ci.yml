@@ -90,6 +90,11 @@ jobs:
           fi
           python3 tools/check_wasm_api.py --base-ref "$API_BASE"
       - run: python3 tools/wasm_size.py
+      - name: The npm package packs (release.yml publishes it)
+        run: |
+          cp -R crates/specify-core-wasm/pkg "$RUNNER_TEMP/npm-pkg"
+          python3 tools/npm_package.py "$RUNNER_TEMP/npm-pkg"
+          npm pack --dry-run "$RUNNER_TEMP/npm-pkg"
       - name: Compare released editor kernel (advisory)
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         env:
