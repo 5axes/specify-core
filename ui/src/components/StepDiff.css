@@ -1,0 +1,84 @@
+/* three-cad-viewer's stylesheet is written for a page of its own: it stops the body scrolling
+   and selecting text, and paints it. The page's own rules win back. */
+html body { overflow: visible; user-select: auto; background-color: transparent; }
+.diff-page { max-width: 1600px; margin: 0 auto; padding: 16px; font: 15px/1.5 system-ui, sans-serif; color: #1d232a; }
+/* The page is the window's height: the part and the report share what the header leaves. */
+.diff-page { box-sizing: border-box; height: 100vh; display: flex; flex-direction: column; }
+.diff-page h1 { font-size: 1.4rem; margin: 0 0 4px; word-break: break-all; }
+.diff-from { margin: 0 0 12px; color: #5a636e; }
+.diff-summary { font-weight: 600; margin-top: 0; }
+.diff-hint { color: #5a636e; font-size: 0.9rem; }
+.diff-error { color: #b42318; }
+/* The part and the report side by side, the report scrolling beside the part. */
+.diff-body { display: grid; grid-template-columns: minmax(0, 3fr) minmax(320px, 2fr); gap: 16px; flex: 1; min-height: 420px; }
+.diff-body[hidden] { display: none; }
+.diff-view { display: flex; flex-direction: column; min-height: 0; }
+.diff-legend { display: flex; flex-wrap: wrap; gap: 4px 10px; margin: 0 0 4px; font-size: 0.8rem; }
+.diff-legend span, .diff-legend label { display: inline-flex; align-items: center; gap: 6px; }
+.diff-legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; }
+.diff-stage { position: relative; flex: 1; min-height: 0; border: 1px solid #d6dbe1; border-radius: 8px; overflow: hidden; background: #f6f8fa; }
+.diff-panel { overflow-y: auto; min-height: 0; padding-right: 4px; }
+.diff-report table { border-collapse: collapse; margin: 8px 0; }
+.diff-report th, .diff-report td { border: 1px solid #d6dbe1; padding: 4px 10px; text-align: left; font-size: 0.95rem; }
+.diff-report code { background: #eef1f4; padding: 0 4px; border-radius: 3px; font-size: 0.9em; }
+.diff-report li[data-change] { cursor: pointer; border-radius: 4px; padding: 2px 6px; margin-left: -6px; border-left: 3px solid transparent; }
+.diff-report li.is-current { background: #e3f7ff; }
+.diff-report li.is-picked { border-left-color: #1ec8ff; background: #e3f7ff; }
+.diff-report li[data-change]:focus-visible { outline: 2px solid #1ec8ff; }
+/* The PMI: its legend and Show menu over the part, its changes listed above the report. */
+.diff-pmi-legend { margin-top: -2px; }
+.diff-pmi-show { position: relative; }
+.diff-pmi-show summary { cursor: pointer; color: #2b6688; }
+.diff-pmi-show > div { position: absolute; z-index: 5; top: 1.6em; left: 0; display: flex; flex-direction: column; gap: 4px; padding: 8px 12px; background: #fff; border: 1px solid #d6dbe1; border-radius: 6px; box-shadow: 0 6px 20px #0002; white-space: nowrap; }
+.diff-pmi h3 { font-size: 1rem; margin: 8px 0 4px; }
+.diff-pmi ul { list-style: none; margin: 0 0 12px; padding: 0; }
+.diff-pmi li { display: grid; grid-template-columns: 3.2em 6.5em minmax(0, 1fr); column-gap: 8px; padding: 4px 6px; border-left: 3px solid transparent; border-radius: 4px; cursor: pointer; font-size: 0.93rem; }
+.diff-pmi li.is-current { background: #e3f7ff; }
+.diff-pmi li.is-picked { border-left-color: #1ec8ff; background: #e3f7ff; }
+.diff-pmi li:focus-visible { outline: 2px solid #1ec8ff; }
+.diff-pmi-number { font-weight: 600; font-variant-numeric: tabular-nums; }
+.diff-pmi-class { font-size: 0.85rem; font-weight: 600; text-transform: capitalize; }
+.diff-pmi li.is-changed .diff-pmi-class, .diff-pmi li.is-renumbered .diff-pmi-class { color: #c26a00; }
+.diff-pmi li.is-added .diff-pmi-class { color: #0a8f3d; }
+.diff-pmi li.is-removed .diff-pmi-class { color: #d62929; }
+.diff-pmi-what { overflow-wrap: anywhere; }
+.diff-pmi-old { color: #5a636e; }
+.diff-pmi li.is-removed .diff-pmi-old { text-decoration: line-through; }
+.diff-pmi-on { grid-column: 3; color: #5a636e; font-size: 0.85rem; }
+/* A file's own text drawn on the part (drawn-layer.ts), as the Specify view sets it. */
+.diff-stage .pmi-drawn { white-space: pre; font-size: 11.5px; pointer-events: none;
+  text-shadow: 0 0 3px #fff, 0 0 3px #fff, 0 0 2px #fff, 0 0 2px #fff; }
+.diff-stage .pmi-drawn span { display: inline-block; }
+.diff-stage .pmi-drawn-placed { width: 0; height: 0; }
+.diff-stage .pmi-drawn-placed span { position: absolute; left: 0; top: 0; transform-origin: 0 0; line-height: 1; }
+@media (max-width: 900px) {
+  .diff-page { height: auto; }
+  .diff-body { grid-template-columns: minmax(0, 1fr); height: auto; }
+  .diff-stage { flex: none; height: 60vh; }
+  .diff-panel { overflow: visible; }
+  .diff-report table { display: block; overflow-x: auto; }
+}
+/* A button, here and in the landing's ways in. */
+.diff-button { display: inline-block; padding: 10px 15px; border: 1px solid #d8dfe2; border-radius: 5px; background: #fff; color: inherit; font-size: 12px; text-decoration: none; }
+.diff-button:hover { border-color: #88aabd; background: #f1f6f8; }
+
+/* An assembly: the new revision whole beside its parts list, in the landing's look, each changed
+   part opened from either. */
+.diff-assembly-stage { position: relative; display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.diff-assembly-reading { position: absolute; left: 12px; bottom: 10px; margin: 0; }
+.diff-parts { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid #e0e4e5; border-radius: 8px; overflow: hidden; font-size: 13px; }
+.diff-parts th, .diff-parts td { padding: 5px 10px; height: 30px; text-align: left; vertical-align: middle; font-size: 13px; border-bottom: 1px solid #edf0f1; }
+.diff-parts tbody tr:hover td { background: #f1f6f8; }
+.diff-parts th { background: #f4f6f7; font-size: 12.5px; font-weight: 600; color: #4a5a63; }
+.diff-parts tr:last-child td { border-bottom: 0; }
+.diff-parts td:nth-child(3) { white-space: nowrap; }
+.diff-parts td:last-child { text-align: right; width: 1%; white-space: nowrap; }
+.diff-parts tr.is-unchanged td { color: #7d898e; }
+.diff-parts .diff-button { padding: 4px 12px; cursor: pointer; }
+.diff-part { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; }
+.diff-part .diff-button { padding: 5px 12px; cursor: pointer; }
+.diff-back span { margin-right: 4px; }
+@media (max-width: 720px) {
+  .diff-parts { font-size: 13px; }
+  .diff-parts th, .diff-parts td { padding: 6px 8px; font-size: 13px; }
+}
