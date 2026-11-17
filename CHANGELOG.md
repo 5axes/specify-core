@@ -14,6 +14,11 @@ All notable changes to specify-core-rust. The format follows
   manual run publishes an existing release. The `specify-core-wasm-<version>.tgz` release
   assets are unchanged.
 
+### Fixed
+
+- The WASM package's README (shown on npm) said AGPL-3.0; the package, haecceity and quiddity
+  are Apache-2.0. Its documentation links are absolute, so they work on npm.
+
 ## 0.1.17 (2026-11-16)
 
 ### Added
