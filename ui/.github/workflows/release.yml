@@ -157,9 +157,9 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           set -eu
-          set -- tarball/*.tgz
+          set -- ./tarball/*.tgz
           [ "$#" -eq 1 ] || { echo "::error::Expected one tarball, found $#."; exit 1; }
-          file=$1
+          file=$1 # ./ prefix: npm reads a bare "dir/file.tgz" as a GitHub owner/repo
           version=$(tar -xOzf "$file" package/package.json | node -p "JSON.parse(require('fs').readFileSync(0,'utf8')).version")
           # As in specify-core: `latest` never moves backwards. A version older than npm's latest
           # is published under release-<version>; a semver prerelease version (1.0.0-rc.1) under
