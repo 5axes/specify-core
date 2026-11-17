@@ -1,10 +1,10 @@
 {
   "intent": {
     "repository": "pzfreo/specify-core",
-    "tag": "v0.1.16",
-    "revision": "98d6d206cf45cdee9ee1c1e4fd551d38c5fbfc0e",
-    "asset": "specify-core-wasm-0.1.16.tgz",
-    "sha256": "83ba3aa5e36a5f465b971ab90ca9bbc0402f70e3d747623f06e512e63d637616",
+    "tag": "v0.1.17",
+    "revision": "cab7b688f1476b3f3d21aa11ef28da07d244ddbc",
+    "asset": "specify-core-wasm-0.1.17.tgz",
+    "sha256": "f3b0fa928ec8c393458374daa1d7bc0faae4c712f03606ee46738ea2e5216984",
     "module": "specify_core_wasm"
   }
 }
