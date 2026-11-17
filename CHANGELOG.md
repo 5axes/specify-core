@@ -8,6 +8,16 @@ All notable changes to specify-core-rust. The format follows
 
 ### Added
 
+- `specify-core mcp`: a Model Context Protocol server, so an LLM client (Claude Code, Claude
+  Desktop) can specify a part. It speaks revision 2026-07-28 (`server/discover`, per-request
+  `_meta`) and the legacy 2025-11-25 (`initialize`), over stdio or, with `--http`, Streamable
+  HTTP on 127.0.0.1 with a random bearer token and `Host` and `Origin` checks. Its tools are
+  `list_parts`, `open`, `questions`, `answer` (free text interpreted), `review`,
+  `characteristics`, `read_pmi`, `write_pmi`, `export_answers` and `diff`, each with an output
+  schema. Each open document's analysis and mesh are resources. Documents and answers are held
+  in memory by a document handle; an `answers_file` keeps the answers on disk. Paths are
+  limited to `--allow` directories, and nothing is overwritten without `overwrite: true`. See
+  docs/mcp.md.
 - The WASM package is published to npm as `@draftwright/specify-core-wasm`, from 0.1.17: the
   release archive's files, with `package.json` scoped (`tools/npm_package.py`). A published
   release publishes it through npm trusted publishing (`release.yml`, environment `npm`); a
