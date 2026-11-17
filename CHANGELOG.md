@@ -4,7 +4,7 @@ All notable changes to specify-core-rust. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## 0.1.18 (2026-11-17)
 
 ### Added
 
@@ -31,6 +31,7 @@ All notable changes to specify-core-rust. The format follows
 - The WASM release archive and npm package carry NOTICE beside LICENSE (Apache-2.0 4(d)), from
   0.1.18. CI and the npm job refuse a packed tarball without both. The `.wasm` and `.js` are
   unchanged.
+- The npm job passes no `NPM_TOKEN`: it publishes through npm trusted publishing (OIDC) only.
 
 ## 0.1.17 (2026-11-16)
 
