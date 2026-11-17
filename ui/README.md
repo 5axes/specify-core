@@ -91,6 +91,22 @@ const slots: SpecifySlots = { view: viewElement, panel: panelElement, exports: e
 />
 ```
 
+### Read-only mode
+
+`<SpecifyReview readOnly />` (default `false`) reviews a part without editing it. Hidden: Keep all and the
+suggestion cards, Reset to default, Looks right, + Add a requirement, + Add datum, the remove buttons on requirements
+and datums, the requirement editor, quick call-outs, the table's edit links, and the "change any of them" banner;
+picking faces on the part is off. An opened question's answer controls and the part's fields are shown disabled, so
+the choices and the one chosen can be read. Opening rows, questions and problems, the 3D view and its controls, the
+Characteristics table and the CSV / AS9102 exports still work. The tab reads "Review" and the header "Read only".
+
+`engine.questions`, `engine.interpret` and `onKeep` are never called, and a part opened with saved answers does not
+re-commit them. `engine.preview` is called only to label the answers given. `onPick`, `onExport` and `onSaved` still
+fire (navigation and exports are not edits). `readOnlyEngine(engine)` is the wrapper `SpecifyReview` uses: its
+`questions` and `interpret` reject with `{ code: 'read_only' }` without calling yours, and `preview` passes through;
+use it for your own read-only code around an engine. `StepDiff` and `AssemblyDiffView` change nothing and are
+view-only already.
+
 The helpers `characteristics`, `as9102`, `xlsx`, the diff and PMI-diff functions and the `types/pmi` types are
 exported too; see `src/index.ts`.
 

@@ -12,6 +12,7 @@ import { optionHint } from './hints';
 import { balloonsBySource, type Characteristic, characteristics, noteStatements, ranges, toCsv } from './characteristics';
 import { as9102 } from './as9102';
 import { xlsx } from '../model/xlsx';
+import { readOnlyEngine } from './read-only';
 import { CharacteristicsTable, ExtraEditor, PurposeChoice, SpecBox, SuggestBox, SuggestionCard, TOLERANCE_PICKS, type ExtraDraft } from './inputs';
 import type { PmiLabel } from './labels';
 import type { Picker } from './picker';
@@ -44,7 +45,7 @@ function asError(error: unknown): PmiLabError {
   return { code: 'failed', message: String(error) };
 }
 
-export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, onExport, gated, after, onPick, showFaces, tints, externalAnswers, externalReview, disabled, focusRequest, toReview, onKeep, drawn: drawnPmi = null, datums = true }: {
+export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, onExport, gated, after, onPick, showFaces, tints, externalAnswers, externalReview, disabled, focusRequest, toReview, onKeep, drawn: drawnPmi = null, datums = true, readOnly = false }: {
   engine: SpecifyEngine; session: PmiLabSession; slots: SpecifySlots;
   /** The question the queue's selected row is about: what the question slot shows. */
   slotQuestion?: string | null;
@@ -70,7 +71,16 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   drawn?: DrawnPmi | null;
   /** Datum labels shown on the part: not until tolerancing is chosen (drawing-first plan). */
   datums?: boolean;
+  /**
+   * Review without editing. Nothing reaches the host's ``engine.questions``, ``engine.interpret`` or ``onKeep``:
+   * the answer controls are shown disabled and the editing controls are hidden. ``engine.preview`` is still
+   * called, to label the answers given; ``onPick``, ``onExport`` and ``onSaved`` still fire. Default false.
+   */
+  readOnly?: boolean;
 }) {
+  const host = engine;
+  const readOnlyHost = useMemo(() => readOnlyEngine(host), [host]);
+  engine = readOnly ? readOnlyHost : host;
   const stage = useRef<HTMLDivElement>(null);
   const picker = useRef<Picker | null>(null);
   const [moreTools, setMoreTools] = useState(false);
@@ -231,7 +241,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     if (!p) return;
     p.highlight(currentQuestion?.faces ?? []);
     // A call-out's faces are the dimension's: a click chooses another, not other faces for it.
-    p.setPickable(currentQuestion?.kind === 'faces' && !draft?.callOut);
+    p.setPickable(!readOnly && currentQuestion?.kind === 'faces' && !draft?.callOut);
     // A datum's answer is its faces; an added requirement's holds them.
     const given = currentQuestion?.kind === 'faces' ? answerOf(currentQuestion, answers) : [];
     const value = Array.isArray(given) ? given as number[]
@@ -326,7 +336,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     if (!start) return;
     // A STEP Specify wrote carries on from the answers it was written with.
     const saved = session.answers ?? session.analysis.resume?.answers;
-    if (saved && Object.keys(saved).length > 0) {
+    if (saved && Object.keys(saved).length > 0 && !readOnly) {
       setResumed(true);
       void start.commit(null, saved, (asked) =>
         nextNeeding(asked.filter((g) => g.key !== 'part'), saved));
@@ -334,8 +344,8 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     }
     // The part's own fields are always in view; start at the first thing on the part.
     const first = groupQuestions(session.questions).filter((g) => g.key !== 'part');
-    setCurrent(nextNeeding(first, {}) ?? first[0]?.questions[0]?.id ?? null);
-    void start.relabel({});
+    setCurrent(nextNeeding(first, readOnly ? saved ?? {} : {}) ?? first[0]?.questions[0]?.id ?? null);
+    void start.relabel(readOnly ? saved ?? {} : {});
   }, [session]);
 
   // pmi-assist decides what follows from the answers, and may refuse them.
@@ -344,6 +354,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   const commit = useCallback(async (
     at: string | null, next: PmiAnswers, focus: (asked: QuestionGroup[]) => string | null,
   ) => {
+    if (readOnly) return false;
     try {
       const asked = await live((id) => engine.questions(id, next));
       setError(null);
@@ -377,6 +388,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   // A typed spec: pmi-assist reads it against the feature, and it is answered
   // as what it means; a refusal comes back as the reason, beside the box.
   const spec = async (q: PmiQuestion, text: string): Promise<string | null> => {
+    if (readOnly) return null;
     try {
       const read = await live((id) => engine.interpret(id, answers, q.id, text));
       setTyped((t) => ({ ...t, [q.id]: read }));
@@ -393,7 +405,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   // Adding a datum is picking it: the letter's question if pmi-assist already
   // asks it (one removed earlier), else a pick it learns of once answered.
   const addDatum = () => {
-    if (!nextLetter) return;
+    if (readOnly || !nextLetter) return;
     const id = `datum.${nextLetter}`;
     if (!questions.some((q) => q.id === id)) {
       setAdding({
@@ -408,6 +420,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   // Added requirements: picked, then saved as an answer pmi-assist checks.
   const added = addedOf(answers);
   const startExtra = () => {
+    if (readOnly) return;
     const key = nextKey(answers);
     setDraft({ key, kind: '', value: '', datums: [], reference: [] });
     setCurrent(key);
@@ -415,6 +428,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   // A dimension the general tolerance covers, called out to be toleranced apart:
   // its kind, faces and reference given, its tolerance to say.
   const callOut = (i: number, what: string, value = '') => {
+    if (readOnly) return;
     const g = preview?.general?.[i];
     if (!g) return;
     const key = nextKey(answers);
@@ -455,6 +469,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     setSelection([]);
   };
   const editExtra = (key: string) => {
+    if (readOnly) return;
     const extra = added.find(([k]) => k === key)?.[1];
     if (!extra) return;
     setDraft({ key, kind: extra.kind, value: extra.value, datums: extra.datums ?? [], reference: extra.reference ?? [] });
@@ -506,6 +521,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     </button>
   ));
   const keepChosen = (ids: readonly string[]) => {
+    if (readOnly) return;
     if (onKeep) { onKeep(ids); return; }
     const next: Record<string, unknown> = { ...answers };
     for (const id of ids) {
@@ -595,7 +611,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
         setNote(`${general}${tol} on ${label.cells[0] ?? 'this'}.`);
         const i = Number(label.id.split(':')[1]);
         const row = chars.find((r) => r.source === `general:${i}`);
-        setNoteGeneral(Number.isInteger(i) ? { i, what: row?.text ?? label.cells[0] ?? '' } : null);
+        if (!readOnly) setNoteGeneral(Number.isInteger(i) ? { i, what: row?.text ?? label.cells[0] ?? '' } : null);
       }
     },
   };
@@ -674,7 +690,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     <QuestionItem titled={titled}
       key={`${q.id}:${JSON.stringify(answers[q.id])}`} q={q} answers={answers} active={q.id === current}
       selection={selection} mode={mode} error={errorAt(q.id)} typed={typed[q.id] ?? null}
-      onSpec={(text) => spec(q, text)}
+      locked={readOnly} onSpec={(text) => spec(q, text)}
       onOpen={() => setCurrent(q.id)}
       onAnswer={(value) => answer(q, value)}
       onConfirm={() => confirm(g)}
@@ -700,7 +716,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     const expanded = open || unfoldedHere;
     const firstOpen = () => (g.questions.find((q) => needs(q, answers)) ?? g.questions[0])?.id ?? null;
     // Folded, a row shows its choices still standing as cards, to keep or change.
-    const cards = open ? [] : g.questions.flatMap((q) => chosenById.get(q.id) ?? []);
+    const cards = open || readOnly ? [] : g.questions.flatMap((q) => chosenById.get(q.id) ?? []);
     const rowProblems = problemLines(g.key);
     if (onlySuggestions && !open && !cards.length && !rowProblems.length && state !== 'required') return null;
     return (
@@ -727,7 +743,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
         {g.key === 'datums' && adding && (
           <>
             <QuestionItem
-              q={adding} answers={answers} active selection={selection} mode={mode} error={null} typed={null}
+              q={adding} locked={readOnly} answers={answers} active selection={selection} mode={mode} error={null} typed={null}
               onSpec={async () => null} onOpen={() => {}} onAnswer={(value) => answer(adding, value)}
               onConfirm={() => {}} onReset={() => {}}
               onMode={(m) => { setMode(m); picker.current?.setMode(m); }}
@@ -833,7 +849,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
             <strong>{session.filename}</strong>
           </div>
           {note && <p className="pmi-lab-note" role="status">{note}</p>}
-          {note && noteGeneral && (
+          {note && noteGeneral && !readOnly && (
             <div className="pmi-lab-quick" role="group" aria-label={`Call out ${noteGeneral.what}`}>
               <span>Call out {noteGeneral.what}:</span>
               {[...TOLERANCE_PICKS, ...(preview?.general?.[noteGeneral.i]?.kind === 'size' ? ['H7', 'g6'] : [])].map((t) => (
@@ -844,6 +860,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
               <button type="button" onClick={() => callOut(noteGeneral.i, noteGeneral.what)}>Other…</button>
             </div>
           )}
+          {readOnly && <p className="pmi-lab-note" role="status">Read only</p>}
           {resumed && (
             <p className="pmi-lab-resumed" role="status">
               Opened with the answers this STEP was saved with: change any of them below.
@@ -854,7 +871,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
               type="button" role="tab" aria-selected={view === 'review'} className={view === 'review' ? 'on' : ''}
               onClick={() => switchView('review')}
             >
-              Review/Edit
+              {readOnly ? 'Review' : 'Review/Edit'}
             </button>
             <button
               type="button" role="tab" aria-selected={view === 'table'} className={view === 'table' ? 'on' : ''}
@@ -865,10 +882,10 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
           </div>
           {view === 'review' && (chosen.length > 0 || problems.length > 0) && (
             <div className="pmi-lab-review">
-              {chosen.length > 0 && (
+              {chosen.length > 0 && !readOnly && (
                 <span>{chosen.length} suggestion{chosen.length === 1 ? '' : 's'}</span>
               )}
-              {chosen.length > 1 && (
+              {chosen.length > 1 && !readOnly && (
                 <button type="button" className="ok" onClick={() => keepChosen(chosen.map((c) => c.id))}>
                   ✓ Keep all
                 </button>
@@ -892,8 +909,8 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
           {view === 'table' ? (
             <CharacteristicsTable
               rows={chars} selected={selectedChar} onSelect={showChar} onDownload={downloadCsv}
-              skipped={skipped} onSkip={skip} onEdit={editChar}
-              onCallOut={(row) => (row.source.startsWith('general:')
+              skipped={skipped} onSkip={skip} onEdit={readOnly ? () => null : editChar}
+              onCallOut={(row) => (!readOnly && row.source.startsWith('general:')
                 ? () => callOut(Number(row.source.slice('general:'.length)), row.text) : null)}
               generalTolerance={preview?.part['general_tolerance'] ?? ''}
               calledOut={added.filter(([, extra]) => CALL_OUTS.includes(extra.kind)).length}
@@ -913,13 +930,13 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
                 if (slots.question && q.id === current) return null;
                 if (needs(q, answers) === 'required' || unfolded === q.id) {
                   return (
-                    <PartField
+                    <PartField locked={readOnly}
                       key={`${q.id}:${JSON.stringify(answers[q.id])}`} q={q} answers={answers} error={errorAt(q.id)}
                       onAnswer={(value) => { setUnfolded(null); answer(q, value); }}
                     />
                   );
                 }
-                if (c) return card(c);
+                if (c && !readOnly) return card(c);
                 if (onlySuggestions) return null;
                 return <FoldedLine key={q.id} name={PART_FIELD[q.id] ?? q.prompt} value={partValue(q, answers)} onOpen={() => toggle(q.id)} />;
               })}
@@ -929,7 +946,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
                     <span className="name"><Chevron open />Finish and notes</span><span className="value">fold</span>
                   </button>
                   {notes.filter((q) => !(slots.question && q.id === current)).map((q) => (unfolded === `note:${q.id}` ? (
-                    <PartField
+                    <PartField locked={readOnly}
                       key={`${q.id}:${JSON.stringify(answers[q.id])}`} q={q} answers={answers} error={errorAt(q.id)}
                       onAnswer={(value) => { setUnfolded('notes'); answer(q, value); }}
                     />
@@ -945,7 +962,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
                   {!onlySuggestions && (
                     <FoldedLine name="Finish and notes" value={notesSummary || 'none'} onOpen={() => setUnfolded('notes')} />
                   )}
-                  {notes.flatMap((q) => chosenById.get(q.id) ?? []).map(card)}
+                  {!readOnly && notes.flatMap((q) => chosenById.get(q.id) ?? []).map(card)}
                 </>
               ))}
             </section>
@@ -968,15 +985,17 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
               <div className="pmi-lab-datums">
                 {added.map(([key, extra]) => (
                   <span key={key} className="chip">
-                    <button type="button" className="what-button" onClick={() => editExtra(key)}>
+                    <button type="button" className="what-button" disabled={readOnly} onClick={() => editExtra(key)}>
                       {describe(extra)}
                     </button>
-                    <button type="button" className="x" aria-label={`Remove ${describe(extra)}`} onClick={() => removeExtra(key)}>
-                      ✕
-                    </button>
+                    {!readOnly && (
+                      <button type="button" className="x" aria-label={`Remove ${describe(extra)}`} onClick={() => removeExtra(key)}>
+                        ✕
+                      </button>
+                    )}
                   </span>
                 ))}
-                {!draft && <button type="button" className="add" onClick={startExtra}>+ Add a requirement</button>}
+                {!draft && !readOnly && <button type="button" className="add" onClick={startExtra}>+ Add a requirement</button>}
               </div>
             )}
             {draft && (
@@ -1005,7 +1024,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
                   </button>
                   <span className="what">{c.existing ? `${c.text}, from the file` : c.text}</span>
                   {!c.existing && !(`datum.${c.letter}` in answers) && <small className="sg">suggested</small>}
-                  {!c.existing && (
+                  {!c.existing && !readOnly && (
                     <button
                       type="button" className="x" aria-label={`Remove datum ${c.letter}`}
                       onClick={() => removeDatum(c.letter)}
@@ -1016,7 +1035,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
                 </span>
               ))}
               {!chips.length && <span className="none">None needed: no tolerance is measured from one.</span>}
-              {nextLetter && !adding && (
+              {nextLetter && !adding && !readOnly && (
                 <button type="button" className="add" onClick={addDatum}>+ Add datum</button>
               )}
             </div>
@@ -1041,7 +1060,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
       // The part's own fields (material, tolerance, finish and notes) in the same box as in
       // the list, with its suggestions; a feature's question as its chips.
       return g && q && createPortal(<div className="pmi-lab pmi-lab-inline">{g === partGroup
-        ? <PartField key={`${q.id}:${JSON.stringify(answers[q.id])}`} q={q} answers={answers} error={errorAt(q.id)} onAnswer={(value) => answer(q, value)} />
+        ? <PartField locked={readOnly} key={`${q.id}:${JSON.stringify(answers[q.id])}`} q={q} answers={answers} error={errorAt(q.id)} onAnswer={(value) => answer(q, value)} />
         : questionItem(q, g, false)}</div>, slots.question);
     })()}
     {slots.exports && <>
@@ -1090,7 +1109,9 @@ function partValue(q: PmiQuestion, answers: PmiAnswers): string {
 }
 
 /** One of the part's own settings, unfolded: a text box, suggesting if it can, or a list. */
-function PartField({ q, answers, error, onAnswer }: {
+function PartField({ q, answers, error, onAnswer, locked = false }: {
+  /** Read only: the control is shown disabled. */
+  locked?: boolean;
   q: PmiQuestion; answers: PmiAnswers; error: PmiLabError | null; onAnswer: (value: unknown) => void;
 }) {
   const need = needs(q, answers);
@@ -1118,11 +1139,11 @@ function PartField({ q, answers, error, onAnswer }: {
     return (
       <div className={`pmi-lab-field${need ? ` ${need}` : ''}`} title={q.why} role="group" aria-label={label} data-question={q.id}>
         {name}
-        <SuggestBox
+        {lock(<SuggestBox
           label={label} value={typeof answers[q.id] === 'string' ? answers[q.id] as string : ''}
           suggestions={q.suggestions} placeholder={placeholder} invalid={need === 'required'}
           onAnswer={onAnswer}
-        />
+        />, locked)}
         {rest}
       </div>
     );
@@ -1130,7 +1151,7 @@ function PartField({ q, answers, error, onAnswer }: {
   return (
     <label className={`pmi-lab-field${need ? ` ${need}` : ''}`} title={q.why} data-question={q.id}>
       {name}
-      {q.kind === 'choice' ? (
+      {lock(q.kind === 'choice' ? (
         <select value={typeof value === 'string' ? value : ''} onChange={(event) => onAnswer(event.target.value)}>
           {(q.options ?? []).map((option) => (
             <option key={option} value={option}>{option}{option === editorDefault(q) ? ' (default)' : ''}</option>
@@ -1146,10 +1167,15 @@ function PartField({ q, answers, error, onAnswer }: {
           }}
           onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur(); }}
         />
-      )}
+      ), locked)}
       {rest}
     </label>
   );
+}
+
+/** Read only: the controls disabled as one, with no box of their own. */
+function lock(controls: ReactNode, locked: boolean): ReactNode {
+  return locked ? <fieldset disabled style={{ border: 0, margin: 0, padding: 0, minWidth: 0 }}>{controls}</fieldset> : controls;
 }
 
 /** A question's value in a line: as its row summary says it, else as given. */
@@ -1159,8 +1185,10 @@ function shortValue(q: PmiQuestion, value: unknown): string {
 
 function QuestionItem({
   q, answers, active, selection, mode, error, typed, onOpen, onAnswer, onSpec, onConfirm, onReset, onMode,
-  onDefaultSelection, titled = true,
+  onDefaultSelection, titled = true, locked = false,
 }: {
+  /** Read only: the answer controls are shown disabled, the editing ones hidden. */
+  locked?: boolean;
   /** Whether it shows its prompt: not under a queue row that already does. */
   titled?: boolean;
   q: PmiQuestion; answers: PmiAnswers; active: boolean; selection: number[]; mode: PickMode;
@@ -1190,17 +1218,18 @@ function QuestionItem({
     <div className={`pmi-lab-item on${need ? ` ${need}` : ''}`} data-question={q.id}>
       <div className="prompt">
         {titled && <>{q.prompt}{optional}</>}
-        {q.id in answers && q.default !== null && (
+        {q.id in answers && q.default !== null && !locked && (
           <button type="button" className="reset" onClick={onReset}>Reset to default</button>
         )}
       </div>
       {q.reason && need === 'check' && (
         <div className="reason">
           {q.reason}{' '}
-          <button type="button" className="ok" onClick={onConfirm}>✓ Looks right</button>
+          {!locked && <button type="button" className="ok" onClick={onConfirm}>✓ Looks right</button>}
         </div>
       )}
       <div className="why">{q.why}</div>
+      {lock(<>
       {q.kind === 'choice' && (
         <>
           {q.choices?.length ? (
@@ -1250,6 +1279,7 @@ function QuestionItem({
           <div className="why">Click to select, shift-click to add. Drag to turn the part.</div>
         </>
       )}
+      </>, locked)}
       {error && <p role="alert" className="pmi-lab-error">{error.message}</p>}
     </div>
   );
