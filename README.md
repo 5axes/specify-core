@@ -56,6 +56,7 @@ One engine, one set of answers and files, whichever way you call it:
 | **Rust** | `specify-core = "0.1.17"` (crates.io) | [below](#rust), [docs/library.md](docs/library.md) |
 | **Browser** (WebAssembly) | `@draftwright/specify-core-wasm` (npm), or `specify-core-wasm-<version>.tgz` on each release | [docs/wasm.md](docs/wasm.md) |
 | **Host process** (JSON lines) | `specify-core serve` | [below](#host-process) |
+| **LLM client** (MCP: Claude Code, Claude Desktop) | `specify-core mcp` (stdio) or `specify-core mcp --http` | [docs/mcp.md](docs/mcp.md) |
 | **GitHub pull requests** | `uses: pzfreo/specify-core/step-diff@main` | [step-diff/README.md](step-diff/README.md) |
 
 [draftwright.io/specify](https://draftwright.io/specify) and
@@ -314,6 +315,7 @@ that implementation wrote. The `specify-core` Python package is now this engine;
 | [docs/face-names.md](docs/face-names.md) | answers on named faces (code-first CAD) |
 | [docs/characteristic-numbers.md](docs/characteristic-numbers.md) | characteristic numbers |
 | [docs/wasm.md](docs/wasm.md) | the WebAssembly module |
+| [docs/mcp.md](docs/mcp.md) | the MCP server for LLM clients |
 | [docs/library.md](docs/library.md) | the Rust API |
 | [crates/specify-core-py/README.md](crates/specify-core-py/README.md) | the Python package |
 | [step-diff/README.md](step-diff/README.md) | the pull request action |

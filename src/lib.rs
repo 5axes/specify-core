@@ -20,6 +20,8 @@ pub mod input;
 pub mod locations;
 pub mod materials;
 pub mod mates;
+#[cfg(all(feature = "cli", not(target_arch = "wasm32")))]
+pub mod mcp;
 pub mod mesh;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod open;

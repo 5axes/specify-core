@@ -107,8 +107,9 @@ pub fn page_url(site: &str, editor: bool, file_url: &str) -> String {
     format!("{site}{page}?open={}", encode_component(file_url))
 }
 
-/// 16 bytes from the operating system's random source, as 32 lowercase hex characters.
-fn token() -> Result<String, Error> {
+/// 16 bytes from the operating system's random source, as 32 lowercase hex characters (also
+/// `specify-core mcp --http`'s bearer token).
+pub(crate) fn token() -> Result<String, Error> {
     let mut bytes = [0u8; 16];
     random(&mut bytes).map_err(|e| Error::Io(format!("cannot draw a random token: {e}")))?;
     Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
@@ -270,14 +271,14 @@ struct Rules {
 }
 
 /// A request's method, target and headers, as far as they are read.
-struct Request {
-    method: String,
-    target: String,
-    headers: Vec<(String, String)>,
+pub(crate) struct Request {
+    pub(crate) method: String,
+    pub(crate) target: String,
+    pub(crate) headers: Vec<(String, String)>,
 }
 
 impl Request {
-    fn header(&self, name: &str) -> Option<&str> {
+    pub(crate) fn header(&self, name: &str) -> Option<&str> {
         self.headers
             .iter()
             .find(|(n, _)| n.eq_ignore_ascii_case(name))
@@ -287,6 +288,11 @@ impl Request {
 
 /// Reads a request's head (up to 16 KiB, all of it within 10 s), or None.
 fn read_request(stream: &mut TcpStream) -> Option<Request> {
+    read_head(stream).map(|(request, _)| request)
+}
+
+/// [`read_request`], and the bytes read past the head (the start of a body).
+pub(crate) fn read_head(stream: &mut TcpStream) -> Option<(Request, Vec<u8>)> {
     let deadline = Instant::now() + Duration::from_secs(10);
     let mut head = Vec::new();
     let mut chunk = [0u8; 2048];
@@ -305,6 +311,8 @@ fn read_request(stream: &mut TcpStream) -> Option<Request> {
         }
         head.extend_from_slice(&chunk[..n]);
     }
+    let end = head.windows(4).position(|w| w == b"\r\n\r\n")? + 4;
+    let rest = head.split_off(end);
     let text = String::from_utf8_lossy(&head);
     let mut lines = text.split("\r\n");
     let mut first = lines.next()?.split(' ');
@@ -317,11 +325,14 @@ fn read_request(stream: &mut TcpStream) -> Option<Request> {
         .filter_map(|l| l.split_once(':'))
         .map(|(n, v)| (n.trim().to_string(), v.trim().to_string()))
         .collect();
-    Some(Request {
-        method: method.to_string(),
-        target: target.to_string(),
-        headers,
-    })
+    Some((
+        Request {
+            method: method.to_string(),
+            target: target.to_string(),
+            headers,
+        },
+        rest,
+    ))
 }
 
 /// Answers one connection; true when it was the one that served the file.
@@ -392,7 +403,7 @@ fn answer(mut stream: TcpStream, rules: &Rules, bytes: &[u8], served: &AtomicBoo
 }
 
 /// Writes a response and closes the connection.
-fn respond(
+pub(crate) fn respond(
     stream: &mut TcpStream,
     status: &str,
     headers: &[(&str, &str)],

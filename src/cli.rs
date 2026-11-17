@@ -16,6 +16,8 @@
 //!                    to the new one (revision.rs), or of an assembly, part by part
 //!                    (revision/assembly.rs)
 //! specify-core serve                             JSON-line requests on stdin (serve.rs)
+//! specify-core mcp [--http [--port N]] [--allow DIR]...
+//!                    a Model Context Protocol server on stdio or local HTTP (mcp.rs)
 //! specify-core open STEP [--editor] [--site ORIGIN] [--no-browser]
 //!                    the file opened in draftwright.io/specify, served once on 127.0.0.1
 //!                    (open.rs)
@@ -98,6 +100,24 @@ enum Cmd {
     },
     /// answer JSON-line requests on stdin (for a host process)
     Serve,
+    /// a Model Context Protocol server for an LLM client (stdio, or local HTTP)
+    #[command(long_about = "\
+A Model Context Protocol server (revisions 2026-07-28 and 2025-11-25) for an LLM client such
+as Claude Code or Claude Desktop: tools to open a part, answer its questions, review and
+write its PMI. On stdio by default; with --http, Streamable HTTP on 127.0.0.1 with a random
+bearer token printed at start. Open documents and their answers are held in memory and lost
+when the server stops, unless a call names an answers_file. See docs/mcp.md.")]
+    Mcp {
+        /// serve Streamable HTTP on 127.0.0.1 instead of stdio
+        #[arg(long)]
+        http: bool,
+        /// the HTTP port (default: any free port, printed at start)
+        #[arg(long, requires = "http")]
+        port: Option<u16>,
+        /// a directory calls may read and write in (repeatable; default the working directory)
+        #[arg(long, value_name = "DIR", action = ArgAction::Append)]
+        allow: Vec<PathBuf>,
+    },
     /// triangles ranged by face index, for a picker
     Mesh {
         step: PathBuf,
@@ -284,6 +304,7 @@ fn run(cmd: Cmd, out: &mut impl Write) -> Result<(), Exit> {
             let stdin = io::stdin().lock();
             serve::serve(stdin, out).map_err(Exit::error)
         }
+        Cmd::Mcp { http, port, allow } => mcp(http, port, &allow, out),
         Cmd::Completions { shell } => {
             let mut script = Vec::new();
             clap_complete::generate(shell, &mut command(), PROG, &mut script);
@@ -587,6 +608,33 @@ fn open(
     handoff.serve(TIMEOUT).map_err(failed)?;
     let target = page.split('?').next().unwrap_or(&page);
     print(out, &format!("Opened in {target}."))
+}
+
+/// `mcp`: the MCP server on stdio, or on HTTP with its address and token printed first.
+fn mcp(http: bool, port: Option<u16>, allow: &[PathBuf], out: &mut impl Write) -> Result<(), Exit> {
+    use crate::mcp;
+    let server = mcp::Server::new(allow).map_err(|e| Exit::new(2, format!("cannot serve: {e}")))?;
+    if !http {
+        let stdin = io::stdin().lock();
+        let mut server = server;
+        return mcp::serve_stdio(stdin, out, &mut server).map_err(Exit::error);
+    }
+    let listener = mcp::bind(port.unwrap_or(0)).map_err(Exit::error)?;
+    let bound = listener.local_addr().map_err(Exit::error)?.port();
+    let token = mcp::new_token().map_err(Exit::error)?;
+    let dirs: Vec<String> = server
+        .allowed()
+        .iter()
+        .map(|d| d.display().to_string())
+        .collect();
+    print(
+        out,
+        &format!("MCP endpoint: http://127.0.0.1:{bound}{}", mcp::ENDPOINT),
+    )?;
+    print(out, &format!("Authorization: Bearer {token}"))?;
+    print(out, &format!("Allowed directories: {}", dirs.join(", ")))?;
+    out.flush().map_err(Exit::error)?;
+    mcp::serve_http(listener, token, server).map_err(Exit::error)
 }
 
 /// `diff`'s options.
