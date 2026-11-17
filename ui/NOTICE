@@ -1,0 +1,28 @@
+specify-ui (Specify review and STEP diff components for the browser)
+Copyright (C) 2026 Betwixt Limited (trading as Draftwright)
+
+Licensed under the Apache License, Version 2.0 (the "License"); you may not use
+this software except in compliance with the License. You may obtain a copy of the
+License in LICENSE or at http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software distributed
+under the License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
+CONDITIONS OF ANY KIND, either express or implied. See the License for the
+specific language governing permissions and limitations under the License.
+
+Third-party material:
+
+- src/specify and src/types/pmi.ts are adapted from pzfreo/draftwright-io
+  (MIT, Copyright (c) 2026 Paul Fremantle). The MIT licence is reproduced in
+  third_party/draftwright-io/LICENSE.
+
+- Parts of src/specify/annotations.ts (label markup, Line2 leaders, facing test
+  and declutter) are ported from pmi-assist-viewer (picker/annotations.js), which
+  vendors step-pmi-viewer's code, under Apache-2.0.
+
+- test/fixtures contains test files from other projects, under their own
+  licences: cast_bearing_unit_before/after.step.gz from pzfreo/step-diff-demo
+  (Apache-2.0); gramil_assembly_* and gramil_shaft_* from pzfreo/gramil (Open
+  Community License v1); the 19-spindle-semantic-links-only files and
+  spindle_pmi_before/after.step.gz are Specify output for a spindle model.
+  Provenance for each is in test/fixtures/README.md.
