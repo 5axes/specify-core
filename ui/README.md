@@ -126,7 +126,8 @@ engine on npm is not the pinned release's. The `npm` environment must have a req
 npm adds a trusted publisher only from an existing package's settings, so the very first publish
 (v0.1.0) uses a short-lived token:
 
-1. Create a short-lived granular npm token with publish rights to `@draftwright`.
+1. Create a short-lived granular npm token with publish rights to `@draftwright`. If the npm account requires two-factor authentication for writes, enable
+   "Bypass two-factor authentication" on the token, otherwise the publish fails with EOTP.
 2. Add it as secret `NPM_TOKEN` in the `npm` environment (maintainer as required reviewer, `v*` tags allowed).
 3. Publish the GitHub release `v0.1.0` and approve the `npm` environment.
 4. Delete the `NPM_TOKEN` secret and revoke the token.

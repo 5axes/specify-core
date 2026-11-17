@@ -36,10 +36,15 @@ jobs:
       - name: Release guard
         env:
           TAG: ${{ github.event.release.tag_name }}
+          PRERELEASE: ${{ github.event.release.prerelease }}
         run: |
           set -u
           fail=0
           err() { echo "::error::$1"; fail=1; }
+          # As in specify-core: a GitHub release marked pre-release is never published to npm.
+          if [ "$PRERELEASE" != false ]; then
+            err "Release $TAG is marked as a pre-release: not published to npm."
+          fi
           pkg_version=$(node -p "require('./package.json').version")
           wasm_version=$(node -p "require('./package.json').dependencies?.['@draftwright/specify-core-wasm'] ?? ''")
           intent_tag=$(node -p "require('./engines.lock.json').intent.tag")
@@ -117,8 +122,9 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: npm run test:browser
       - run: npm run test:package
+      # --ignore-scripts: prepack would rebuild; the tarball must hold the build that was tested.
       - name: Pack the tarball
-        run: npm pack
+        run: npm pack --ignore-scripts
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: npm-tarball
@@ -154,9 +160,20 @@ jobs:
           set -- tarball/*.tgz
           [ "$#" -eq 1 ] || { echo "::error::Expected one tarball, found $#."; exit 1; }
           file=$1
-          tag_args=""
-          case "$(tar -xOzf "$file" package/package.json | node -p "JSON.parse(require('fs').readFileSync(0,'utf8')).version")" in
-            *-*) tag_args="--tag next" ;;
+          version=$(tar -xOzf "$file" package/package.json | node -p "JSON.parse(require('fs').readFileSync(0,'utf8')).version")
+          # As in specify-core: `latest` never moves backwards. A version older than npm's latest
+          # is published under release-<version>; a semver prerelease version (1.0.0-rc.1) under
+          # `next`; the package not existing yet (first publish) means `latest`.
+          latest=$(npm view "@draftwright/specify-ui" dist-tags.latest 2>/dev/null || true)
+          case "$version" in
+            *-*) dist_tag=next ;;
+            *)
+              if [ -n "$latest" ] && [ "$(printf '%s\n' "$latest" "$version" | sort -V | tail -1)" != "$version" ]; then
+                dist_tag="release-$version"
+              else
+                dist_tag=latest
+              fi
+              ;;
           esac
-          # shellcheck disable=SC2086
-          npm publish "$file" --provenance --access public $tag_args
+          echo "Publishing $version with dist-tag $dist_tag (npm latest: ${latest:-none})"
+          npm publish "$file" --provenance --access public --tag "$dist_tag"
