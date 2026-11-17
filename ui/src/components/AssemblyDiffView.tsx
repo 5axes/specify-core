@@ -1,8 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { WorkerClient } from '../engine/rpc';
 import { createCadView, pathOf, type CadNode, type CadView } from '../specify/cad-view';
-import type { AssemblyPart } from '../types/editor';
-import type { PmiMesh } from '../types/pmi';
+import type { AssemblyPart, PmiMesh } from '../types/pmi';
 
 /** A row of an assembly's comparison: a part, paired by name, and what became of it. */
 export interface AssemblyRow {

@@ -248,3 +248,22 @@ export interface PmiLabEngine {
   claim(sessionId: string, code: string): Promise<void>;
   close(sessionId: string): Promise<void>;
 }
+
+export interface IntentReview {
+  questions: PmiQuestion[];
+  open: string[];
+  intent: PmiIntent;
+  problems: PmiProblem[];
+}
+
+/** One distinct part of an assembly, as Specify's ``parts`` lists it: where each instance is (a 3×4
+ * matrix, rotation then translation, in rows) and how many faces it has. */
+export interface AssemblyPart {
+  part: number; name: string; product_id: string; faces: number; instances: number;
+  same_as?: number | null;
+  /** The first part's face index for each face in this copy's own order. */
+  faces_of_first?: number[] | null;
+  placements: number[][][];
+}
+
+export type PartTint = 'required' | 'check' | 'problem';
