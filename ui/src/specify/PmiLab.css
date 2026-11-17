@@ -217,6 +217,7 @@
 .pmi-lab-datums .chip { display: inline-flex; align-items: center; gap: 5px; border: 1px solid #c3cad3; border-radius: 4px;
   background: #fff; padding: 1px 2px 1px 1px; font-size: 12px; }
 .pmi-lab-datums .chip.existing { background: #f3f5f7; color: #5a626b; }
+.pmi-lab-datums .chip.on { border-color: #009ccf; background: #1ec8ff1f; }
 .pmi-lab .pmi-lab-datums .letter { font-weight: 700; min-width: 22px; padding: 1px 5px; border: 1px solid #2f6fb5;
   border-radius: 3px; background: #fff; color: #2f6fb5; }
 .pmi-lab .pmi-lab-datums .letter:disabled { border-color: #8a929b; color: #5a626b; cursor: default; }
@@ -263,6 +264,7 @@
 .pmi-lab .pmi-lab-table button.edit { border: 0; background: none; padding: 0 2px; font-size: 13px; color: #2f6fb5; cursor: pointer; }
 /* Where a row is changed or called out stays in sight while the table scrolls sideways. */
 .pmi-lab-table td:last-child { position: sticky; right: 0; background: #fff; }
+.pmi-lab-table.view td:last-child { position: static; background: none; }
 .pmi-lab .pmi-lab-table button.call-out { border: 0; background: none; padding: 0 2px; font-size: 12px; color: #2f6fb5; cursor: pointer; white-space: nowrap; }
 .pmi-lab-table tbody tr.general-summary td { color: #5a626b; font-style: italic; cursor: pointer; }
 .pmi-lab-cards { display: grid; gap: 5px; padding: 0 12px 9px; }
@@ -399,3 +401,4 @@ fieldset.pmi-lab-rows { min-width: 0; margin: 0; padding: 0; border: 0; }
 .pmi-lab .pmi-lab-pad button.pmi-lab-more-tools[aria-pressed="true"] { background: #e8f0f8; border-color: #2f6fb5; }
 /* The viewer's toolbar and tools panel, folded away until "More view tools". */
 .cad-tools-hidden .tcv_cad_toolbar, .cad-tools-hidden .tcv_cad_navigation { display: none !important; }
+.pmi-lab-none { margin: 0; padding: 10px 12px; color: #5a626b; font-size: 12.5px; }

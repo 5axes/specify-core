@@ -91,6 +91,27 @@ const slots: SpecifySlots = { view: viewElement, panel: panelElement, exports: e
 />
 ```
 
+### Read-only mode
+
+`<SpecifyReview readOnly />` (default `false`) is a PMI viewer: the 3D view with the PMI that is set, and a list of it.
+The 3D view keeps View PMI (Semantic / Graphical / Both), its navigation, transparency and Show menu, and draws only
+what is set: no defaults to check (the dimensions the general tolerance covers stay under Show, off at first). The panel reads "PMI (view only)" and lists the datums that
+are set (a datum chosen is lit on the part) and the characteristics that are set, numbered as their balloons, with what the general tolerance covers folded into one row; a row,
+a face or a label on the part selects the other. A part setting counts as set when the file states it or the saved
+answers give it; a default does not. With nothing set it says "No PMI is set on this part."
+
+Everything about questions is removed from the page, not disabled: the questions, answering, suggestions, problems,
+tick boxes, edit and call-out links, and the CSV and AS9102 exports (the `slots.question`, `slots.exports` and
+`slots.more` portals render nothing). The host's `after` node is still shown. Pass the PMI as drawn in `drawn`, built
+with `drawnFromScene`, `withoutNotesBlock` and `hasGraphics` (exported, with the `DrawnPmi` type) from the engine's
+`scene` call, as the editor does.
+
+`engine.questions`, `engine.interpret` and `onKeep` are never called, and a part opened with saved answers does not
+re-commit them. `engine.preview` is called only to label the answers given. `onPick` still fires. `readOnlyEngine(engine)`
+is the wrapper `SpecifyReview` uses: its `questions` and `interpret` reject with `{ code: 'read_only' }` without
+calling yours, and `preview` passes through; use it for your own read-only code around an engine. `StepDiff` and
+`AssemblyDiffView` change nothing and are view-only already.
+
 The helpers `characteristics`, `as9102`, `xlsx`, the diff and PMI-diff functions and the `types/pmi` types are
 exported too; see `src/index.ts`.
 

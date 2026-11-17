@@ -51,8 +51,8 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "build": "npm run typecheck && vite build && node scripts/worker-url.mjs && tsc -p tsconfig.build.json && node scripts/rewrite-dts-imports.mjs",
-    "test": "node --experimental-strip-types --test test/characteristics.test.mjs test/as9102.test.mjs test/specify-presentation.test.mjs test/graphical-pmi.test.mjs test/diff.test.mjs",
-    "test:browser": "vite build --config vite.harness.config.ts && node test/step-diff-browser.mjs && WASM_URL=/wasm/intent/specify_core_wasm.js node test/step-diff-browser.mjs",
+    "test": "node --experimental-strip-types --test test/characteristics.test.mjs test/as9102.test.mjs test/specify-presentation.test.mjs test/graphical-pmi.test.mjs test/diff.test.mjs test/read-only.test.mjs",
+    "test:browser": "vite build --config vite.harness.config.ts && node test/step-diff-browser.mjs && WASM_URL=/wasm/intent/specify_core_wasm.js node test/step-diff-browser.mjs && node test/specify-browser.mjs",
     "fetch:wasm": "node scripts/fetch-wasm.mjs",
     "prepack": "npm run build",
     "test:package": "node scripts/test-package.mjs"

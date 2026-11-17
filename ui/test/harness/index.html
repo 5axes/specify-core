@@ -7,6 +7,9 @@
     <style>
       .diff-slots { display: flex; gap: 12px; margin: 0 0 8px; }
       .diff-slot { display: flex; gap: 8px; align-items: baseline; }
+      /* The panel's pane is fixed over the whole page, as the view's is: only its panel is to be seen and hit. */
+      #specify-panel .pmi-lab { background: transparent; pointer-events: none; }
+      #specify-panel .pmi-lab-panel { pointer-events: auto; }
     </style>
   </head>
   <body>
