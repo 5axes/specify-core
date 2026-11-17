@@ -51,9 +51,11 @@ function markDefaults<T>(review: T, answers: Record<string, unknown>): T {
 }
 
 let modulePromise: Promise<IntentModule> | undefined;
+// Where the Specify WASM glue is, when the host sent one (a `{ wasmUrl }` message before any work).
+let configuredUrl: string | undefined;
 function load() {
   modulePromise ??= (async () => {
-    const modulePath = new URL('/wasm/intent/specify_core_wasm.js', self.location.origin).href;
+    const modulePath = configuredUrl ?? new URL('/wasm/intent/specify_core_wasm.js', self.location.origin).href;
     const module: IntentModule = await import(/* @vite-ignore */ modulePath);
     await module.default();
     return module;
@@ -62,7 +64,9 @@ function load() {
 }
 
 let queue = Promise.resolve();
-self.onmessage = ({ data: { id, operation, args } }) => {
+self.onmessage = ({ data }) => {
+  if (data.id === undefined && data.operation === undefined && typeof data.wasmUrl === 'string') { configuredUrl = data.wasmUrl; return; }
+  const { id, operation, args } = data;
   queue = queue.then(async () => {
     try {
       const module = await load();
