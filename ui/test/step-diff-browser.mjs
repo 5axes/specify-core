@@ -10,7 +10,10 @@ import init, { diff, IntentEngine } from '../public/wasm/intent/specify_core_was
 // of the package that changes what it relies on fails here. Run `npm run fetch:wasm` first;
 // `npm run test:browser` builds the harness and runs this.
 const check = expect.configure({ timeout: 90000 });
-const url = process.env.BASE_URL ?? 'http://127.0.0.1:4291';
+const base = process.env.BASE_URL ?? 'http://127.0.0.1:4291';
+// With WASM_URL, the page passes it as wasmUrl: the engine the host serves itself (public/wasm/intent),
+// not the dependency's, which the host's bundler builds in.
+const url = process.env.WASM_URL ? `${base}/?wasmUrl=${encodeURIComponent(process.env.WASM_URL)}` : base;
 const server = process.env.BASE_URL ? null : spawn(process.execPath, ['node_modules/vite/bin/vite.js', 'preview', '--config', 'vite.harness.config.ts', '--host', '127.0.0.1', '--port', '4291', '--strictPort'], { stdio: 'inherit' });
 for (let n = 0; n < 100; n++) { try { if ((await fetch(url)).ok) break; } catch {} await new Promise(resolve => setTimeout(resolve, 200)); }
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined, args: ['--no-sandbox', '--use-gl=angle', '--use-angle=swiftshader'] });
@@ -29,11 +32,17 @@ try {
   const problems = [];
   page.on('pageerror', error => problems.push(String(error)));
   page.on('console', message => { if (/Content Security Policy|Uncaught/i.test(message.text())) problems.push(message.text()); });
+  // Which engine's .wasm the page fetches.
+  const wasmFetched = new Set();
+  page.on('request', request => { const path = new URL(request.url()).pathname; if (/specify_core_wasm.*\.wasm$/.test(path)) wasmFetched.add(path); });
   await page.goto(url);
   await page.locator('.diff-slot input[type=file]').nth(0).setInputFiles('test/fixtures/cast_bearing_unit_before.step.gz');
   await page.locator('.diff-slot input[type=file]').nth(1).setInputFiles('test/fixtures/cast_bearing_unit_after.step.gz');
   await check(page.locator('[data-change]')).toHaveCount(3);
   await check(page.locator('.diff-summary')).toContainText('2 holes changed');
+  const fetched = [...wasmFetched];
+  if (process.env.WASM_URL) assert.deepEqual(fetched, [new URL(process.env.WASM_URL.replace(/\.js$/, '_bg.wasm'), base).pathname], 'the engine is the one at wasmUrl');
+  else assert.ok(fetched.length === 1 && !fetched[0].startsWith('/wasm/intent/'), `the engine is the dependency's, built in by the host (${fetched})`);
   // The tree is the report: a node per line, named by its feature.
   for (const name of ['4× R1 fillets', '2× Ø10 × 11 through holes', '4× freeform surfaces', 'Unchanged']) await check(page.locator('.diff-stage .tv-node-label', { hasText: new RegExp(`^${name}`) }).first()).toBeVisible();
 

@@ -51,12 +51,15 @@ function markDefaults<T>(review: T, answers: Record<string, unknown>): T {
 }
 
 let modulePromise: Promise<IntentModule> | undefined;
-// Where the Specify WASM glue is, when the host sent one (a `{ wasmUrl }` message before any work).
+// Where the Specify WASM glue is, when the host serves its own (a `{ wasmUrl }` message before any
+// work). Otherwise the dependency @draftwright/specify-core-wasm, which the host's bundler resolves;
+// its glue finds its .wasm beside it (new URL(..., import.meta.url)).
 let configuredUrl: string | undefined;
 function load() {
   modulePromise ??= (async () => {
-    const modulePath = configuredUrl ?? new URL('/wasm/intent/specify_core_wasm.js', self.location.origin).href;
-    const module: IntentModule = await import(/* @vite-ignore */ modulePath);
+    const module: IntentModule = configuredUrl
+      ? await import(/* @vite-ignore */ configuredUrl)
+      : await import('@draftwright/specify-core-wasm') as unknown as IntentModule;
     await module.default();
     return module;
   })();

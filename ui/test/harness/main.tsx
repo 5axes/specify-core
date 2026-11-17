@@ -1,5 +1,5 @@
 // A minimal host for <StepDiff>: two file inputs, and what the component tells its host recorded
-// on `window` for the browser test to read. The Specify WASM is served from public/wasm/intent.
+// on `window` for the browser test to read. The Specify WASM is the dependency, as a host gets it.
 import { createRoot } from 'react-dom/client';
 import { useEffect, useState } from 'react';
 import { StepDiff, type StepFile } from '../../src/index';
@@ -29,6 +29,9 @@ function Slot({ label, file, pick }: { label: string; file: StepFile | null; pic
   );
 }
 
+// ?wasmUrl=… : the engine the host serves itself (the override), not the dependency.
+const wasmUrl = new URLSearchParams(location.search).get('wasmUrl') ?? undefined;
+
 function Harness() {
   const [before, setBefore] = useState<StepFile | null>(null);
   const [after, setAfter] = useState<StepFile | null>(null);
@@ -43,7 +46,7 @@ function Harness() {
       </div>
       {before && after && (
         <StepDiff
-          before={before} after={after} answers={answers} part={part}
+          before={before} after={after} answers={answers} part={part} wasmUrl={wasmUrl}
           onPart={name => { window.__parts.push(name); setPart(name); }}
           onEvent={name => window.__events.push(name)}
         />
