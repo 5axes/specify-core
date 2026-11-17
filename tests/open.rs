@@ -304,6 +304,12 @@ fn request(
     }
 }
 
+/// A refused request: what it is, its target, its headers and the status it gets.
+type Refused<'a> = (&'a str, String, Vec<(&'a str, &'a str)>, u16);
+
+/// A refused save: what it is, its headers, its body and the status it gets.
+type RefusedSave<'a> = (&'a str, Vec<(&'a str, &'a str)>, &'a [u8], u16);
+
 /// A STEP body, distinguishable by `tag`.
 fn step_body(tag: &str) -> Vec<u8> {
     format!("ISO-10303-21;\nHEADER;\n/* {tag} */\nENDSEC;\nDATA;\nENDSEC;\nEND-ISO-10303-21;\n")
@@ -403,7 +409,7 @@ fn other_hosts_tokens_origins_and_paths_outside_the_app_are_refused() {
     let index = opened.at("");
     let other_token = format!("/{}/", "0".repeat(32));
     let other_token_file = format!("/{}/file", "0".repeat(32));
-    let cases: Vec<(&str, String, Vec<(&str, &str)>, u16)> = vec![
+    let cases: Vec<Refused> = vec![
         (
             "host localhost",
             index.clone(),
@@ -596,7 +602,7 @@ fn a_save_from_elsewhere_of_another_type_not_step_or_too_large_is_refused() {
     // 4× the STEP text is the cap.
     let over = (4 * step_text().len() + 1).to_string();
     let at_cap = (4 * step_text().len()).to_string();
-    let cases: Vec<(&str, Vec<(&str, &str)>, &[u8], u16)> = vec![
+    let cases: Vec<RefusedSave> = vec![
         ("no origin", vec![("Host", &host), octets], &body, 403),
         (
             "another origin",
