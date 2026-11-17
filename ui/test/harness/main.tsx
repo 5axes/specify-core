@@ -29,6 +29,9 @@ function Slot({ label, file, pick }: { label: string; file: StepFile | null; pic
   );
 }
 
+// ?wasmUrl=… : the engine the host serves itself (the override), not the dependency.
+const wasmUrl = new URLSearchParams(location.search).get('wasmUrl') ?? undefined;
+
 function Harness() {
   const [before, setBefore] = useState<StepFile | null>(null);
   const [after, setAfter] = useState<StepFile | null>(null);
@@ -43,7 +46,7 @@ function Harness() {
       </div>
       {before && after && (
         <StepDiff
-          before={before} after={after} answers={answers} part={part}
+          before={before} after={after} answers={answers} part={part} wasmUrl={wasmUrl}
           onPart={name => { window.__parts.push(name); setPart(name); }}
           onEvent={name => window.__events.push(name)}
         />

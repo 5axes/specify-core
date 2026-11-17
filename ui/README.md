@@ -16,7 +16,9 @@ npm install @draftwright/specify-ui
 ```
 
 Peer dependencies, which the host provides (the package bundles none of them): `react` and `react-dom` ^19,
-`three` 0.186.x and `three-cad-viewer` ~5.1.3.
+`three` 0.184 to 0.186 and `three-cad-viewer` ~5.1.3. `three-cad-viewer` 5.1.3 depends on `three` 0.184.0 exactly, so
+install `three@0.184.0` to have one copy of three; with any other version the host bundles two (this package's
+tests run on 0.184.0).
 
 The Specify engine comes in as a dependency, `@draftwright/specify-core-wasm` (pinned to the release in
 `engines.lock.json`). It runs in a worker; the host's bundler builds that worker and copies the engine's `.wasm`
@@ -40,6 +42,16 @@ served them as `/wasm/intent/specify_core_wasm.js` and `/wasm/intent/specify_cor
 `wasmUrl="/wasm/intent/specify_core_wasm.js"`. A cross-origin `wasmUrl` needs the CSP's `script-src` (and
 `connect-src`, for the `.wasm`) to allow it. Use the engine version the package pins; the components are tested
 with that one.
+
+The default engine is still imported (the worker loads it when no `wasmUrl` is given), so the host's build still
+emits its ~16 MB `.wasm`, although the page never fetches it. To leave it out, alias the package to a stub, in Vite:
+
+```js
+// vite.config.js
+resolve: { alias: { '@draftwright/specify-core-wasm': fileURLToPath(new URL('./src/no-bundled-engine.js', import.meta.url)) } }
+// src/no-bundled-engine.js
+export default function init() { throw new Error('This host serves the Specify engine itself: pass wasmUrl.'); }
+```
 
 ## Usage
 
@@ -91,7 +103,9 @@ npm ci
 npm run fetch:wasm     # specify-core-wasm into public/wasm/intent (the browser test's own checks)
 npm run build          # typecheck, vite library build, declarations
 npm test               # unit tests (node --experimental-strip-types)
-npm run test:browser   # builds test/harness and drives <StepDiff> in Chromium (Playwright)
+npm run test:browser   # builds test/harness and drives <StepDiff> in Chromium (Playwright), on the
+                       # dependency's engine and again with wasmUrl
+npm run test:package   # packs the tarball, builds test/package-host on it, and runs the browser test there
 ```
 
 The browser test needs a Chromium for Playwright (`npx playwright install chromium`, or set `CHROMIUM_PATH`).
@@ -105,7 +119,9 @@ refuses to publish before then).
 CI (`.github/workflows/ci.yml`) runs every suite on each pull request and push to main. Publishing a GitHub release
 tagged `v<version>` runs `.github/workflows/release.yml`: it checks the tag, the engine pin and that the engine is on
 npm, runs the suites, packs, and then waits for approval in the `npm` environment before publishing with npm trusted
-publishing (OIDC, with provenance).
+publishing (OIDC, with provenance). The guard also refuses a release whose tag is not a `v*` tag on main, or whose
+engine on npm is not the pinned release's. The `npm` environment must have a required reviewer and be restricted to
+`v*` tags.
 
 ## Licence
 
