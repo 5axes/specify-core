@@ -1645,15 +1645,6 @@ pub const ENDPOINT: &str = "/mcp";
 /// stalled connections cannot pile up threads.
 pub const MAX_CONNECTIONS: usize = 16;
 
-/// A served connection, counted until its thread ends.
-struct Slot(Arc<AtomicUsize>);
-
-impl Drop for Slot {
-    fn drop(&mut self) {
-        self.0.fetch_sub(1, Ordering::SeqCst);
-    }
-}
-
 /// Serves Streamable HTTP on `listener` (bound to 127.0.0.1) at [`ENDPOINT`], each connection
 /// on its own thread (at most [`MAX_CONNECTIONS`] at once), calls one at a time. A request must carry `Authorization: Bearer
 /// <token>`, a `Host` of `127.0.0.1:<port>` or `localhost:<port>`, and no `Origin` (no
@@ -1685,7 +1676,7 @@ pub fn serve_http(listener: TcpListener, token: String, server: Server) -> io::R
             );
             continue;
         }
-        let slot = Slot(active.clone());
+        let slot = crate::open::Slot(active.clone());
         let (rules, server) = (rules.clone(), server.clone());
         // A thread that cannot be started drops the connection (and its slot), which the
         // client can retry.
@@ -1713,28 +1704,8 @@ fn same(a: &str, b: &str) -> bool {
 
 fn answer_http(mut stream: TcpStream, rules: &HttpRules, server: &Mutex<Server>) {
     exchange(&mut stream, rules, server);
-    // The response is sent and the write side shut. Read what the client still sends (a body
-    // a refusal never read) until it closes, briefly, so closing does not reset the
-    // connection and lose the response.
-    let deadline = Instant::now() + Duration::from_secs(1);
-    let mut sink = [0u8; 16 * 1024];
-    let mut left = MAX_DRAIN;
-    while left > 0 {
-        let Some(wait) = deadline.checked_duration_since(Instant::now()) else {
-            break;
-        };
-        if wait.is_zero() || stream.set_read_timeout(Some(wait)).is_err() {
-            break;
-        }
-        match stream.read(&mut sink) {
-            Ok(0) | Err(_) => break,
-            Ok(n) => left = left.saturating_sub(n),
-        }
-    }
+    crate::open::drain(&mut stream);
 }
-
-/// The most read from a connection after its response before it is closed anyway.
-const MAX_DRAIN: usize = 1024 * 1024;
 
 fn exchange(stream: &mut TcpStream, rules: &HttpRules, server: &Mutex<Server>) {
     use crate::open::{read_head, respond};

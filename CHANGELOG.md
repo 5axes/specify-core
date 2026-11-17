@@ -24,6 +24,24 @@ All notable changes to specify-core-rust. The format follows
   manual run publishes an existing release. The `specify-core-wasm-<version>.tgz` release
   assets are unchanged.
 
+### Changed
+
+- `specify-core open STEP` serves the Specify app itself on 127.0.0.1 instead of handing the
+  file to draftwright.io: the app, the engine, the file and its settings are served under a
+  random one-off path, and Specify's Save writes the specified STEP next to the input
+  (`<name>.specified.step`, then `-2`, `-3`, …; never overwriting), or over it with
+  `--in-place` (the original kept as `.bak`). `--read-only` refuses saves, `--port N` picks the
+  port. Nothing depends on draftwright.io and Chrome no longer asks about local-network access.
+  The command stops a few seconds after the page is closed, or after 30 minutes without a
+  request. Until the app is bundled, `--app DIR` (or `SPECIFY_APP_DIR`) names the built app and
+  `--wasm DIR` (or `SPECIFY_WASM_DIR`) the engine's wasm-pack `pkg/`. The contract for the
+  app's authors is docs/open.md.
+
+### Removed
+
+- `specify-core open`'s `--site` and `--editor`, and its handoff to
+  draftwright.io/specify?open=….
+
 ### Fixed
 
 - The WASM package's README (shown on npm) said AGPL-3.0; the package, haecceity and quiddity
