@@ -110,9 +110,8 @@ npm run test:package   # packs the tarball, builds test/package-host on it, and 
 
 The browser test needs a Chromium for Playwright (`npx playwright install chromium`, or set `CHROMIUM_PATH`).
 
-Until `@draftwright/specify-core-wasm` is on npm, `package-lock.json` resolves it from the checksum-pinned
-specify-core release asset; refresh the lockfile from the registry once it is published (the release workflow
-refuses to publish before then).
+`package-lock.json` resolves `@draftwright/specify-core-wasm` from the npm registry; the release workflow refuses
+to publish otherwise, and checks that the engine on npm is byte-identical to the pinned specify-core release.
 
 ## Releasing
 
