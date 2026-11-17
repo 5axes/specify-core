@@ -2,6 +2,7 @@
 export { default as StepDiff, type StepDiffProps } from './components/StepDiff';
 export { default as AssemblyDiffView, type AssemblyRow, type StepFile } from './components/AssemblyDiffView';
 export { SpecifyReview, type SpecifyEngine, type SpecifySlots } from './specify/SpecifyReview';
+export { drawnFromScene, withoutNotesBlock, hasGraphics, type DrawnPmi } from './specify/drawn';
 export { readOnlyEngine } from './specify/read-only';
 export { createIntentEngine } from './engine/intent-engine';
 export { WorkerClient } from './engine/rpc';

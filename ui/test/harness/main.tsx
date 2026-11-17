@@ -2,7 +2,9 @@
 // on `window` for the browser test to read. The Specify WASM is the dependency, as a host gets it.
 import { createRoot } from 'react-dom/client';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { createIntentEngine, SpecifyReview, StepDiff, type StepFile } from '../../src/index';
+import {
+  createIntentEngine, drawnFromScene, hasGraphics, SpecifyReview, StepDiff, withoutNotesBlock, type DrawnPmi, type StepFile,
+} from '../../src/index';
 import { stepBytes } from '../../src/model/diff';
 
 declare global {
@@ -63,10 +65,12 @@ function Harness() {
 const query = new URLSearchParams(location.search);
 const readOnly = query.get('readOnly') === '1';
 
+const noAnswers = {};
+
 function SpecifyHost() {
   // Made here, not at module level: the StepDiff page starts no extra worker.
   const worker = useMemo(() => createIntentEngine({ wasmUrl }), []);
-  const [open, setOpen] = useState<{ session: any; review: any; engine: any } | null>(null);
+  const [open, setOpen] = useState<{ session: any; review: any; engine: any; drawn: DrawnPmi | null } | null>(null);
   const view = useRef<HTMLDivElement>(null);
   const panel = useRef<HTMLDivElement>(null);
   const exports = useRef<HTMLDivElement>(null);
@@ -88,7 +92,11 @@ function SpecifyHost() {
       preview: async (_id: string, answers: unknown) => { window.__calls.push('preview'); return (await call('review', answers)).intent; },
     };
     const session = { sessionId: sourceId, filename: name, analysis: snapshot.analysis, mesh: snapshot.mesh, questions: review.questions, problems: review.problems };
-    setOpen({ session, review, engine });
+    // The PMI as drawn, as the editor asks for it: the worker's call, not the host engine's.
+    const saved = snapshot.analysis.resume?.answers ?? {};
+    const scene = drawnFromScene(await worker.request('scene', { name, bytes, sourceId, state: { answers: saved } }));
+    const shown = scene.ok ? withoutNotesBlock(scene.value) : null;
+    setOpen({ session, review, engine, drawn: shown && hasGraphics(shown) ? shown : null });
   };
   return (
     <main className="diff-page">
@@ -98,8 +106,8 @@ function SpecifyHost() {
       <div id="specify-exports" ref={exports} />
       {open && slots && (
         <SpecifyReview
-          engine={open.engine} session={open.session} slots={slots} readOnly={readOnly}
-          externalAnswers={{}} externalReview={open.review} disabled={false}
+          engine={open.engine} session={open.session} slots={slots} readOnly={readOnly} drawn={open.drawn}
+          externalAnswers={noAnswers} externalReview={open.review} disabled={false}
           onExport={action => action()} onKeep={() => window.__calls.push('onKeep')}
         />
       )}
