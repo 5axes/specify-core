@@ -40,12 +40,16 @@ works of the US Government and not subject to copyright in the United States (pu
 
 The previous sample, Specify's synthetic mounting plate, is now the engine verification fixture
 `scripts/fixtures/plate.step` (see `scripts/fixtures/README.md`). It comes from
-`pzfreo/specify-core` at `42ff22c093f544aab934f30dbe625844fa5d55a3`, under AGPL-3.0-or-later.
+`pzfreo/specify-core` at `42ff22c093f544aab934f30dbe625844fa5d55a3`, when specify-core was
+AGPL-3.0-or-later. specify-core was relicensed Apache-2.0 on 2026-10-30 (`83c49c3`), and
+`plate.step` is still in its `tests/fixtures/parts` at HEAD, so it is available under Apache-2.0.
 
 `scripts/fixtures/assembly.step` and `placed.step` are the same upstream revision's
 synthetic `assembly.step` and
-`a_placed_part_is_meshed_in_the_frame_the_analysis_uses.step` fixtures, also under
-AGPL-3.0-or-later. They check assembly refusal and placed-part loading.
+`a_placed_part_is_meshed_in_the_frame_the_analysis_uses.step` fixtures, also taken when specify-core
+was AGPL-3.0-or-later; since the Apache-2.0 relicence of 2026-10-30 (`83c49c3`) they are available
+under Apache-2.0 (both are still in its `tests/fixtures/parts` at HEAD). They check
+assembly refusal and placed-part loading.
 
 The browser engines are published upstream WASM packages pinned in
 `engines.lock.json`. They are downloaded with SHA-256 verification; the complete

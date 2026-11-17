@@ -6,12 +6,15 @@
 restoring a computed callout that the automatic planner replaced with a hole table.
 
 `assembly.step` and `placed.step` are synthetic loading fixtures from
-`pzfreo/specify-core` at `42ff22c093f544aab934f30dbe625844fa5d55a3`, under
-AGPL-3.0-only. They exercise assembly refusal and single-part placement restoration.
+`pzfreo/specify-core` at `42ff22c093f544aab934f30dbe625844fa5d55a3`, when specify-core was
+AGPL-3.0-or-later (its `Cargo.toml` then said so). specify-core was relicensed Apache-2.0 on
+2026-10-30 (`83c49c3`), and both are still in its `tests/fixtures/parts` at HEAD, so they are
+available under Apache-2.0. They exercise assembly refusal and single-part placement restoration.
 
 `plate.step` is Specify's synthetic mounting plate from `pzfreo/specify-core` at
-`42ff22c093f544aab934f30dbe625844fa5d55a3` (`tests/fixtures/parts/plate.step`), under
-AGPL-3.0-or-later. It was the editor's sample until text-to-cad's mounting plate replaced it;
+`42ff22c093f544aab934f30dbe625844fa5d55a3` (`tests/fixtures/parts/plate.step`), when specify-core
+was AGPL-3.0-or-later. specify-core was relicensed Apache-2.0 on 2026-10-30 (`83c49c3`) and
+`plate.step` is still in its `tests/fixtures/parts` at HEAD, so it is available under Apache-2.0. It was the editor's sample until text-to-cad's mounting plate replaced it;
 `verify:engines`, `test:wasm-parity`, the bench edit sequences, the MCP evaluation tasks, the
 native `dw-bench` tests, `scripts/mcp-card-browser.mjs` and smoke's STEP-reopening steps use it
 for its holes (the ⌀8 bore `holes:9`, the 6× ⌀6.6 pattern), its M5 tapped holes and its datums.
@@ -25,7 +28,7 @@ at 5:1 and its sheet sizes.
 
 `legacy_specify.step` is the mounting-plate sample saved by the pre-alpha browser
 writer (Specify `42ff22c0`) with H7 and 6082-T6 answers, using stored-answer schema 1.
-The geometry is `plate.step`, Specify's AGPL sample.
+The geometry is `plate.step`, Specify's sample (taken under AGPL-3.0-or-later, now Apache-2.0).
 Since quiddity v0.1.1 its schema 1 fingerprint cannot be reproduced (some zero centroids
 change sign). Specify alpha.8 resumes its answers by feature ID and marks them unverified;
 the editor's report says so.
