@@ -1,11 +1,12 @@
 # specify-core-rust: design of the port
 
-specify-core (Python, `/Users/paul/repos/specify-core`, AGPL-3.0-or-later) is interview-driven
+specify-core's original Python implementation (AGPL-3.0-or-later) is interview-driven
 AP242 PMI authoring: it loads a STEP part, recognises its features, works out what manufacturing
 intent is missing, proposes defaults with reasons, and writes the answers back as AP242 semantic
 PMI, verified by reading the file back. This crate is its port to Rust, with no OpenCascade and
 no Python: geometry, STEP and PMI come from haecceity and features from quiddity, both in
-[pzfreo/quiddity](https://github.com/pzfreo/quiddity).
+[pzfreo/quiddity](https://github.com/pzfreo/quiddity). The port, quiddity and haecceity are
+Apache-2.0.
 
 Ground rules, from the maintainer's brief:
 

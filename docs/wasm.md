@@ -43,8 +43,8 @@ PMI writer as native Specify; there is no copied writer.
 
 Each published GitHub release whose tag starts with `v` gets
 `specify-core-wasm-<version>.tgz` and `specify-core-wasm-<version>.tgz.sha256`. The archive
-contains `pkg/`: the web ES module, `.wasm`, TypeScript declarations, package metadata and
-README. The same files are on npm as
+contains `pkg/`: the web ES module, `.wasm`, TypeScript declarations, package metadata,
+README, LICENSE and NOTICE (from 0.1.18). The same files are on npm as
 [`@draftwright/specify-core-wasm`](https://www.npmjs.com/package/@draftwright/specify-core-wasm)
 (from 0.1.17), with only `package.json` renamed to the scope; the module is still
 `specify_core_wasm.js`:
@@ -89,7 +89,8 @@ try {
 A published, non-pre-release GitHub release runs `release.yml`: the `wasm` job attaches the
 archive, then the `npm` job downloads it, checks its `.sha256`, prepares `package.json` with
 `tools/npm_package.py` (scoped name, `publishConfig: {access: public, provenance: true}`,
-refusing a version other than the tag's), and publishes it with npm trusted publishing in the
+`NOTICE` in `files`; refusing a version other than the tag's, or a tarball without LICENSE
+and NOTICE), and publishes it with npm trusted publishing in the
 `npm` environment, where the maintainer approves. A version already on npm is skipped; a
 version older than npm's `latest` is published under the dist-tag `release-<version>`. A manual run
 of `release.yml` with a `tag` publishes that existing release's archive the same way; a
