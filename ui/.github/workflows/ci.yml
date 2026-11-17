@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Cache upstream release archives
+        uses: actions/cache@v4
+        with:
+          path: .cache/wasm-releases
+          key: wasm-releases-${{ hashFiles('engines.lock.json') }}
+      # specify-core is public; the token only avoids API rate limits.
+      - name: Fetch the pinned Specify WASM
+        run: npm run fetch:wasm
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npm test
+      # Keyed on the lockfile, which pins @playwright/test and so the browser build.
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:browser
+      - name: Show the package contents
+        run: npm pack --dry-run

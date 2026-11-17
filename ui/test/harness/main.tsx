@@ -1,5 +1,5 @@
 // A minimal host for <StepDiff>: two file inputs, and what the component tells its host recorded
-// on `window` for the browser test to read. The Specify WASM is served from public/wasm/intent.
+// on `window` for the browser test to read. The Specify WASM is the dependency, as a host gets it.
 import { createRoot } from 'react-dom/client';
 import { useEffect, useState } from 'react';
 import { StepDiff, type StepFile } from '../../src/index';
