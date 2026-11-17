@@ -545,10 +545,177 @@ fn paths_outside_allow_are_refused_even_through_a_symbolic_link() {
         std::os::unix::fs::symlink(part("plate"), &link).unwrap();
         let refused = error_of(&mut server, "list_parts", json!({"path": link}));
         assert_eq!(refused["code"], json!("refused"), "{refused}");
-        let traversal = dir.join("..").join("x.step");
-        let refused = error_of(&mut server, "diff", json!({"old": traversal, "new": link}));
-        assert!(["refused", "invalid"].contains(&refused["code"].as_str().unwrap()));
     }
+    // `..` out of the allowed directory, to a file that exists: refused by --allow.
+    let outside = scratch("allow-outside");
+    let target = outside.join("x.step");
+    std::fs::copy(part("plate"), &target).unwrap();
+    let traversal = dir
+        .join("..")
+        .join(outside.file_name().unwrap())
+        .join("x.step");
+    assert!(traversal.exists());
+    let inside = dir.join("inside.step");
+    std::fs::copy(part("plate"), &inside).unwrap();
+    let refused = error_of(
+        &mut server,
+        "diff",
+        json!({"old": traversal, "new": inside}),
+    );
+    assert_eq!(refused["code"], json!("refused"), "{refused}");
+    assert!(
+        refused["message"].as_str().unwrap().contains("--allow"),
+        "{refused}"
+    );
+    assert_eq!(refused["path"], json!(target));
+    let _ = std::fs::remove_dir_all(&dir);
+    let _ = std::fs::remove_dir_all(&outside);
+}
+
+/// An output that is a symbolic link out of `--allow` is refused, even with overwrite, and
+/// the file it points at is left as it was.
+#[cfg(unix)]
+#[test]
+fn an_output_link_out_of_allow_is_refused() {
+    let dir = scratch("output-link");
+    let outside = scratch("output-link-outside");
+    let victim = outside.join("victim.step");
+    std::fs::write(&victim, b"not to be replaced\n").unwrap();
+    let copy = dir.join("plate.step");
+    std::fs::copy(part("plate"), &copy).unwrap();
+    let link = dir.join("out.step");
+    std::os::unix::fs::symlink(&victim, &link).unwrap();
+    let json_link = dir.join("answers.json");
+    std::os::unix::fs::symlink(outside.join("answers.json"), &json_link).unwrap();
+    std::fs::write(outside.join("answers.json"), b"{}\n").unwrap();
+
+    let mut server = Server::new(std::slice::from_ref(&dir)).unwrap();
+    let opened = call(&mut server, "open", json!({"path": copy}));
+    let doc = opened["structuredContent"]["doc"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    for (tool, arguments) in [
+        (
+            "write_pmi",
+            json!({"doc": doc, "output": link, "accept_defaults": true, "overwrite": true}),
+        ),
+        (
+            "export_answers",
+            json!({"doc": doc, "output": link, "overwrite": true}),
+        ),
+        (
+            "answer",
+            json!({"doc": doc, "set": {"part.material": "6061-T6"}, "answers_file": json_link}),
+        ),
+    ] {
+        let refused = error_of(&mut server, tool, arguments);
+        assert_eq!(refused["code"], json!("refused"), "{tool}: {refused}");
+        assert!(
+            refused["message"].as_str().unwrap().contains("--allow"),
+            "{tool}: {refused}"
+        );
+    }
+    assert_eq!(std::fs::read(&victim).unwrap(), b"not to be replaced\n");
+    assert_eq!(
+        std::fs::read(outside.join("answers.json")).unwrap(),
+        b"{}\n"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+    let _ = std::fs::remove_dir_all(&outside);
+}
+
+/// An existing file that is not an answer map is never replaced as an answers_file without
+/// overwrite; an existing answer map is loaded and kept up to date.
+#[test]
+fn an_answers_file_replaces_only_an_answer_map_without_overwrite() {
+    let dir = scratch("answers-file");
+    let copy = dir.join("plate.step");
+    std::fs::copy(part("plate"), &copy).unwrap();
+    let notes = dir.join("notes.md");
+    std::fs::write(&notes, b"# my notes\n").unwrap();
+    let other = dir.join("package.json");
+    std::fs::write(&other, b"{\"name\": \"x\", \"version\": \"1\"}\n").unwrap();
+    let mut server = Server::new(std::slice::from_ref(&dir)).unwrap();
+
+    // open refuses it, and opens nothing.
+    let refused = error_of(
+        &mut server,
+        "open",
+        json!({"path": copy, "answers_file": notes}),
+    );
+    assert_eq!(refused["code"], json!("refused"), "{refused}");
+    assert!(
+        refused["message"].as_str().unwrap().contains("notes.md"),
+        "{refused}"
+    );
+    assert_eq!(refused["path"], json!(notes));
+    assert_eq!(std::fs::read(&notes).unwrap(), b"# my notes\n");
+
+    let opened = call(&mut server, "open", json!({"path": copy}));
+    let doc = opened["structuredContent"]["doc"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    // answer refuses it, changes nothing, and leaves both files byte-identical.
+    for file in [&notes, &other] {
+        let refused = error_of(
+            &mut server,
+            "answer",
+            json!({"doc": doc, "set": {"part.material": "6061-T6"}, "answers_file": file}),
+        );
+        assert_eq!(refused["code"], json!("refused"), "{refused}");
+        assert!(
+            refused["message"]
+                .as_str()
+                .unwrap()
+                .contains(file.file_name().unwrap().to_str().unwrap())
+        );
+    }
+    assert_eq!(std::fs::read(&notes).unwrap(), b"# my notes\n");
+    assert_eq!(
+        std::fs::read(&other).unwrap(),
+        b"{\"name\": \"x\", \"version\": \"1\"}\n"
+    );
+    let unchanged = call(
+        &mut server,
+        "questions",
+        json!({"doc": doc, "state": "answered"}),
+    );
+    assert_eq!(
+        unchanged["structuredContent"]["questions"],
+        json!([]),
+        "{unchanged}"
+    );
+
+    // An existing answer map is loaded on open and updated by answer.
+    let kept = dir.join("plate.answers.json");
+    std::fs::write(&kept, b"{\"part.material\": \"6082-T6\"}\n").unwrap();
+    let reopened = call(
+        &mut server,
+        "open",
+        json!({"path": copy, "answers_file": kept}),
+    );
+    assert_eq!(reopened["isError"], json!(false), "{reopened}");
+    assert_eq!(reopened["structuredContent"]["answered"], json!(1));
+    let set = call(
+        &mut server,
+        "answer",
+        json!({"doc": doc, "set": {"part.material": "6061-T6"}}),
+    );
+    assert_eq!(set["isError"], json!(false), "{set}");
+    let saved: Value = serde_json::from_str(&std::fs::read_to_string(&kept).unwrap()).unwrap();
+    assert_eq!(saved, json!({"part.material": "6061-T6"}));
+
+    // With overwrite: true the other file is replaced by the answers.
+    let set = call(
+        &mut server,
+        "answer",
+        json!({"doc": doc, "answers_file": notes, "overwrite": true}),
+    );
+    assert_eq!(set["isError"], json!(false), "{set}");
+    let saved: Value = serde_json::from_str(&std::fs::read_to_string(&notes).unwrap()).unwrap();
+    assert_eq!(saved, json!({"part.material": "6061-T6"}));
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -799,6 +966,131 @@ fn http_needs_the_token_the_host_and_no_origin() {
             .len(),
         10
     );
+    // A legacy-era JSON-RPC error is a 200 body (2025-11-25 Streamable HTTP); an
+    // unsupported header version is still 400.
+    let unknown = json!({"jsonrpc": "2.0", "id": 5, "method": "prompts/list"}).to_string();
+    let (status, body) = http(
+        port,
+        &format!("{legacy}MCP-Protocol-Version: {}\r\n", mcp::LEGACY),
+        &unknown,
+    );
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(
+        serde_json::from_str::<Value>(&body).unwrap()["error"]["code"],
+        json!(-32601)
+    );
+    let (status, body) = http(
+        port,
+        &format!("{legacy}MCP-Protocol-Version: 1900-01-01\r\n"),
+        &list,
+    );
+    assert_eq!(status, 400, "{body}");
+    assert_eq!(
+        serde_json::from_str::<Value>(&body).unwrap()["error"]["code"],
+        json!(-32022)
+    );
+    // The same unknown method in 2026-07-28 is 404.
+    let (status, body) = http(
+        port,
+        &head(&auth, &host, "", "prompts/list"),
+        &modern(6, "prompts/list", json!({})).to_string(),
+    );
+    assert_eq!(status, 404, "{body}");
+    // A 2026-07-28 header with no version in the body: the header does not match the body
+    // (-32020), never "unsupported" for a version the server speaks.
+    let (status, body) = http(port, &head(&auth, &host, "", "tools/list"), &list);
+    assert_eq!(status, 400, "{body}");
+    let error = &serde_json::from_str::<Value>(&body).unwrap()["error"];
+    assert_eq!(error["code"], json!(-32020), "{body}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The scheme name is case-insensitive, and a real tool call succeeds over HTTP.
+#[test]
+fn http_serves_a_tool_call_with_any_case_of_bearer() {
+    let dir = scratch("http-call");
+    let copy = dir.join("plate.step");
+    std::fs::copy(part("plate"), &copy).unwrap();
+    let (port, token) = start_http(&dir);
+    let host = format!("127.0.0.1:{port}");
+    let call = modern(
+        1,
+        "tools/call",
+        json!({"name": "list_parts", "arguments": {"path": copy}}),
+    )
+    .to_string();
+    for scheme in ["Bearer", "bearer", "BEARER"] {
+        let head = format!(
+            "POST /mcp HTTP/1.1\r\nHost: {host}\r\nAuthorization: {scheme} {token}\r\n\
+             Content-Type: application/json\r\nAccept: application/json, text/event-stream\r\n\
+             MCP-Protocol-Version: {}\r\nMcp-Method: tools/call\r\nMcp-Name: list_parts\r\n",
+            mcp::MODERN
+        );
+        let (status, body) = http(port, &head, &call);
+        assert_eq!(status, 200, "{scheme}: {body}");
+        let reply: Value = serde_json::from_str(&body).unwrap();
+        let result = &reply["result"];
+        assert_eq!(result["isError"], json!(false), "{body}");
+        assert_eq!(result["resultType"], json!("complete"));
+        assert_eq!(
+            result["structuredContent"]["parts"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1,
+            "{body}"
+        );
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Stalled connections hold at most MAX_CONNECTIONS threads; beyond that a connection is
+/// answered 503, and the server serves again once they go.
+#[test]
+fn http_caps_its_connections() {
+    let dir = scratch("http-cap");
+    let (port, token) = start_http(&dir);
+    let stalled: Vec<TcpStream> = (0..mcp::MAX_CONNECTIONS)
+        .map(|_| TcpStream::connect(("127.0.0.1", port)).unwrap())
+        .collect();
+    // One more: answered at once, without sending anything.
+    let mut extra = TcpStream::connect(("127.0.0.1", port)).unwrap();
+    extra
+        .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+        .unwrap();
+    let mut response = String::new();
+    extra.read_to_string(&mut response).unwrap();
+    assert!(response.starts_with("HTTP/1.1 503"), "{response}");
+    drop(stalled);
+    let host = format!("127.0.0.1:{port}");
+    let head = format!(
+        "POST /mcp HTTP/1.1\r\nHost: {host}\r\nAuthorization: Bearer {token}\r\n\
+         MCP-Protocol-Version: {}\r\nMcp-Method: server/discover\r\n",
+        mcp::MODERN
+    );
+    let discover = modern(1, "server/discover", json!({})).to_string();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    loop {
+        // A 503 is sent without reading the request, so the connection may also be reset.
+        let attempt = || -> std::io::Result<String> {
+            let mut stream = TcpStream::connect(("127.0.0.1", port))?;
+            write!(
+                stream,
+                "{head}Content-Length: {}\r\n\r\n{discover}",
+                discover.len()
+            )?;
+            let mut response = String::new();
+            stream.read_to_string(&mut response)?;
+            Ok(response)
+        };
+        match attempt() {
+            Ok(r) if r.starts_with("HTTP/1.1 200") => break,
+            Ok(r) => assert!(r.starts_with("HTTP/1.1 503"), "{r}"),
+            Err(_) => {}
+        }
+        assert!(std::time::Instant::now() < deadline, "still refused");
+        thread::sleep(std::time::Duration::from_millis(20));
+    }
     let _ = std::fs::remove_dir_all(&dir);
 }
 

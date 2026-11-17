@@ -68,9 +68,9 @@ JSON-RPC errors.
 | Tool | Arguments | Result |
 | --- | --- | --- |
 | `list_parts` | `path` | `parts`: `[{part, name, product_id, faces, instances, ...}]`, as `serve`'s `parts` |
-| `open` | `path`, `part?`, `answers_file?` | `doc`, `open_questions`, `features` (counts by family), `faces`, `existing_pmi`, `resumed`, `warnings?`. For an assembly opened without `part`, the result is `needs_part: true` with its `parts` |
+| `open` | `path`, `part?`, `answers_file?`, `overwrite?` | `doc`, `open_questions`, `features` (counts by family), `faces`, `existing_pmi`, `resumed`, `warnings?`. For an assembly opened without `part`, the result is `needs_part: true` with its `parts` |
 | `questions` | `doc`, `state?` (`open` by default, `answered`, `all`) | each question as review presents it, with its `state` (`open`, `answered`, `optional`) and its `answer` |
-| `answer` | `doc`, `set?: {id: value or text}`, `clear?: [id]`, `answers_file?` | each answer as stored, with `interpreted_from` when it was typed, and its `state`; the `open` ids |
+| `answer` | `doc`, `set?: {id: value or text}`, `clear?: [id]`, `answers_file?`, `overwrite?` | each answer as stored, with `interpreted_from` when it was typed, and its `state`; the `open` ids |
 | `review` | `doc` | `open`, `problems`, `writable`/`missing` as answered, `writable_with_defaults`/`missing_with_defaults` |
 | `characteristics` | `doc` | `intent`: the preview, as `serve`'s `preview` |
 | `read_pmi` | `doc` | `existing` (the file's PMI by face), `part_settings`, `resumed`, `saved_answers?` |
@@ -96,11 +96,17 @@ era).
 index, for example `9b1c…e4-0`. Every later call passes it. The analysis and the answers are
 held **in the server's memory, by handle**, and nothing is written unless you ask:
 
+- **Content-addressed.** The handle depends on the file's contents, not its path. A
+  byte-identical copy at another path opens to the same handle, and so shares the answers held
+  in memory; the handle then follows the path opened most recently.
+
 - **Restart.** When the server stops, its documents and their answers are lost. A call with a
   forgotten handle is refused as `unknown_document`; open the file again.
 - **`answers_file`.** Name a `.json` file on `open` or `answer` and the answers are saved to it
   after every change. If the file exists when `open` names it, the answers are loaded from it.
-  The file is the same answer map `write`, `diff` and the editor read.
+  The file is the same answer map `write`, `diff` and the editor read. An existing file that is
+  not such a map (any other text or JSON) is refused, and left as it is, unless the call passes
+  `overwrite: true`.
 - **Resumed answers.** A file Specify wrote stores its answers, and `open` resumes them.
 - **Stale files.** If the file at the recorded path changes after `open`, every call on the
   document is refused as `stale`. Open the file again, or use `diff` to carry the answers.
@@ -110,19 +116,30 @@ held **in the server's memory, by handle**, and nothing is written unless you as
 - **Paths.** Every path must lie inside an `--allow` directory. Without `--allow`, the server
   uses its working directory. Paths are canonicalised, symbolic links included, so a link or
   `..` that leads outside is refused. A file to be written must be in an existing allowed
-  directory.
+  directory. The checks happen before the write and assume a trusted local machine: a symbolic
+  link planted between the check and the write, by another local process with write access to
+  the allowed directory, is not caught.
 - **No overwriting.** `write_pmi` and `export_answers` refuse an existing `output` unless the
-  call passes `overwrite: true`. An `answers_file` is replaced as it is kept up to date, but it
-  may never be a STEP file.
+  call passes `overwrite: true`. An `answers_file` that already holds an answer map is replaced
+  as it is kept up to date; any other existing file only with `overwrite: true`. It may never
+  be a STEP file.
 - **HTTP.** The server binds to 127.0.0.1 only. Every request needs:
   - `Authorization: Bearer <token>`; without it the answer is 401.
   - `Host: 127.0.0.1:<port>` or `localhost:<port>`; any other host gets 403, which stops DNS
     rebinding.
   - No `Origin` header; any browser `Origin` gets 403, so no web page can call the server.
 
+  The scheme name `Bearer` is matched in any case. At most 16 connections are served at once;
+  another is answered 503 and closed.
+
   2026-07-28 requests must also carry `MCP-Protocol-Version`, `Mcp-Method` and, for
   `tools/call` and `resources/read`, `Mcp-Name`, all matching the body; otherwise the answer is
-  400 with `-32020`. The server never issues an `Mcp-Session-Id`. GET is answered 405. There is
+  400 with `-32020`; so is a `2026-07-28` header on a body that carries no version. Other errors
+  map to statuses (`-32601` is 404, an internal error 500, the rest 400). In the 2025-11-25
+  era, as its transport says, a JSON-RPC error comes in a 200 body; only a bad or unsupported
+  `MCP-Protocol-Version` is 400. The server never issues an `Mcp-Session-Id`. GET is answered 405. There is
   no OAuth and no hosted mode.
 - **stdio.** Only protocol messages go to stdout. Diagnostics, such as a panic's message, go to
-  stderr. A panic inside one call becomes a `failed` tool error, and the server carries on.
+  stderr. A panic inside a tool call becomes a `failed` tool error; a panic anywhere else in
+  serving a request (reading a resource, say) becomes a `-32603` internal error. Either way the
+  server carries on.

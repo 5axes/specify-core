@@ -16,7 +16,8 @@
 //!
 //! Domain refusals (an answer refused, questions left open, a path outside `--allow`) are tool
 //! results with `isError` and a structured `error`; protocol errors are JSON-RPC errors. A panic
-//! inside one call is answered as a `failed` tool error and the server carries on. In stdio mode
+//! inside a tool call is answered as a `failed` tool error, one anywhere else as a JSON-RPC
+//! internal error, and the server carries on. In stdio mode
 //! nothing but protocol messages is written to stdout.
 
 use std::collections::BTreeMap;
@@ -24,6 +25,7 @@ use std::io::{self, BufRead, Read, Write};
 use std::net::{Ipv4Addr, TcpListener, TcpStream};
 use std::panic::{self, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -261,9 +263,21 @@ impl Server {
 
     /// The reply to one JSON-RPC message; `http` gives the request's headers when it came over
     /// HTTP (checked against the body as the Streamable HTTP binding requires).
+    ///
+    /// A panic anywhere in serving the message is answered as a JSON-RPC internal error, and
+    /// the server carries on.
     pub fn handle(&mut self, message: &Value, http: Option<&Headers>) -> Reply {
         let id = message.get("id").cloned().unwrap_or(Value::Null);
-        match self.dispatch(message, http) {
+        let mut era = None;
+        let outcome =
+            panic::catch_unwind(AssertUnwindSafe(|| self.dispatch(message, http, &mut era)))
+                .unwrap_or_else(|payload| {
+                    Err(RpcError::new(
+                        INTERNAL_ERROR,
+                        format!("Internal error: panicked: {}", panic_message(&*payload)),
+                    ))
+                });
+        match outcome {
             Ok(None) => Reply {
                 status: 202,
                 body: None,
@@ -283,17 +297,27 @@ impl Server {
                 }
             }
             Err(e) => Reply {
-                status: e.status(),
+                // 2025-11-25's Streamable HTTP answers a request with its JSON-RPC response,
+                // error or not, in a 200 body; only a bad or unsupported MCP-Protocol-Version
+                // (refused before an era is chosen) is 400. 2026-07-28 maps errors to statuses.
+                status: if era == Some(Era::Legacy) {
+                    200
+                } else {
+                    e.status()
+                },
                 body: Some(error_response(&id, &e)),
             },
         }
     }
 
-    /// A message's result and the era it was served in; None for a notification.
+    /// A message's result and the era it was served in; None for a notification. `chosen` is
+    /// set to the era as soon as it is known, so an error (or a panic) after it is answered in
+    /// that era's manner.
     fn dispatch(
         &mut self,
         message: &Value,
         http: Option<&Headers>,
+        chosen: &mut Option<Era>,
     ) -> Result<Option<(Era, Value)>, RpcError> {
         let Value::Object(m) = message else {
             return Err(RpcError::new(
@@ -324,6 +348,7 @@ impl Server {
             ));
         }
         let era = self.era(method, &params, http)?;
+        *chosen = Some(era);
         let result = self.method(era, method, &params)?;
         Ok(Some((era, result)))
     }
@@ -400,6 +425,14 @@ impl Server {
         match http {
             Some(_) => match header_version {
                 Some(LEGACY) => Ok(Era::Legacy),
+                // A version this server speaks in the header but none in the body: the header
+                // does not match the body (2026-07-28 Streamable HTTP, Server Validation).
+                Some(v) if SUPPORTED.contains(&v) => Err(RpcError::new(
+                    HEADER_MISMATCH,
+                    format!(
+                        "Header mismatch: MCP-Protocol-Version header value '{v}' does not match the body, which carries no _meta {META_VERSION}"
+                    ),
+                )),
                 Some(other) => Err(unsupported(other)),
                 None => Err(RpcError::new(
                     INVALID_PARAMS,
@@ -461,6 +494,9 @@ impl Server {
                 "cacheScope": "public",
             }),
             (_, "resources/read") => self.read_resource(era, params)?,
+            // Only in this module's unit tests: a method that panics outside any tool.
+            #[cfg(test)]
+            (_, "test/panic") => panic!("a panic outside a tool"),
             _ => {
                 return Err(RpcError::new(
                     METHOD_NOT_FOUND,
@@ -496,12 +532,10 @@ impl Server {
         };
         let outcome = panic::catch_unwind(AssertUnwindSafe(|| self.tool(name, &args)));
         let outcome = outcome.unwrap_or_else(|payload| {
-            let message = payload
-                .downcast_ref::<&str>()
-                .map(|s| s.to_string())
-                .or_else(|| payload.downcast_ref::<String>().cloned())
-                .unwrap_or_else(|| "a panic with no message".into());
-            Err(ToolError::new("failed", format!("panicked: {message}")))
+            Err(ToolError::new(
+                "failed",
+                format!("panicked: {}", panic_message(&*payload)),
+            ))
         });
         Ok(match outcome {
             Ok(value) => json!({
@@ -640,9 +674,12 @@ impl Server {
     fn open(&mut self, args: &Map<String, Value>) -> ToolResult {
         let path = self.existing_path(string(args, "path")?)?;
         let part = optional_index(args, "part")?;
-        let answers_file = match optional_string(args, "answers_file")? {
-            Some(raw) => Some(self.answers_path(raw, &path)?),
-            None => None,
+        let (answers_file, from_file) = match optional_string(args, "answers_file")? {
+            Some(raw) => {
+                let (target, kept) = self.answers_path(raw, &path, flag(args, "overwrite")?)?;
+                (Some(target), kept)
+            }
+            None => (None, None),
         };
         let bytes = std::fs::read(&path)
             .map_err(|e| ToolError::invalid(format!("{raw}: {e}", raw = path.display())))?;
@@ -670,10 +707,8 @@ impl Server {
             .map(|d| d.answers.clone())
             .or_else(|| analysis["resume"]["answers"].as_object().cloned())
             .unwrap_or_default();
-        if let Some(target) = &answers_file
-            && target.exists()
-        {
-            answers = read_answers(target)?;
+        if let Some(kept) = from_file {
+            answers = kept;
         }
         api::questions(&analysis, &answers)?;
         let previous_file = self.docs.get(&handle).and_then(|d| d.answers_file.clone());
@@ -797,7 +832,10 @@ impl Server {
             Some(_) => return Err(ToolError::invalid("clear is a list of question ids")),
         };
         let answers_file = match optional_string(args, "answers_file")? {
-            Some(raw) => Some(self.answers_path(raw, &doc.path)?),
+            Some(raw) => Some(
+                self.answers_path(raw, &doc.path, flag(args, "overwrite")?)?
+                    .0,
+            ),
             None => None,
         };
         let mut trial = doc.answers.clone();
@@ -1031,16 +1069,34 @@ impl Server {
         }))
     }
 
-    /// An `answers_file` argument: an output path (kept up to date, so replaced freely), never
-    /// the STEP file itself or another STEP file.
-    fn answers_path(&self, raw: &str, step: &Path) -> Result<PathBuf, ToolError> {
+    /// An `answers_file` argument, never the STEP file itself or another STEP file, and the
+    /// answers it already holds. An existing file is kept up to date only if it is an answer
+    /// map (what Specify writes); any other existing file is replaced only with `overwrite`.
+    fn answers_path(
+        &self,
+        raw: &str,
+        step: &Path,
+        overwrite: bool,
+    ) -> Result<(PathBuf, Option<Map<String, Value>>), ToolError> {
         let target = self.output_path(raw, true)?;
         if target == step || crate::open::is_step_name(&raw.to_ascii_lowercase()) {
             return Err(ToolError::refused(format!(
                 "answers_file {raw} would replace a STEP file; name a .json file"
             )));
         }
-        Ok(target)
+        if !target.exists() {
+            return Ok((target, None));
+        }
+        match read_answers(&target) {
+            Ok(kept) => Ok((target, Some(kept))),
+            Err(_) if overwrite => Ok((target, None)),
+            Err(why) => Err(ToolError::refused(format!(
+                "answers_file {raw} exists and is not an answers file ({}); name another file, \
+                 or pass overwrite: true to replace it",
+                why.message
+            ))
+            .with("path", json!(target))),
+        }
     }
 
     // ----- resources -----
@@ -1167,6 +1223,15 @@ fn decode_sentinel(raw: &str) -> Option<String> {
     }
 }
 
+/// A panic's message, when it has one.
+fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
+    payload
+        .downcast_ref::<&str>()
+        .map(|s| s.to_string())
+        .or_else(|| payload.downcast_ref::<String>().cloned())
+        .unwrap_or_else(|| "a panic with no message".into())
+}
+
 fn error_response(id: &Value, e: &RpcError) -> Value {
     let mut error = Map::new();
     error.insert("code".into(), json!(e.code));
@@ -1227,7 +1292,11 @@ fn read_answers(path: &Path) -> Result<Map<String, Value>, ToolError> {
     let text = std::fs::read_to_string(path)
         .map_err(|e| ToolError::invalid(format!("{}: {e}", path.display())))?;
     match serde_json::from_str(&text) {
-        Ok(Value::Object(map)) => Ok(map),
+        Ok(Value::Object(map)) => {
+            crate::input::answers_shape(&map)
+                .map_err(|e| ToolError::invalid(format!("{}: {e}", path.display())))?;
+            Ok(map)
+        }
         Ok(_) => Err(ToolError::invalid(format!(
             "{}: an answers file is a JSON object of question id to answer",
             path.display()
@@ -1356,7 +1425,8 @@ pub fn tools() -> Vec<Value> {
             "inputSchema": input(json!({
                 "path": {"type": "string", "description": "A .step/.stp file (or gzipped) inside the server's allowed directories."},
                 "part": {"type": "integer", "minimum": 0, "description": "Which part of an assembly (see list_parts)."},
-                "answers_file": {"type": "string", "description": "Optional .json file to load answers from (if it exists) and to keep the answers in."}
+                "answers_file": {"type": "string", "description": "Optional .json file to load answers from (if it exists) and to keep the answers in. An existing file that is not an answers map is refused unless overwrite is true."},
+                "overwrite": {"type": "boolean", "description": "Replace an existing answers_file that is not an answers map."}
             }), &["path"]),
             "outputSchema": output(json!({
                 "doc": {"type": ["string", "null"]},
@@ -1403,7 +1473,8 @@ pub fn tools() -> Vec<Value> {
                 "doc": doc(),
                 "set": {"type": "object", "description": "Question id to answer.", "additionalProperties": true},
                 "clear": {"type": "array", "items": {"type": "string"}, "description": "Question ids whose answers to remove."},
-                "answers_file": {"type": "string", "description": "Optional .json file to keep the answers in."}
+                "answers_file": {"type": "string", "description": "Optional .json file to keep the answers in. An existing file that is not an answers map is refused unless overwrite is true."},
+                "overwrite": {"type": "boolean", "description": "Replace an existing answers_file that is not an answers map."}
             }), &["doc"]),
             "outputSchema": output(json!({
                 "doc": {"type": "string"},
@@ -1570,8 +1641,21 @@ pub fn new_token() -> io::Result<String> {
 /// The MCP endpoint's path.
 pub const ENDPOINT: &str = "/mcp";
 
+/// The most HTTP connections served at once; another is answered 503 at once and closed, so
+/// stalled connections cannot pile up threads.
+pub const MAX_CONNECTIONS: usize = 16;
+
+/// A served connection, counted until its thread ends.
+struct Slot(Arc<AtomicUsize>);
+
+impl Drop for Slot {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
 /// Serves Streamable HTTP on `listener` (bound to 127.0.0.1) at [`ENDPOINT`], each connection
-/// on its own thread, calls one at a time. A request must carry `Authorization: Bearer
+/// on its own thread (at most [`MAX_CONNECTIONS`] at once), calls one at a time. A request must carry `Authorization: Bearer
 /// <token>`, a `Host` of `127.0.0.1:<port>` or `localhost:<port>`, and no `Origin` (no
 /// browser page may call it). Runs until the listener fails.
 pub fn serve_http(listener: TcpListener, token: String, server: Server) -> io::Result<()> {
@@ -1581,15 +1665,34 @@ pub fn serve_http(listener: TcpListener, token: String, server: Server) -> io::R
         token,
     });
     let server = Arc::new(Mutex::new(server));
+    let active = Arc::new(AtomicUsize::new(0));
     for stream in listener.incoming() {
-        let stream = match stream {
+        let mut stream = match stream {
             Ok(s) => s,
             Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
             Err(e) => return Err(e),
         };
+        if active.fetch_add(1, Ordering::SeqCst) >= MAX_CONNECTIONS {
+            active.fetch_sub(1, Ordering::SeqCst);
+            // Answered here without reading the request; a short timeout keeps a client that
+            // never reads from holding up the accept loop.
+            let _ = stream.set_write_timeout(Some(Duration::from_secs(1)));
+            let _ = crate::open::respond(
+                &mut stream,
+                "503 Service Unavailable",
+                &[("Retry-After", "1")],
+                b"",
+            );
+            continue;
+        }
+        let slot = Slot(active.clone());
         let (rules, server) = (rules.clone(), server.clone());
-        // A thread that cannot be started drops the connection, which the client can retry.
-        let _ = thread::Builder::new().spawn(move || answer_http(stream, &rules, &server));
+        // A thread that cannot be started drops the connection (and its slot), which the
+        // client can retry.
+        let _ = thread::Builder::new().spawn(move || {
+            let _slot = slot;
+            answer_http(stream, &rules, &server);
+        });
     }
     Ok(())
 }
@@ -1609,11 +1712,36 @@ fn same(a: &str, b: &str) -> bool {
 }
 
 fn answer_http(mut stream: TcpStream, rules: &HttpRules, server: &Mutex<Server>) {
+    exchange(&mut stream, rules, server);
+    // The response is sent and the write side shut. Read what the client still sends (a body
+    // a refusal never read) until it closes, briefly, so closing does not reset the
+    // connection and lose the response.
+    let deadline = Instant::now() + Duration::from_secs(1);
+    let mut sink = [0u8; 16 * 1024];
+    let mut left = MAX_DRAIN;
+    while left > 0 {
+        let Some(wait) = deadline.checked_duration_since(Instant::now()) else {
+            break;
+        };
+        if wait.is_zero() || stream.set_read_timeout(Some(wait)).is_err() {
+            break;
+        }
+        match stream.read(&mut sink) {
+            Ok(0) | Err(_) => break,
+            Ok(n) => left = left.saturating_sub(n),
+        }
+    }
+}
+
+/// The most read from a connection after its response before it is closed anyway.
+const MAX_DRAIN: usize = 1024 * 1024;
+
+fn exchange(stream: &mut TcpStream, rules: &HttpRules, server: &Mutex<Server>) {
     use crate::open::{read_head, respond};
     let _ = stream.set_write_timeout(Some(Duration::from_secs(60)));
     let json_error = |e: RpcError| error_response(&Value::Null, &e).to_string();
-    let Some((request, mut body)) = read_head(&mut stream) else {
-        let _ = respond(&mut stream, "400 Bad Request", &[], b"");
+    let Some((request, mut body)) = read_head(stream) else {
+        let _ = respond(stream, "400 Bad Request", &[], b"");
         return;
     };
     // This address only: a page that finds the port through DNS rebinding is refused.
@@ -1621,7 +1749,7 @@ fn answer_http(mut stream: TcpStream, rules: &HttpRules, server: &Mutex<Server>)
         .header("host")
         .is_some_and(|h| rules.hosts.iter().any(|a| a.as_str() == h))
     {
-        let _ = respond(&mut stream, "403 Forbidden", &[], b"");
+        let _ = respond(stream, "403 Forbidden", &[], b"");
         return;
     }
     // No browser page may call it: any Origin is refused.
@@ -1631,7 +1759,7 @@ fn answer_http(mut stream: TcpStream, rules: &HttpRules, server: &Mutex<Server>)
             "Forbidden: a browser Origin is refused",
         ));
         let _ = respond(
-            &mut stream,
+            stream,
             "403 Forbidden",
             &[("Content-Type", "application/json")],
             body.as_bytes(),
@@ -1639,16 +1767,18 @@ fn answer_http(mut stream: TcpStream, rules: &HttpRules, server: &Mutex<Server>)
         return;
     }
     if request.target != ENDPOINT {
-        let _ = respond(&mut stream, "404 Not Found", &[], b"");
+        let _ = respond(stream, "404 Not Found", &[], b"");
         return;
     }
+    // The auth scheme's name is case-insensitive (RFC 9110 section 11.1).
     let authorised = request
         .header("authorization")
-        .and_then(|a| a.strip_prefix("Bearer "))
-        .is_some_and(|t| same(t.trim(), &rules.token));
+        .and_then(|a| a.trim().split_once(' '))
+        .filter(|(scheme, _)| scheme.eq_ignore_ascii_case("bearer"))
+        .is_some_and(|(_, t)| same(t.trim(), &rules.token));
     if !authorised {
         let _ = respond(
-            &mut stream,
+            stream,
             "401 Unauthorized",
             &[("WWW-Authenticate", "Bearer")],
             b"",
@@ -1656,23 +1786,18 @@ fn answer_http(mut stream: TcpStream, rules: &HttpRules, server: &Mutex<Server>)
         return;
     }
     if request.method != "POST" {
-        let _ = respond(
-            &mut stream,
-            "405 Method Not Allowed",
-            &[("Allow", "POST")],
-            b"",
-        );
+        let _ = respond(stream, "405 Method Not Allowed", &[("Allow", "POST")], b"");
         return;
     }
     let Some(length) = request
         .header("content-length")
         .and_then(|l| l.trim().parse::<usize>().ok())
     else {
-        let _ = respond(&mut stream, "411 Length Required", &[], b"");
+        let _ = respond(stream, "411 Length Required", &[], b"");
         return;
     };
     if length > MAX_BODY {
-        let _ = respond(&mut stream, "413 Content Too Large", &[], b"");
+        let _ = respond(stream, "413 Content Too Large", &[], b"");
         return;
     }
     let deadline = Instant::now() + Duration::from_secs(60);
@@ -1695,7 +1820,7 @@ fn answer_http(mut stream: TcpStream, rules: &HttpRules, server: &Mutex<Server>)
         Err(e) => {
             let body = json_error(RpcError::new(PARSE_ERROR, format!("Parse error: {e}")));
             let _ = respond(
-                &mut stream,
+                stream,
                 "400 Bad Request",
                 &[("Content-Type", "application/json")],
                 body.as_bytes(),
@@ -1717,7 +1842,7 @@ fn answer_http(mut stream: TcpStream, rules: &HttpRules, server: &Mutex<Server>)
     match reply.body {
         Some(body) => {
             let _ = respond(
-                &mut stream,
+                stream,
                 status,
                 &[
                     ("Content-Type", "application/json"),
@@ -1727,7 +1852,7 @@ fn answer_http(mut stream: TcpStream, rules: &HttpRules, server: &Mutex<Server>)
             );
         }
         None => {
-            let _ = respond(&mut stream, status, &[], b"");
+            let _ = respond(stream, status, &[], b"");
         }
     }
 }
@@ -1766,6 +1891,27 @@ mod tests {
             reply.body.unwrap()["result"]["resultType"],
             json!("complete")
         );
+    }
+
+    /// A panic outside any tool (resources/read making a mesh, say) is a JSON-RPC internal
+    /// error, and the server carries on.
+    #[test]
+    fn a_panic_outside_a_tool_is_an_internal_error_and_the_server_carries_on() {
+        let mut server = Server::new(&[std::env::temp_dir()]).unwrap();
+        let reply = server.handle(&modern(1, "test/panic", json!({})), None);
+        assert_eq!(reply.status, 500);
+        let body = reply.body.unwrap();
+        assert_eq!(body["id"], json!(1));
+        assert_eq!(body["error"]["code"], json!(INTERNAL_ERROR), "{body}");
+        assert!(
+            body["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("a panic outside a tool")
+        );
+        let reply = server.handle(&modern(2, "tools/list", json!({})), None);
+        assert_eq!(reply.status, 200);
+        assert!(reply.body.unwrap()["result"]["tools"].is_array());
     }
 
     #[test]
