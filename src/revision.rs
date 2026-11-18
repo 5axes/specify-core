@@ -1728,6 +1728,23 @@ impl Comparison {
         }
     }
 
+    /// What a viewer needs to show the comparison without comparing again, as WASM `diff()`
+    /// returns it: [`part_diff`] or [`assembly_diff`], the Markdown headed `title`.
+    pub fn diff_json(&self, title: &str) -> Value {
+        match self {
+            Comparison::Part {
+                before,
+                after,
+                revised,
+            } => part_diff(before, after, revised, title),
+            Comparison::Assembly {
+                before,
+                after,
+                compared,
+            } => assembly_diff(before, after, compared, title),
+        }
+    }
+
     /// The carried answers by the new file's part index.
     pub fn answers_by_part(&self) -> BTreeMap<usize, Map<String, Value>> {
         match self {
@@ -1737,6 +1754,52 @@ impl Comparison {
             Comparison::Assembly { compared, .. } => compared.answers_by_part(),
         }
     }
+}
+
+/// Two revisions of a part compared, for a viewer: `{report, markdown, view}`, the report as
+/// `report.json` holds it, as Markdown headed `title` (with no picture), and what a viewer
+/// needs to draw the change ([`view`]). WASM `diff()` and the page's `GET diff` give it.
+pub fn part_diff(before: &LoadedPart, after: &LoadedPart, revised: &Revised, title: &str) -> Value {
+    serde_json::json!({
+        "report": serde_json::to_value(revised).expect("a revision report serialises"),
+        "markdown": revised.markdown(title, None),
+        "view": view(before, after, revised),
+    })
+}
+
+/// Two revisions of an assembly compared part by part, for a viewer: `{report, markdown,
+/// parts}`, the assembly's report and Markdown, and each part's `{name, status, old, new}`
+/// with its `report` when it is in both files, and its `markdown` (headed `#### name`) and
+/// `view` when it changed, shaped as [`part_diff`]'s.
+pub fn assembly_diff(
+    before: &[LoadedPart],
+    after: &[LoadedPart],
+    compared: &assembly::Assembly,
+    title: &str,
+) -> Value {
+    let parts: Vec<Value> = compared
+        .parts
+        .iter()
+        .map(|p| {
+            let mut row =
+                serde_json::json!({"name": p.name, "status": p.status, "old": p.old, "new": p.new});
+            if let Some(r) = &p.revised {
+                row["report"] = serde_json::to_value(r).expect("a revision report serialises");
+                if let ("changed", Some(o), Some(n)) = (p.status, &p.old, &p.new) {
+                    row["markdown"] = r
+                        .markdown_headed(&format!("#### {}", p.name), None, None)
+                        .into();
+                    row["view"] = view(&before[o.part], &after[n.part], r);
+                }
+            }
+            row
+        })
+        .collect();
+    serde_json::json!({
+        "report": serde_json::to_value(compared).expect("an assembly report serialises"),
+        "markdown": compared.markdown(title, None, None),
+        "parts": parts,
+    })
 }
 
 /// `diff OLD NEW`: part `part` of each file, or with none, the files' only parts, or their

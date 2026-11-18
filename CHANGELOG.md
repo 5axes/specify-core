@@ -29,11 +29,13 @@ All notable changes to specify-core-rust. The format follows
   every tool that reads the answers returns `rev`. Set up with
   `claude mcp add specify -- specify-core mcp`.
 - `specify-core open --diff OLD NEW [--answers FILE]`: the page shows what changed (`GET diff`,
-  `diff`'s report.json; `GET file?rev=old`) and starts from the answers `specify-core diff`
+  what WASM `diff()` returns, `{report, markdown, view}` or for an assembly
+  `{report, markdown, parts}`, built by the same code, now `revision::part_diff` and
+  `revision::assembly_diff`; `GET file?rev=old`) and starts from the answers `specify-core diff`
   carries to NEW; Save writes NEW.
 - The page server holds the session: `GET`/`PUT answers` (a stale `rev` is refused with the
   current answers) and `GET events` (server-sent events: the state, then every change and save,
-  at most 4 streams); `config` gains `mode`, `path`, `oldName` and `oldPath`.
+  at most 4 streams); `config` gains `mode`, `path`, `part`, `oldName` and `oldPath`.
 
 ### Changed
 

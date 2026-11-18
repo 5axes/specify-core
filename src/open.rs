@@ -206,6 +206,9 @@ pub struct Options {
     pub read_only: bool,
     /// The port on 127.0.0.1 (0: any free port).
     pub port: u16,
+    /// `config.part`: the part the page is shown for (MCP's `show` of a document of a file of
+    /// several parts); None for the whole file.
+    pub part: Option<usize>,
 }
 
 /// The page server for one session, its port open and its app found, ready to serve.
@@ -316,6 +319,7 @@ impl App {
             session,
             assets,
             read_only: options.read_only,
+            part: options.part,
             streams: AtomicUsize::new(0),
             stop: Arc::new(AtomicBool::new(false)),
             activity: Mutex::new(Activity {
@@ -444,6 +448,8 @@ struct Shared {
     session: session::Shared,
     assets: Assets,
     read_only: bool,
+    /// `config.part`.
+    part: Option<usize>,
     /// Event streams open now.
     streams: AtomicUsize,
     /// Set to stop the server (and end its event streams).
@@ -644,7 +650,7 @@ fn exchange(stream: &mut TcpStream, ctx: &Ctx) {
             reply(stream, "200 OK", Some("application/octet-stream"), &bytes);
         }
         ("GET", "diff") => {
-            let report = session::lock(&shared.session).report().cloned();
+            let report = session::lock(&shared.session).comparison().cloned();
             match report {
                 Some(report) if diff => reply_json(stream, "200 OK", &report),
                 _ => reply(stream, "404 Not Found", None, b""),
@@ -663,6 +669,7 @@ fn exchange(stream: &mut TcpStream, ctx: &Ctx) {
                 "mode": shared.mode,
                 "name": s.file().name,
                 "path": s.file().path.display().to_string(),
+                "part": shared.part,
                 "oldName": old.map(|o| o.name.clone()),
                 "oldPath": old.map(|o| o.path.display().to_string()),
                 "readOnly": shared.read_only,

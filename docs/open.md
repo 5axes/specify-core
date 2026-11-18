@@ -66,7 +66,7 @@ at `/`.
 | `GET <token>/answers` | the session's answers, below |
 | `PUT <token>/answers` | replace one part's answers in the session, below |
 | `GET <token>/events` | the session's changes as server-sent events, below |
-| `GET <token>/diff` | `diff` mode: the revision report, below |
+| `GET <token>/diff` | `diff` mode: the comparison, as WASM `diff()` gives it, below |
 | `POST <token>/save` | the specified STEP written to disk from the session's answers, below |
 | `POST <token>/closed` | the page went away, below |
 
@@ -80,6 +80,7 @@ as the last `--in-place` save left it. Outside `diff` mode `?rev=old` is 404, an
   "mode": "specify",
   "name": "part.step",
   "path": "/home/me/parts/part.step",
+  "part": null,
   "oldName": null,
   "oldPath": null,
   "readOnly": false,
@@ -93,6 +94,9 @@ as the last `--in-place` save left it. Outside `diff` mode `?rev=old` is 404, an
 - `name`: the file's name (`NEW`'s in `diff` mode).
 - `path`: the opened file's absolute path (`NEW`'s in `diff` mode), as given, not resolved
   (above).
+- `part`: the part index the page is shown for: under an agent, the part (`doc`) `show` was
+  called for, in a file of several parts; otherwise `null` (`specify-core open`, or a file of
+  one part).
 - `oldName`, `oldPath`: `OLD`'s name and absolute path in `diff` mode, otherwise `null`.
 - `readOnly`: saves and answer changes are refused (`--read-only`); hide or disable Save.
   `true` exactly when `mode` is `"read-only"`.
@@ -238,8 +242,14 @@ The session needs them before any page or MCP client asks, and the command's com
 the one `specify-core diff` and MCP's `diff` give, so the page, the AI and a CI run cannot
 disagree. The page does not compare the parts again.
 
-`GET <token>/diff` → the revision report, as `diff`'s `report.json` (docs/diff.md). The
-session then starts from `diff`'s `answers.json`. Questions the report leaves to decide are
+`GET <token>/diff` → exactly what WASM `diff()` returns for the two files (docs/wasm.md, the
+`diff(...)` row), computed natively by the same code when the session starts: for a part
+`{report, markdown, view}`, `report` being `diff`'s `report.json` (docs/diff.md), `markdown`
+the report headed with `NEW`'s name, and `view` the new and old meshes, the `faces` classes,
+`gone`, `motion` and `changes`; for an assembly `{report, markdown, parts}`. The page's StepDiff
+draws from it without comparing again. (Contract change, 2026-11-18: `GET diff` was
+report.json; it is now `{report, markdown, view}` (assembly `{report, markdown, parts}`), as
+WASM `diff()`.) The session then starts from `diff`'s `answers.json`. Questions the report leaves to decide are
 open questions in the session; answering them (page or MCP) changes the session, and the
 report is not recomputed. Save writes `NEW` (beside it, or over it with `--in-place`) from the
 session's answers.

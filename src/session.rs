@@ -147,8 +147,9 @@ pub struct Session {
     sha: String,
     /// `diff` mode: the old revision.
     old: Option<Opened>,
-    /// `diff` mode: the revision report (`diff`'s report.json).
-    report: Option<Value>,
+    /// `diff` mode: the comparison as WASM `diff()` gives it (`{report, markdown, view}`, or
+    /// for an assembly `{report, markdown, parts}`), made once when the session starts.
+    compared: Option<Value>,
     in_place: bool,
     gz: bool,
     /// The file, parsed from its bytes as opened (every save writes from these).
@@ -197,7 +198,7 @@ impl Session {
             current: Arc::clone(&file.bytes),
             file,
             old: None,
-            report: None,
+            compared: None,
             in_place,
             gz,
             step: Arc::new(step),
@@ -260,7 +261,7 @@ impl Session {
             given,
             crate::revision::DiffOptions::default(),
         )?;
-        session.report = Some(compared.report());
+        session.compared = Some(compared.diff_json(&session.file.name));
         session.answers = compared.answers_by_part();
         session.old = Some(old);
         Ok(session)
@@ -274,9 +275,14 @@ impl Session {
         self.old.as_ref()
     }
 
-    /// `diff` mode: the revision report.
+    /// `diff` mode: the revision report (`diff`'s report.json).
     pub fn report(&self) -> Option<&Value> {
-        self.report.as_ref()
+        self.compared.as_ref().map(|c| &c["report"])
+    }
+
+    /// `diff` mode: the comparison for the page's `GET diff`, as WASM `diff()` gives it.
+    pub fn comparison(&self) -> Option<&Value> {
+        self.compared.as_ref()
     }
 
     pub fn in_place(&self) -> bool {

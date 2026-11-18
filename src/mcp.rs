@@ -1327,7 +1327,13 @@ impl Server {
             None => crate::open::assets(None, None)
                 .map_err(|e| ToolError::new("failed", e.to_string()))?,
         };
-        let options = crate::open::Options { read_only, port: 0 };
+        // The doc's part, for a file of several parts (the page opens that part).
+        let part = (session::lock(&shared).part_count() > 1).then_some(doc.part);
+        let options = crate::open::Options {
+            read_only,
+            port: 0,
+            part,
+        };
         let (close_delay, idle) = self.page_timing;
         let page = crate::open::start(Arc::clone(&shared), assets, &options, close_delay, idle)
             .map_err(|e| match e {

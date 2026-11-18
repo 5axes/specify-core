@@ -666,6 +666,7 @@ fn the_app_engine_config_and_file_are_served_under_the_token() {
     assert_eq!(config["mode"], "specify");
     assert_eq!(config["name"], "part.step");
     assert_eq!(config["path"], scratch.input().display().to_string());
+    assert_eq!(config["part"], Value::Null);
     assert_eq!(config["oldName"], Value::Null);
     assert_eq!(config["oldPath"], Value::Null);
     assert_eq!(config["readOnly"], false);
@@ -685,6 +686,7 @@ fn the_app_engine_config_and_file_are_served_under_the_token() {
             "mode",
             "name",
             "path",
+            "part",
             "oldName",
             "oldPath",
             "readOnly",
@@ -1539,7 +1541,10 @@ fn a_diff_serves_both_files_and_starts_from_the_carried_answers() {
     assert_eq!(opened.get("file?rev=other").status, 404);
     let report = opened.get("diff");
     assert_eq!(report.status, 200);
-    assert_eq!(report.json(), read("report.json"));
+    // As WASM `diff()`: `diff`'s report.json, the report as Markdown, and the view to draw.
+    let served = report.json();
+    assert_eq!(served["report"], read("report.json"));
+    assert!(served["markdown"].is_string() && served["view"]["new"].is_object());
     let carried = read("answers.json");
     assert_eq!(carried["part.material"], "6061-T6");
     assert_eq!(

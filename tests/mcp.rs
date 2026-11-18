@@ -1417,11 +1417,8 @@ fn a_diff_session_starts_from_the_carried_answers() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// A file of two parts, each written with its own answers, starts its MCP session from both,
-/// as `specify-core open` does, whichever part the agent opens.
-#[test]
-fn an_mcp_session_resumes_every_part_s_stored_answers() {
-    let dir = scratch("resume-parts");
+/// The two-part fixture written to `dir/two.step` with answers for both parts.
+fn two_parts_written(dir: &Path) -> PathBuf {
     let source = part("a_file_with_two_parts_must_say_which");
     let file = specify_core::part::File::read(&source).unwrap();
     let mut jobs = Vec::new();
@@ -1435,6 +1432,48 @@ fn an_mcp_session_resumes_every_part_s_stored_answers() {
     }
     let written = dir.join("two.step");
     specify_core::api::write_parts(&source, &jobs, &written).unwrap();
+    written
+}
+
+/// `config.part` is the part `show` was called for, in a file of several parts; a file of one
+/// part has none.
+#[test]
+fn the_page_of_an_assembly_s_part_names_the_part() {
+    let dir = scratch("config-part");
+    let written = two_parts_written(&dir);
+    let mut server = Server::new(std::slice::from_ref(&dir)).unwrap();
+    server.set_app(stub_app(&dir));
+    let opened = call(&mut server, "open", json!({"path": written, "part": 1}));
+    let doc = opened["structuredContent"]["doc"].clone();
+    let shown = call(&mut server, "show", json!({"doc": doc, "browser": false}));
+    let url = shown["structuredContent"]["url"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let (status, config) = page(&url, "GET", "config", None);
+    assert_eq!(status, 200);
+    assert_eq!(config["part"], json!(1), "{config}");
+    let plate = dir.join("plate.step");
+    std::fs::copy(part("plate"), &plate).unwrap();
+    let opened = call(&mut server, "open", json!({"path": plate}));
+    let doc = opened["structuredContent"]["doc"].clone();
+    let shown = call(&mut server, "show", json!({"doc": doc, "browser": false}));
+    let url = shown["structuredContent"]["url"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let (_, config) = page(&url, "GET", "config", None);
+    assert_eq!(config["part"], Value::Null, "{config}");
+    drop(server);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A file of two parts, each written with its own answers, starts its MCP session from both,
+/// as `specify-core open` does, whichever part the agent opens.
+#[test]
+fn an_mcp_session_resumes_every_part_s_stored_answers() {
+    let dir = scratch("resume-parts");
+    let written = two_parts_written(&dir);
 
     let mut server = Server::new(std::slice::from_ref(&dir)).unwrap();
     server.set_app(stub_app(&dir));
@@ -1619,7 +1658,9 @@ fn a_diff_session_is_shown_in_diff_mode_and_saves_new() {
     assert_eq!(config["oldPath"], json!(old));
     let (status, report) = page(&url, "GET", "diff", None);
     assert_eq!(status, 200);
-    assert_eq!(report, out["report"]);
+    // As WASM `diff()`: the report `open` gave, its Markdown, and the view to draw.
+    assert_eq!(report["report"], out["report"]);
+    assert!(report["markdown"].is_string() && report["view"]["faces"].is_object());
     let (_, answers) = page(&url, "GET", "answers", None);
     assert_eq!(answers["parts"]["0"]["part.material"], json!("6061-T6"));
     // The person saves NEW from the page, with the carried answers.

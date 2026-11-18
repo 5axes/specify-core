@@ -506,6 +506,7 @@ fn run(cmd: Cmd, out: &mut impl Write) -> Result<(), Exit> {
             let options = crate::open::Options {
                 read_only,
                 port: port.unwrap_or(0),
+                part: None,
             };
             if answers.is_some() && diff.is_none() {
                 return Err(Exit::new(
