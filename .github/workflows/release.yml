@@ -145,11 +145,8 @@ jobs:
           else
             echo "dist_tag=latest" >> "$GITHUB_OUTPUT"
           fi
-      # With trusted publishing configured, npm exchanges the job's OIDC token and needs no
-      # secret. NPM_TOKEN is only for the package's very first publish, before npm lets a
-      # trusted publisher be added (docs/wasm.md); delete it afterwards.
+      # npm trusted publishing: npm exchanges the job's OIDC token (id-token: write), so no
+      # secret is passed; a publish can only succeed through the trusted publisher.
       - name: Publish
         if: steps.missing.outputs.publish == 'true'
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm publish ./release/pkg --tag "${{ steps.missing.outputs.dist_tag }}"
