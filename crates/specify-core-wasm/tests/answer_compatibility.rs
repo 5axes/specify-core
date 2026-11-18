@@ -34,9 +34,14 @@ fn text_answers_keep_core_truthiness_and_json_values() {
             );
             let intent = api::preview(&analysis, &answers).unwrap();
             let (bytes, report) = writer::write_bytes(&loaded, &intent, Some(&answers)).unwrap();
-            let written = session.write_pmi(&answers, None, None).unwrap();
+            let mut written = session.write_pmi(&answers, None, None).unwrap();
             assert_eq!(written["bytes"], json!(bytes));
+            // The session's report is the writer's plus whether the answers were complete.
+            let extra = written["report"].as_object_mut().unwrap();
+            let complete = extra.shift_remove("complete").unwrap();
+            let missing = extra.shift_remove("missing").unwrap();
             assert_eq!(written["report"], report.to_dict());
+            assert_eq!(complete, json!(missing.as_array().unwrap().is_empty()));
         }
     }
 }

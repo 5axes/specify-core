@@ -427,3 +427,54 @@ fn accepting_defaults_preserves_explicit_rejections_and_empty_answers() {
     );
     assert_eq!(review["intent"]["part"]["general_tolerance"], "ISO 2768-f");
 }
+
+#[test]
+fn a_partial_write_is_written_and_says_what_is_open() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/parts");
+    let session = Session::open(
+        "shaft.step",
+        &std::fs::read(root.join("GRM-02_shaft.step")).unwrap(),
+    )
+    .unwrap();
+    let analysis = session.snapshot()["analysis"].clone();
+    let answers = json!({"part.material": "steel"})
+        .as_object()
+        .unwrap()
+        .clone();
+    let written = session.write_pmi(&answers, None, None).unwrap();
+    let report = &written["report"];
+    // The same ids `write` refuses as incomplete, and the file is written all the same.
+    let Err(specify_core::api::Error::Rules(specify_core::rules::Error::Incomplete(e))) =
+        specify_core::api::apply(&analysis, &answers, false)
+    else {
+        panic!("the shaft with only a material must be incomplete");
+    };
+    assert!(!e.missing.is_empty());
+    assert_eq!(report["complete"], json!(false));
+    assert_eq!(report["missing"], json!(e.missing));
+    assert!(!written["bytes"].as_array().unwrap().is_empty());
+
+    // Every default taken: nothing open, so the report says complete.
+    let all = session.accept_defaults(&answers).unwrap();
+    let complete = specify_core::api::apply(&analysis, &all, false).is_ok();
+    let written = session.write_pmi(&all, None, None).unwrap();
+    assert_eq!(written["report"]["complete"], json!(complete));
+    if complete {
+        assert_eq!(written["report"]["missing"], json!([]));
+    }
+    let plate = Session::open(
+        "plate.step",
+        &std::fs::read(root.join("plate.step")).unwrap(),
+    )
+    .unwrap();
+    let plate_answers = plate
+        .accept_defaults(json!({"part.material": "6061-T6"}).as_object().unwrap())
+        .unwrap();
+    let plate_analysis = plate.snapshot()["analysis"].clone();
+    if let Err(e) = specify_core::api::apply(&plate_analysis, &plate_answers, false) {
+        panic!("the plate's answers must be complete: {e}");
+    }
+    let written = plate.write_pmi(&plate_answers, None, None).unwrap();
+    assert_eq!(written["report"]["complete"], json!(true));
+    assert_eq!(written["report"]["missing"], json!([]));
+}

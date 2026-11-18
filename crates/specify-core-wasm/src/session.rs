@@ -299,8 +299,16 @@ impl Session {
         let (bytes, report) =
             specify_core::writer::write_bytes_with(&self.loaded, &intent, Some(answers), &extra)
                 .map_err(|error| error.to_string())?;
+        // A partial write is allowed (an AP242 file need not answer everything), but never
+        // silent: say which required questions are still open, as `write` would list them.
+        let missing = open_required(&self.analysis, answers)?;
+        let mut report = report.to_dict();
+        if let Some(object) = report.as_object_mut() {
+            object.insert("complete".into(), json!(missing.is_empty()));
+            object.insert("missing".into(), json!(missing));
+        }
         Ok(
-            json!({"bytes": bytes, "source_sha256": self.loaded.binding.source_sha256, "report": report.to_dict()}),
+            json!({"bytes": bytes, "source_sha256": self.loaded.binding.source_sha256, "report": report}),
         )
     }
 
@@ -427,5 +435,15 @@ fn carried_attributes(
             carried::attributes(source, name, value).map_err(|e| e.to_string())
         }
         (None, None) => Ok(vec![]),
+    }
+}
+
+/// The required questions `answers` leaves open: the ids `write` without defaults would refuse
+/// as incomplete; empty when it would write.
+fn open_required(analysis: &Value, answers: &Map<String, Value>) -> Result<Vec<String>, String> {
+    match api::apply(analysis, answers, false) {
+        Ok(_) => Ok(Vec::new()),
+        Err(api::Error::Rules(specify_core::rules::Error::Incomplete(e))) => Ok(e.missing),
+        Err(error) => Err(error.to_string()),
     }
 }
