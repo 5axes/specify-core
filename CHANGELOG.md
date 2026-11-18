@@ -55,13 +55,15 @@ All notable changes to specify-core-rust. The format follows
   another item. Carried answers and written PMI are unchanged.
 - `diff` reported a body or a hole pattern as moved when a hole was cut into it or its holes
   were resized ("thin wall body: moved X −0.1", "1 hole pattern moved"): its centroid moved,
-  its faces did not. A feature now moves only when its faces do.
+  its faces did not. A feature now moves only when its faces do. A pocket or slot moved on a
+  part too sparse to align (only face lines before) is now reported moved.
 - `diff` named a thin wall body a "thin wall bodie"; families ending in `-ies` now read `-y`.
 - `diff`'s requirements to check repeated a feature's change for each of its requirements and
   named a position tolerance by its planned locations ("70; 50; 50; 35; ⌖ ⌀0.2Ⓜ A B C"). One
   line now names the change once, with each requirement as the PMI list names it.
 - `diff` counted a requirement that was only numbered differently as a change to the PMI. It is
-  no longer counted, and Markdown lists it after the changes as unchanged.
+  counted apart in the summary ("N characteristic numbers changed (requirements unchanged)"),
+  and Markdown lists it after the changes as unchanged.
 - The release's npm job failed for 0.1.18: `npm pack` read the relative `release/pkg` as a
   GitHub repository. `tools/npm_package.py` passes an absolute path; a test packs a relative
   directory with npm.

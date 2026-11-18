@@ -1805,19 +1805,37 @@ pub fn diff_with_options(
         // A feature's centroid moves when material is cut from it or its holes are resized; it
         // has moved only when its faces have (see `in_place`).
         let mut changes = e.changes.clone();
+        let moved = old_features
+            .iter()
+            .find(|f| &f.id == old_id)
+            .and_then(|f| faces_moved(&f.faces, &corr, [&old_q.fingerprints, &new_q.fingerprints]));
         if e.class == Class::Adapted
             && changes.contains_key("position")
             && corr.alignment.found
-            && old_features
-                .iter()
-                .find(|f| &f.id == old_id)
-                .is_some_and(|f| {
-                    in_place(&f.faces, &corr, [&old_q.fingerprints, &new_q.fingerprints])
-                })
+            && moved == Some(false)
         {
             changes.remove("position");
         }
-        let class = match e.class {
+        // Without an alignment quiddity does not compare placement: an unchanged feature whose
+        // faces are displaced in the parts' own frames has moved there (its offset then includes
+        // any rigid motion of the part, as for faces). A resized one's faces move as it grows.
+        let mut class = e.class;
+        if !corr.alignment.found
+            && e.class == Class::Carried
+            && moved == Some(true)
+            && let Some(n) = &e.new
+            && let (Some(was), Some(now)) = (
+                old_q.fingerprints.features.iter().find(|f| f.id == e.old),
+                new_q.fingerprints.features.iter().find(|f| &f.id == n),
+            )
+            && let (Some(p0), Some(p1)) = (was.position, now.position)
+            && let Ok(change) =
+                serde_json::from_value::<qc::Change>(serde_json::json!({"old": p0, "new": p1}))
+        {
+            changes.insert("position".into(), change);
+            class = Class::Adapted;
+        }
+        let class = match class {
             Class::Carried => continue,
             // What a feature borders is context, not a change to it: a chamfer whose corners
             // are rounded is the same chamfer.
@@ -2388,6 +2406,17 @@ pub fn diff_with_options(
             plural(pmi_changes, "change", "changes")
         ));
     }
+    let renumbered = pmi.items.len() - pmi_changes;
+    if renumbered > 0 {
+        part.push(format!(
+            "{} (requirements unchanged)",
+            plural(
+                renumbered,
+                "characteristic number changed",
+                "characteristic numbers changed"
+            )
+        ));
+    }
     let mut part = if part.is_empty() {
         "No feature changed".to_string()
     } else {
@@ -2829,16 +2858,24 @@ fn turn(r: &[[f64; 3]; 3]) -> Option<(f64, String)> {
     Some((degrees, about))
 }
 
-/// Whether the old *faces* of a feature are where they were, after the parts' alignment: at least
-/// one is matched, and none matched has moved. A plane has moved when it is offset along its
+/// Whether any matched old face of a feature has moved, after the parts' alignment (in the
+/// parts' own frames when none was found); `None` when none of them is matched. A plane has moved when it is offset along its
 /// normal or tilted; a cylinder, cone, sphere or torus when its axis tilted or its placing point
 /// moved off the old axis (a sphere's: at all); any face when its centroid moved and its area did
 /// not (it slid within its surface). Trimming a face (a hole cut into it) or resizing
 /// a hole moves its centroid but not the face. A face of another surface moves with its
 /// centroid. Removed faces are material cut away, not a move.
-fn in_place(faces: &[usize], corr: &Correspondence, prints: [&qc::Fingerprints; 2]) -> bool {
+fn faces_moved(
+    faces: &[usize],
+    corr: &Correspondence,
+    prints: [&qc::Fingerprints; 2],
+) -> Option<bool> {
     let a = &corr.alignment;
-    let tol = prints[0].scale.max(prints[1].scale) * 1e-3;
+    // Exact surface data (a plane's offset along its normal, an axis point's offset off the
+    // old axis) agree to the kernel's precision, 1e-7 mm, on an unchanged face; a move the report
+    // can print is 0.05 mm or more. A millionth of the part's size (0.1 µm on a 100 mm part)
+    // lies between: any printable move is found, rounding never is.
+    let tol = prints[0].scale.max(prints[1].scale) * 1e-6;
     let turn = |v: [f64; 3]| {
         [0, 1, 2]
             .map(|i| a.rotation[i][0] * v[0] + a.rotation[i][1] * v[1] + a.rotation[i][2] * v[2])
@@ -2863,11 +2900,11 @@ fn in_place(faces: &[usize], corr: &Correspondence, prints: [&qc::Fingerprints; 
         }
         let (Some(was), Some(now)) = (face(prints[0], old), e.new.and_then(|n| face(prints[1], n)))
         else {
-            return false;
+            return Some(true);
         };
         matched += 1;
         if was.surface != now.surface {
-            return false;
+            return Some(true);
         }
         let moved = match (
             was.surface.as_str(),
@@ -2908,10 +2945,10 @@ fn in_place(faces: &[usize], corr: &Correspondence, prints: [&qc::Fingerprints; 
         };
         let slid = same_area && norm(sub(now.centroid, place(was.centroid))) > tol;
         if moved || slid {
-            return false;
+            return Some(true);
         }
     }
-    matched > 0
+    (matched > 0).then_some(false)
 }
 
 /// Whether *a* takes a part onto itself: each face, moved, has a face of the same surface and

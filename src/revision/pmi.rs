@@ -216,7 +216,14 @@ pub(super) fn check_lines(
             } else {
                 (format!("{} and {last}", rest.join(", ")), "requirements")
             };
-            format!("{feature} {changes}, so its {named} {requirement} may no longer fit")
+            // A size change follows a colon; a move or a bare change reads on: `… blind holes:
+            // diameter 3 → 3.4`, `… through hole moved X −15`.
+            let sep = if changes == "changed" || changes.starts_with("moved") {
+                " "
+            } else {
+                ": "
+            };
+            format!("{feature}{sep}{changes}, so its {named} {requirement} may no longer fit")
         })
         .collect()
 }
@@ -745,6 +752,24 @@ fn compare(
     result
 }
 
+/// The plans' changes that the files' comparison lacks (by id or number), each saying it comes
+/// from the plans: a `retired` item keeps its reason, a code, with the words in `detail`.
+fn add_planned(changes: &mut Vec<PmiItemChange>, planned: Vec<PmiItemChange>) {
+    for mut change in planned {
+        if !changes.iter().any(|actual| {
+            actual.id == change.id || (actual.number.is_some() && actual.number == change.number)
+        }) {
+            let differs = "carried requirement differs from the new file";
+            if change.reason.as_deref() == Some("retired") {
+                change.detail = Some(differs.into());
+            } else {
+                change.reason = Some(differs.into());
+            }
+            changes.push(change);
+        }
+    }
+}
+
 pub(super) fn diff(
     old: &LoadedPart,
     new: &LoadedPart,
@@ -795,28 +820,15 @@ pub(super) fn diff(
         let source = given.or_else(|| old_analysis["resume"]["answers"].as_object());
         if let Some(source) = source {
             let old_plan = scene(old, old_analysis, Some(source))?;
-            for mut change in compare(
+            let planned = compare(
                 &old_items(&old_plan),
                 &items(&projected),
                 faces,
                 features.0,
                 features.1,
                 carried_numbers,
-            ) {
-                if !changes.iter().any(|actual| {
-                    actual.id == change.id
-                        || (actual.number.is_some() && actual.number == change.number)
-                }) {
-                    let differs = "carried requirement differs from the new file";
-                    // `retired` stays the reason, a code; the detail goes beside it.
-                    if change.reason.as_deref() == Some("retired") {
-                        change.detail = Some(differs.into());
-                    } else {
-                        change.reason = Some(differs.into());
-                    }
-                    changes.push(change);
-                }
-            }
+            );
+            add_planned(&mut changes, planned);
         }
         (changes, actual)
     } else {
@@ -1025,6 +1037,44 @@ mod tests {
         item.on_faces = target;
         item.reference_faces = reference;
         item
+    }
+
+    #[test]
+    fn a_planned_retirement_keeps_its_reason_and_says_why_in_detail() {
+        // With a carried history, an item only the plans remove is retired: its reason stays
+        // the code, and the plans' origin goes in `detail`. Other planned items keep the
+        // explanation as their reason, as before.
+        let mut old = [
+            control("gone", vec![0], "⌖ ⌀0.2 A"),
+            control("edited", vec![1], "⏥ 0.05"),
+        ];
+        old[0].number = Some(7);
+        old[1].number = Some(8);
+        let mut new = [control("edited", vec![11], "⏥ 0.02")];
+        new[0].number = Some(8);
+        let faces = BTreeMap::from([(0, Bind::Orphaned), (1, Bind::To(11))]);
+        let planned = compare(&old, &new, &faces, &[], &[], true);
+        let mut changes = Vec::new();
+        add_planned(&mut changes, planned);
+        let retired = changes.iter().find(|c| c.id == "gone").unwrap();
+        assert_eq!(retired.class, "removed");
+        assert_eq!(retired.reason.as_deref(), Some("retired"));
+        assert_eq!(
+            retired.detail.as_deref(),
+            Some("carried requirement differs from the new file")
+        );
+        let json = serde_json::to_value(retired).unwrap();
+        assert_eq!(json["reason"], "retired");
+        assert_eq!(
+            json["detail"],
+            "carried requirement differs from the new file"
+        );
+        let edited = changes.iter().find(|c| c.id == "edited").unwrap();
+        assert_eq!(
+            edited.reason.as_deref(),
+            Some("carried requirement differs from the new file")
+        );
+        assert_eq!(edited.detail, None);
     }
 
     #[test]

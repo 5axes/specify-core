@@ -162,3 +162,8 @@ Specify PMI (the old file carries its answers and number history): rev2 opens th
 mounting holes from Ø3 to Ø3.4 and adds a Ø8 cable entry in the +X wall. The new file was
 written without the old file's number history, so its flatness and finish are numbered #25 and
 #26 where the old file had #22 and #23.
+
+`hole_nudged`, `pocket_moved` and `slot_slid` are made by `small_moves.py` (build123d 0.11.0):
+a plate with two unequal anchor holes and one feature moved, a Ø5 hole by 0.1 mm, a pocket by
+3 mm and a through slot by 4 mm, all in X. The pocket and slot pairs leave too few anchors for an
+alignment, so their moves are found in the parts' own frames.

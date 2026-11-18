@@ -570,7 +570,7 @@ fn a_real_part_s_report_names_what_a_person_changed() {
     let check: Vec<&str> = r.check.iter().map(|c| c.id.as_str()).collect();
     assert_eq!(check, ["hole.function:hole_patterns.set:31.32"]);
     assert!(
-        md.contains("- pattern of 2 × Ø9 × 13 through holes depth 11 → 13; diameter 10 → 9, so its ⌀9 H11 requirement may no longer fit.\n"),
+        md.contains("- pattern of 2 × Ø9 × 13 through holes: depth 11 → 13; diameter 10 → 9, so its ⌀9 H11 requirement may no longer fit.\n"),
         "{md}"
     );
 }
@@ -1309,6 +1309,17 @@ fn a_cut_or_a_resize_is_not_a_move() {
         r.summary
     );
     assert!(!r.summary.contains("70; 50"), "{}", r.summary);
+    assert!(
+        r.summary.contains("blind holes: diameter 3 → 3.4, so its"),
+        "{}",
+        r.summary
+    );
+    assert!(
+        r.summary
+            .contains("2 characteristic numbers changed (requirements unchanged)"),
+        "{}",
+        r.summary
+    );
     // The new file numbers its flatness and finish afresh: listed after the changes as
     // unchanged, and not counted as changes.
     let renumbered: Vec<_> = r
@@ -1330,4 +1341,31 @@ fn a_cut_or_a_resize_is_not_a_move() {
         md.contains(": unchanged; characteristic number #22 → #25"),
         "{md}"
     );
+}
+
+#[test]
+fn small_and_unaligned_moves_are_reported() {
+    // A 0.1 mm hole move is a move; a pocket or slot moved where no alignment is found is
+    // compared in the parts' own frames (tests/fixtures/revisions/small_moves.py).
+    for (case, family, words) in [
+        ("hole_nudged", "holes", "moved X +0.1"),
+        ("pocket_moved", "pockets", "moved X +3"),
+        ("slot_slid", "slots", "moved X +4"),
+    ] {
+        let r = revised(case, json!({}));
+        assert!(
+            r.features.iter().any(|f| f.family == family
+                && f.class == "adapted"
+                && f.changes.contains_key("position")),
+            "{case}: {:?}",
+            r.features
+        );
+        assert!(
+            !r.summary.starts_with("No feature changed"),
+            "{case}: {}",
+            r.summary
+        );
+        let md = r.markdown(case, None);
+        assert!(md.contains(words), "{case}: {md}");
+    }
 }

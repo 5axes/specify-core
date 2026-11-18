@@ -85,7 +85,9 @@ remain alike after the motion is chosen are still `ambiguous`, as above.
   change in length. A move component of a tenth of the largest one or less is left out.
   A feature has moved only when its faces have: a hole cut into a wall, or a pattern's holes
   resized, shifts the centroid of the body or pattern, but its faces stay where they were, so
-  it is not reported (the cut hole and the resized holes are).
+  it is not reported (the cut hole and the resized holes are). Where no alignment was found,
+  an unchanged feature whose faces are displaced in the parts' own frames is reported moved, its offset
+  including any rigid motion of the part, as for faces below.
 - **Other faces** lists the changes to faces that no feature above explains: a block face or
   a sharp-cornered pocket wall pushed 5 mm, say, which no hole, fillet or other recognised
   feature holds. Each is a face the matching found changed (`adapted`), gone (`orphaned`),
@@ -209,8 +211,8 @@ independent histories) reserve nothing: a removal there is `removed` with its ol
 `retired` reason, since the new plan may give that number to another item. A retired item found
 only by comparing the two plans keeps `reason: "retired"` and says why in `detail`
 (`carried requirement differs from the new file`). Renumbering is reported if detected, though ordinary editing preserves
-numbers. A renumbering alone is not a change to the requirement: the summary does not count
-it, and Markdown lists it after the changes as `#25 ⏥ 0.05: unchanged; characteristic number
+numbers. A renumbering alone is not a change to the requirement: the summary counts it apart ("2
+characteristic numbers changed (requirements unchanged)"), and Markdown lists it after the changes as `#25 ⏥ 0.05: unchanged; characteristic number
 #22 → #25`. A new file written from `diff`'s `answers.json` keeps the old file's numbers; one
 written without it numbers afresh, and its renumberings show here. Value and material-modifier edits keep the number and produce one `changed`
 item per edited requirement, including direct STEP edits (For #95). Changes sort by
