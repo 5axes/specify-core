@@ -231,7 +231,9 @@ export interface SavedViewFinding {
 }
 
 export interface WriteReport {
+  complete: boolean;
   geometry_carrier_exemptions?: GeometryCarrierExemption[];
+  missing: string[];
   not_written: string[];
   output: string;
   presentation_warnings?: string[];
