@@ -50,14 +50,14 @@ README, LICENSE and NOTICE (from 0.1.18). The same files are on npm as
 `specify_core_wasm.js`:
 
 ```sh
-npm install @draftwright/specify-core-wasm@0.1.17
+npm install @draftwright/specify-core-wasm@0.1.18
 ```
 
 To use the release archive instead, pin an exact release and verify the archive before
 extracting it:
 
 ```sh
-version=0.1.17 # choose a release that includes the WASM assets
+version=0.1.18 # choose a release that includes the WASM assets
 archive="specify-core-wasm-${version}.tgz"
 gh release download "v${version}" --repo pzfreo/specify-core \
   --pattern "$archive" --pattern "$archive.sha256"
@@ -96,8 +96,9 @@ version older than npm's `latest` is published under the dist-tag `release-<vers
 of `release.yml` with a `tag` publishes that existing release's archive the same way; a
 pre-release is refused.
 
-npm adds a trusted publisher from the package's settings, so the package's first version is
-published with a short-lived token (environment secret `NPM_TOKEN`, deleted afterwards). The
+npm adds a trusted publisher from the package's settings, so the package's first version
+(0.1.17) was published with a short-lived token. From 0.1.18 the job passes no token: it
+publishes only through the trusted publisher. The
 `npm` environment needs the maintainer as a required reviewer, and any branch policy must
 allow `v*` tags. The trusted publisher is: organization `pzfreo`, repository `specify-core`, workflow
 `release.yml`, environment `npm`, with `npm publish` allowed. A new trusted publisher expires
