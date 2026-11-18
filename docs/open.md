@@ -39,11 +39,11 @@ characters drawn from the operating system's random source for each run. The com
 
 ```text
 Open part.step: http://127.0.0.1:<port>/<token>/
-MCP: http://127.0.0.1:<port>/<token>/mcp  (Authorization: Bearer <key>)
+MCP: http://127.0.0.1:<port>/<token>/mcp
 ```
 
-and opens the browser there (not with `--no-browser`). `<key>` is another 32 hex characters
-from the same source, used only by MCP clients (below); the page never needs it. `<token>`
+and opens the browser there (not with `--no-browser`). The second line is the address to give
+an AI client (below). `<token>`
 without its trailing slash is redirected (308) to it. The app must use relative URLs only: it is served under the token, never
 at `/`.
 
@@ -106,8 +106,10 @@ The page sends no STEP bytes.
 - `rev`: the session revision the page last saw (from `answers` or `events`). If the session
   has moved on since, the save is refused (409, with the current `rev`) so the page never
   saves answers it has not shown; the page refreshes and the person saves again.
-- `acceptDefaults`: write each open question's default, as `write --accept-defaults` does.
-  Otherwise every required question must be answered.
+- `acceptDefaults` (required, `true` or `false`; 400 when absent): `true` writes each open
+  question's default, as `write --accept-defaults` does; `false` needs every required question
+  answered. The page sends `true` only when the person chose it (e.g. a "Save with defaults"
+  after the 422 below), never by default; the same holds for an AI client's `write_pmi`.
 - `Content-Type: application/json` (415 otherwise), `Content-Length` and no
   `Transfer-Encoding` (411), at most 64 KB (413), the whole body within 30 s (408).
 - `Origin: http://127.0.0.1:<port>` exactly (403 otherwise, and when `Origin` is absent).
@@ -222,9 +224,11 @@ The same process serves Specify's MCP server (docs/mcp.md) at `POST <token>/mcp`
 Streamable HTTP as `specify-core mcp --http` does, both protocol eras. It is for an AI client
 on this computer, not for the page:
 
-- `Authorization: Bearer <key>` (the key printed at start; 401 otherwise), as well as the token
-  in the path; `Host` exactly `127.0.0.1:<port>`; a request carrying any `Origin` is refused
-  (403), so no web page can call it.
+- The run's token authorises it: it is in the path (`<token>/mcp`), and there is no other key.
+  An `Authorization: Bearer` header is not needed; if one is sent it must carry the same token
+  (401 otherwise), so a client configured with a bearer header works too. `Host` must be
+  exactly `127.0.0.1:<port>`, and a request carrying any `Origin` header is refused (403), so
+  no web page, the app's own included, can call it.
 - `--allow` is the directory of `FILE` (and of `OLD` in `diff` mode): tools read and write
   only there, as `mcp --allow DIR` does.
 - The session's part is already open: a `session` tool (open runs only) returns its document
