@@ -37,8 +37,8 @@ const packed = JSON.parse(execFileSync(npm, ['pack', '--ignore-scripts', '--json
 const tarball = resolve(packDir, packed[0].filename);
 if (!existsSync(tarball)) fail(`npm pack did not produce ${tarball}`);
 
-// The peer range spans three 0.184 to 0.186. 0.184.0 is what three-cad-viewer pins and the repo
-// tests against; 0.186.1 is what the draftwright editor runs.
+// The peer range spans three 0.184 to 0.187. 0.184.0 is what three-cad-viewer pins and the repo
+// tests against; 0.186.1 is what the draftwright editor runs; 0.187.0 is the newest.
 async function testHost(threeVersion) {
   console.log(`\n== host on three ${threeVersion} ==`);
   // Fresh host.
@@ -119,5 +119,5 @@ async function testHost(threeVersion) {
   stop();
 }
 
-for (const threeVersion of [version('three'), '0.186.1']) await testHost(threeVersion);
+for (const threeVersion of [version('three'), '0.186.1', '0.187.0']) await testHost(threeVersion);
 console.log('test:package passed');
