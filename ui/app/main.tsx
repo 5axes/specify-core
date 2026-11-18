@@ -14,7 +14,7 @@ import {
 import { stepBytes } from '../src/model/diff';
 import { groupQuestions } from '../src/specify/review';
 import { saveFile } from '../src/specify/SpecifyReview';
-import { createAnswersStore, type AnswersStore } from './answers';
+import { changedIds, createAnswersStore, type AnswersStore } from './answers';
 import { getConfig, getFile, keepAlive, modeOf, type LocalConfig } from './local';
 import { engineSaver, type Saver } from './save';
 
@@ -27,6 +27,8 @@ interface Opened {
   bytes: Uint8Array; store: AnswersStore; saver: Saver;
   /** What SpecifyReview starts from; a new object only when the answers change outside the page (stage 2). */
   external: { answers: PmiAnswers; review: IntentReview };
+  /** Specify's review of ``answers``, for answers that arrive from outside the page. */
+  reviewOf(answers: PmiAnswers): Promise<IntentReview>;
 }
 
 /** Opens the part on the engine: its analysis and mesh, the review of its saved answers (a STEP
@@ -57,6 +59,7 @@ async function openPart(worker: WorkerClient, name: string, bytes: Uint8Array): 
   return {
     session, review, engine, drawn: shown && hasGraphics(shown) ? shown : null, bytes, store,
     saver: engineSaver(worker, file, store), external: { answers: saved, review },
+    reviewOf: (answers) => worker.request<IntentReview>('review', { ...file, answers }),
   };
 }
 
@@ -94,6 +97,28 @@ function App() {
 
   // The answers given since the last save; closing the tab asks first.
   useEffect(() => opened?.store.subscribe(() => setDirty(opened.store.dirty())), [opened]);
+  // Answers an agent gave (source "mcp", from the session's events once the command has one) are
+  // shown as they land: the review takes them, the first changed question opens, its faces are lit,
+  // and a note says what the agent changed.
+  const [agent, setAgent] = useState<{ ids: string[]; n: number } | null>(null);
+  const [agentFocus, setAgentFocus] = useState<{ questionId: string; faces?: readonly number[] } | null>(null);
+  const [agentFaces, setAgentFaces] = useState<{ faces: readonly number[]; n: number } | undefined>(undefined);
+  const live = useRef(opened); live.current = opened;
+  useEffect(() => opened?.store.subscribe((answers, source, previous) => {
+    if (source !== 'mcp') return;
+    const ids = changedIds(previous, answers);
+    if (!ids.length) return;
+    void opened.reviewOf(answers).then((review) => {
+      if (live.current !== opened) return;
+      setOpened({ ...opened, external: { answers, review } });
+      const faces = review.questions.filter((q) => ids.includes(q.id)).flatMap((q) => q.faces);
+      const n = Date.now();
+      setAgent({ ids, n });
+      setAgentFocus({ questionId: ids[0]!, faces });
+      setAgentFaces({ faces, n });
+      window.setTimeout(() => setAgent((shown) => (shown?.n === n ? null : shown)), 8000);
+    }, (error: unknown) => setProblem(`An answer from your agent could not be shown: ${error instanceof Error ? error.message : String(error)}`));
+  }), [opened]);
   useEffect(() => {
     if (!dirty) return;
     const guard = (event: BeforeUnloadEvent) => { event.preventDefault(); };
@@ -175,6 +200,7 @@ function App() {
         )}
       </header>
       {problem && <p className="app-problem" role="alert">{problem}</p>}
+      {agent && <p className="app-agent" role="status">Updated by your agent: {agent.ids.join(', ')}</p>}
       {refused && (
         <p className="app-problem" role="alert">
           Not saved: {refused.missing.length ? `still to answer: ${refused.missing.join(', ')}` : refused.message}.
@@ -190,6 +216,7 @@ function App() {
           <SpecifyReview
             engine={opened.engine} session={opened.session} slots={slots} readOnly={readOnly} drawn={opened.drawn}
             externalAnswers={opened.external.answers} externalReview={opened.external.review} disabled={saving}
+            focusRequest={agentFocus} showFaces={agentFaces}
             onExport={(action) => action()}
           />
         )}

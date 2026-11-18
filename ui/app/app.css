@@ -34,3 +34,5 @@ body { background: #fff; color: #1a1d21; font: 13px/1.45 ui-sans-serif, -apple-s
   .app-header { grid-template-columns: 1fr; }
   .app-path { display: none; }
 }
+.app-agent { margin: 0; padding: 6px 14px; background: #e8f3ee; color: #2c6650; animation: app-agent-in 1.2s ease-out; }
+@keyframes app-agent-in { from { background: #bfe3cf; } to { background: #e8f3ee; } }
