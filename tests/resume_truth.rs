@@ -268,9 +268,8 @@ fn keeping_writes_the_files_pmi() {
     );
     let review = api::review(&analysis, &answers).unwrap();
     assert!(review.get("conflicts").is_none(), "{review}");
-    let mut saved = answers.clone();
-    saved.remove("_specify");
-    let back = load(write(loaded.bytes.to_vec(), &analysis, &answers, &saved));
+    // The answers are stored as given; the writer keeps `_specify` out of them.
+    let back = load(write(loaded.bytes.to_vec(), &analysis, &answers, &answers));
     let written = serde_json::to_value(read_existing(&back).unwrap()).unwrap();
     let position: Vec<_> = tolerances(&written, "Position", 12)
         .iter()
@@ -278,16 +277,56 @@ fn keeping_writes_the_files_pmi() {
         .collect();
     assert_eq!(position, [json!(0.2)], "{written}");
     assert!(tolerances(&written, "Flatness", 2).is_empty(), "{written}");
-    // Reopened, no conflict remains. (The kept tolerance still carries Specify's marker, so a
-    // later reopening treats it as Specify's own and asks its question again: see the report
-    // of this change; keeping is not yet persisted beyond the write it is made in.)
-    let again = api::analyse(&back).unwrap();
-    assert!(
-        again["resume"].get("conflicts").is_none(),
-        "{}",
-        again["resume"]
-    );
-    resumes(&again["resume"], &saved);
+    // Kept, the file's tolerance is the file's own PMI: written without Specify's marker, so
+    // any reader, and Specify reopening it, sees it as such. The removal kept is stored with
+    // the answers (`kept`), having no item to carry it.
+    let marked = |l: &LoadedPart| -> Vec<bool> {
+        read_existing(l)
+            .unwrap()
+            .into_iter()
+            .filter(|e| e.r#type == "Position" && e.faces == [12])
+            .map(|e| e.provenance.is_some())
+            .collect()
+    };
+    assert_eq!(marked(&back), [false]);
+    let reopened = |l: &LoadedPart| {
+        let again = api::analyse(l).unwrap();
+        assert!(
+            again["resume"].get("conflicts").is_none(),
+            "{}",
+            again["resume"]
+        );
+        let answers = again["resume"]["answers"].as_object().unwrap().clone();
+        let review = api::review(&again, &answers).unwrap();
+        let asked: Vec<&str> = review["questions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|q| q["id"].as_str())
+            .collect();
+        for id in ["hole.position:holes:12", "datum.A.flatness"] {
+            assert!(!asked.contains(&id), "{id} is asked again: {asked:?}");
+        }
+        let position: Vec<_> = tolerances(&again["existing"], "Position", 12)
+            .iter()
+            .map(|e| e["value"].clone())
+            .collect();
+        assert_eq!(position, [json!(0.2)], "{}", again["existing"]);
+        assert!(tolerances(&again["existing"], "Flatness", 2).is_empty());
+        (again, answers)
+    };
+    let (again, answers) = reopened(&back);
+    // Saved again: unchanged.
+    let second = load(write(back.bytes.to_vec(), &again, &answers, &answers));
+    let written = serde_json::to_value(read_existing(&second).unwrap()).unwrap();
+    let position: Vec<_> = tolerances(&written, "Position", 12)
+        .iter()
+        .map(|e| e["value"].clone())
+        .collect();
+    assert_eq!(position, [json!(0.2)], "{written}");
+    assert!(tolerances(&written, "Flatness", 2).is_empty(), "{written}");
+    assert_eq!(marked(&second), [false]);
+    reopened(&second);
 }
 
 /// A file written with defaults taken but only the given answers stored (as every writer did

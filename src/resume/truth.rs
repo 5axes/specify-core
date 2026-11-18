@@ -535,3 +535,114 @@ pub(crate) fn restated(
     }
     out
 }
+
+impl Reconciled {
+    /// The STEP entities of the file's items kept by a decision to keep them (a conflict whose
+    /// question `answers` leave unanswered while `_specify.keep` lists it): the requirements
+    /// themselves and the attributes on them, never the datums or features they rest on.
+    pub(crate) fn decided_kept(
+        &self,
+        pmi: &haecceity::pmi::PartPmi,
+        prov: &haecceity::pmi::PartProvenance,
+        kept: &BTreeSet<(String, usize)>,
+        answers: &Map<String, Value>,
+    ) -> BTreeSet<u64> {
+        use haecceity::pmi::NoteOwner;
+        let decided = kept_ids(answers);
+        let own: BTreeSet<&(String, usize)> = self
+            .contested
+            .iter()
+            .filter(|(at, question)| kept.contains(*at) && decided.contains(question.as_str()))
+            .map(|(at, _)| at)
+            .collect();
+        let ids = |collection: &str, i: usize| -> Vec<u64> {
+            let list = match collection {
+                "dimensions" => &prov.dimensions,
+                "tolerances" => &prov.tolerances,
+                "datums" => &prov.datums,
+                "threads" => &prov.threads,
+                "knurls" => &prov.knurls,
+                "surface_textures" => &prov.surface_textures,
+                "attributes" => &prov.attributes,
+                "general" => &prov.general,
+                "notes" => &prov.notes,
+                _ => return Vec::new(),
+            };
+            list.get(i).cloned().unwrap_or_default()
+        };
+        let mut out = BTreeSet::new();
+        for (collection, i) in &own {
+            out.extend(ids(collection, *i));
+        }
+        for (i, set) in pmi.attributes.iter().enumerate() {
+            let owner = match set.on {
+                Some(NoteOwner::Dimension(d)) => Some(("dimensions", d.0)),
+                Some(NoteOwner::Tolerance(t)) => Some(("tolerances", t.0)),
+                Some(NoteOwner::Feature(f)) => pmi
+                    .threads
+                    .iter()
+                    .position(|t| t.feature == f)
+                    .map(|t| ("threads", t)),
+                _ => None,
+            };
+            if owner.is_some_and(|(c, j)| own.contains(&(c.to_string(), j)))
+                && kept.contains(&("attributes".to_string(), i))
+            {
+                out.extend(ids("attributes", i));
+            }
+        }
+        if decided.contains("part.material") && kept.contains(&("material".to_string(), 0)) {
+            out.extend(prov.material.iter().copied());
+        }
+        out
+    }
+}
+
+fn kept_ids(answers: &Map<String, Value>) -> BTreeSet<&str> {
+    kept(answers)
+        .into_iter()
+        .filter(|id| !answers.contains_key(*id))
+        .collect()
+}
+
+/// The datums the tolerances `tolerances` of `pmi` cite, with the features and targets they
+/// rest on (a datum's feature is linked from the feature's side, so keeping the datum alone
+/// would orphan it): kept with another tool's tolerance, the rewrite's equal datum is that one.
+pub(crate) fn datum_support(
+    pmi: &haecceity::pmi::PartPmi,
+    tolerances: &BTreeSet<usize>,
+) -> BTreeSet<(String, usize)> {
+    let mut out = BTreeSet::new();
+    let mut datums = BTreeSet::new();
+    for &i in tolerances {
+        if let Some(system) = pmi.tolerances.get(i).and_then(|t| t.datums.as_ref()) {
+            for compartment in system.compartments() {
+                for reference in &compartment.references {
+                    datums.insert(reference.datum.0);
+                }
+            }
+        }
+    }
+    for d in datums {
+        let Some(datum) = pmi.datums.get(d) else {
+            continue;
+        };
+        out.insert(("datums".to_string(), d));
+        let mut features: Vec<usize> = datum.feature().into_iter().map(|f| f.0).collect();
+        for target in datum.targets() {
+            out.insert(("datum_targets".to_string(), target.0));
+            if let Some(t) = pmi.datum_targets.get(target.0) {
+                if let haecceity::pmi::TargetShape::Area(f)
+                | haecceity::pmi::TargetShape::Curve(f) = t.shape()
+                {
+                    features.push(f.0);
+                }
+                features.extend(t.on().map(|f| f.0));
+            }
+        }
+        for f in features {
+            out.insert(("features".to_string(), f));
+        }
+    }
+    out
+}

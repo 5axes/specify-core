@@ -82,8 +82,31 @@ fn without_unknown(out: &mut Resumed) {
     }
 }
 
-/// The payload's carry blocks ([`UNRESOLVED`]) as answers' metadata, when well formed.
+/// The payload member holding the questions whose requirement the person decided to leave
+/// removed from the file (ADR P9 conflicts kept, `_specify.keep`): a removal leaves no item to
+/// carry the decision in the PMI itself, so it is kept beside the answers.
+pub const KEPT: &str = "kept";
+
+/// The payload's carry blocks ([`UNRESOLVED`]) and kept removals ([`KEPT`]) as answers'
+/// metadata, when well formed.
 fn restore_blocks(payload: &Map<String, Value>, answers: &mut Map<String, Value>) {
+    restore_unresolved(payload, answers);
+    if let Some(kept) = payload.get(KEPT).and_then(Value::as_array)
+        && !kept.is_empty()
+        && kept
+            .iter()
+            .all(|id| id.as_str().is_some_and(|s| !s.is_empty()))
+    {
+        let meta = answers
+            .entry(crate::answer_file::META)
+            .or_insert_with(|| json!({}));
+        if let Some(meta) = meta.as_object_mut() {
+            meta.insert(truth::KEEP.into(), Value::Array(kept.clone()));
+        }
+    }
+}
+
+fn restore_unresolved(payload: &Map<String, Value>, answers: &mut Map<String, Value>) {
     if let Some(blocks) = payload.get(UNRESOLVED).and_then(Value::as_object)
         && !blocks.is_empty()
         && blocks.values().all(Value::is_string)

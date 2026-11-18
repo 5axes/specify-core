@@ -530,8 +530,14 @@ fn all_questions(
         .flatten()
         .filter_map(|c| c.get("id").and_then(Value::as_str))
         .collect();
-    if !conflicts.is_empty() {
-        out.retain(|q| !conflicts.contains(q.id.as_str()) || answers.contains_key(&q.id));
+    // A conflict the person kept (`_specify.keep`, stored with the answers when the file
+    // left its requirement removed) stays the file's: its question is not asked either.
+    let kept = crate::resume::truth::kept(answers);
+    if !conflicts.is_empty() || !kept.is_empty() {
+        out.retain(|q| {
+            (!conflicts.contains(q.id.as_str()) && !kept.contains(q.id.as_str()))
+                || answers.contains_key(&q.id)
+        });
     }
     Ok(out)
 }

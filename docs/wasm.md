@@ -709,7 +709,8 @@ show them as answered. `review` presents the undecided ones as `conflicts`,
 - **Restore:** set `answers[id] = conflict.stored` (the choice's `answer`). `writePmi` then
   writes the stored value and not the file's.
 - **Keep the file's:** add `id` to `answers._specify.keep` (a list of ids). `writePmi`
-  writes the file's PMI as it is.
+  writes the file's requirement without Specify's provenance marker, so it stays the file's
+  own; a kept removal is stored with the answers and comes back in `resume.answers._specify`.
 
 The conflict's question is not in `questions` or `open` until decided, and an undecided
 conflict never blocks `writePmi`: the file's state is what is written.

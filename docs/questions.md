@@ -14,8 +14,9 @@ building it:
   in `questions` or `open`, so they never block a write; the question they stand for is not
   asked until decided.
 - **How a decision is recorded.** Restore = answer the question (with `stored`); keep = list
-  the id in the answers' `_specify.keep`. Either decides it. `_specify.keep` is transport
-  metadata and is not stored in the STEP; after the write the file and its answers agree.
+  the id in the answers' `_specify.keep`. Either decides it. A kept requirement is written
+  without Specify's provenance marker, so it stays the file's own on every reopening; a kept
+  removal (no requirement to unmark) is stored in the payload's `kept` list instead.
 - **What is compared.** The stored answers' preview and, when that disagrees, their plan with
   every default taken (files written with defaults merge requirements, e.g. one location
   dimension to a hole and a pattern): an answer resumes when either plan states its
