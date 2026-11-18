@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
+import { basename, join, resolve } from 'node:path';
 import { gunzipSync } from 'node:zlib';
 import { chromium, expect } from '@playwright/test';
 import { mcp } from './mcp-client.mjs';
@@ -12,7 +12,8 @@ import { mcp } from './mcp-client.mjs';
 // "Updated by your agent". The person's edit in the page is what `changes` returns. The agent's
 // `save` and the page's Save write the same naming, and an incomplete save says what is `missing`.
 // Then an assembly (every part's stored answers resume when one part is opened) and a part opened
-// through a symbolic link (the link's path is kept, Save writes beside the link).
+// through a symbolic link (the link's path is kept, Save writes beside the link), and a diff the agent
+// opened, which `show` serves in diff mode.
 // `npm run test:app` runs it after app-browser.mjs.
 //
 //   SPECIFY_CORE      the specify-core binary with `mcp`'s `show` (specify-core open-session).
@@ -35,7 +36,7 @@ const given = answers => Object.fromEntries(Object.entries(answers).filter(([id]
 
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined, args: ['--no-sandbox', '--use-gl=angle', '--use-angle=swiftshader'] });
 const problems = [];
-async function load(url) {
+async function load(url, ready = '.pmi-lab-panel') {
   const context = await browser.newContext({ viewport: { width: 1400, height: 950 } });
   const requests = [];
   context.on('request', request => requests.push(request.url()));
@@ -43,7 +44,7 @@ async function load(url) {
   page.on('pageerror', error => problems.push(String(error)));
   page.on('console', message => { if (message.type() === 'error') problems.push(`console: ${message.text()}`); });
   await page.goto(url);
-  await check(page.locator('.pmi-lab-panel')).toBeVisible();
+  await check(page.locator(ready).first()).toBeVisible();
   return { context, page, requests };
 }
 const onlyLocal = (requests, url) => {
@@ -182,6 +183,28 @@ try {
     await page.getByRole('button', { name: 'Save', exact: true }).click();
     await check(page.locator('.app-saved')).toContainText(join(dir, 'linked.specified.step'));
     assert.ok(existsSync(join(dir, 'linked.specified.step')) && !existsSync(join(real, 'shaft.specified.step')), 'saved beside the link');
+    await context.close();
+    agent.stop();
+  }
+  // A diff the agent opened (`open` with `old`): `show` serves diff mode, from the carried answers.
+  {
+    const demo = join(homedir(), 'Downloads', 'enclosure-demo');
+    const [oldSource, newSource] = process.env.DIFF_OLD && process.env.DIFF_NEW ? [process.env.DIFF_OLD, process.env.DIFF_NEW]
+      : existsSync(join(demo, 'electronics-enclosure-base-rev2-pmi.step'))
+        ? [join(demo, 'electronics-enclosure-base-pmi.step'), join(demo, 'electronics-enclosure-base-rev2-pmi.step')]
+        : ['test/fixtures/spindle_pmi_before.step.gz', 'test/fixtures/spindle_pmi_after.step.gz'];
+    const oldFile = join(dir, `old-${basename(oldSource)}`);
+    const newFile = join(dir, `new-${basename(newSource)}`);
+    copyFileSync(oldSource, oldFile); copyFileSync(newSource, newFile);
+    const agent = await mcp(cli, { cwd: dir, env }); agents.push(agent);
+    const opened = await agent.call('open', { path: newFile, old: oldFile });
+    assert.ok(opened.verdict, 'open with old compares');
+    const shown = await agent.call('show', { doc: opened.doc, browser: false });
+    assert.equal(shown.mode, 'diff');
+    const { context, page, requests } = await load(shown.url, '.diff-summary');
+    await check(page.getByRole('tab', { name: 'What changed' })).toHaveAttribute('aria-selected', 'true');
+    await check(page.locator('.app-path')).toHaveText(`${oldFile} → ${newFile}`);
+    onlyLocal(requests, shown.url);
     await context.close();
     agent.stop();
   }
