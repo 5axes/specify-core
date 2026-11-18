@@ -37,7 +37,7 @@ pub const HEARTBEAT: Duration = Duration::from_secs(30);
 
 /// How long after `closed` the server stops, unless another request arrives: longer than
 /// [`HEARTBEAT`], so another open page keeps it.
-pub const CLOSE_DELAY: Duration = Duration::from_secs(45);
+pub const CLOSE_DELAY: Duration = Duration::from_secs(90);
 
 /// How long the server waits without a request before it stops (a forgotten server: an open
 /// page's heartbeat keeps it).

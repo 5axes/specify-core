@@ -34,7 +34,7 @@ All notable changes to specify-core-rust. The format follows
   link kept). Saves go beside the path as given, even when it is a link. `--read-only` refuses
   saves, `--port N` picks the port. Nothing depends on draftwright.io and Chrome no longer asks
   about local-network access. An open page sends a heartbeat (`GET config`) every 30 s; the
-  command stops 45 s after the last page is closed, or after 30 minutes without a request. Until the app is bundled, `--app DIR` (or `SPECIFY_APP_DIR`) names the built app and
+  command stops 90 s after the last page is closed, or after 30 minutes without a request. Until the app is bundled, `--app DIR` (or `SPECIFY_APP_DIR`) names the built app and
   `--wasm DIR` (or `SPECIFY_WASM_DIR`) the engine's wasm-pack `pkg/`. The contract for the
   app's authors is docs/open.md.
 

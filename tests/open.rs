@@ -1038,7 +1038,7 @@ fn in_place_on_a_gzipped_input_writes_it_gzipped() {
 fn the_close_delay_outlasts_the_heartbeat() {
     assert!(open::CLOSE_DELAY > open::HEARTBEAT);
     assert_eq!(open::HEARTBEAT, Duration::from_secs(30));
-    assert_eq!(open::CLOSE_DELAY, Duration::from_secs(45));
+    assert_eq!(open::CLOSE_DELAY, Duration::from_secs(90));
     assert_eq!(open::IDLE, Duration::from_secs(30 * 60));
 }
 

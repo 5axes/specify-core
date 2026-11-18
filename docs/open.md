@@ -103,12 +103,13 @@ ignored). Any request resets the idle time and cancels a pending close.
 `POST <token>/closed`, with the same `Origin` rule as `save` (any body, ignored; 204). Send it
 with `navigator.sendBeacon` on `pagehide` only when `!event.persisted`: a page going into the
 back/forward cache is not closed, and sends nothing. After `closed` the command stops once no
-request has arrived for 45 s, printing `Closed.`; a reload, or another open tab's heartbeat,
-keeps it running. Without `closed` (a forgotten server, no page sending heartbeats) it stops
+request has arrived for 90 s, printing `Closed.`; a reload, or another open tab's heartbeat,
+keeps it running (90 s, because browsers run a long-hidden tab's timers about once a
+minute). Without `closed` (a forgotten server, no page sending heartbeats) it stops
 after 30 minutes with no request, printing `Stopped: no request for 30 minutes.`.
 
 (Contract addition, after the first version: the heartbeat, the `!event.persisted` rule and
-the 45 s delay, which was 3 s.)
+the 90 s delay, which was 3 s.)
 
 ## Which answers have a body
 
