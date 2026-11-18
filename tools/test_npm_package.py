@@ -1,4 +1,6 @@
 import json
+import os
+import shutil
 import pathlib
 import tempfile
 import unittest
@@ -56,6 +58,22 @@ class NpmPackageTests(unittest.TestCase):
             (pkg / "NOTICE").unlink()
             with self.assertRaises(SystemExit):
                 npm_package.prepare(pkg)
+
+    @unittest.skipUnless(shutil.which("npm"), "npm not installed")
+    def test_check_pack_takes_a_relative_directory(self):
+        # The release job passes `release/pkg`, which npm alone would read as a GitHub repository.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            pkg = write_pkg(root)
+            npm_package.prepare(pkg, "0.1.17")
+            cwd = os.getcwd()
+            os.chdir(root)
+            try:
+                packed = npm_package.check_pack(pathlib.Path("pkg"))
+            finally:
+                os.chdir(cwd)
+            self.assertIn("NOTICE", packed)
+            self.assertIn("specify_core_wasm_bg.wasm", packed)
 
 
 if __name__ == "__main__":

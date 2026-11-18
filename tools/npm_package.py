@@ -51,8 +51,9 @@ def prepare(pkg: pathlib.Path, version: str | None = None) -> dict:
 
 def check_pack(pkg: pathlib.Path) -> list[str]:
     """The files `npm pack` would publish; refuses a tarball without the legal or module files."""
+    # An absolute path: npm reads a relative `release/pkg` as the GitHub repository release/pkg.
     out = subprocess.run(
-        ["npm", "pack", "--dry-run", "--json", str(pkg)],
+        ["npm", "pack", "--dry-run", "--json", str(pkg.resolve())],
         check=True, capture_output=True, text=True,
     ).stdout
     packed = [entry["path"] for entry in json.loads(out)[0]["files"]]
