@@ -70,8 +70,7 @@ function App() {
   const [opened, setOpened] = useState<Opened | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [refused, setRefused] = useState<{ missing: string[]; message: string } | null>(null);
-  const [saved, setSaved] = useState<string | null>(null);
+  const [saved, setSaved] = useState<{ path: string; open: string[] } | null>(null);
   const [dirty, setDirty] = useState(false);
   const worker = useRef<WorkerClient | null>(null);
   const view = useRef<HTMLDivElement>(null);
@@ -96,16 +95,7 @@ function App() {
   }, []);
 
   // The answers given since the last save; closing the tab asks first.
-  useEffect(() => opened?.store.subscribe((answers) => {
-    setDirty(opened.store.dirty());
-    // A refused save's list follows the answers: what is answered since leaves it, and with
-    // nothing left the refusal goes.
-    setRefused((shown) => {
-      if (!shown?.missing.length) return shown;
-      const missing = shown.missing.filter((id) => !(id in answers));
-      return missing.length ? { ...shown, missing } : null;
-    });
-  }), [opened]);
+  useEffect(() => opened?.store.subscribe(() => setDirty(opened.store.dirty())), [opened]);
   // Answers an agent gave (source "mcp", from the session's events once the command has one) are
   // shown as they land: the review takes them, the first changed question opens, its faces are lit,
   // and a note says what the agent changed.
@@ -137,15 +127,15 @@ function App() {
 
   const readOnly = config ? modeOf(config) === 'read-only' : true;
 
-  // Save writes the answers given. The defaults are taken only when the person asks (the second button).
+  // Save writes the answers given, whatever is still open, and says what is. The defaults are taken only when the
+  // person asks (the second button).
   const onSave = async (acceptDefaults: boolean) => {
     if (!opened) return;
-    setSaving(true); setProblem(null); setRefused(null);
+    setSaving(true); setProblem(null);
     try {
       const result = await opened.saver.save({ acceptDefaults });
-      if (!result.ok) { setRefused(result); return; }
       opened.store.markSaved(); setDirty(false);
-      setSaved(result.path);
+      setSaved({ path: result.path, open: result.open });
       setConfig(await getConfig());
     } catch (error) {
       setProblem(`Not saved: ${error instanceof Error ? error.message : String(error)}`);
@@ -198,25 +188,28 @@ function App() {
               <button type="button" className="app-save" onClick={() => void onSave(false)} disabled={!opened || saving}>
                 {saving ? 'Saving…' : 'Save'}
               </button>
+              <button type="button" className="app-save-defaults" onClick={() => void onSave(true)} disabled={!opened || saving}
+                title="Fill every question not answered with Specify's default, then save">
+                Save with defaults
+              </button>
             </>
           )}
         </div>
         {config && (
           <div className="app-paths">
-            {saved && <span className="app-saved" role="status">Saved <code>{saved}</code></span>}
+            {saved && (
+              <span className="app-saved" role="status">
+                Saved <code>{saved.path}</code>: {saved.open.length
+                  ? `${saved.open.length} question${saved.open.length === 1 ? '' : 's'} still open: ${saved.open.slice(0, 6).join(', ')}${saved.open.length > 6 ? ', …' : ''}`
+                  : 'complete'}
+              </span>
+            )}
             {config.saveTarget && <span>Save writes <code className="app-target">{config.saveTarget}</code></span>}
           </div>
         )}
       </header>
       {problem && <p className="app-problem" role="alert">{problem}</p>}
       {agent && <p className="app-agent" role="status">Updated by your agent: {agent.ids.join(', ')}</p>}
-      {refused && (
-        <p className="app-problem" role="alert">
-          Not saved: {refused.missing.length ? `still to answer: ${refused.missing.join(', ')}` : refused.message}.
-          {' '}Answer them, or take Specify's default for each:{' '}
-          <button type="button" onClick={() => void onSave(true)} disabled={saving}>Save with defaults</button>
-        </p>
-      )}
       <main className="app-main">
         {!opened && !problem && <p className="app-loading">Opening {config?.name ?? 'the part'}…</p>}
         <div className="app-slot app-view" ref={view} />

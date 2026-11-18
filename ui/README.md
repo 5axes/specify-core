@@ -122,8 +122,9 @@ exported too; see `src/index.ts`.
 contract in specify-core's `docs/open.md`. It shows the part and its questions (or, with `--read-only`, its PMI),
 saves the specified STEP back to disk through the command (beside it as `part.specified.step`), and offers the
 answers JSON, inspection list (CSV) and AS9102 workbook as downloads. It has no account, AI chat or analytics,
-stores nothing in the browser, and requests nothing but its own origin; IBM Plex Mono is bundled. Save writes the
-answers given; Specify's defaults are written only when the person chooses Save with defaults.
+stores nothing in the browser, and requests nothing but its own origin; IBM Plex Mono is bundled. Save never refuses for
+questions still open (many AP242 files have no complete answer to everything): it writes the answers given and says
+which questions are still open. Specify's defaults are written only when the person chooses Save with defaults.
 
 `npm run build:app` builds it into `dist-app/` (relative URLs, no inline scripts; the engine is not included: the
 command serves its own at `config.wasmUrl`). Each release attaches it as `specify-ui-app-<version>.tgz` (the app's

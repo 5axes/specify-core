@@ -10,7 +10,7 @@ import { stepBytes } from '../../src/model/diff';
 declare global {
   interface Window {
     __events: string[];
-    /** The Specify host's calls from SpecifyReview ('questions' | 'interpret' | 'preview' | 'onKeep'), when ?specify=1. */
+    /** The Specify host's calls from SpecifyReview ('questions' | 'interpret' | 'preview'), when ?specify=1. */
     __calls: string[];
     __parts: (string | null)[];
     __setAnswers(answers: unknown): void;
@@ -108,7 +108,7 @@ function SpecifyHost() {
         <SpecifyReview
           engine={open.engine} session={open.session} slots={slots} readOnly={readOnly} drawn={open.drawn}
           externalAnswers={noAnswers} externalReview={open.review} disabled={false}
-          onExport={action => action()} onKeep={() => window.__calls.push('onKeep')}
+          onExport={action => action()}
         />
       )}
     </main>

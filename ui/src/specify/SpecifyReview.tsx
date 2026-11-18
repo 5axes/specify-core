@@ -45,7 +45,7 @@ function asError(error: unknown): PmiLabError {
   return { code: 'failed', message: String(error) };
 }
 
-export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, onExport, gated, after, onPick, showFaces, tints, externalAnswers, externalReview, disabled, focusRequest, toReview, onKeep, drawn: drawnPmi = null, datums = true, readOnly = false }: {
+export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, onExport, gated, after, onPick, showFaces, tints, externalAnswers, externalReview, disabled, focusRequest, toReview, onKeep, kept, drawn: drawnPmi = null, datums = true, readOnly = false }: {
   engine: SpecifyEngine; session: PmiLabSession; slots: SpecifySlots;
   /** The question the queue's selected row is about: what the question slot shows. */
   slotQuestion?: string | null;
@@ -67,6 +67,8 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   toReview?: readonly string[];
   /** Keeps suggestions as they stand, the editor's way: accepted, as in its list, not answered. */
   onKeep?: (ids: readonly string[]) => void;
+  /** Questions kept as suggested without being answered (the editor's accepted): shown with a tick, like an answer. */
+  kept?: readonly string[];
   /** The PMI as drawn (Specify's pmiScene, less its notes block), when it has any graphics. */
   drawn?: DrawnPmi | null;
   /** Datum labels shown on the part: not until tolerancing is chosen (drawing-first plan). */
@@ -720,8 +722,10 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   }, 'xlsx');
 
   // A row: its head and summary, a check to confirm, and when open its questions.
+  // A tick is for what the person (or their agent) answered or kept; a suggestion not yet kept has none.
+  const isKept = (q: PmiQuestion) => q.id in answers || Boolean(kept?.includes(q.id));
   const questionItem = (q: PmiQuestion, g: QuestionGroup, titled = true) => (
-    <QuestionItem titled={titled}
+    <QuestionItem titled={titled} kept={isKept(q)}
       key={`${q.id}:${JSON.stringify(answers[q.id])}`} q={q} answers={answers} active={q.id === current}
       selection={selection} mode={mode} error={errorAt(q.id)} typed={typed[q.id] ?? null}
       locked={readOnly} onSpec={(text) => spec(q, text)}
@@ -964,7 +968,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
               )}
               {chosen.length > 1 && !readOnly && (
                 <button type="button" className="ok" onClick={() => keepChosen(chosen.map((c) => c.id))}>
-                  ✓ Keep all
+                  Keep all
                 </button>
               )}
               {problems.length > 0 && (
@@ -1015,7 +1019,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
                 }
                 if (c && !readOnly) return card(c);
                 if (onlySuggestions) return null;
-                return <FoldedLine key={q.id} name={PART_FIELD[q.id] ?? q.prompt} value={partValue(q, answers)} onOpen={() => toggle(q.id)} />;
+                return <FoldedLine key={q.id} kept={isKept(q)} name={PART_FIELD[q.id] ?? q.prompt} value={partValue(q, answers)} onOpen={() => toggle(q.id)} />;
               })}
               {notes.length > 0 && (unfolded === 'notes' || unfolded?.startsWith('note:') ? (
                 <div className="pmi-lab-notes">
@@ -1029,7 +1033,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
                     />
                   ) : (
                     <FoldedLine
-                      key={q.id} name={PART_FIELD[q.id] ?? q.prompt} value={partValue(q, answers)}
+                      key={q.id} kept={isKept(q)} name={PART_FIELD[q.id] ?? q.prompt} value={partValue(q, answers)}
                       onOpen={() => setUnfolded(`note:${q.id}`)}
                     />
                   )))}
@@ -1165,13 +1169,18 @@ export function saveFile(file: File): void {
 }
 
 /** A setting folded to one line: its name and value; a tap unfolds it. */
-function FoldedLine({ name, value, onOpen }: { name: string; value: string; onOpen: () => void }) {
+function FoldedLine({ name, value, onOpen, kept = false }: { name: string; value: string; onOpen: () => void; kept?: boolean }) {
   return (
     <button type="button" className="pmi-lab-line" aria-expanded={false} onClick={onOpen}>
       <span className="name"><Chevron open={false} />{name}</span>
-      <span className="value">{value}</span>
+      <span className="value">{kept && <Tick />}{value}</span>
     </button>
   );
+}
+
+/** The mark of an answer given or a suggestion kept; never shown for a suggestion that has not been kept. */
+function Tick() {
+  return <span className="pmi-lab-tick" role="img" aria-label="answered">✓</span>;
 }
 
 /** ▸ folded, ▾ open: every row says which it is and that a tap changes it. */
@@ -1262,10 +1271,12 @@ function shortValue(q: PmiQuestion, value: unknown): string {
 
 function QuestionItem({
   q, answers, active, selection, mode, error, typed, onOpen, onAnswer, onSpec, onConfirm, onReset, onMode,
-  onDefaultSelection, titled = true, locked = false,
+  onDefaultSelection, titled = true, kept = false, locked = false,
 }: {
   /** Read only: the answer controls are shown disabled, the editing ones hidden. */
   locked?: boolean;
+  /** Answered, or kept as suggested: ticked. */
+  kept?: boolean;
   /** Whether it shows its prompt: not under a queue row that already does. */
   titled?: boolean;
   q: PmiQuestion; answers: PmiAnswers; active: boolean; selection: number[]; mode: PickMode;
@@ -1287,7 +1298,7 @@ function QuestionItem({
     return (
       <button type="button" className={`pmi-lab-item${need ? ` ${need}` : ''}`} onClick={onOpen} data-question={q.id}>
         <span className="prompt">{q.prompt}{optional}</span>
-        <span className="value">{shortValue(q, answerOf(q, answers))} ›</span>
+        <span className="value">{kept && <Tick />}{shortValue(q, answerOf(q, answers))} ›</span>
       </button>
     );
   }
@@ -1295,6 +1306,7 @@ function QuestionItem({
     <div className={`pmi-lab-item on${need ? ` ${need}` : ''}`} data-question={q.id}>
       <div className="prompt">
         {titled && <>{q.prompt}{optional}</>}
+        {kept && <Tick />}
         {q.id in answers && q.default !== null && !locked && (
           <button type="button" className="reset" onClick={onReset}>Reset to default</button>
         )}
@@ -1302,7 +1314,7 @@ function QuestionItem({
       {q.reason && need === 'check' && (
         <div className="reason">
           {q.reason}{' '}
-          {!locked && <button type="button" className="ok" onClick={onConfirm}>✓ Looks right</button>}
+          {!locked && <button type="button" className="ok" onClick={onConfirm}>Looks right</button>}
         </div>
       )}
       <div className="why">{q.why}</div>

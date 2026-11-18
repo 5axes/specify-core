@@ -46,6 +46,34 @@ try {
     assert.ok(await panel(page).locator('.pmi-lab-item.on button:not([disabled])').count() > 0, 'an open question has live answer buttons');
     await page.close();
   }
+  // A suggestion not kept is a suggestion: no tick, counted as open. Keeping it makes it an answer, ticked.
+  {
+    const page = await openPage(false, 'test/fixtures/gramil_shaft_before.step.gz');
+    const rows = panel(page).locator('.pmi-lab-rows');
+    const cards = panel(page).locator('.pmi-lab-suggestion');
+    const count = async () => Number((await panel(page).getByText(/^\d+ suggestions?$/).innerText()).split(' ')[0]);
+    const before = await count();
+    assert.ok(before > 1, 'the shaft has suggestions to keep');
+    // (The open row shows its own suggestions as its questions, not as cards.)
+    assert.ok(await cards.count() > 0 && await cards.count() <= before, 'the suggestions are cards, each counted');
+    const cardsBefore = await cards.count();
+    await check(rows).not.toContainText('✓');
+    await check(panel(page).locator('.pmi-lab-review')).not.toContainText('✓');
+    const tolerance = panel(page).locator('.pmi-lab-suggestion:has([data-suggestion="part.general_tolerance"])');
+    await check(tolerance.locator('.suggested')).toContainText(/^Suggested: ISO 2768-m/);
+    await check(tolerance.getByRole('button', { name: 'Keep', exact: true })).toBeVisible();
+    await check(panel(page).locator('.pmi-lab-line', { hasText: 'General tolerance' })).toHaveCount(0);
+    await tolerance.getByRole('button', { name: 'Keep', exact: true }).click();
+    // Kept: it is an answer, shown folded with a tick, and no longer counted.
+    await check(panel(page).locator('.pmi-lab-line', { hasText: 'General tolerance' })).toContainText('✓');
+    await check(tolerance).toHaveCount(0);
+    await check.poll(count).toBe(before - 1);
+    assert.equal(await cards.count(), cardsBefore - 1);
+    // Only the one kept has a tick: the suggestions left still have none.
+    await check(cards.locator('text=✓')).toHaveCount(0);
+    await check(rows.locator('.pmi-lab-tick')).toHaveCount(1);
+    await page.close();
+  }
   // Read only: a PMI viewer. The spindle Specify wrote (semantic PMI linked to graphical PMI) shows what is
   // set; nothing to answer, tick, export or change.
   {

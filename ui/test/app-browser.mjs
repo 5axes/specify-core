@@ -7,7 +7,8 @@ import { gunzipSync } from 'node:zlib';
 import { chromium, expect } from '@playwright/test';
 // The local app (dist-app, `npm run build:app`) served by the real `specify-core open`, on a part:
 // it loads, is titled for the file, takes an answer, saves part.specified.step beside it (whose PMI
-// `specify-core analyse` reads back), resumes from that file, has no Save when read-only, and
+// `specify-core analyse` reads back) even with questions open, saves with the defaults when asked,
+// resumes from that file with the open questions still open, has no Save when read-only, and
 // requests nothing from anywhere but 127.0.0.1. `npm run test:app`.
 //
 //   SPECIFY_CORE  the specify-core binary (default: specify-core on PATH); it needs `open --app/--wasm`
@@ -28,7 +29,9 @@ const part = join(dir, 'part.step');
 // A part with no answers stored in it: gramil's shaft.
 writeFileSync(part, gunzipSync(readFileSync('test/fixtures/gramil_shaft_before.step.gz')));
 const specified = join(dir, 'part.specified.step');
-const second = join(dir, 'part.specified-2.step');
+// The files the saves write, in order: nothing answered, the defaults taken, one answer given.
+const withDefaults = join(dir, 'part.specified-2.step');
+const second = join(dir, 'part.specified-3.step');
 
 /** `specify-core open` on ``file``: its address once it prints it, and a way to stop it. */
 async function open(file, ...flags) {
@@ -79,18 +82,22 @@ try {
     await check(page.locator('.app-brand')).toHaveText('Specify');
     await check(page.getByText('Draftwright')).toHaveCount(0);
     await check(page.locator('.app-target')).toHaveText(specified);
-    // Save before the material, which is required, is refused: nothing written, and the person is
-    // offered the defaults rather than given them.
+    // Save with the material, which is required, still open is not refused: it writes what is answered
+    // (nothing, here), and says what is still open. Many STEP files have no complete answer to everything.
     await page.getByRole('button', { name: 'Save', exact: true }).click();
-    await check(page.getByRole('alert')).toContainText('part.material');
-    assert.ok(!existsSync(specified), 'nothing is written while a required question is open');
-    if (shots) await page.screenshot({ path: join(shots, 'save-refused.png') });
-    // The person chooses the defaults: Save writes beside the file and says where.
-    await page.getByRole('button', { name: 'Save with defaults' }).click();
     await check(page.locator('.app-saved')).toContainText(specified);
+    await check(page.locator('.app-saved')).toContainText('still open');
+    await check(page.locator('.app-saved')).toContainText('part.material');
     await check(page.getByRole('alert')).toHaveCount(0);
-    assert.ok(existsSync(specified), 'part.specified.step written');
-    assert.match(server.output(), /Saved .*part\.specified\.step/);
+    assert.ok(existsSync(specified), 'part.specified.step written with a required question open');
+    assert.deepEqual(analyse(specified).resume?.answers ?? {}, {}, 'a plain Save with nothing answered stores no answers');
+    if (shots) await page.screenshot({ path: join(shots, 'save-partial.png') });
+    // The person chooses the defaults, which is its own button, always there: Save writes beside the file and says where.
+    await page.getByRole('button', { name: 'Save with defaults' }).click();
+    await check(page.locator('.app-saved')).toContainText(withDefaults);
+    await check(page.getByRole('alert')).toHaveCount(0);
+    assert.ok(existsSync(withDefaults), 'the defaults save written');
+    assert.match(server.output(), /Saved .*part\.specified-2\.step/);
     // The next save takes the next free name, and the header says so.
     await check(page.locator('.app-target')).toHaveText(second);
     // An answer: the material. Unsaved until Save.
@@ -111,6 +118,7 @@ try {
     // A plain Save writes the answers given, and assumes no defaults.
     await page.getByRole('button', { name: 'Save', exact: true }).click();
     await check(page.locator('.app-saved')).toContainText(second);
+    await check(page.locator('.app-saved')).toContainText('still open');
     await check(page.locator('.app-dirty')).toHaveCount(0);
     assert.deepEqual(analyse(second).resume?.answers, { 'part.material': 'Aluminium 6082-T6' }, 'Save stores only the answers given');
     onlyLocal(requests, server.origin);
@@ -122,7 +130,7 @@ try {
   }
   // The PMI Specify wrote reads back.
   {
-    const analysis = analyse(specified);
+    const analysis = analyse(withDefaults);
     assert.ok(!('part.material' in (analysis.resume?.answers ?? {})), 'the defaults save had no material');
     assert.equal(analysis.resume?.answers?.['part.general_tolerance'], 'ISO 2768-m', 'the defaults taken are stored in the file');
     const kinds = new Set((analysis.characteristics ?? []).map(c => c.kind));
@@ -132,7 +140,7 @@ try {
   {
     const server = await open(second);
     const { context, page, requests } = await load(server);
-    await check(page).toHaveTitle('part.specified-2.step — Specify');
+    await check(page).toHaveTitle('part.specified-3.step — Specify');
     await check(page.locator('.pmi-lab-resumed')).toBeVisible();
     await check(page.locator('.pmi-lab-panel')).toContainText('6082');
     await check(page.locator('.app-dirty')).toHaveCount(0);
@@ -144,9 +152,20 @@ try {
     await context.close();
     server.stop();
   }
+  // The partial save reopens with what was answered, and the questions left open are still open.
+  {
+    const server = await open(specified);
+    const { context, page, requests } = await load(server);
+    await check(page).toHaveTitle('part.specified.step — Specify');
+    await check(material(page)).toHaveClass(/required/);
+    await check(page.locator('.pmi-lab-panel')).toContainText('required');
+    onlyLocal(requests, server.origin);
+    await context.close();
+    server.stop();
+  }
   // Read only: a viewer, no Save, and the command refuses one.
   {
-    const server = await open(specified, '--read-only');
+    const server = await open(withDefaults, '--read-only');
     const { context, page, requests } = await load(server);
     await check(page.locator('.pmi-lab-panel')).toContainText('PMI (view only)');
     await check(page.getByRole('button', { name: 'Save', exact: true })).toHaveCount(0);
@@ -154,7 +173,7 @@ try {
     await check(page.getByRole('button', { name: 'Inspection list (CSV)' })).toBeEnabled();
     if (shots) await page.screenshot({ path: join(shots, 'read-only.png') });
     // The command refuses a save as the page would send it (its Origin, a STEP body).
-    const refused = await fetch(`${server.url}save`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream', Origin: server.origin }, body: readFileSync(specified) });
+    const refused = await fetch(`${server.url}save`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream', Origin: server.origin }, body: readFileSync(withDefaults) });
     assert.equal(refused.status, 409, 'a save is refused when read-only');
     onlyLocal(requests, server.origin);
     await context.close();

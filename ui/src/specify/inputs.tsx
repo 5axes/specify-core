@@ -357,25 +357,21 @@ export function SuggestionCard({ c, onKeep, onPick, onMore }: {
   return (
     <div className={`pmi-lab-suggestion${c.check ? ' check' : ''}`}>
       <div className="field">{c.field}{c.check && <em> · please check</em>}</div>
+      {/* Not an answer until it is kept: no tick, and a Keep that makes it one. */}
+      <div className="suggested" data-suggestion={c.id}>
+        <span>Suggested: <b>{c.what.split(': ').slice(1).join(': ') || c.options[0]?.label || c.what}</b></span>
+        <button type="button" className="keep" title="Keep this suggestion as the answer" onClick={onKeep}>Keep</button>
+      </div>
       <div className="btns">
         {c.options.length ? (
           <>
-            {c.options.map((o, i) => (
-              <button
-                key={o.value} type="button" className={i === 0 ? 'ok' : ''}
-                title={i === 0 ? 'Keep this' : `Choose ${o.label} instead`}
-                onClick={() => (i === 0 ? onKeep() : onPick(o.value))}
-              >
-                {i === 0 ? `✓ ${o.label}` : o.label}
-              </button>
+            {c.options.slice(1).map((o) => (
+              <button key={o.value} type="button" title={`Choose ${o.label} instead`} onClick={() => onPick(o.value)}>{o.label}</button>
             ))}
             {c.more && <button type="button" className="more" onClick={onMore}>More…</button>}
           </>
         ) : (
-          <>
-            <button type="button" className="ok" onClick={onKeep}>✓ {c.what.split(': ').slice(1).join(': ') || 'Keep'}</button>
-            <button type="button" className="more" onClick={onMore}>Pick on the part…</button>
-          </>
+          <button type="button" className="more" onClick={onMore}>Pick on the part…</button>
         )}
       </div>
       {c.why && <div className="why">{c.why}</div>}

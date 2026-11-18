@@ -1,7 +1,8 @@
 // Save, behind one small interface: today the page writes the STEP with its engine and POSTs the
 // bytes (contract of specify-core 0.1.18+ #198); next, the command writes it from the session's
-// answers (`POST save {rev, acceptDefaults}` → 200 / 409 stale rev / 422 missing). Only this file
-// changes when the contract does.
+// answers (`POST save {rev, acceptDefaults}` → 200 / 409 stale rev). Only this file changes when the
+// contract does. Save never refuses for open questions: many AP242 files have no complete answer to
+// everything, and a part with incomplete PMI is still worth saving.
 import type { WorkerClient } from '../src/engine/rpc';
 import type { IntentReview } from '../src/types/pmi';
 import { needs } from '../src/specify/review';
@@ -12,10 +13,8 @@ export interface SaveOptions {
   /** Take Specify's default for each question not answered. Only ever the person's explicit choice. */
   acceptDefaults: boolean;
 }
-export type SaveResult =
-  | { ok: true; path: string; bytes: number }
-  /** Required questions are unanswered; ``missing`` lists them when known. Nothing was written. */
-  | { ok: false; missing: string[]; message: string };
+/** What was written, and the questions still open in it (none when complete). */
+export interface SaveResult { path: string; bytes: number; open: string[] }
 
 export interface Saver { save(options: SaveOptions): Promise<SaveResult> }
 
@@ -24,16 +23,15 @@ export function engineSaver(worker: WorkerClient, file: { name: string; bytes: U
   return {
     async save({ acceptDefaults }) {
       const answers = store.get();
-      if (!acceptDefaults) {
-        // The engine's writePmi does not refuse a required question left open (it writes the part
-        // without it), so the page checks first, as the command's 422 will.
-        const { questions } = await worker.request<IntentReview>('review', { ...file, answers });
-        const missing = questions.filter((q) => needs(q, answers) === 'required').map((q) => q.id);
-        if (missing.length) return { ok: false, missing, message: 'required questions are unanswered' };
-      }
       const document = await worker.request<{ bytes: Uint8Array }>('write', { ...file, answers, acceptDefaults });
       const written = await postStep(document.bytes);
-      return { ok: true, ...written };
+      // What is open in the file as written: unanswered questions a person still has to answer or
+      // check; with the defaults taken, only the required ones that have no default.
+      const { questions } = await worker.request<IntentReview>('review', { ...file, answers });
+      const open = questions
+        .filter((q) => (acceptDefaults ? needs(q, answers) === 'required' : needs(q, answers) !== null))
+        .map((q) => q.id);
+      return { ...written, open };
     },
   };
 }
