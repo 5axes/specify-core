@@ -149,3 +149,23 @@ export_step(plate(60), "plate_side_pushed.old.step"); export_step(plate(65), "pl
 0.11.0, run with an output directory): a 120 × 120 × 10 base with a Ø65 boss whose top edge has
 an R3 fillet, shortened from 13 to 8 mm high with the same fillet. Up to quiddity 0.5.2 the
 shorter boss dropped its fillet and cap from its height (13 → 5); 0.5.3 measures both (13 → 8).
+
+`symmetric_tie` and `pair_after_removal` (with their `.answers.json`) are the maintainer's
+synthetic step-flow scenarios `symmetric` and `remove` (build123d plates, gzipped with no name
+or mtime). `symmetric_tie`: a 100 × 60 × 10 plate with Ø6 holes at (30, 30), datum B and H7,
+and (70, 30), which moves to (75, 30); the old plate fits the new one turned 180° about Z as
+well as it lies. `pair_after_removal`: the Ø8 hole at (80, 15) is removed, so the Ø5 pair's
+faces 8, 9 become 7, 8.
+
+`enclosure_pmi` is text-to-cad's electronics enclosure base (MIT; source, commit and licence in
+`LICENSE-enclosure`), each revision written with
+Specify PMI (the old file carries its answers and number history): rev2 opens the four
+mounting holes from Ø3 to Ø3.4 and adds a Ø8 cable entry in the +X wall. The new file was
+written without the old file's number history, so its flatness and finish are numbered #25 and
+#26 where the old file had #22 and #23.
+
+`hole_nudged`, `pocket_moved` and `slot_slid` are made by `small_moves.py` (build123d 0.11.0):
+a plate with two unequal anchor holes and one feature moved, a Ø5 hole by 0.1 mm, a pocket by
+3 mm and a through slot by 4 mm, all in X. The pocket and slot pairs leave too few anchors for an
+alignment, so their moves are found in the parts' own frames. `pocket_pin` (the same script) cuts a
+Ø0.5 hole through the pocket's floor: the pocket's faces stay, so it has not moved.

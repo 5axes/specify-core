@@ -961,6 +961,15 @@ fn gramil_end_chamfer_does_not_swap_fresh_dimensions() {
         report.pmi.items
     );
     assert_eq!(report.pmi.items.len(), 2, "{:?}", report.pmi.items);
+    // Renumbering alone is said in the summary, not counted as a change.
+    assert!(
+        report
+            .summary
+            .contains("2 characteristic numbers changed (requirements unchanged)")
+            && !report.summary.contains("to the PMI"),
+        "{}",
+        report.summary
+    );
     assert!(
         report
             .pmi

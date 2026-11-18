@@ -119,6 +119,7 @@ export interface InitOutput {
 
 export interface PmiItemChange {
   class: "added" | "removed" | "changed" | "renumbered";
+  detail?: string;
   faces: { old: { face: number }[]; new: { face: number }[] };
   id: string;
   kind: string;
