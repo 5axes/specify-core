@@ -42,17 +42,22 @@ choosing view directions, so the host needs no ray-casting API beyond reporting 
 ## Identity: parts and faces
 
 - A **part** is Specify's part index (`engine.parts()`), the same in every call.
-- A **face** is an index into that part's faces in Specify's numbering: OpenCascade's `TopExp::MapShapes`
-  order on the part's own solid. haecceity (Specify's reader) follows that order and is tested face by face
-  against OpenCascade (specify-core `docs/design.md`).
-- A host whose kernel numbers faces the same way (OCCT's face map of the part, per part, not across an
-  assembly) uses these indices directly.
-- Otherwise the host maps by **STEP entity**: for each face, Specify gives the `#N` of the `ADVANCED_FACE` it
-  was read from (`snapshot().provenance.face_entities`). The adapter declares which it uses:
-  `faceIds: 'mapshapes' | 'step-entity'`.
+- A **face** is a **zero-based** index into that part's faces in Specify's numbering: OpenCascade's
+  `TopExp::MapShapes` order on the part's own solid. haecceity (Specify's reader) follows that order and is
+  tested face by face against OpenCascade (specify-core `docs/design.md`). OCCT's map is one-based, so the
+  host's `MapShapes` index *n* is Specify's face *n − 1*; the adapter subtracts 1.
+- text-to-cad numbers each part's faces with `MapShapes` on the part's own shape, assembly placement removed,
+  per part, reading the STEP straight into OCCT. That is the same order, so it matches by number.
+- The orders can still differ on unusual files: on one corpus file OCCT's STEP transfer reorders a shell's
+  faces while Specify keeps the file's order (specify-core `docs/questions.md` Q13). The check on load below
+  catches that.
+- Fallback, by **STEP entity**: for each face, Specify gives the `#N` of the `ADVANCED_FACE` it was read from
+  (`snapshot().provenance.face_entities`, already in the WASM engine). The adapter declares which it uses:
+  `faceIds: 'mapshapes' | 'step-entity'`, and the package sends the entity list with each part either way.
 - **Check on load:** the package sends, for a sample of faces, the face's kind, area and centroid. The host
   answers whether its face with that id matches (within 1e-6 of the part's diagonal). On a mismatch the package
-  says so and falls back to giving the host meshes (below), rather than highlighting the wrong faces.
+  switches to STEP-entity matching if the host supports it, else gives the host meshes (below), rather than
+  highlighting the wrong faces.
 
 ## Frames and units
 
@@ -157,10 +162,10 @@ Optional members the package uses when present: `roll(quarters)`, `dolly(factor)
 
 ## Open questions
 
-1. text-to-cad's face numbering: `MapShapes` per part, or another order (decides `faceIds`).
-2. Assemblies: does the host's view show one part at a time, or the assembly with instances placed? The
-   interface addresses faces by part, so an assembly view needs the instance in `FaceRef` (add
-   `instance?: number`).
+1. ~~text-to-cad's face numbering~~: answered 2026-11-18, `MapShapes` per part on the part's own shape,
+   one-based (see Identity).
+2. Assemblies: does the host's view show one part at a time, or the assembly with instances placed? An assembly
+   view needs the instance in `FaceRef` (add `instance?: number`); faces stay numbered per part.
 3. Whether the host should also draw the package's labels itself (no overlay layer). Not proposed: it would move
    the PMI drawing rules into every host.
 4. Versioning: the message tag `host-view/1`; additions are optional members, so old adapters keep working.
