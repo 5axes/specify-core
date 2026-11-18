@@ -115,16 +115,25 @@ The page sends no STEP bytes.
 `POST <token>/save` with a JSON body:
 
 ```json
-{"rev": 7, "acceptDefaults": false}
+{"rev": 7, "acceptDefaults": ["part.general_tolerance"]}
 ```
 
 - `rev`: the session revision the page last saw (from `answers` or `events`). If the session
   has moved on since, the save is refused (409, with the current `rev`) so the page never
   saves answers it has not shown; the page refreshes and the person saves again.
-- `acceptDefaults` (required, `true` or `false`; 400 when absent): `true` fills each open
-  question that has a default with it, as `write --accept-defaults` does; `false` writes only
-  what is answered. The page sends `true` only when the person chose it (e.g. "Save with
-  defaults"), never by default; the same holds for the agent's `save`.
+- `acceptDefaults` (required; 400 when absent or not a list of strings): the question ids of
+  exactly the defaults the person approved, `[]` for none. A default is written only when the
+  person approves it, per id (ADR P9: "we shouldn't create the default, which then becomes
+  gospel"). Each id must be an open question that has a default at `rev` (or one an earlier id
+  in the list asks); otherwise `400 {"error": "…", "question": "<id>"}` naming it, and nothing
+  is changed or written. The command first sets those answers to their defaults in the session:
+  a new `rev`, and an `answers` event that also carries `"defaults": [ids]`, with `source` as
+  for the save (`"page"`, or `"mcp"` for the agent's `save`). Then it writes from that rev: the
+  approved defaults are ordinary answers, so the file stores them and reopening resumes them
+  with its PMI. Questions with a default that are not listed stay open and are never written.
+  The 200 reply's `rev` is that new rev (the one asked for when nothing is listed).
+  (Contract change, 2026-11-18: `acceptDefaults` was `true` or `false`, `true` filling every
+  open default; it is now the list of approved question ids, and a bool gets 400.)
 
 **An incomplete save is written** (Paul, 2026-11-18: "The user might want to save something
 with incomplete PMI. What's wrong with that? Lots of step files with ap242 don't have a complete
@@ -213,6 +222,8 @@ id: 8
 data: {"rev": 8, "part": 0, "answers": {…}, "source": "page"}
 ```
 
+(A change a `save` makes by approving defaults adds `"defaults": ["<id>", …]`.)
+
 `source` is `"page"` (a `PUT answers`), `"mcp"` (the agent's tools, docs/session.md) or
 `"start"` (the first event).
 Every open page receives every change, its own included (it can skip a `rev` it already has).
@@ -242,11 +253,16 @@ The session needs them before any page or MCP client asks, and the command's com
 the one `specify-core diff` and MCP's `diff` give, so the page, the AI and a CI run cannot
 disagree. The page does not compare the parts again.
 
-`GET <token>/diff` → exactly what WASM `diff()` returns for the two files (docs/wasm.md, the
-`diff(...)` row), computed natively by the same code when the session starts: for a part
-`{report, markdown, view}`, `report` being `diff`'s `report.json` (docs/diff.md), `markdown`
-the report headed with `NEW`'s name, and `view` the new and old meshes, the `faces` classes,
-`gone`, `motion` and `changes`; for an assembly `{report, markdown, parts}`. The page's StepDiff
+`GET <token>/diff` → exactly what WASM `diff()` returns for the two files with `scenes` true
+(docs/wasm.md, the `diff(...)` row), computed natively by the same code when the session
+starts: for a part `{report, markdown, view}`, `report` being `diff --pmi-scenes`'s
+`report.json` (docs/diff.md), `markdown` the report headed with `NEW`'s name, and `view` the
+new and old meshes, the `faces` classes, `gone`, `motion` and `changes`; for an assembly
+`{report, markdown, parts}`, each part `{name, status, old, new}` with its `report` when it is
+in both files and, when it changed, its `markdown` and `view`. The PMI scenes are
+`report.pmi.scenes`, `{old, new}`, each a `PmiScene` (docs/wasm.md, "PMI scenes"); in an
+assembly, each compared part's `parts[i].report.pmi.scenes`. (Contract addition, 2026-11-18:
+`GET diff` includes the PMI scenes, as `diff()` with `scenes` true.) The page's StepDiff
 draws from it without comparing again. (Contract change, 2026-11-18: `GET diff` was
 report.json; it is now `{report, markdown, view}` (assembly `{report, markdown, parts}`), as
 WASM `diff()`.) The session then starts from `diff`'s `answers.json`. Questions the report leaves to decide are

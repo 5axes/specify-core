@@ -119,6 +119,8 @@ pub enum SaveError {
     Stale(u64),
     /// The save would write outside the allowed directories.
     Outside(String),
+    /// A default approved that is not an open question with a default (`question`).
+    Question { message: String, question: String },
     /// An in-place save over a file changed on disk since it was opened (by anyone but this
     /// session).
     Changed(String),
@@ -132,6 +134,7 @@ impl std::fmt::Display for SaveError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             SaveError::Stale(rev) => write!(f, "the answers have moved on to rev {rev}"),
+            SaveError::Question { message, .. } => f.write_str(message),
             SaveError::Changed(m)
             | SaveError::Outside(m)
             | SaveError::Refused(m)
@@ -259,7 +262,9 @@ impl Session {
             &session.step,
             part,
             given,
-            crate::revision::DiffOptions::default(),
+            // With the PMI scenes, as WASM `diff(..., scenes: true)`: the page draws PMI
+            // changes from them without comparing again.
+            crate::revision::DiffOptions { scenes: true },
         )?;
         session.compared = Some(compared.diff_json(&session.file.name));
         session.answers = compared.answers_by_part();
@@ -275,9 +280,12 @@ impl Session {
         self.old.as_ref()
     }
 
-    /// `diff` mode: the revision report (`diff`'s report.json).
-    pub fn report(&self) -> Option<&Value> {
-        self.compared.as_ref().map(|c| &c["report"])
+    /// `diff` mode: the revision report, as `diff`'s report.json (without the PMI scenes the
+    /// page's `GET diff` carries).
+    pub fn report(&self) -> Option<Value> {
+        self.compared
+            .as_ref()
+            .map(|c| without_scenes(c["report"].clone()))
     }
 
     /// `diff` mode: the comparison for the page's `GET diff`, as WASM `diff()` gives it.
@@ -368,6 +376,17 @@ impl Session {
         answers: Map<String, Value>,
         source: &'static str,
     ) -> Option<u64> {
+        self.change(part, answers, source, None)
+    }
+
+    /// [`Session::set`], the event also naming the `defaults` the person approved (a save's).
+    fn change(
+        &mut self,
+        part: usize,
+        answers: Map<String, Value>,
+        source: &'static str,
+        defaults: Option<&[String]>,
+    ) -> Option<u64> {
         let before = self.answers.get(&part);
         if before == Some(&answers) || (before.is_none() && answers.is_empty()) {
             if before.is_none() {
@@ -401,7 +420,10 @@ impl Session {
                 self.dropped = gone.rev;
             }
         }
-        let data = json!({"rev": rev, "part": part, "answers": answers, "source": source});
+        let mut data = json!({"rev": rev, "part": part, "answers": answers, "source": source});
+        if let Some(ids) = defaults {
+            data["defaults"] = json!(ids);
+        }
         self.answers.insert(part, answers);
         self.publish(&event("answers", Some(rev), &data));
         Some(rev)
@@ -514,16 +536,16 @@ fn analyse(step: &part::File, part: usize) -> Result<Value, Error> {
 }
 
 /// Writes the session's answers at `rev` (docs/open.md, `save`; None: the current rev), from
-/// the file as opened, with `write`'s writer; `accept_defaults` fills each open question that
-/// has a default, as `write --accept-defaults` does. Open questions never refuse it: what is
+/// the file as opened, with `write`'s writer, after the defaults `approved` (question ids the
+/// person approved, ADR P9) have become answers at a new rev. Open questions never refuse it: what is
 /// answered is written and `missing` says what is still open. The answers are taken under the
 /// session's lock and written without it (one save at a time), so the file holds exactly the
 /// answers of `rev`. Every subscriber gets a `saved` event.
 pub fn save(
     shared: &Shared,
     rev: Option<u64>,
-    accept_defaults: bool,
-    source: &str,
+    approved: &[String],
+    source: &'static str,
 ) -> Result<Saved, SaveError> {
     let refused = |e: Error| match e {
         Error::Rules(rules::Error::Invalid(m)) | Error::Write(WriteError::Invalid(m)) => {
@@ -534,8 +556,20 @@ pub fn save(
     };
     let save_lock = Arc::clone(&lock(shared).save_lock);
     let _one_at_a_time = save_lock.lock().unwrap_or_else(|p| p.into_inner());
-    let (rev, parts, answers, step, file, in_place, gz, mut backup) = {
+    // The parts' analyses, made without the session's lock.
+    let parts = {
         let s = lock(shared);
+        if rev.is_some_and(|r| r != s.rev) {
+            return Err(SaveError::Stale(s.rev));
+        }
+        s.parts_to_write()
+    };
+    let mut analyses = BTreeMap::new();
+    for &k in &parts {
+        analyses.insert(k, analysis(shared, k).map_err(refused)?);
+    }
+    let (rev, answers, step, file, in_place, gz, mut backup) = {
+        let mut s = lock(shared);
         if rev.is_some_and(|r| r != s.rev) {
             return Err(SaveError::Stale(s.rev));
         }
@@ -551,9 +585,13 @@ pub fn save(
                 )));
             }
         }
+        // The defaults the person approved become answers (ADR P9: a default is written only
+        // when approved): a new rev, whose answers the save writes.
+        for (k, (answers, ids)) in approve(&s, &analyses, approved)? {
+            s.change(k, answers, source, Some(&ids));
+        }
         (
             s.rev,
-            s.parts_to_write(),
             s.answers.clone(),
             Arc::clone(&s.step),
             s.file.clone(),
@@ -567,10 +605,10 @@ pub fn save(
     let mut missing = Vec::new();
     let empty = Map::new();
     for &k in &parts {
-        let analysis = analysis(shared, k).map_err(refused)?;
+        let analysis = &analyses[&k];
         let given = answers.get(&k).unwrap_or(&empty);
         let part = step.load(Some(k)).map_err(|e| refused(e.into()))?;
-        let (intent, open) = intent_for(&part, &analysis, given, accept_defaults).map_err(|e| {
+        let (intent, open) = intent_for(&part, analysis, given).map_err(|e| {
             match (refused(e), parts.len() > 1) {
                 (SaveError::Refused(m), true) => SaveError::Refused(format!("part {k}: {m}")),
                 (e, _) => e,
@@ -714,28 +752,85 @@ fn intent_for(
     loaded: &part::LoadedPart,
     analysis: &Value,
     answers: &Map<String, Value>,
-    accept_defaults: bool,
 ) -> Result<(Intent, Vec<String>), Error> {
     if answers.contains_key(crate::answer_file::META) {
         crate::answer_file::check(loaded, answers)
             .map_err(|why| Error::Rules(rules::Error::Invalid(why)))?;
     }
-    match api::apply(analysis, answers, accept_defaults) {
+    match api::apply(analysis, answers, false) {
         Ok(intent) => Ok((intent, Vec::new())),
         Err(Error::Rules(rules::Error::Incomplete(e))) => {
-            let given = if accept_defaults {
-                rules::with_all_defaults(analysis, answers)?
-            } else {
-                answers.clone()
-            };
-            let mut intent = api::preview(analysis, &given)?;
+            let mut intent = api::preview(analysis, answers)?;
             intent
                 .requirements
-                .extend(rules::unasked_rows(analysis, &given)?);
+                .extend(rules::unasked_rows(analysis, answers)?);
             Ok((intent, e.missing))
         }
         Err(e) => Err(e),
     }
+}
+
+/// Each part's answers with the approved defaults taken, and the ids taken in it.
+type Approvals = BTreeMap<usize, (Map<String, Value>, Vec<String>)>;
+
+/// The answers each part takes when the defaults `approved` are accepted, in order (an id may
+/// be one an earlier approval asks), with the ids it took; refused, naming the id, unless each
+/// is an open question with a default in some part written.
+
+fn approve(
+    s: &Session,
+    analyses: &BTreeMap<usize, Arc<Value>>,
+    approved: &[String],
+) -> Result<Approvals, SaveError> {
+    let mut out = Approvals::new();
+    for id in approved {
+        let mut found = false;
+        for (&k, analysis) in analyses {
+            let (answers, ids) = out
+                .entry(k)
+                .or_insert_with(|| (s.answers.get(&k).cloned().unwrap_or_default(), Vec::new()));
+            let qs =
+                api::questions(analysis, answers).map_err(|e| SaveError::Refused(e.to_string()))?;
+            let default = rules::open_questions(&qs, answers)
+                .into_iter()
+                .find(|q| q.id == *id)
+                .and_then(|q| q.default.clone());
+            if let Some(default) = default {
+                answers.insert(id.clone(), default);
+                ids.push(id.clone());
+                found = true;
+            }
+        }
+        if !found {
+            return Err(SaveError::Question {
+                message: format!(
+                    "{id} is not an open question with a default: approve only the defaults \
+                     offered"
+                ),
+                question: id.clone(),
+            });
+        }
+    }
+    out.retain(|_, (_, ids)| !ids.is_empty());
+    Ok(out)
+}
+
+/// A report without its PMI scenes (`report.pmi.scenes`, and each part's in an assembly).
+fn without_scenes(mut value: Value) -> Value {
+    fn strip(v: &mut Value) {
+        match v {
+            Value::Object(map) => {
+                if let Some(Value::Object(pmi)) = map.get_mut("pmi") {
+                    pmi.remove("scenes");
+                }
+                map.values_mut().for_each(strip);
+            }
+            Value::Array(items) => items.iter_mut().for_each(strip),
+            _ => {}
+        }
+    }
+    strip(&mut value);
+    value
 }
 
 /// A server-sent event.

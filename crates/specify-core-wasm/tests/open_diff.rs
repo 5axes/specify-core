@@ -65,14 +65,30 @@ fn same_as_the_browser(case: &str, old_name: &str, new_name: &str) {
     });
     let (status, served_diff) = get(&url, "diff");
     assert_eq!(status, 200);
-    let browser = session::diff(
+    let browser = session::diff_with_options(
         ("old.step", &old),
         ("new.step", &new),
         &Map::new(),
         "new.step",
+        specify_core::revision::DiffOptions { scenes: true },
     )
     .unwrap();
     assert_eq!(served_diff, browser, "{case}");
+    // With the PMI scenes, a part's at report.pmi.scenes and each compared part's in an assembly.
+    let scenes = match served_diff.get("view") {
+        Some(_) => vec![&served_diff["report"]["pmi"]["scenes"]],
+        None => served_diff["parts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|p| p.get("report").is_some())
+            .map(|p| &p["report"]["pmi"]["scenes"])
+            .collect(),
+    };
+    assert!(!scenes.is_empty(), "{case}");
+    for s in scenes {
+        assert!(s["old"].is_object() && s["new"].is_object(), "{case}: {s}");
+    }
     served.join().unwrap();
     let _ = std::fs::remove_dir_all(&dir);
 }

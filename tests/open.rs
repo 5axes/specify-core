@@ -190,8 +190,8 @@ impl Opened {
     }
 
     /// A save from the app's own page.
-    fn save(&self, rev: u64, accept_defaults: bool) -> Response {
-        self.page().save(rev, accept_defaults)
+    fn save(&self, rev: u64, approved: &[&str]) -> Response {
+        self.page().save(rev, approved)
     }
 
     /// The next line on stdout.
@@ -282,11 +282,11 @@ impl Page {
         )
     }
 
-    fn save(&self, rev: u64, accept_defaults: bool) -> Response {
+    fn save(&self, rev: u64, approved: &[&str]) -> Response {
         self.send(
             "POST",
             "save",
-            &json!({"rev": rev, "acceptDefaults": accept_defaults}),
+            &json!({"rev": rev, "acceptDefaults": approved}),
         )
     }
 
@@ -577,6 +577,31 @@ fn occurrences(path: &Path, needle: &str) -> usize {
 
 fn is_step(path: &Path) -> bool {
     std::fs::read(path).unwrap().starts_with(b"ISO-10303-21;")
+}
+
+/// The defaults to approve, in order, for every required question that has one: each round's
+/// open questions with a default, until none is left (taking one can ask another).
+fn all_defaults(analysis: &Value, answers: &Map<String, Value>) -> Vec<String> {
+    let mut merged = answers.clone();
+    let mut ids = Vec::new();
+    loop {
+        let qs = specify_core::api::questions(analysis, &merged).unwrap();
+        let round: Vec<(String, Value)> = specify_core::rules::open_questions(&qs, &merged)
+            .iter()
+            .filter_map(|q| q.default.clone().map(|d| (q.id.clone(), d)))
+            .collect();
+        if round.is_empty() {
+            return ids;
+        }
+        for (id, default) in round {
+            merged.insert(id.clone(), default);
+            ids.push(id);
+        }
+    }
+}
+
+fn refs(ids: &[String]) -> Vec<&str> {
+    ids.iter().map(String::as_str).collect()
 }
 
 /// A write report without where it was written.
@@ -876,7 +901,7 @@ fn saves_take_the_next_free_name_and_never_overwrite() {
     let mut opened = Opened::start(&scratch.input(), &scratch, &[]);
     let work = |n: &str| scratch.path("work").join(n);
 
-    let first = opened.save(0, false);
+    let first = opened.save(0, &[]);
     assert_eq!(
         first.status,
         200,
@@ -909,7 +934,7 @@ fn saves_take_the_next_free_name_and_never_overwrite() {
         work("part.specified-2.step").display().to_string()
     );
 
-    let second = opened.save(0, false);
+    let second = opened.save(0, &[]);
     assert_eq!(second.status, 200);
     assert_eq!(
         second.json()["path"],
@@ -917,7 +942,7 @@ fn saves_take_the_next_free_name_and_never_overwrite() {
     );
     // A file already at the next name is left alone.
     std::fs::write(work("part.specified-3.step"), b"mine").unwrap();
-    let third = opened.save(0, false);
+    let third = opened.save(0, &[]);
     assert_eq!(third.status, 200);
     assert_eq!(
         third.json()["path"],
@@ -951,7 +976,7 @@ fn a_save_from_elsewhere_of_another_type_without_defaults_said_or_too_large_is_r
     let localhost_origin = format!("http://localhost:{}", opened.port);
     let target = page.path("save");
     let json_type = ("Content-Type", "application/json");
-    let body = br#"{"rev": 0, "acceptDefaults": false}"#.to_vec();
+    let body = br#"{"rev": 0, "acceptDefaults": []}"#.to_vec();
     let over = (64 * 1024 + 1).to_string();
     let cases: Vec<RefusedSave> = vec![
         (
@@ -1022,7 +1047,13 @@ fn a_save_from_elsewhere_of_another_type_without_defaults_said_or_too_large_is_r
             400,
         ),
         (
-            "acceptDefaults not true or false",
+            "acceptDefaults a bool, as before",
+            vec![("Host", &host), ("Origin", &origin), json_type],
+            br#"{"rev": 0, "acceptDefaults": true}"#.to_vec(),
+            400,
+        ),
+        (
+            "acceptDefaults not a list",
             vec![("Host", &host), ("Origin", &origin), json_type],
             br#"{"rev": 0, "acceptDefaults": "yes"}"#.to_vec(),
             400,
@@ -1030,7 +1061,7 @@ fn a_save_from_elsewhere_of_another_type_without_defaults_said_or_too_large_is_r
         (
             "rev absent",
             vec![("Host", &host), ("Origin", &origin), json_type],
-            br#"{"acceptDefaults": false}"#.to_vec(),
+            br#"{"acceptDefaults": []}"#.to_vec(),
             400,
         ),
         (
@@ -1050,12 +1081,18 @@ fn a_save_from_elsewhere_of_another_type_without_defaults_said_or_too_large_is_r
         assert_eq!(got.status, status, "{what}");
         assert!(got.json()["error"].is_string(), "{what}");
     }
+    // An id that is not an open question with a default is named, and nothing is written.
+    let unknown = page.save(0, &["no.such.question"]);
+    assert_eq!(unknown.status, 400);
+    assert_eq!(unknown.json()["question"], "no.such.question");
+    assert!(unknown.json()["error"].is_string());
+    assert_eq!(page.answers()["rev"], 0, "nothing approved");
     // A rev the session has moved on from.
     assert_eq!(
         page.put(0, 0, json!({"part.material": "6061-T6"})).status,
         200
     );
-    let stale = page.save(0, false);
+    let stale = page.save(0, &[]);
     assert_eq!(stale.status, 409);
     assert_eq!(stale.json()["rev"], 1);
     assert!(stale.json()["error"].is_string());
@@ -1072,7 +1109,7 @@ fn read_only_refuses_saves_and_answer_changes_and_writes_nothing() {
     assert_eq!(config["mode"], "read-only");
     assert_eq!(config["readOnly"], true);
     assert_eq!(config["saveTarget"], Value::Null);
-    let got = opened.save(0, false);
+    let got = opened.save(0, &[]);
     assert_eq!(got.status, 409);
     assert!(got.json()["error"].is_string());
     let put = opened.page().put(0, 0, json!({"part.material": "6061-T6"}));
@@ -1173,7 +1210,7 @@ fn an_incomplete_save_is_written_and_resumes_with_the_same_questions_open() {
     assert_eq!(page.put(0, 0, answers.clone()).status, 200);
     let mut events = page.events();
     events.next();
-    let saved = page.save(1, false);
+    let saved = page.save(1, &[]);
     assert_eq!(
         saved.status,
         200,
@@ -1207,8 +1244,9 @@ fn an_incomplete_save_is_written_and_resumes_with_the_same_questions_open() {
     let resumed = analysis_of(&written);
     assert_eq!(open_ids(&resumed, &answers), missing);
 
-    // With the defaults chosen, it is complete.
-    let defaults = reopened.save(0, true);
+    // With every default approved, it is complete.
+    let ids = all_defaults(&resumed, &answers);
+    let defaults = reopened.save(0, &refs(&ids));
     assert_eq!(defaults.status, 200);
     assert_eq!(defaults.json()["complete"], true);
     assert_eq!(defaults.json()["missing"], json!([]));
@@ -1220,12 +1258,24 @@ fn a_complete_save_writes_what_write_writes() {
     let scratch = Scratch::new("as-write");
     let opened = Opened::start(&scratch.input(), &scratch, &[]);
     let page = opened.page();
-    let answers = json!({"part.material": "6082-T6"});
-    assert_eq!(page.put(0, 0, answers.clone()).status, 200);
-    let saved = page.save(1, true);
+    let given = json!({"part.material": "6082-T6"});
+    assert_eq!(page.put(0, 0, given.clone()).status, 200);
+    // Every default approved: they become answers, and the file stores them.
+    let given = given.as_object().unwrap().clone();
+    let input_analysis = analysis_of(&scratch.input());
+    let ids = all_defaults(&input_analysis, &given);
+    let saved = page.save(1, &refs(&ids));
     assert_eq!(saved.status, 200);
     let saved = saved.json();
     assert_eq!(saved["complete"], true);
+    assert_eq!(saved["rev"], 2);
+    let mut answers = given.clone();
+    let qs_answers = page.answers()["parts"]["0"].clone();
+    for id in &ids {
+        answers.insert(id.clone(), qs_answers[id].clone());
+    }
+    assert_eq!(Value::Object(answers.clone()), qs_answers);
+    let answers = Value::Object(answers);
 
     let analysis = scratch.path("analysis.json");
     let answers_file = scratch.path("answers.json");
@@ -1252,7 +1302,6 @@ fn a_complete_save_writes_what_write_writes() {
         answers_file.as_os_str(),
         "-o".as_ref(),
         out.as_os_str(),
-        "--accept-defaults".as_ref(),
     ]))
     .unwrap();
     assert_eq!(
@@ -1294,8 +1343,12 @@ fn in_place_keeps_one_bak_per_run_and_writes_from_the_original() {
         page.put(0, 0, json!({"part.material": "6061-T6"})).status,
         200
     );
-    let got = opened.save(1, true);
+    let given: Map<String, Value> =
+        serde_json::from_value(json!({"part.material": "6061-T6"})).unwrap();
+    let ids = all_defaults(&analysis_of(&scratch.input()), &given);
+    let got = opened.save(1, &refs(&ids));
     assert_eq!(got.status, 200);
+    assert_eq!(got.json()["rev"], 2);
     assert_eq!(got.json()["path"], scratch.input().display().to_string());
     let once = std::fs::read(scratch.input()).unwrap();
     assert!(once.starts_with(b"ISO-10303-21;") && once != input);
@@ -1317,7 +1370,7 @@ fn in_place_keeps_one_bak_per_run_and_writes_from_the_original() {
 
     // A later save replaces the file, from the file as opened (its PMI is not added twice),
     // and makes no other backup: the .bak still holds the original.
-    assert_eq!(opened.save(1, true).status, 200);
+    assert_eq!(opened.save(2, &[]).status, 200);
     assert_eq!(pmi(&scratch.input()), first);
     assert_eq!(
         std::fs::read(scratch.path("work/part.step.bak")).unwrap(),
@@ -1338,9 +1391,9 @@ fn in_place_keeps_one_bak_per_run_and_writes_from_the_original() {
     let mut theirs = std::fs::read(scratch.input()).unwrap();
     theirs.extend_from_slice(b"\n");
     std::fs::write(scratch.input(), &theirs).unwrap();
-    let refused = opened.save(1, true);
+    let refused = opened.save(2, &[]);
     assert_eq!(refused.status, 409);
-    assert_eq!(refused.json()["rev"], 1);
+    assert_eq!(refused.json()["rev"], 2);
     assert_eq!(std::fs::read(scratch.input()).unwrap(), theirs);
     drop(opened);
 
@@ -1352,8 +1405,8 @@ fn in_place_keeps_one_bak_per_run_and_writes_from_the_original() {
         opened.page().answers()["parts"]["0"]["part.material"],
         "6061-T6"
     );
-    assert_eq!(opened.save(0, true).status, 200);
-    assert_eq!(opened.save(0, true).status, 200);
+    assert_eq!(opened.save(0, &[]).status, 200);
+    assert_eq!(opened.save(0, &[]).status, 200);
     assert_eq!(
         std::fs::read(scratch.path("work/part.step.bak")).unwrap(),
         input
@@ -1397,7 +1450,7 @@ fn a_linked_input_saves_beside_the_link_and_shows_the_path_as_given() {
     assert_eq!(opened.config()["name"], "part.step");
     assert_eq!(opened.config()["path"], shown("part.step"));
     assert_eq!(opened.config()["saveTarget"], shown("part.specified.step"));
-    let got = opened.save(0, false);
+    let got = opened.save(0, &[]);
     assert_eq!(got.status, 200);
     assert_eq!(got.json()["path"], shown("part.specified.step"));
     assert!(is_step(&scratch.path("proj/part.specified.step")));
@@ -1411,10 +1464,10 @@ fn a_linked_input_saves_beside_the_link_and_shows_the_path_as_given() {
     // In place: the link's target is replaced, the link kept, the .bak beside the link.
     let opened = Opened::start(&given, &scratch, &["--in-place"]);
     assert_eq!(opened.config()["saveTarget"], shown("part.step"));
-    let got = opened.save(0, false);
+    let got = opened.save(0, &[]);
     assert_eq!(got.status, 200);
     assert_eq!(got.json()["path"], shown("part.step"));
-    assert_eq!(opened.save(0, false).status, 200);
+    assert_eq!(opened.save(0, &[]).status, 200);
     assert!(
         std::fs::symlink_metadata(scratch.path("proj/part.step"))
             .unwrap()
@@ -1445,7 +1498,7 @@ fn stp_and_gzipped_inputs_save_as_plain_specified_step() {
         let opened = Opened::start(input, &scratch, &[]);
         let saved = scratch.path("work").join(saved);
         assert_eq!(opened.config()["saveTarget"], saved.display().to_string());
-        let got = opened.save(0, false);
+        let got = opened.save(0, &[]);
         assert_eq!(got.status, 200);
         assert_eq!(got.json()["path"], saved.display().to_string());
         assert!(is_step(&saved), "uncompressed");
@@ -1472,7 +1525,7 @@ fn in_place_on_a_gzipped_input_writes_it_gzipped() {
     let gz = scratch.path("work/part.step.gz");
     std::fs::copy(fixture(), &gz).unwrap();
     let opened = Opened::start(&gz, &scratch, &["--in-place"]);
-    let saved = opened.save(0, false);
+    let saved = opened.save(0, &[]);
     assert_eq!(saved.status, 200);
     let stored = std::fs::read(&gz).unwrap();
     assert_eq!(saved.json()["bytes"], stored.len());
@@ -1508,6 +1561,7 @@ fn a_diff_serves_both_files_and_starts_from_the_carried_answers() {
         .arg(&dir)
         .arg("--answers")
         .arg(&given)
+        .arg("--pmi-scenes")
         .output()
         .unwrap();
     assert!(run.status.success(), "{run:?}");
@@ -1552,7 +1606,7 @@ fn a_diff_serves_both_files_and_starts_from_the_carried_answers() {
         json!({"rev": 0, "parts": {"0": carried}})
     );
     // Save writes NEW, beside it.
-    let saved = opened.save(0, false);
+    let saved = opened.save(0, &[]);
     assert_eq!(saved.status, 200);
     assert_eq!(
         saved.json()["path"],
@@ -1824,7 +1878,7 @@ fn racing_saves_write_exactly_their_rev() {
         if racing {
             go.send(()).unwrap();
         }
-        let got = page.save(rev, false);
+        let got = page.save(rev, &[]);
         if racing {
             finished.recv().unwrap();
         }
@@ -1844,7 +1898,7 @@ fn racing_saves_write_exactly_their_rev() {
     drop(go);
     by_rev.extend(changes.join().unwrap());
     // One more, certainly stale.
-    assert_eq!(page.save(0, false).status, 409);
+    assert_eq!(page.save(0, &[]).status, 409);
     assert!(saved.len() >= 4, "{stale} stale");
     for (rev, path) in saved {
         assert_eq!(
@@ -1885,4 +1939,76 @@ fn a_stream_too_far_behind_is_dropped_and_the_others_carry_on() {
         serde_json::from_value(json!({"part.material": "7075-T6"})).unwrap();
     shared.lock().unwrap().set(0, answers, "page");
     assert!(reading.try_recv().is_ok(), "the reader carries on");
+}
+
+/// ADR P9: a default is written only when the person approves it, per id. The approved ones
+/// become answers (a new rev, an event naming them), are stored and written as answers are;
+/// the others stay open and are not written.
+#[test]
+fn only_the_approved_defaults_are_written() {
+    let scratch = Scratch::new("approved");
+    let opened = Opened::start(&scratch.input(), &scratch, &[]);
+    let page = opened.page();
+    let given = json!({"part.material": "6061-T6"});
+    assert_eq!(page.put(0, 0, given.clone()).status, 200);
+    let given = given.as_object().unwrap().clone();
+    let analysis = analysis_of(&scratch.input());
+    let qs = specify_core::api::questions(&analysis, &given).unwrap();
+    let offered: Vec<(String, Value)> = specify_core::rules::open_questions(&qs, &given)
+        .iter()
+        .filter_map(|q| q.default.clone().map(|d| (q.id.clone(), d)))
+        .collect();
+    assert!(offered.len() >= 2, "{offered:?}");
+    let (approved, default) = offered[0].clone();
+    let mut events = page.events();
+    events.next();
+    let saved = page.save(1, &[&approved]);
+    assert_eq!(
+        saved.status,
+        200,
+        "{}",
+        String::from_utf8_lossy(&saved.body)
+    );
+    let saved = saved.json();
+    assert_eq!(saved["rev"], 2);
+    assert_eq!(saved["complete"], false);
+    let missing: Vec<String> = serde_json::from_value(saved["missing"].clone()).unwrap();
+    assert!(!missing.contains(&approved));
+    for (other, _) in &offered[1..] {
+        assert!(missing.contains(other), "{other} stays open");
+    }
+    let mut answered = given.clone();
+    answered.insert(approved.clone(), default);
+    let (name, change) = events.next();
+    assert_eq!(name, "answers");
+    assert_eq!(
+        change,
+        json!({"rev": 2, "part": 0, "answers": answered, "source": "page", "defaults": [approved]})
+    );
+    assert_eq!(events.next().0, "saved");
+    drop(opened);
+
+    // Reopened: the approved default is an answer, the others are open, and the PMI is what
+    // the same answers given explicitly write.
+    let written = scratch.path("work/part.specified.step");
+    let resumed = analysis_of(&written);
+    assert_eq!(
+        resumed["resume"]["answers"],
+        Value::Object(answered.clone())
+    );
+    let open = open_ids(&resumed, &answered);
+    assert!(!open.contains(&approved));
+    for (other, _) in &offered[1..] {
+        assert!(open.contains(other), "{other} is open on reopening");
+    }
+    let explicit = Opened::start(&scratch.input(), &scratch, &[]);
+    assert_eq!(
+        explicit.page().put(0, 0, Value::Object(answered)).status,
+        200
+    );
+    let same = explicit.save(1, &[]).json();
+    assert_eq!(
+        report_without_output(&same["report"]),
+        report_without_output(&saved["report"])
+    );
 }

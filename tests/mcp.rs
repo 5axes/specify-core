@@ -1307,7 +1307,7 @@ fn the_agent_and_the_page_share_one_session() {
     let refused = client.refusal("save", json!({"doc": doc}));
     assert_eq!(refused["code"], json!("invalid"), "{refused}");
     assert!(!dir.join("plate.specified.step").exists());
-    let saved = client.call("save", json!({"doc": doc, "accept_defaults": false}));
+    let saved = client.call("save", json!({"doc": doc, "accept_defaults": []}));
     assert_eq!(saved["complete"], json!(false), "{saved}");
     assert!(!saved["missing"].as_array().unwrap().is_empty());
     assert_eq!(saved["rev"], json!(2));
@@ -1557,7 +1557,7 @@ fn a_linked_file_saves_beside_the_link_and_reopens_to_its_session() {
     let saved = call(
         &mut server,
         "save",
-        json!({"doc": doc, "accept_defaults": false}),
+        json!({"doc": doc, "accept_defaults": []}),
     );
     assert_eq!(
         saved["structuredContent"]["path"],
@@ -1591,7 +1591,7 @@ fn a_linked_file_saves_beside_the_link_and_reopens_to_its_session() {
     let saved = call(
         &mut server,
         "save",
-        json!({"doc": doc, "accept_defaults": false}),
+        json!({"doc": doc, "accept_defaults": []}),
     );
     assert_eq!(saved["structuredContent"]["path"], json!(link), "{saved}");
     assert!(
@@ -1659,7 +1659,11 @@ fn a_diff_session_is_shown_in_diff_mode_and_saves_new() {
     let (status, report) = page(&url, "GET", "diff", None);
     assert_eq!(status, 200);
     // As WASM `diff()`: the report `open` gave, its Markdown, and the view to draw.
-    assert_eq!(report["report"], out["report"]);
+    // The page's report carries the PMI scenes; `open`'s is diff's report.json without them.
+    let mut served = report["report"].clone();
+    assert!(served["pmi"]["scenes"]["new"].is_object());
+    served["pmi"].as_object_mut().unwrap().remove("scenes");
+    assert_eq!(served, out["report"]);
     assert!(report["markdown"].is_string() && report["view"]["faces"].is_object());
     let (_, answers) = page(&url, "GET", "answers", None);
     assert_eq!(answers["parts"]["0"]["part.material"], json!("6061-T6"));
@@ -1668,7 +1672,7 @@ fn a_diff_session_is_shown_in_diff_mode_and_saves_new() {
         &url,
         "POST",
         "save",
-        Some(&json!({"rev": 0, "acceptDefaults": false})),
+        Some(&json!({"rev": 0, "acceptDefaults": []})),
     );
     assert_eq!(status, 200, "{saved}");
     let written = dir.join("plate.new.specified.step");
@@ -1726,7 +1730,7 @@ fn nothing_is_saved_outside_the_allowed_directories() {
         held.set_allowed(vec![allowed.clone()]);
         let shared = std::sync::Arc::new(std::sync::Mutex::new(held));
         // The agent's save.
-        let refused = specify_core::session::save(&shared, None, false, "mcp");
+        let refused = specify_core::session::save(&shared, None, &[], "mcp");
         assert!(
             matches!(refused, Err(specify_core::session::SaveError::Outside(_))),
             "{refused:?}"
@@ -1747,7 +1751,7 @@ fn nothing_is_saved_outside_the_allowed_directories() {
             &url,
             "POST",
             "save",
-            Some(&json!({"rev": 0, "acceptDefaults": false})),
+            Some(&json!({"rev": 0, "acceptDefaults": []})),
         );
         assert_eq!(status, 403, "{body}");
         assert!(body["error"].is_string());
@@ -1764,4 +1768,71 @@ fn nothing_is_saved_outside_the_allowed_directories() {
     );
     let _ = std::fs::remove_dir_all(&allowed);
     let _ = std::fs::remove_dir_all(&outside);
+}
+
+/// ADR P9 through MCP: `save` names the defaults the person approved; a bool or an id that is
+/// not an open question with a default is refused, naming it; the approved ones become answers
+/// and the others stay open.
+#[test]
+fn save_writes_only_the_defaults_named() {
+    let dir = scratch("approved-mcp");
+    let copy = dir.join("plate.step");
+    std::fs::copy(part("plate"), &copy).unwrap();
+    let mut server = Server::new(std::slice::from_ref(&dir)).unwrap();
+    let opened = call(&mut server, "open", json!({"path": copy}));
+    let doc = opened["structuredContent"]["doc"].clone();
+    for bad in [json!(true), json!(false), json!("all")] {
+        let refused = error_of(
+            &mut server,
+            "save",
+            json!({"doc": doc, "accept_defaults": bad}),
+        );
+        assert_eq!(refused["code"], json!("invalid"), "{bad}");
+    }
+    let refused = error_of(
+        &mut server,
+        "save",
+        json!({"doc": doc, "accept_defaults": ["no.such.question"]}),
+    );
+    assert_eq!(refused["code"], json!("invalid"));
+    assert_eq!(refused["question"], json!("no.such.question"));
+    assert!(!dir.join("plate.specified.step").exists());
+
+    let open = call(&mut server, "questions", json!({"doc": doc}));
+    let offered: Vec<String> = open["structuredContent"]["questions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|q| !q["default"].is_null())
+        .map(|q| q["id"].as_str().unwrap().to_string())
+        .collect();
+    assert!(offered.len() >= 2, "{offered:?}");
+    let saved = call(
+        &mut server,
+        "save",
+        json!({"doc": doc, "accept_defaults": [offered[0]]}),
+    );
+    let saved = &saved["structuredContent"];
+    assert_eq!(saved["rev"], json!(1), "{saved}");
+    let missing = saved["missing"].as_array().unwrap();
+    assert!(!missing.contains(&json!(offered[0])));
+    assert!(missing.contains(&json!(offered[1])));
+    let changes = call(&mut server, "changes", json!({"doc": doc, "since": 0}));
+    let change = &changes["structuredContent"]["changes"][0];
+    assert_eq!(change["source"], json!("mcp"));
+    assert!(change["set"].get(&offered[0]).is_some());
+    assert_eq!(change["set"].as_object().unwrap().len(), 1);
+    // Reopened, the approved default is an answer and the other is still open.
+    let reopened = call(
+        &mut server,
+        "open",
+        json!({"path": dir.join("plate.specified.step")}),
+    );
+    let still = reopened["structuredContent"]["open_questions"]
+        .as_array()
+        .unwrap();
+    assert!(!still.contains(&json!(offered[0])));
+    assert!(still.contains(&json!(offered[1])));
+    drop(server);
+    let _ = std::fs::remove_dir_all(&dir);
 }

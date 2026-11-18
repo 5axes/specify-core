@@ -916,11 +916,16 @@ fn save(stream: &mut TcpStream, ctx: &Ctx, request: &Request, body: Vec<u8>) {
         Ok(v) => v,
         Err((status, why)) => return refuse(stream, status, &why),
     };
-    let Some(accept_defaults) = value.get("acceptDefaults").and_then(|v| v.as_bool()) else {
+    let approved: Option<Vec<String>> = value
+        .get("acceptDefaults")
+        .and_then(|v| v.as_array())
+        .and_then(|ids| ids.iter().map(|id| id.as_str().map(String::from)).collect());
+    let Some(approved) = approved else {
         return refuse(
             stream,
             "400 Bad Request",
-            "acceptDefaults is required: true only when the person chose to take the defaults",
+            "acceptDefaults is required: the question ids of the defaults the person approved \
+             ([] for none)",
         );
     };
     let Some(rev) = value.get("rev").and_then(|v| v.as_u64()) else {
@@ -930,7 +935,7 @@ fn save(stream: &mut TcpStream, ctx: &Ctx, request: &Request, body: Vec<u8>) {
             "rev is required: the session revision the page last saw",
         );
     };
-    match session::save(&shared.session, Some(rev), accept_defaults, "page") {
+    match session::save(&shared.session, Some(rev), &approved, "page") {
         Ok(saved) => {
             let _ = ctx
                 .tell
@@ -951,6 +956,11 @@ fn save(stream: &mut TcpStream, ctx: &Ctx, request: &Request, body: Vec<u8>) {
             )
         }
         Err(session::SaveError::Outside(why)) => refuse(stream, "403 Forbidden", &why),
+        Err(session::SaveError::Question { message, question }) => reply_json(
+            stream,
+            "400 Bad Request",
+            &json!({"error": message, "question": question}),
+        ),
         Err(session::SaveError::Refused(why)) => refuse(stream, "422 Unprocessable Content", &why),
         Err(session::SaveError::Failed(why)) => refuse(stream, "500 Internal Server Error", &why),
     }

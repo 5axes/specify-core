@@ -78,8 +78,8 @@ server's memory and lost when the server restarts unless an `answers_file` was g
 was saved. `show` opens the Specify page in the person's browser on the same session: the \
 person's edits there are what your next call reads, and your answers appear there as you make \
 them; every result carries `rev`, and `changes` with the last `rev` you saw says what the person \
-changed. `save` writes the specified STEP beside the file (what is answered; `accept_defaults` \
-only when the person asked for defaults). Paths must lie inside the directories the server was \
+changed. `save` writes the specified STEP beside the file: what is answered, plus only the \
+defaults the person approved, named in `accept_defaults`. Paths must lie inside the directories the server was \
 started with (--allow). The analysis and a triangle mesh of an open document are resources: \
 specify://doc/{doc}/analysis and specify://doc/{doc}/mesh.";
 
@@ -884,7 +884,7 @@ impl Server {
             } else if current.as_ref() != Some(&start) {
                 s.set(index, start.clone(), "mcp");
             }
-            (start, s.rev(), s.report().cloned())
+            (start, s.rev(), s.report())
         };
         if created {
             self.sessions.push(Arc::clone(&shared));
@@ -1350,23 +1350,25 @@ impl Server {
 
     fn save(&self, args: &Map<String, Value>) -> ToolResult {
         let (handle, doc) = self.doc(args)?;
-        let accept_defaults = match args.get("accept_defaults") {
-            Some(Value::Bool(b)) => *b,
-            None | Some(Value::Null) => {
-                return Err(ToolError::invalid(
-                    "accept_defaults is required: true only when the person asked for the \
-                     defaults, false to write only what is answered",
-                ));
-            }
-            Some(_) => return Err(ToolError::invalid("'accept_defaults' is true or false")),
+        let approved: Option<Vec<String>> = match args.get("accept_defaults") {
+            Some(Value::Array(ids)) => ids.iter().map(|id| id.as_str().map(String::from)).collect(),
+            _ => None,
         };
-        let saved =
-            session::save(&doc.session, None, accept_defaults, "mcp").map_err(|e| match e {
-                session::SaveError::Refused(m) => ToolError::invalid(m),
-                session::SaveError::Changed(m) => ToolError::new("stale", m),
-                session::SaveError::Outside(m) => ToolError::refused(m),
-                other => ToolError::new("failed", other.to_string()),
-            })?;
+        let Some(approved) = approved else {
+            return Err(ToolError::invalid(
+                "accept_defaults is required: the question ids of exactly the defaults the person \
+                 approved ([] for none)",
+            ));
+        };
+        let saved = session::save(&doc.session, None, &approved, "mcp").map_err(|e| match e {
+            session::SaveError::Question { message, question } => {
+                ToolError::invalid(message).with("question", json!(question))
+            }
+            session::SaveError::Refused(m) => ToolError::invalid(m),
+            session::SaveError::Changed(m) => ToolError::new("stale", m),
+            session::SaveError::Outside(m) => ToolError::refused(m),
+            other => ToolError::new("failed", other.to_string()),
+        })?;
         eprintln!("Saved {} ({} bytes).", saved.path, saved.bytes);
         let mut out = saved.to_json();
         out["doc"] = json!(handle);
@@ -1976,10 +1978,10 @@ pub fn tools() -> Vec<Value> {
         json!({
             "name": "save",
             "title": "Save the specified STEP",
-            "description": format!("Write the session's answers into the file as AP242 PMI, as the Specify page's Save does: beside the opened file as <name>.specified.step (then -2, -3, ...; nothing is overwritten), or over it if it was opened in_place (the original kept once as .bak). Open questions never refuse it: what is answered is written, the answers are stored in the file so opening it again resumes them, and complete/missing say what is still open. accept_defaults is required: true takes the suggested default for every open question that has one, and is only for when the person asked for the defaults; otherwise false. {MEMORY_RULE}"),
+            "description": format!("Write the session's answers into the file as AP242 PMI, as the Specify page's Save does: beside the opened file as <name>.specified.step (then -2, -3, ...; nothing is overwritten), or over it if it was opened in_place (the original kept once as .bak). Open questions never refuse it: what is answered is written, the answers are stored in the file so opening it again resumes them, and complete/missing say what is still open. accept_defaults is required: the question ids of the defaults to write. Name exactly the defaults the person approved; never pass every default unless the person saw the list and confirmed it. [] writes no default: questions with a default that are not listed stay open and are not written. Each id must be an open question with a default (questions shows them), else the call is refused naming it. The approved defaults become answers (rev goes up) and are stored in the file. {MEMORY_RULE}"),
             "inputSchema": input(json!({
                 "doc": doc(),
-                "accept_defaults": {"type": "boolean", "description": "true only when the person asked for the suggested defaults; false writes only what is answered."}
+                "accept_defaults": {"type": "array", "items": {"type": "string"}, "description": "The question ids of exactly the defaults the person approved ([] for none)."}
             }), &["doc", "accept_defaults"]),
             "outputSchema": output(json!({
                 "doc": {"type": "string"},
