@@ -48,13 +48,14 @@ The existing tools (docs/mcp.md) work on the session, plus three new ones:
 | `answer` | as today | as today, plus the new `rev`; the page receives it as an `answers` event with `source: "mcp"` |
 | `changes` (new) | `doc`, `since` (a `rev`) | `rev`, and `changes`: `[{rev, part, source, set: {id: answer}, cleared: [id]}]` after `since`, oldest first. If `since` is older than the changes kept, `full: true` and the whole `answers` instead |
 | `show` (new) | `doc`, `browser?` (default `true`), `read_only?` | `url`, `mode`. Starts the page server for this session on 127.0.0.1 (random port and token), or returns the running one's address; opens the browser unless `browser: false`. `read_only: true` makes that page view-only (no answer changes or Save from the page); the agent can still answer |
-| `save` (new) | `doc`, `accept_defaults` (required) | `path`, `bytes`, `rev`, `report`: writes the session's answers with the same writer and naming as the page's Save (docs/open.md); `incomplete` with `missing` when required questions are unanswered and `accept_defaults` is false. The page gets the same `saved` event |
+| `save` (new) | `doc`, `accept_defaults` (required) | `path`, `bytes`, `rev`, `report`: writes the session's answers with the same writer and naming as the page's Save (docs/open.md); plus `complete` and `missing`. Open questions never refuse it: what is answered is written, as the page's Save does. The page gets the same `saved` event |
 
 `write_pmi` stays for writing to a path of the agent's choosing; it does not change where
 Save writes.
 
 `accept_defaults` is never assumed: `save` requires it, and the agent sets it to `true` only
-when the person asked for defaults (the page's Save likewise).
+when the person asked for defaults (the page's Save likewise). An incomplete save is written
+(docs/open.md, `save`): a STEP file with some requirements still open is a valid result.
 
 An agent that wants to follow the person's edits calls `changes` with the last `rev` it saw
 (for example after the person says they are done, or before each step); MCP over stdio has no

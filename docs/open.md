@@ -117,10 +117,16 @@ The page sends no STEP bytes.
 - `rev`: the session revision the page last saw (from `answers` or `events`). If the session
   has moved on since, the save is refused (409, with the current `rev`) so the page never
   saves answers it has not shown; the page refreshes and the person saves again.
-- `acceptDefaults` (required, `true` or `false`; 400 when absent): `true` writes each open
-  question's default, as `write --accept-defaults` does; `false` needs every required question
-  answered. The page sends `true` only when the person chose it (e.g. a "Save with defaults"
-  after the 422 below), never by default; the same holds for an AI client's `write_pmi`.
+- `acceptDefaults` (required, `true` or `false`; 400 when absent): `true` fills each open
+  question that has a default with it, as `write --accept-defaults` does; `false` writes only
+  what is answered. The page sends `true` only when the person chose it (e.g. "Save with
+  defaults"), never by default; the same holds for the agent's `save`.
+
+**An incomplete save is written** (Paul, 2026-11-18: "The user might want to save something
+with incomplete PMI. What's wrong with that? Lots of step files with ap242 don't have a complete
+answer to everything."). Open questions never refuse a save: the file gets the PMI that is
+answered, its stored answers are the session's, and reopening it resumes with the same
+questions open. The answer says what is still open (`complete`, `missing`).
 - `Content-Type: application/json` (415 otherwise), `Content-Length` and no
   `Transfer-Encoding` (411), at most 64 KB (413), the whole body within 30 s (408).
 - `Origin: http://127.0.0.1:<port>` exactly (403 otherwise, and when `Origin` is absent).
@@ -145,12 +151,13 @@ into place:
 
 Answers:
 
-- `200 {"path": "<absolute path written>", "bytes": <length written>, "rev": <n>, "report": {…}}`,
-  `report` being `write`'s report (as `serve`'s `write`);
+- `200 {"path": "<absolute path written>", "bytes": <length written>, "rev": <n>, "report": {…},
+  "complete": <bool>, "missing": ["<question id>", …]}`, `report` being `write`'s report (as
+  `serve`'s `write`), `missing` the required questions still open after this save (empty, and
+  `complete` true, when none are);
 - `409 {"error": "…", "rev": <current>}`: the session moved on, or read-only (nothing written);
-- `422 {"error": "…", "missing": ["<question id>", …]}`: required questions are unanswered and
-  `acceptDefaults` is false; `422 {"error": "…"}` for answers the writer refuses (the message
-  names the question).
+- `422 {"error": "…"}`: an answer the writer refuses (the message names the question); nothing
+  written.
 
 The command prints `Saved <path> (<bytes> bytes).` for each save.
 
