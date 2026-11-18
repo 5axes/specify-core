@@ -30,6 +30,9 @@ fn step_text() -> Vec<u8> {
 /// both (`secret.txt`) and a plain STEP input (`work/part.step`); removed when dropped.
 struct Scratch {
     root: PathBuf,
+    /// The same directory as first named, not resolved (on macOS `/var/…`, not
+    /// `/private/var/…`).
+    given: PathBuf,
 }
 
 impl Scratch {
@@ -40,16 +43,20 @@ impl Scratch {
         for dir in ["app/assets", "pkg", "work"] {
             std::fs::create_dir_all(root.join(dir)).unwrap();
         }
+        let given = root.clone();
         let root = std::fs::canonicalize(root).unwrap();
         let write = |p: &str, b: &[u8]| std::fs::write(root.join(p), b).unwrap();
         write("app/index.html", b"<!doctype html><title>stub app</title>");
         write("app/app.css", b"body{}");
         write("app/assets/main.mjs", b"export {};");
+        for ext in ["ico", "jpg", "jpeg", "webp", "woff", "ttf", "map", "woff2"] {
+            write(&format!("app/assets/a.{ext}"), ext.as_bytes());
+        }
         write("pkg/specify_core_wasm.js", b"export default 1;");
         write("pkg/specify_core_wasm_bg.wasm", b"\0asm\x01\0\0\0");
         write("secret.txt", b"secret");
         std::fs::write(root.join("work/part.step"), step_text()).unwrap();
-        Scratch { root }
+        Scratch { root, given }
     }
 
     fn path(&self, rel: &str) -> PathBuf {
@@ -183,40 +190,11 @@ impl Opened {
         )
     }
 
-    fn closed(&self) -> Response {
-        let (host, origin) = (self.host(), self.origin());
-        request(
-            self.port,
-            "POST",
-            &self.at("closed"),
-            &[
-                ("Host", &host),
-                ("Origin", &origin),
-                ("Content-Type", "text/plain;charset=UTF-8"),
-            ],
-            b"",
-        )
-    }
-
     /// The next line on stdout.
     fn line(&mut self) -> String {
         let mut line = String::new();
         self.stdout.read_line(&mut line).unwrap();
         line
-    }
-
-    /// Waits up to `within` for the command to exit: its code and the rest of stdout.
-    fn exit(mut self, within: Duration) -> (i32, String) {
-        let deadline = Instant::now() + within;
-        loop {
-            if let Some(status) = self.child.try_wait().unwrap() {
-                let mut rest = String::new();
-                self.stdout.read_to_string(&mut rest).unwrap();
-                return (status.code().unwrap_or(-1), rest);
-            }
-            assert!(Instant::now() < deadline, "the command did not exit");
-            std::thread::sleep(Duration::from_millis(20));
-        }
     }
 
     fn still_running(&mut self) -> bool {
@@ -310,6 +288,103 @@ type Refused<'a> = (&'a str, String, Vec<(&'a str, &'a str)>, u16);
 /// A refused save: what it is, its headers, its body and the status it gets.
 type RefusedSave<'a> = (&'a str, Vec<(&'a str, &'a str)>, &'a [u8], u16);
 
+/// An [`App`] served on a thread with these delays, its notices collected.
+struct Served {
+    port: u16,
+    /// `/<token>/`.
+    prefix: String,
+    notices: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+    thread: std::thread::JoinHandle<()>,
+}
+
+impl Served {
+    fn start(scratch: &Scratch, close_delay: Duration, idle: Duration) -> Served {
+        let app = App::new(&scratch.input(), scratch.assets(), &Options::default()).unwrap();
+        let port = app.port();
+        let prefix = app
+            .url()
+            .strip_prefix(&format!("http://127.0.0.1:{port}"))
+            .unwrap()
+            .to_string();
+        let notices = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let told = notices.clone();
+        let thread = std::thread::spawn(move || {
+            app.serve(close_delay, idle, |n| {
+                told.lock().unwrap().push(n.to_string())
+            })
+            .unwrap()
+        });
+        Served {
+            port,
+            prefix,
+            notices,
+            thread,
+        }
+    }
+
+    fn host(&self) -> String {
+        format!("127.0.0.1:{}", self.port)
+    }
+
+    fn post(&self, rel: &str, origin: Option<&str>) -> Response {
+        let host = self.host();
+        let mut headers = vec![("Host", host.as_str())];
+        if let Some(o) = origin {
+            headers.push(("Origin", o));
+        }
+        request(
+            self.port,
+            "POST",
+            &format!("{}{rel}", self.prefix),
+            &headers,
+            b"",
+        )
+    }
+
+    /// `closed` from the app's own page.
+    fn closed(&self) -> Response {
+        let origin = format!("http://127.0.0.1:{}", self.port);
+        self.post("closed", Some(&origin))
+    }
+
+    /// An open page's heartbeat.
+    fn heartbeat(&self) {
+        let got = request(
+            self.port,
+            "GET",
+            &format!("{}config", self.prefix),
+            &[("Host", &self.host())],
+            b"",
+        );
+        assert_eq!(got.status, 200);
+    }
+
+    /// Heartbeats every `every` for `during`; the server must still be serving after it.
+    fn heartbeats(&self, every: Duration, during: Duration) {
+        let end = Instant::now() + during;
+        while Instant::now() < end {
+            self.heartbeat();
+            std::thread::sleep(every);
+        }
+        assert!(!self.thread.is_finished(), "the heartbeats kept it running");
+    }
+
+    /// Waits up to `within` for the server to stop: its notices.
+    fn stopped(self, within: Duration) -> Vec<String> {
+        let deadline = Instant::now() + within;
+        while !self.thread.is_finished() {
+            assert!(Instant::now() < deadline, "the server did not stop");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        self.thread.join().unwrap();
+        assert!(
+            TcpStream::connect(("127.0.0.1", self.port)).is_err(),
+            "the port is closed"
+        );
+        self.notices.lock().unwrap().clone()
+    }
+}
+
 /// A STEP body, distinguishable by `tag`.
 fn step_body(tag: &str) -> Vec<u8> {
     format!("ISO-10303-21;\nHEADER;\n/* {tag} */\nENDSEC;\nDATA;\nENDSEC;\nEND-ISO-10303-21;\n")
@@ -333,6 +408,7 @@ fn the_app_engine_config_and_file_are_served_under_the_token() {
     let csp = index.header("content-security-policy").unwrap();
     assert!(csp.contains("default-src 'self'"), "{csp}");
     assert!(csp.contains("'wasm-unsafe-eval'"), "{csp}");
+    assert!(csp.contains("font-src 'self' data:"), "{csp}");
     assert_eq!(opened.get("index.html").body, index.body);
 
     for (rel, content_type, body) in [
@@ -352,6 +428,14 @@ fn the_app_engine_config_and_file_are_served_under_the_token() {
             "application/wasm",
             b"\0asm\x01\0\0\0",
         ),
+        ("assets/a.ico", "image/x-icon", b"ico"),
+        ("assets/a.jpg", "image/jpeg", b"jpg"),
+        ("assets/a.jpeg", "image/jpeg", b"jpeg"),
+        ("assets/a.webp", "image/webp", b"webp"),
+        ("assets/a.woff", "font/woff", b"woff"),
+        ("assets/a.woff2", "font/woff2", b"woff2"),
+        ("assets/a.ttf", "font/ttf", b"ttf"),
+        ("assets/a.map", "application/json", b"map"),
     ] {
         let got = opened.get(rel);
         assert_eq!(got.status, 200, "{rel}");
@@ -476,6 +560,36 @@ fn other_hosts_tokens_origins_and_paths_outside_the_app_are_refused() {
         (
             "a directory",
             opened.at("assets/"),
+            vec![("Host", &host)],
+            404,
+        ),
+        (
+            "a directory without its slash",
+            opened.at("assets"),
+            vec![("Host", &host)],
+            404,
+        ),
+        (
+            "the engine directory without its slash",
+            opened.at("wasm"),
+            vec![("Host", &host)],
+            404,
+        ),
+        (
+            "the token and more",
+            format!("{}x/", opened.prefix.trim_end_matches('/')),
+            vec![("Host", &host)],
+            404,
+        ),
+        (
+            "the token cut short",
+            format!("{}/", &opened.prefix[..opened.prefix.len() - 2]),
+            vec![("Host", &host)],
+            404,
+        ),
+        (
+            "the token cut short, no slash",
+            opened.prefix[..opened.prefix.len() - 2].to_string(),
             vec![("Host", &host)],
             404,
         ),
@@ -639,6 +753,17 @@ fn a_save_from_elsewhere_of_another_type_not_step_or_too_large_is_refused() {
             415,
         ),
         (
+            "chunked",
+            vec![
+                ("Host", &host),
+                ("Origin", &origin),
+                octets,
+                ("Transfer-Encoding", "chunked"),
+            ],
+            &body,
+            411,
+        ),
+        (
             "not STEP",
             vec![("Host", &host), ("Origin", &origin), octets],
             b"<html>not a part</html>",
@@ -694,9 +819,14 @@ fn read_only_refuses_saves_and_writes_nothing() {
 }
 
 #[test]
-fn in_place_keeps_a_bak_and_replaces_the_input() {
+fn in_place_keeps_one_bak_per_run_and_replaces_the_input() {
     let scratch = Scratch::new("in-place");
     let input = std::fs::read(scratch.input()).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(scratch.input(), std::fs::Permissions::from_mode(0o640)).unwrap();
+    }
     let opened = Opened::start(&scratch.input(), &scratch, &["--in-place"]);
     assert_eq!(
         opened.config()["saveTarget"],
@@ -712,21 +842,178 @@ fn in_place_keeps_a_bak_and_replaces_the_input() {
     );
     assert_eq!(opened.get("file").body, step_body("one"));
 
-    // An existing .bak is kept: the next goes to .bak-2.
+    // A later save replaces the file and makes no other backup: the .bak still holds the
+    // original.
     assert_eq!(opened.save(&step_body("two")).status, 200);
     assert_eq!(std::fs::read(scratch.input()).unwrap(), step_body("two"));
     assert_eq!(
         std::fs::read(scratch.path("work/part.step.bak")).unwrap(),
         input
     );
+    assert_eq!(scratch.work(), ["part.step", "part.step.bak"]);
+    // The replacement keeps the original's permissions.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(scratch.input())
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o777, 0o640);
+    }
+    drop(opened);
+
+    // A new run with a .bak already there keeps it and backs up to .bak-2, once.
+    let opened = Opened::start(&scratch.input(), &scratch, &["--in-place"]);
+    assert_eq!(opened.save(&step_body("three")).status, 200);
+    assert_eq!(opened.save(&step_body("four")).status, 200);
+    assert_eq!(std::fs::read(scratch.input()).unwrap(), step_body("four"));
+    assert_eq!(
+        std::fs::read(scratch.path("work/part.step.bak")).unwrap(),
+        input
+    );
     assert_eq!(
         std::fs::read(scratch.path("work/part.step.bak-2")).unwrap(),
-        step_body("one")
+        step_body("two")
     );
     assert_eq!(
         scratch.work(),
         ["part.step", "part.step.bak", "part.step.bak-2"]
     );
+}
+
+/// `proj/part.step` a link to `lib/abc.step`, reached through `alias`, a link to `proj`; the
+/// app opened through the links as given, the root not resolved.
+#[cfg(unix)]
+#[test]
+fn a_linked_input_saves_beside_the_link_and_shows_the_path_as_given() {
+    let scratch = Scratch::new("linked");
+    for dir in ["proj", "lib"] {
+        std::fs::create_dir_all(scratch.path(dir)).unwrap();
+    }
+    std::fs::write(scratch.path("lib/abc.step"), step_text()).unwrap();
+    std::os::unix::fs::symlink(scratch.path("lib/abc.step"), scratch.path("proj/part.step"))
+        .unwrap();
+    std::os::unix::fs::symlink(scratch.path("proj"), scratch.path("alias")).unwrap();
+    let given = scratch.given.join("alias/part.step");
+    let names = |dir: &str| {
+        let mut n: Vec<String> = std::fs::read_dir(scratch.path(dir))
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        n.sort();
+        n
+    };
+    let shown = |name: &str| scratch.given.join("alias").join(name).display().to_string();
+
+    let opened = Opened::start(&given, &scratch, &[]);
+    assert_eq!(opened.config()["name"], "part.step");
+    assert_eq!(opened.config()["saveTarget"], shown("part.specified.step"));
+    let got = opened.save(&step_body("beside"));
+    assert_eq!(got.status, 200);
+    assert_eq!(got.json()["path"], shown("part.specified.step"));
+    assert_eq!(
+        std::fs::read(scratch.path("proj/part.specified.step")).unwrap(),
+        step_body("beside")
+    );
+    assert_eq!(
+        names("lib"),
+        ["abc.step"],
+        "nothing in the link's target's directory"
+    );
+    drop(opened);
+
+    // In place: the link's target is replaced, the link kept, the .bak beside the link.
+    let opened = Opened::start(&given, &scratch, &["--in-place"]);
+    assert_eq!(opened.config()["saveTarget"], shown("part.step"));
+    let got = opened.save(&step_body("one"));
+    assert_eq!(got.status, 200);
+    assert_eq!(got.json()["path"], shown("part.step"));
+    assert_eq!(opened.save(&step_body("two")).status, 200);
+    assert!(
+        std::fs::symlink_metadata(scratch.path("proj/part.step"))
+            .unwrap()
+            .file_type()
+            .is_symlink(),
+        "the link is kept"
+    );
+    assert_eq!(
+        std::fs::read(scratch.path("lib/abc.step")).unwrap(),
+        step_body("two")
+    );
+    assert_eq!(
+        std::fs::read(scratch.path("proj/part.step.bak")).unwrap(),
+        step_text()
+    );
+    assert_eq!(names("lib"), ["abc.step"], "no temporary file left");
+    assert_eq!(
+        names("proj"),
+        ["part.specified.step", "part.step", "part.step.bak"]
+    );
+}
+
+#[test]
+fn stp_and_gzipped_inputs_save_as_plain_specified_step() {
+    let scratch = Scratch::new("names");
+    let stp = scratch.path("work/a.stp");
+    std::fs::write(&stp, step_text()).unwrap();
+    let gz = scratch.path("work/b.step.gz");
+    std::fs::copy(fixture(), &gz).unwrap();
+    for (input, saved) in [(&stp, "a.specified.step"), (&gz, "b.specified.step")] {
+        let opened = Opened::start(input, &scratch, &[]);
+        let saved = scratch.path("work").join(saved);
+        assert_eq!(opened.config()["saveTarget"], saved.display().to_string());
+        let got = opened.save(&step_body("plain"));
+        assert_eq!(got.status, 200);
+        assert_eq!(got.json()["path"], saved.display().to_string());
+        assert_eq!(
+            std::fs::read(&saved).unwrap(),
+            step_body("plain"),
+            "uncompressed"
+        );
+    }
+    assert_eq!(
+        std::fs::read(&gz).unwrap(),
+        std::fs::read(fixture()).unwrap()
+    );
+    assert_eq!(
+        scratch.work(),
+        [
+            "a.specified.step",
+            "a.stp",
+            "b.specified.step",
+            "b.step.gz",
+            "part.step"
+        ]
+    );
+}
+
+#[test]
+fn a_gzipped_input_of_several_members_is_measured_whole() {
+    let scratch = Scratch::new("multi-gz");
+    let gz = scratch.path("work/m.step.gz");
+    let member = std::fs::read(fixture()).unwrap();
+    std::fs::write(&gz, [member.clone(), member].concat()).unwrap();
+    let opened = Opened::start(&gz, &scratch, &[]);
+    let (host, origin) = (opened.host(), opened.origin());
+    let cap = 4 * 2 * step_text().len();
+    let save = |length: usize| {
+        let length = length.to_string();
+        request(
+            opened.port,
+            "POST",
+            &opened.at("save"),
+            &[
+                ("Host", &host),
+                ("Origin", &origin),
+                ("Content-Type", "application/octet-stream"),
+                ("Content-Length", &length),
+            ],
+            b"",
+        )
+    };
+    assert_ne!(save(cap).status, 413, "both members count");
+    assert_eq!(save(cap + 1).status, 413);
 }
 
 #[test]
@@ -748,43 +1035,61 @@ fn in_place_on_a_gzipped_input_writes_it_gzipped() {
 }
 
 #[test]
-fn closed_stops_the_server_unless_the_page_comes_back() {
+fn the_close_delay_outlasts_the_heartbeat() {
+    assert!(open::CLOSE_DELAY > open::HEARTBEAT);
+    assert_eq!(open::HEARTBEAT, Duration::from_secs(30));
+    assert_eq!(open::CLOSE_DELAY, Duration::from_secs(45));
+    assert_eq!(open::IDLE, Duration::from_secs(30 * 60));
+}
+
+#[test]
+fn closed_stops_the_server_unless_a_page_comes_back_or_is_still_open() {
     let scratch = Scratch::new("closed");
-    let mut opened = Opened::start(&scratch.input(), &scratch, &[]);
-    let host = opened.host();
+    let delay = Duration::from_millis(1500);
+    let beat = Duration::from_millis(300);
+    let served = Served::start(&scratch, delay, Duration::from_secs(600));
+    let own = format!("http://127.0.0.1:{}", served.port);
 
     // Only from the app's own page.
-    let foreign = request(
-        opened.port,
-        "POST",
-        &opened.at("closed"),
-        &[("Host", &host), ("Origin", "https://example.com")],
-        b"",
+    assert_eq!(
+        served.post("closed", Some("https://example.com")).status,
+        403
     );
-    assert_eq!(foreign.status, 403);
-    let none = request(
-        opened.port,
-        "POST",
-        &opened.at("closed"),
-        &[("Host", &host)],
-        b"",
-    );
-    assert_eq!(none.status, 403);
+    assert_eq!(served.post("closed", None).status, 403);
 
     // A reload: closed, then the page asks again.
-    assert_eq!(opened.closed().status, 204);
-    assert_eq!(opened.get("").status, 200);
-    std::thread::sleep(open::CLOSE_DELAY + Duration::from_secs(1));
-    assert!(opened.still_running(), "a reload keeps it running");
+    assert_eq!(served.closed().status, 204);
+    let index = request(
+        served.port,
+        "GET",
+        &served.prefix,
+        &[("Host", &served.host())],
+        b"",
+    );
+    assert_eq!(index.status, 200);
+    std::thread::sleep(delay + Duration::from_millis(500));
+    assert!(!served.thread.is_finished(), "a reload keeps it running");
 
-    assert_eq!(opened.closed().status, 204);
-    let port = opened.port;
-    let (code, rest) = opened.exit(open::CLOSE_DELAY + Duration::from_secs(5));
-    assert_eq!(code, 0);
-    assert_eq!(rest, "Closed.\n");
+    // One tab closed, another still open: its heartbeats keep the server past the delay.
+    assert_eq!(served.post("closed", Some(&own)).status, 204);
+    served.heartbeats(beat, delay * 2);
+
+    // The last tab closed: it stops once no request has come for the delay.
+    assert_eq!(served.closed().status, 204);
+    assert_eq!(served.stopped(delay + Duration::from_secs(5)), ["Closed."]);
+}
+
+#[test]
+fn heartbeats_keep_an_idle_server_running() {
+    let scratch = Scratch::new("heartbeat");
+    let idle = Duration::from_millis(1000);
+    let served = Served::start(&scratch, Duration::from_secs(600), idle);
+    served.heartbeats(Duration::from_millis(200), idle * 3);
+    let notices = served.stopped(idle + Duration::from_secs(5));
+    assert_eq!(notices.len(), 1);
     assert!(
-        TcpStream::connect(("127.0.0.1", port)).is_err(),
-        "the port is closed"
+        notices[0].starts_with("Stopped: no request for"),
+        "{notices:?}"
     );
 }
 

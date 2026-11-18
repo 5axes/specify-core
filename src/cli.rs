@@ -199,8 +199,8 @@ when the server stops, unless a call names an answers_file. See docs/mcp.md.")]
 Open a STEP file in Specify in your browser, served by this command on 127.0.0.1: nothing
 is uploaded. Specify's Save writes the specified file next to the input as
 <name>.specified.step (then -2, -3, ...; nothing is overwritten), or with --in-place over the
-input, which is kept as .bak. Stops a few seconds after the page is closed, or after 30
-minutes without a request.
+input (through a link, to its target), the original kept once as .bak. Stops 45 seconds after
+the last page is closed, or after 30 minutes without a request.
 
 The app is not bundled yet: pass --app DIR (or set SPECIFY_APP_DIR) to the built app and
 --wasm DIR (or SPECIFY_WASM_DIR) to the engine's wasm-pack pkg/ directory.")]
@@ -210,7 +210,7 @@ The app is not bundled yet: pass --app DIR (or set SPECIFY_APP_DIR) to the built
         /// refuse saves
         #[arg(long, conflicts_with = "in_place")]
         read_only: bool,
-        /// save over the input, keeping the original as .bak
+        /// save over the input, keeping the original once as .bak
         #[arg(long)]
         in_place: bool,
         /// the port on 127.0.0.1 (default: any free port)

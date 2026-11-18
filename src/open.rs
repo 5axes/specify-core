@@ -7,9 +7,13 @@
 //! - `GET <token>/…` the static app (`index.html` at `<token>/`), `GET <token>/wasm/…` the
 //!   engine, `GET <token>/file` the STEP bytes, `GET <token>/config` the app's settings;
 //! - `POST <token>/save` the specified STEP, written next to the input (never over a file,
-//!   unless `--in-place`, which keeps a `.bak`);
-//! - `POST <token>/closed` the page went away: the server stops shortly after unless another
-//!   request arrives (a reload).
+//!   unless `--in-place`, which keeps the original once as `.bak`);
+//! - `POST <token>/closed` the page went away: the server stops [`CLOSE_DELAY`] after the last
+//!   request unless another arrives (a reload, or another open page's heartbeat).
+//!
+//! An open page sends `GET <token>/config` every [`HEARTBEAT`] (the engine runs in the page,
+//! so editing alone makes no requests); any request resets the idle time and cancels a pending
+//! close.
 //!
 //! A request whose `Host` is not exactly `127.0.0.1:<port>` is refused (a page that finds the
 //! port through DNS rebinding), as is any other token, without saying why. `save` and `closed`
@@ -27,10 +31,16 @@ use std::time::{Duration, Instant};
 
 use serde_json::json;
 
-/// How long after `closed` the server stops, unless another request arrives.
-pub const CLOSE_DELAY: Duration = Duration::from_secs(3);
+/// How often an open page asks for `config` (the contract's heartbeat; the server does not
+/// use it, it sizes [`CLOSE_DELAY`]).
+pub const HEARTBEAT: Duration = Duration::from_secs(30);
 
-/// How long the server waits without a request before it stops.
+/// How long after `closed` the server stops, unless another request arrives: longer than
+/// [`HEARTBEAT`], so another open page keeps it.
+pub const CLOSE_DELAY: Duration = Duration::from_secs(45);
+
+/// How long the server waits without a request before it stops (a forgotten server: an open
+/// page's heartbeat keeps it).
 pub const IDLE: Duration = Duration::from_secs(30 * 60);
 
 /// The largest save accepted, whatever the input's size.
@@ -43,10 +53,11 @@ pub const MAX_CONNECTIONS: usize = 16;
 pub const WASM_URL: &str = "wasm/specify_core_wasm.js";
 
 /// The page's Content-Security-Policy: everything from this server only, the engine compiled
-/// with `'wasm-unsafe-eval'`, inline styles (which UI libraries set) and `data:`/`blob:` images
-/// and downloads allowed.
+/// with `'wasm-unsafe-eval'`, inline styles (which UI libraries set), `data:` fonts and
+/// `data:`/`blob:` images and downloads allowed.
 pub const CSP: &str = "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; \
-style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' blob:; \
+style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; \
+connect-src 'self' blob:; \
 worker-src 'self' blob:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; \
 form-action 'none'";
 
@@ -73,6 +84,15 @@ pub fn is_step_name(name: &str) -> bool {
     let lower = name.to_ascii_lowercase();
     let base = lower.strip_suffix(".gz").unwrap_or(&lower);
     base.ends_with(".step") || base.ends_with(".stp")
+}
+
+/// Compares two strings without stopping at the first difference (tokens).
+pub(crate) fn same(a: &str, b: &str) -> bool {
+    a.len() == b.len()
+        && a.bytes()
+            .zip(b.bytes())
+            .fold(0u8, |acc, (x, y)| acc | (x ^ y))
+            == 0
 }
 
 /// 16 bytes from the operating system's random source, as 32 lowercase hex characters (also
@@ -204,22 +224,19 @@ impl App {
             )));
         }
         let read = |e: io::Error| Error::Io(format!("{}: {e}", step.display()));
-        let step = fs::canonicalize(step).map_err(read)?;
+        // The path as given, made absolute but not resolved: saves go next to it (beside a
+        // link, not its target) and every path shown is this one, never a canonical form
+        // (`\\?\C:\…` on Windows).
+        let step = std::path::absolute(step).map_err(read)?;
         let bytes = fs::read(&step).map_err(read)?;
         let gz = name.to_ascii_lowercase().ends_with(".gz");
-        // The cap counts the STEP text, so a gzipped input is measured unzipped.
+        // The cap counts the STEP text, so a gzipped input is measured unzipped (every member).
         let text_len = if gz {
-            let mut n = 0u64;
-            let mut decoder = flate2::read::GzDecoder::new(&bytes[..]);
-            let mut chunk = [0u8; 64 * 1024];
-            loop {
-                match decoder.read(&mut chunk) {
-                    Ok(0) => break,
-                    Ok(k) => n += k as u64,
-                    Err(e) => return Err(read(e)),
-                }
-            }
-            n
+            io::copy(
+                &mut flate2::read::MultiGzDecoder::new(&bytes[..]),
+                &mut io::sink(),
+            )
+            .map_err(read)?
         } else {
             bytes.len() as u64
         };
@@ -246,6 +263,7 @@ impl App {
             assets,
             read_only: options.read_only,
             in_place: options.in_place,
+            backup: Mutex::new(None),
             save_lock: Mutex::new(()),
             activity: Mutex::new(Activity {
                 last: Instant::now(),
@@ -364,7 +382,7 @@ struct Shared {
     /// `/<token>/`.
     prefix: String,
     name: String,
-    /// The input, canonical.
+    /// The input as given, made absolute (not resolved: a link stays the link).
     step: PathBuf,
     gz: bool,
     /// What `file` serves: the input, or the last in-place save.
@@ -374,6 +392,9 @@ struct Shared {
     assets: Assets,
     read_only: bool,
     in_place: bool,
+    /// `--in-place`: where this session's first save kept the original; later saves keep no
+    /// other copy.
+    backup: Mutex<Option<PathBuf>>,
     /// One save at a time, so `saveTarget` and the name a save takes agree.
     save_lock: Mutex<()>,
     activity: Mutex<Activity>,
@@ -475,9 +496,21 @@ fn exchange(stream: &mut TcpStream, ctx: &Ctx) {
         return;
     }
     let path = request.target.split('?').next().unwrap_or("");
-    // The token, exactly; anything else is not found, without saying more.
-    let token_only = &shared.prefix[..shared.prefix.len() - 1];
-    if path == token_only {
+    // The token, exactly (compared in constant time); anything else is not found, without
+    // saying more.
+    let token = &shared.prefix[1..shared.prefix.len() - 1];
+    let (first, rest) = match path.strip_prefix('/') {
+        Some(p) => match p.split_once('/') {
+            Some((first, rest)) => (first, Some(rest)),
+            None => (p, None),
+        },
+        None => ("", None),
+    };
+    if !same(first, token) {
+        let _ = respond(stream, "404 Not Found", &[], b"");
+        return;
+    }
+    let Some(rest) = rest else {
         let location = shared.prefix.as_str();
         let _ = respond(
             stream,
@@ -485,10 +518,6 @@ fn exchange(stream: &mut TcpStream, ctx: &Ctx) {
             &[("Location", location)],
             b"",
         );
-        return;
-    }
-    let Some(rest) = path.strip_prefix(shared.prefix.as_str()) else {
-        let _ = respond(stream, "404 Not Found", &[], b"");
         return;
     };
     let origin = request.header("origin");
@@ -610,7 +639,12 @@ pub fn content_type(path: &Path) -> &'static str {
         "json" | "map" => "application/json",
         "svg" => "image/svg+xml",
         "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "webp" => "image/webp",
+        "ico" => "image/x-icon",
         "woff2" => "font/woff2",
+        "woff" => "font/woff",
+        "ttf" => "font/ttf",
         "txt" => "text/plain; charset=utf-8",
         _ => "application/octet-stream",
     }
@@ -684,11 +718,17 @@ fn save(stream: &mut TcpStream, ctx: &Ctx, request: &Request, mut body: Vec<u8>)
             "send the STEP file as application/octet-stream",
         );
     }
-    let Some(length) = request
+    // The body is read by its Content-Length only: a chunked (or otherwise encoded) body is
+    // refused rather than misread.
+    let length = request
         .header("content-length")
-        .and_then(|l| l.trim().parse::<u64>().ok())
-    else {
-        return refuse_save(stream, "411 Length Required", "Content-Length is required");
+        .and_then(|l| l.trim().parse::<u64>().ok());
+    let (Some(length), None) = (length, request.header("transfer-encoding")) else {
+        return refuse_save(
+            stream,
+            "411 Length Required",
+            "Content-Length is required (no Transfer-Encoding)",
+        );
     };
     if length > shared.cap {
         return refuse_save(
@@ -697,12 +737,19 @@ fn save(stream: &mut TcpStream, ctx: &Ctx, request: &Request, mut body: Vec<u8>)
             &format!("larger than {} bytes", shared.cap),
         );
     }
+    let deadline = Instant::now() + body_time(length);
     let length = length as usize;
     body.truncate(length);
     let mut chunk = vec![0u8; 64 * 1024];
     while body.len() < length {
+        let Some(left) = deadline
+            .checked_duration_since(Instant::now())
+            .filter(|d| !d.is_zero())
+        else {
+            return refuse_save(stream, "408 Request Timeout", "the body came too slowly");
+        };
         if stream
-            .set_read_timeout(Some(Duration::from_secs(30)))
+            .set_read_timeout(Some(left.min(Duration::from_secs(30))))
             .is_err()
         {
             return;
@@ -722,22 +769,17 @@ fn save(stream: &mut TcpStream, ctx: &Ctx, request: &Request, mut body: Vec<u8>)
         );
     }
     let _guard = lock(&shared.save_lock);
+    let bytes = body.len();
     let written = if shared.in_place {
-        replace_input(shared, &body)
+        replace_input(shared, body)
     } else {
         write_new(shared, &body)
     };
     match written {
         Ok(path) => {
             let shown = path.display().to_string();
-            let _ = ctx
-                .tell
-                .send(format!("Saved {shown} ({} bytes).", body.len()));
-            reply_json(
-                stream,
-                "200 OK",
-                &json!({ "path": shown, "bytes": body.len() }),
-            );
+            let _ = ctx.tell.send(format!("Saved {shown} ({bytes} bytes)."));
+            reply_json(stream, "200 OK", &json!({ "path": shown, "bytes": bytes }));
         }
         Err(e) => refuse_save(
             stream,
@@ -745,6 +787,12 @@ fn save(stream: &mut TcpStream, ctx: &Ctx, request: &Request, mut body: Vec<u8>)
             &format!("cannot save: {e}"),
         ),
     }
+}
+
+/// The longest a save's body may take to arrive: 30 s, and 1 s more per MiB (a trickling
+/// client cannot hold a connection indefinitely).
+fn body_time(length: u64) -> Duration {
+    Duration::from_secs(30 + length / (1024 * 1024))
 }
 
 /// `body` written to a new temporary file in `dir`, synced.
@@ -799,51 +847,69 @@ fn write_new(shared: &Shared, body: &[u8]) -> io::Result<PathBuf> {
     Err(io::Error::other("every candidate name is taken"))
 }
 
-/// `--in-place`: the input copied to the first free `.bak` (`<file>.bak`, then `.bak-2`, …),
-/// then replaced by renaming the written temporary file onto it. A gzipped input is written
-/// gzipped, so the file stays what its name says.
-fn replace_input(shared: &Shared, body: &[u8]) -> io::Result<PathBuf> {
+/// `--in-place`: the input replaced by renaming a written temporary file onto it. The first
+/// save of the session first copies the original to the first free `.bak` (`<file>.bak`, then
+/// `<file>.bak-2`, …) beside the path as given; later saves keep no other copy. A link is
+/// followed (its target is replaced, the link kept). The replacement keeps the original's
+/// permissions, and a gzipped input is written gzipped, so the file stays what its name says.
+fn replace_input(shared: &Shared, body: Vec<u8>) -> io::Result<PathBuf> {
     let step = &shared.step;
-    let dir = step
+    // The file itself, through any link; renaming onto the link would replace the link.
+    let real = fs::canonicalize(step)?;
+    let dir = real
         .parent()
         .ok_or_else(|| io::Error::other("the input has no directory"))?;
     let stored = if shared.gz {
         let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
-        gz.write_all(body)?;
+        gz.write_all(&body)?;
         gz.finish()?
     } else {
-        body.to_vec()
+        body
     };
     let temp = temp_file(dir, &stored)?;
-    let backed_up = (|| {
-        for n in 1..=MAX_CANDIDATES {
-            let bak = if n == 1 {
-                PathBuf::from(format!("{}.bak", step.display()))
-            } else {
-                PathBuf::from(format!("{}.bak-{n}", step.display()))
-            };
-            match OpenOptions::new().write(true).create_new(true).open(&bak) {
-                Ok(mut out) => {
-                    let copied = File::open(step)
-                        .and_then(|mut input| io::copy(&mut input, &mut out))
-                        .and_then(|_| out.sync_all());
-                    if copied.is_err() {
-                        let _ = fs::remove_file(&bak);
-                    }
-                    return copied;
-                }
-                Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
-                Err(e) => return Err(e),
-            }
+    let replaced = (|| {
+        fs::set_permissions(&temp, fs::metadata(&real)?.permissions())?;
+        let mut backup = lock(&shared.backup);
+        if backup.is_none() {
+            *backup = Some(back_up(step, &real)?);
         }
-        Err(io::Error::other("every .bak name is taken"))
+        fs::rename(&temp, &real)
     })();
-    if let Err(e) = backed_up.and_then(|_| fs::rename(&temp, step)) {
+    if let Err(e) = replaced {
         let _ = fs::remove_file(&temp);
         return Err(e);
     }
     *lock(&shared.bytes) = Arc::new(stored);
     Ok(step.clone())
+}
+
+/// `real` (the input's file) copied to the first free name of `<step>.bak`, `<step>.bak-2`, …
+/// (never over a file); the name taken.
+fn back_up(step: &Path, real: &Path) -> io::Result<PathBuf> {
+    for n in 1..=MAX_CANDIDATES {
+        let mut name = step.as_os_str().to_os_string();
+        if n == 1 {
+            name.push(".bak");
+        } else {
+            name.push(format!(".bak-{n}"));
+        }
+        let bak = PathBuf::from(name);
+        match OpenOptions::new().write(true).create_new(true).open(&bak) {
+            Ok(mut out) => {
+                let copied = File::open(real)
+                    .and_then(|mut input| io::copy(&mut input, &mut out))
+                    .and_then(|_| out.sync_all());
+                if let Err(e) = copied {
+                    let _ = fs::remove_file(&bak);
+                    return Err(e);
+                }
+                return Ok(bak);
+            }
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e),
+        }
+    }
+    Err(io::Error::other("every .bak name is taken"))
 }
 
 /// A request's method, target and headers, as far as they are read.

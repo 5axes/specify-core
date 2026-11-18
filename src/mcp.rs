@@ -1693,15 +1693,6 @@ struct HttpRules {
     token: String,
 }
 
-/// Compares without stopping at the first difference.
-fn same(a: &str, b: &str) -> bool {
-    a.len() == b.len()
-        && a.bytes()
-            .zip(b.bytes())
-            .fold(0u8, |acc, (x, y)| acc | (x ^ y))
-            == 0
-}
-
 fn answer_http(mut stream: TcpStream, rules: &HttpRules, server: &Mutex<Server>) {
     exchange(&mut stream, rules, server);
     crate::open::drain(&mut stream);
@@ -1746,7 +1737,7 @@ fn exchange(stream: &mut TcpStream, rules: &HttpRules, server: &Mutex<Server>) {
         .header("authorization")
         .and_then(|a| a.trim().split_once(' '))
         .filter(|(scheme, _)| scheme.eq_ignore_ascii_case("bearer"))
-        .is_some_and(|(_, t)| same(t.trim(), &rules.token));
+        .is_some_and(|(_, t)| crate::open::same(t.trim(), &rules.token));
     if !authorised {
         let _ = respond(
             stream,

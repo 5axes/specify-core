@@ -106,10 +106,10 @@ are named `max_deviation_mm`. See [mesh tolerance](docs/mesh-tolerance.md).
 `specify-core open plate.step` opens the file in Specify in your browser, served by the
 command itself on 127.0.0.1: nothing is uploaded and nothing depends on a website. Specify's
 Save writes `plate.specified.step` next to the input (then `plate.specified-2.step`, …; nothing
-is overwritten); `--in-place` saves over the input and keeps the original as `plate.step.bak`,
-and `--read-only` refuses saves. `--port N` picks the port and `--no-browser` only prints the
-address. The command stops a few seconds after the page is closed, or after 30 minutes without
-a request. The app is not bundled yet: pass `--app DIR` (or set `SPECIFY_APP_DIR`) to the built
+is overwritten); `--in-place` saves over the input (through a link, over its target) and keeps
+the original once as `plate.step.bak`, and `--read-only` refuses saves. `--port N` picks the
+port and `--no-browser` only prints the address. The command stops 45 seconds after the last
+page is closed, or after 30 minutes without a request. The app is not bundled yet: pass `--app DIR` (or set `SPECIFY_APP_DIR`) to the built
 Specify app and `--wasm DIR` (or `SPECIFY_WASM_DIR`) to the engine's wasm-pack `pkg/`
 directory. See [docs/open.md](docs/open.md).
 
