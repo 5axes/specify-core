@@ -1585,3 +1585,58 @@ fn a_linked_file_saves_beside_the_link_and_reopens_to_its_session() {
     drop(server);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Reviewing a diff in the browser: `show` on a session opened with `old` serves the page in
+/// diff mode, with the report, and Save writes the new revision with the carried answers.
+#[test]
+fn a_diff_session_is_shown_in_diff_mode_and_saves_new() {
+    let dir = scratch("diff-show");
+    let (old, new) = (dir.join("plate.old.step.gz"), dir.join("plate.new.step.gz"));
+    std::fs::copy(revision("hole_moved.old.step.gz"), &old).unwrap();
+    std::fs::copy(revision("hole_moved.new.step.gz"), &new).unwrap();
+    let old_answers = dir.join("old.answers.json");
+    std::fs::write(&old_answers, r#"{"part.material": "6061-T6"}"#).unwrap();
+    let mut server = Server::new(std::slice::from_ref(&dir)).unwrap();
+    server.set_app(stub_app(&dir));
+    let opened = call(
+        &mut server,
+        "open",
+        json!({"path": new, "old": old, "old_answers": old_answers}),
+    );
+    let out = opened["structuredContent"].clone();
+    let doc = out["doc"].clone();
+    let shown = call(&mut server, "show", json!({"doc": doc, "browser": false}));
+    assert_eq!(shown["isError"], json!(false), "{shown}");
+    assert_eq!(shown["structuredContent"]["mode"], json!("diff"));
+    let url = shown["structuredContent"]["url"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let (status, config) = page(&url, "GET", "config", None);
+    assert_eq!(status, 200);
+    assert_eq!(config["mode"], json!("diff"));
+    assert_eq!(config["path"], json!(new));
+    assert_eq!(config["oldPath"], json!(old));
+    let (status, report) = page(&url, "GET", "diff", None);
+    assert_eq!(status, 200);
+    assert_eq!(report, out["report"]);
+    let (_, answers) = page(&url, "GET", "answers", None);
+    assert_eq!(answers["parts"]["0"]["part.material"], json!("6061-T6"));
+    // The person saves NEW from the page, with the carried answers.
+    let (status, saved) = page(
+        &url,
+        "POST",
+        "save",
+        Some(&json!({"rev": 0, "acceptDefaults": false})),
+    );
+    assert_eq!(status, 200, "{saved}");
+    let written = dir.join("plate.new.specified.step");
+    assert_eq!(saved["path"], json!(written));
+    let resumed = specify_core::api::analyse_file(&written, None).unwrap();
+    assert_eq!(
+        resumed["resume"]["answers"]["part.material"],
+        json!("6061-T6")
+    );
+    drop(server);
+    let _ = std::fs::remove_dir_all(&dir);
+}
