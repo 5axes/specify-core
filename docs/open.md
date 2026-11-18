@@ -245,7 +245,9 @@ fails its next check and re-reads.)
 
 `source` is `"page"` (a `PUT answers`), `"mcp"` (the agent's tools, docs/session.md) or
 `"start"` (the first event).
-Every open page receives every change, its own included (it can skip a `rev` it already has).
+Every open page receives every change, its own included. One `rev` can carry several `answers`
+events, one per part (a save's approvals on several parts): a page skips an event it already
+has by its `rev` and `part` together, not by `rev` alone.
 A comment line (`: keep-alive`) is sent every 15 s. A stream that falls more than 1,000 events
 behind is closed; reconnecting, it gets the full state. A reconnecting `EventSource` gets the full
 current state again; `Last-Event-ID` is ignored. A `save` also sends

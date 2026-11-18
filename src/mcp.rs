@@ -1179,7 +1179,7 @@ impl Server {
         let (handle, doc) = self.doc(args)?;
         let overwrite = flag(args, "overwrite")?;
         let output = self.output_path(string(args, "output")?, overwrite)?;
-        let (answers, rev) = (self.approved_answers(doc, args)?, doc.rev());
+        let (answers, rev) = self.approved_answers(doc, args)?;
         let loaded = doc.loaded()?;
         // What is answered, and only the defaults approved (ADR P9): incomplete is written.
         let (intent, missing) = session::intent_for(&loaded, &doc.analysis, &answers)?;
@@ -1191,12 +1191,13 @@ impl Server {
     }
 
     /// The doc's answers with the defaults approved in `accept_defaults` (optional; for this
-    /// doc's part only), checked against the defaults as they stand.
+    /// doc's part only), checked against the defaults as they stand, and the rev of the answers
+    /// they were taken from (both read under one hold of the session's lock).
     fn approved_answers(
         &self,
         doc: &Doc,
         args: &Map<String, Value>,
-    ) -> Result<Map<String, Value>, ToolError> {
+    ) -> Result<(Map<String, Value>, u64), ToolError> {
         let approved = approvals_arg(args, doc.part, false)?;
         if let Some(other) = approved.keys().find(|k| **k != doc.part) {
             return Err(ToolError::invalid(format!(
@@ -1205,7 +1206,13 @@ impl Server {
             )));
         }
         let wanted = approved.get(&doc.part).cloned().unwrap_or_default();
-        session::with_approved(&doc.analysis, &doc.answers(), doc.part, &wanted).map_err(save_error)
+        let (answers, rev) = {
+            let s = session::lock(&doc.session);
+            (s.answers(doc.part).cloned().unwrap_or_default(), s.rev())
+        };
+        let answers = session::with_approved(&doc.analysis, &answers, doc.part, &wanted)
+            .map_err(save_error)?;
+        Ok((answers, rev))
     }
 
     fn export_answers(&self, args: &Map<String, Value>) -> ToolResult {
@@ -1214,7 +1221,7 @@ impl Server {
             Some(raw) => Some(self.output_path(raw, flag(args, "overwrite")?)?),
             None => None,
         };
-        let (answers, rev) = (self.approved_answers(doc, args)?, doc.rev());
+        let (answers, rev) = self.approved_answers(doc, args)?;
         // What is answered and the defaults approved, never every default (ADR P9), with the
         // face evidence and the rule behind each approved default.
         let loaded = doc.loaded()?;

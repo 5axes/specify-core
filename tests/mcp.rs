@@ -440,8 +440,7 @@ fn conversation(era: &'static str) {
     );
     assert_eq!(refused["code"], json!("refused"));
 
-    // export_answers: the answers and the defaults approved, with serve's face evidence, and
-    // saved where asked.
+    // export_answers == serve's export of the same approved answers, and saved where asked.
     let sidecar = dir.join("plate.answers.json");
     let exported = client.call(
         "export_answers",
@@ -453,25 +452,9 @@ fn conversation(era: &'static str) {
             "op": "export_answers", "step": plate, "analysis": analysis, "answers": approved,
         }),
     );
-    let mut given: Vec<&String> = exported["answers"]
-        .as_object()
-        .unwrap()
-        .keys()
-        .filter(|k| !k.starts_with('_'))
-        .collect();
-    given.sort();
-    let mut expected: Vec<&String> = approved.keys().collect();
-    expected.sort();
-    assert_eq!(given, expected);
-    for (id, value) in &approved {
-        assert_eq!(&exported["answers"][id], value, "{id}");
-    }
-    assert_eq!(
-        exported["answers"]["_specify"]["evidence"],
-        served["answers"]["_specify"]["evidence"]
-    );
+    assert_eq!(exported["answers"], served["answers"]);
     let saved: Value = serde_json::from_str(&std::fs::read_to_string(&sidecar).unwrap()).unwrap();
-    assert_eq!(saved, exported["answers"]);
+    assert_eq!(saved, served["answers"]);
 
     // diff of two revisions == the revision report the API gives.
     let (old, new) = (

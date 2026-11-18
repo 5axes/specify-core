@@ -96,7 +96,11 @@ way to push to the agent unasked.
 - Paths: `open`, `save` and the rest stay inside `--allow` (docs/mcp.md). Save writes beside
   the file, which is inside it.
 - Stale files: a file changed on disk after `open` is refused as `stale`, except by the
-  session's own `in_place` save, which records what it wrote.
+  session's own `in_place` save, which records what it wrote. A `save` during which the
+  session's set of parts changed (the page's first change to another part, which an agent's
+  save has no `rev` to notice) is refused as `stale` too, nothing written: read and save again.
+- A save whose write fails after its approvals were applied rolls them back (a further `rev`),
+  unless the session has moved on since; nothing is written.
 - The page server's rules (exact Host, token, Origin on changes, CSP, connection caps) are
   docs/open.md's, unchanged. There is no MCP endpoint over HTTP in the page server: the agent
   talks to the session over its own stdio connection only.

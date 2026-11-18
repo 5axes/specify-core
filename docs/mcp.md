@@ -71,7 +71,9 @@ structured result, and its text content holds the same JSON. A refusal is a tool
 `isError: true` and `structuredContent.error`: `{code, message, ...}`. The code is `invalid` (a
 bad argument, or an answer Specify refuses; `question` names it), `refused` (a path outside
 `--allow`, or an existing file without `overwrite`), `unknown_document`, `stale` (also an
-in-place `save` over a file changed on disk by another program), `incomplete` (with `missing`)
+in-place `save` over a file changed on disk by another program, and a `save` during which the
+session's set of parts changed, such as the page's first change to another part: read it again
+and save again), `incomplete` (with `missing`)
 or `failed`. Protocol errors, such as an unknown tool or bad params, are
 JSON-RPC errors.
 
