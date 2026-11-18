@@ -218,7 +218,9 @@ try {
     const server = await open([oldFile, newFile], '--diff');
     const config = await (await fetch(`${server.url}config`)).json();
     assert.equal(config.mode, 'diff');
-    const report = await (await fetch(`${server.url}diff`)).json();
+    // GET diff: WASM diff()'s {report, markdown, view} (specify-core 2026-11-18), or report.json before.
+    const body = await (await fetch(`${server.url}diff`)).json();
+    const report = body.view ? body.report : body;
     const { parts } = await (await fetch(`${server.url}answers`)).json();
     const carried = given(parts['0']);
     assert.ok(Object.keys(carried).length > 5, `the old revision's answers are carried: ${Object.keys(carried)}`);

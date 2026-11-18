@@ -78,8 +78,14 @@ export const save = (rev: number, acceptDefaults: boolean) => json<Saved>(fetch(
   method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rev, acceptDefaults }),
 }));
 
-/** Diff mode: the revision report, as `specify-core diff`'s report.json. */
-export const getDiff = () => json<unknown>(fetch('diff', { cache: 'no-store' }));
+/** Diff mode: the command's comparison. Since specify-core's 2026-11-18 contract change it is what
+ * WASM `diff()` returns (`{report, markdown, view}`, an assembly's `{report, markdown, parts}`);
+ * before, `specify-core diff`'s report.json alone. Either way, the report. */
+export async function getDiff(): Promise<{ report: unknown; compared: unknown | null }> {
+  const body = await json<Record<string, unknown>>(fetch('diff', { cache: 'no-store' }));
+  return body && typeof body === 'object' && 'report' in body && ('view' in body || 'parts' in body)
+    ? { report: body.report, compared: body } : { report: body, compared: null };
+}
 
 /** The session's changes as they happen (the start state first, again on each reconnect), and
  * each save, whoever asked for it. ``onLive(false)`` when the stream is lost or refused (a 503:

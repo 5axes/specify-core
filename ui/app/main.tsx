@@ -135,7 +135,7 @@ function App() {
       document.title = `${first.name} — Specify`;
       stop = keepAlive(setConfig);
       worker.current = createIntentEngine({ wasmUrl: first.wasmUrl });
-      const [bytes, answers, old, report] = await Promise.all([
+      const [bytes, answers, old, diff] = await Promise.all([
         getFile('new').then(stepBytes), getAnswers(),
         first.mode === 'diff' ? getFile('old').then(stepBytes) : null,
         first.mode === 'diff' ? getDiff() : null,
@@ -150,7 +150,8 @@ function App() {
       const at = { part: several ? (withAnswers ?? rows[0]!).part : 0, several };
       setParts(several ? rows : []);
       const part = await openPart(worker.current, answersSession, first.name, bytes, at, edited);
-      if (old && report) {
+      if (old && diff) {
+        const { report } = diff;
         const r = report as { verdict?: string; summary?: string };
         setCompared({
           old: { name: first.oldName ?? 'old.step', bytes: old }, next: { name: first.name, bytes },
@@ -449,10 +450,11 @@ function App() {
         {!opened && !problem && <p className="app-loading">Opening {config?.name ?? 'the part'}…</p>}
         {compared && (
           <div className="app-diff diff-page" hidden={!showingChanges}>
-            {/* TODO(specify-core GET diff → {report, markdown, view}): StepDiff compares the two
-                files again in the page's engine. specify-core is changing `GET diff` to return
-                exactly what WASM diff() returns, so StepDiff can draw the command's comparison
-                instead; switch to it once the open-session contract has it. */}
+            {/* TODO(StepDiff from the command's comparison): StepDiff compares the two files again in
+                the page's engine. specify-core's GET diff now gives WASM diff()'s {report, markdown,
+                view} (getDiff's ``compared``), but computed without the PMI scenes (diff()'s
+                ``scenes`` false), which StepDiff draws the PMI changes from; drawing from it would
+                lose them. Switch once GET diff carries `report.pmi.scenes`. */}
             <StepDiff before={compared.old} after={compared.next} wasmUrl={config?.wasmUrl} />
           </div>
         )}
