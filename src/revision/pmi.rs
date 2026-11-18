@@ -410,6 +410,23 @@ fn mapped(support: &[usize], faces: &BTreeMap<usize, Bind>) -> Option<Vec<usize>
     Some(result)
 }
 
+// Whether a same-id pairing of items whose support did not map whole contradicts the known
+// face correspondence: a surviving face mapped outside the new support, or a new face that is
+// another old face's image (recognition reused a face-derived id for another feature).
+fn contradicts(was: &Item, now: &Item, faces: &BTreeMap<usize, Bind>) -> bool {
+    was.faces.iter().any(|face| match faces.get(face) {
+        Some(Bind::To(to)) => !now.faces.contains(to),
+        _ => false,
+    }) || now.faces.iter().any(|to| {
+        let mut from = faces
+            .iter()
+            .filter(|(_, bind)| **bind == Bind::To(*to))
+            .map(|(old, _)| old)
+            .peekable();
+        from.peek().is_some() && !from.any(|old| was.faces.contains(old))
+    })
+}
+
 // Missing provenance in a CAD requirement is not evidence of a different role.
 // When both roles are stated, even numbers and ids must respect them.
 fn compatible(was: &Item, now: &Item) -> bool {
@@ -503,7 +520,10 @@ fn compare(
                                     && ((carried_numbers
                                         && was.number.is_some()
                                         && now.number.is_some())
-                                        || mapped.as_ref().is_none_or(|f| *f == now.faces))
+                                        || match &mapped {
+                                            Some(f) => *f == now.faces,
+                                            None => !contradicts(was, now, faces),
+                                        })
                             }
                             2 => {
                                 mapped.as_ref().is_some_and(|f| *f == now.faces)
@@ -666,11 +686,15 @@ fn compare(
                 ));
             }
         } else {
+            // Only a carried history retires a number. Fresh plan numbers are reserved by
+            // nothing: the new plan may give the removed item's number to another item.
             result.push(change(
                 "removed",
                 Some(was),
                 None,
-                was.number.map(|_| "retired".into()),
+                was.number
+                    .filter(|_| carried_numbers)
+                    .map(|_| "retired".into()),
             ));
         }
     }
@@ -750,7 +774,11 @@ pub(super) fn diff(
                     actual.id == change.id
                         || (actual.number.is_some() && actual.number == change.number)
                 }) {
-                    change.reason = Some("carried requirement differs from the new file".into());
+                    let differs = "carried requirement differs from the new file";
+                    change.reason = Some(match change.reason.as_deref() {
+                        Some("retired") => format!("retired; {differs}"),
+                        _ => differs.into(),
+                    });
                     changes.push(change);
                 }
             }

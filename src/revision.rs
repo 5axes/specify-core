@@ -81,6 +81,10 @@ pub struct Revised {
     pub pmi: Pmi,
     /// Questions open on the new part that were not open on the old one.
     pub questions: Vec<OpenQuestion>,
+    /// Another rigid motion fits the old part onto the new one as well as the one taken (a
+    /// symmetric part): the tie is broken by the file's frame, and the report says so.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub frame_tie: Option<FrameTie>,
     pub problems: Problems,
     /// Each new face's class (`changed` or `new`; faces carried unchanged are left out), and the
     /// old faces that are gone or moved, for [`picture`].
@@ -98,6 +102,19 @@ pub struct Revised {
     pmi_graphics: Vec<pmi_picture::Graphic>,
     #[serde(skip)]
     check_lines: Vec<String>,
+}
+
+/// A symmetric part's tie, broken by the file's frame: the motion nearest the identity is taken
+/// (none, when the part fits as it stands), though another fits as well.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct FrameTie {
+    /// The motion taken, in words; `None` when the parts were matched in the file's frame.
+    pub motion: Option<String>,
+    /// The other motion that fits as well, relative to the one taken (`a 180° turn about Z`),
+    /// when it can be named.
+    pub alternative: Option<String>,
+    /// The report's sentence.
+    pub note: String,
 }
 
 /// One face's change that no feature of the report explains (see [`Revised::other_faces`]).
@@ -2430,12 +2447,19 @@ pub fn diff_with_options(
         },
         questions,
         problems,
+        frame_tie: None,
         faces: face_class,
         gone,
         correspondence: Some(corr),
         still: true,
     };
     revised.still = revised.motion().is_none() || onto_itself(&old_q.fingerprints, &alignment);
+    revised.frame_tie = frame_tie(
+        &alignment,
+        revised.motion(),
+        [&old_q.fingerprints, &new_q.fingerprints],
+        &old.part,
+    );
     Ok(revised)
 }
 
@@ -2650,6 +2674,138 @@ fn other_faces(
     // What moved or changed shape first, then faces only trimmed by their neighbours' changes.
     out.sort_by_key(FaceChange::trimmed);
     Ok((out, unchanged, context))
+}
+
+/// The tie a symmetric part leaves (see [`FrameTie`]): quiddity found another motion that fits as
+/// many anchors and took the one nearest the identity. A turned part's free turn about its axis
+/// is no tie: nothing is placed by it. The other motion is named when a quarter or half turn about
+/// an axis through the moved part's box centre, after the motion taken, lays as many old faces on
+/// new ones as the motion taken does.
+fn frame_tie(
+    a: &qc::Alignment,
+    motion: Option<String>,
+    prints: [&qc::Fingerprints; 2],
+    old: &Part,
+) -> Option<FrameTie> {
+    if !a.found || !a.symmetric || a.axisymmetric {
+        return None;
+    }
+    let apply = |r: &[[f64; 3]; 3], t: [f64; 3], p: [f64; 3]| -> [f64; 3] {
+        [0, 1, 2].map(|i| r[i][0] * p[0] + r[i][1] * p[1] + r[i][2] * p[2] + t[i])
+    };
+    let tol = prints[0].scale.max(prints[1].scale) * 1e-3;
+    // How many old faces, placed by *place*, lie on a new face of the same surface.
+    let fits = |place: &dyn Fn([f64; 3]) -> [f64; 3]| {
+        prints[0]
+            .faces
+            .iter()
+            .filter(|f| {
+                let c = place(f.centroid);
+                prints[1].faces.iter().any(|g| {
+                    g.surface == f.surface
+                        && (0..3)
+                            .map(|k| (c[k] - g.centroid[k]).powi(2))
+                            .sum::<f64>()
+                            .sqrt()
+                            <= tol
+                })
+            })
+            .count()
+    };
+    let taken = |p| apply(&a.rotation, a.translation, p);
+    let alternative = match a.fold {
+        Some(k) if k > 1 => Some(format!(
+            "a {}° turn about the part's axis",
+            num(360.0 / k as f64)
+        )),
+        _ => {
+            let size = size(old);
+            let centre = taken([0, 1, 2].map(|i| (size.min[i] + size.max[i]) / 2.0));
+            let base = fits(&taken);
+            // The 23 turns of the axes onto themselves, smallest first.
+            let mut turns: Vec<[[f64; 3]; 3]> = Vec::new();
+            for perm in [
+                [0, 1, 2],
+                [0, 2, 1],
+                [1, 0, 2],
+                [1, 2, 0],
+                [2, 0, 1],
+                [2, 1, 0],
+            ] {
+                for signs in 0..8 {
+                    let mut r = [[0.0; 3]; 3];
+                    for i in 0..3 {
+                        r[i][perm[i]] = if signs >> i & 1 == 1 { -1.0 } else { 1.0 };
+                    }
+                    let det = r[0][0] * (r[1][1] * r[2][2] - r[1][2] * r[2][1])
+                        - r[0][1] * (r[1][0] * r[2][2] - r[1][2] * r[2][0])
+                        + r[0][2] * (r[1][0] * r[2][1] - r[1][1] * r[2][0]);
+                    if det > 0.0 && r[0][0] + r[1][1] + r[2][2] < 3.0 {
+                        turns.push(r);
+                    }
+                }
+            }
+            turns.sort_by(|x, y| {
+                let trace = |r: &[[f64; 3]; 3]| r[0][0] + r[1][1] + r[2][2];
+                trace(y).total_cmp(&trace(x))
+            });
+            turns.into_iter().find_map(|r| {
+                let about = |p| {
+                    let q = taken(p);
+                    let d = [0, 1, 2].map(|i| q[i] - centre[i]);
+                    let d = apply(&r, [0.0; 3], d);
+                    [0, 1, 2].map(|i| d[i] + centre[i])
+                };
+                (fits(&about) >= base)
+                    .then(|| turn(&r))
+                    .flatten()
+                    .map(|(degrees, axis)| format!("a {}° turn about {axis}", num(degrees)))
+            })
+        }
+    };
+    let other = alternative
+        .clone()
+        .unwrap_or_else(|| "another rigid motion".into());
+    let note = match &motion {
+        None => format!("Matched in the file's frame; {other} fits equally."),
+        Some(m) => {
+            format!("Matched by the motion nearest the file's frame ({m}); {other} fits equally.")
+        }
+    };
+    Some(FrameTie {
+        motion,
+        alternative,
+        note,
+    })
+}
+
+/// A rotation's turn in degrees and the axis it is about (`X`, `Y`, `Z` or `a skew axis`); `None`
+/// for a turn under half a degree.
+fn turn(r: &[[f64; 3]; 3]) -> Option<(f64, String)> {
+    let degrees = (((r[0][0] + r[1][1] + r[2][2] - 1.0) / 2.0).clamp(-1.0, 1.0))
+        .acos()
+        .to_degrees();
+    if degrees < 0.5 {
+        return None;
+    }
+    let mut axis = [r[2][1] - r[1][2], r[0][2] - r[2][0], r[1][0] - r[0][1]];
+    let mut length = axis.iter().map(|v| v * v).sum::<f64>().sqrt();
+    if length < 1e-6 && degrees > 90.0 {
+        // At π the skew part vanishes; R + I = 2 n nᵀ. Its largest
+        // column gives the axis without dividing by a tiny sine of the turn.
+        axis = (0..3)
+            .map(|j| std::array::from_fn(|i| r[i][j] + if i == j { 1.0 } else { 0.0 }))
+            .max_by(|a: &[f64; 3], b| {
+                let norm = |v: &[f64; 3]| v.iter().map(|x| x * x).sum::<f64>();
+                norm(a).total_cmp(&norm(b))
+            })
+            .expect("three columns");
+        length = axis.iter().map(|v| v * v).sum::<f64>().sqrt();
+    }
+    let about = (0..3)
+        .find(|&i| length > 1e-9 && (axis[i] / length).abs() > 0.99)
+        .map_or_else(|| "a skew axis".to_string(), |i| AXES[i].to_string());
+    Some((degrees, about))
 }
 
 /// Whether *a* takes a part onto itself: each face, moved, has a face of the same surface and
@@ -2888,30 +3044,9 @@ impl Revised {
         if !a.found {
             return None;
         }
-        let r = &a.rotation;
-        let turn = (((r[0][0] + r[1][1] + r[2][2] - 1.0) / 2.0).clamp(-1.0, 1.0))
-            .acos()
-            .to_degrees();
         let mut words = Vec::new();
-        if turn >= 0.5 {
-            let mut axis = [r[2][1] - r[1][2], r[0][2] - r[2][0], r[1][0] - r[0][1]];
-            let mut length = axis.iter().map(|v| v * v).sum::<f64>().sqrt();
-            if length < 1e-6 && turn > 90.0 {
-                // At π the skew part vanishes; R + I = 2 n nᵀ. Its largest
-                // column gives the axis without dividing by a tiny sine of the turn.
-                axis = (0..3)
-                    .map(|j| std::array::from_fn(|i| r[i][j] + if i == j { 1.0 } else { 0.0 }))
-                    .max_by(|a: &[f64; 3], b| {
-                        let norm = |v: &[f64; 3]| v.iter().map(|x| x * x).sum::<f64>();
-                        norm(a).total_cmp(&norm(b))
-                    })
-                    .expect("three columns");
-                length = axis.iter().map(|v| v * v).sum::<f64>().sqrt();
-            }
-            let about = (0..3)
-                .find(|&i| length > 1e-9 && (axis[i] / length).abs() > 0.99)
-                .map_or_else(|| "a skew axis".to_string(), |i| AXES[i].to_string());
-            words.push(format!("turned {}° about {about}", num(turn)));
+        if let Some((degrees, about)) = turn(&a.rotation) {
+            words.push(format!("turned {}° about {about}", num(degrees)));
         }
         let shift: Vec<String> = (0..3)
             .filter(|&i| a.translation[i].abs() >= 0.05)
@@ -3029,6 +3164,9 @@ impl Revised {
                  where it is now.\n"
             );
         }
+        if let Some(tie) = &self.frame_tie {
+            let _ = writeln!(s, "{}\n", tie.note);
+        }
         if !self.features.is_empty() {
             s += "**What changed**\n\n";
             for (line, _) in self.change_lines() {
@@ -3070,7 +3208,14 @@ impl Revised {
                 let now = c.new.as_deref().unwrap_or_default();
                 let text = match c.class.as_str() {
                     "changed" => format!("{was} → {now}"),
-                    "removed" if c.number.is_some() => format!("retired: {was}"),
+                    // A number is retired only from a carried history.
+                    "removed"
+                        if c.reason
+                            .as_deref()
+                            .is_some_and(|r| r.starts_with("retired")) =>
+                    {
+                        format!("retired: {was}")
+                    }
                     "removed" => format!("removed: {was}"),
                     "renumbered" => {
                         format!("{now}: {}", c.reason.as_deref().unwrap_or("renumbered"))
@@ -3080,7 +3225,8 @@ impl Revised {
                 let reason = c
                     .reason
                     .as_deref()
-                    .filter(|r| !["retired"].contains(r) && c.class != "renumbered")
+                    .map(|r| r.trim_start_matches("retired").trim_start_matches("; "))
+                    .filter(|r| !r.is_empty() && c.class != "renumbered")
                     .map_or(String::new(), |r| format!("; {r}"));
                 lines.push(format!("{prefix}{text} ({}{reason})", c.on));
             }

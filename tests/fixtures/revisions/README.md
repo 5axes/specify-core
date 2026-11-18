@@ -149,3 +149,10 @@ export_step(plate(60), "plate_side_pushed.old.step"); export_step(plate(65), "pl
 0.11.0, run with an output directory): a 120 × 120 × 10 base with a Ø65 boss whose top edge has
 an R3 fillet, shortened from 13 to 8 mm high with the same fillet. Up to quiddity 0.5.2 the
 shorter boss dropped its fillet and cap from its height (13 → 5); 0.5.3 measures both (13 → 8).
+
+`symmetric_tie` and `pair_after_removal` (with their `.answers.json`) are the maintainer's
+synthetic step-flow scenarios `symmetric` and `remove` (build123d plates, gzipped with no name
+or mtime). `symmetric_tie`: a 100 × 60 × 10 plate with Ø6 holes at (30, 30), datum B and H7,
+and (70, 30), which moves to (75, 30); the old plate fits the new one turned 180° about Z as
+well as it lies. `pair_after_removal`: the Ø8 hole at (80, 15) is removed, so the Ø5 pair's
+faces 8, 9 become 7, 8.

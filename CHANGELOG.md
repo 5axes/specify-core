@@ -42,6 +42,17 @@ All notable changes to specify-core-rust. The format follows
 
 ### Fixed
 
+- `diff` on a symmetric part, where the old part fits the new one turned (180° say) as well as
+  it lies, broke the tie by the file's frame without saying so. It still matches in the file's
+  frame, now a stated rule in docs/diff.md, and says so: report.md's "Matched in the file's
+  frame; a 180° turn about Z fits equally." and report.json's `frame_tie`. The verdict and
+  carried answers are unchanged.
+- `diff`'s PMI change list paired a removed hole's requirement with the one on the hole that
+  took its face numbers ("80 → 30") through their shared face-numbered id. A same-id pair now
+  must agree with the face correspondence, so the removed hole's requirements are removed and
+  the surviving holes' unchanged. A removal is `retired` only from a carried number history:
+  with fresh numbers it is `removed`, so a number is no longer listed as retired and given to
+  another item. Carried answers and written PMI are unchanged.
 - The release's npm job failed for 0.1.18: `npm pack` read the relative `release/pkg` as a
   GitHub repository. `tools/npm_package.py` passes an absolute path; a test packs a relative
   directory with npm.

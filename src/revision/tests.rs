@@ -28,6 +28,7 @@ fn report() -> Revised {
         pmi_graphics: vec![],
         check_lines: vec![],
         questions: vec![],
+        frame_tie: None,
         problems: Problems::default(),
         faces: BTreeMap::new(),
         gone: vec![],

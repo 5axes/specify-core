@@ -42,9 +42,22 @@ the old part (a hole, a pattern, a boss, a slot, a fillet) is then:
 - **unchanged:** the same feature, perhaps with renumbered faces;
 - **adapted:** the same feature, resized or moved;
 - **orphaned:** gone;
-- **ambiguous:** it matches several features that look alike, such as a symmetric
-  repeat, or several features have become one;
+- **ambiguous:** after the motion, it is as near several features that look alike (no motion
+  was found to tell them apart, or they changed together), or several features have become one;
 - **new:** in the new part only.
+
+**A symmetric part is matched in the file's frame.** When the old part fits the new one as well
+with another rigid motion as with the one taken (a plate symmetric about its centre, which fits
+turned 180° as well as it lies), the motion nearest the identity is taken: no motion at all
+when the part fits as it stands. The file's frame is evidence, since CAD exports seldom turn a
+part, so the tie is not asked; requirements then follow the faces in that frame. The report
+says so, visibly: "Matched in the file's frame; a 180° turn about Z fits equally." (or "Matched
+by the motion nearest the file's frame (turned 90° about Z); …" when the part moved too), and
+`report.json` adds `frame_tie`: `{motion, alternative, note}`, the motion taken (`null` for
+none), the other in words (`null` when no quarter or half turn about the part's centre names
+it: "another rigid motion") and the sentence. The verdict is unchanged by it: a tie alone is
+`ok`. A turned part's free turn about its own axis is no tie and is not reported. Features that
+remain alike after the motion is chosen are still `ambiguous`, as above.
 
 ## What the report says
 
@@ -132,7 +145,10 @@ items stay distinct at the weaker stages, as before.
 With freshly allocated numbers (including two plans made from answers), items match by
 requirement id, then corresponding faces with kind resolving multiple items on one support,
 then unique remaining kind. A same-id match must not contradict known face correspondence:
-recognition can reuse a face-derived id for another feature. Fresh numbers neither reserve
+recognition can reuse a face-derived id for another feature. When some of the old item's faces
+are gone, its surviving faces must map into the new item's, and none of the new item's faces
+may be another old face's image: a removed hole's location does not pair with the hole that
+took its face numbers. Fresh numbers neither reserve
 matches nor prevent face/kind matching. `renumbered` records the actual number difference
 on the resulting pair; equal wording may therefore have a renumbering line without a value
 change. A split can map one old face to several new faces. Ambiguous item matches stay
@@ -182,8 +198,10 @@ matching thread, remain separate items. Optional scenes retain all semantic reco
 
 Each item has `class` (`added`, `removed`, `changed`, or `renumbered`), optional
 `number`, `id`, `kind`, `status`, `on` (feature words), and optional `old`, `new`
-and `reason`. A numbered removal has `reason: "retired"`; numbers are never
-reused. Renumbering is reported if detected, though ordinary editing preserves
+and `reason`. A numbered removal from a carried number history has
+`reason: "retired"`; those numbers are never reused. Fresh numbers (no carried history, or two
+independent histories) reserve nothing: a removal there is `removed` with its old number and no
+`retired` reason, since the new plan may give that number to another item. Renumbering is reported if detected, though ordinary editing preserves
 numbers. Value and material-modifier edits keep the number and produce one `changed`
 item per edited requirement, including direct STEP edits (For #95). Changes sort by
 characteristic number, then unnumbered id. Markdown prints one line per change, for example:
@@ -192,6 +210,7 @@ characteristic number, then unnumbered id. Markdown prints one line per change, 
 #7 ⌀6.6 H7 → ⌀6.6 H8 (4× ⌀6.6 holes)
 #12 added: ⌖ ⌀0.1 Ⓜ A B C (hole pattern)
 #5 retired: 50 (hole moved)
+#15 removed: ⌀8 H11 (Ø8 × 10 through hole)
 ```
 
 Paired items (`changed` and `renumbered`) include `old_id` **only when it differs

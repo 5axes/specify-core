@@ -1193,3 +1193,79 @@ fn faces_a_feature_explains_are_not_listed_again() {
         }
     }
 }
+
+/// A fixture's own answer file (`tests/fixtures/revisions/{case}.answers.json`).
+fn answer_file(case: &str) -> Value {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join(format!("tests/fixtures/revisions/{case}.answers.json"));
+    serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
+}
+
+#[test]
+fn a_symmetric_tie_is_matched_in_the_file_s_frame_and_said() {
+    // A plate symmetric about its centre: Ø6 holes at (30, 30), datum B and H7, and (70, 30),
+    // which moves to (75, 30). Turned 180° about Z, v1 fits v2 as well; the file frame wins.
+    let r = revised("symmetric_tie", answer_file("symmetric_tie"));
+    assert_eq!(r.verdict, "ok", "{}", r.summary);
+    let tie = r.frame_tie.as_ref().expect("the tie is reported");
+    assert_eq!(tie.motion, None);
+    assert_eq!(tie.alternative.as_deref(), Some("a 180° turn about Z"));
+    let md = r.markdown("Plate", None);
+    assert!(
+        md.contains("Matched in the file's frame; a 180° turn about Z fits equally."),
+        "{md}"
+    );
+    let json = serde_json::to_value(&r).unwrap();
+    assert_eq!(json["frame_tie"]["alternative"], "a 180° turn about Z");
+    // Datum B and the H7 stay on the hole at (30, 30), face 6 of the new part.
+    assert_eq!(r.answers["datum.B"], json!([6]));
+    assert_eq!(r.answers["hole.function:holes:6"], "fit:H7");
+    let (_, new) = pair("symmetric_tie");
+    let analysis = specify_core::api::analyse(&new).unwrap();
+    let hole = analysis["features"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["id"] == "holes:6")
+        .unwrap();
+    assert_eq!(hole["record"]["location"], json!([30.0, 30.0, 10.0]));
+}
+
+#[test]
+fn a_part_without_symmetry_has_no_tie() {
+    let r = revised("hole_moved", json!({}));
+    assert!(r.frame_tie.is_none(), "{:?}", r.frame_tie);
+    assert!(serde_json::to_value(&r).unwrap().get("frame_tie").is_none());
+    assert!(!r.markdown("Plate", None).contains("file's frame"));
+}
+
+#[test]
+fn a_removed_hole_s_requirements_are_not_paired_with_the_hole_taking_its_faces() {
+    // The Ø8 hole (face 7) is removed; the Ø5 pair's faces 8, 9 become 7, 8. The removed
+    // hole's location 80 reused a face-numbered id the Ø5 hole now has.
+    let r = revised("pair_after_removal", answer_file("pair_after_removal"));
+    let items = &r.pmi.items;
+    let removed: Vec<_> = items.iter().filter(|i| i.class == "removed").collect();
+    let mut gone: Vec<_> = removed.iter().map(|i| i.old.as_deref().unwrap()).collect();
+    gone.sort_unstable();
+    assert_eq!(gone, ["80", "⌀8 H11", "⌖ ⌀0.5Ⓜ A B C"], "{items:?}");
+    assert!(removed.iter().all(|i| i.on.contains("Ø8")), "{items:?}");
+    // Nothing changes on the Ø5 holes, and no value changes anywhere.
+    assert!(!items.iter().any(|i| i.on.contains("Ø5")), "{items:?}");
+    assert!(!items.iter().any(|i| i.class == "changed"), "{items:?}");
+    // No number is both retired and given to another item.
+    let retired: Vec<_> = items
+        .iter()
+        .filter(|i| i.reason.as_deref() == Some("retired"))
+        .filter_map(|i| i.number)
+        .collect();
+    assert!(
+        items
+            .iter()
+            .filter(|i| i.class != "removed")
+            .all(|i| i.number.is_none_or(|n| !retired.contains(&n))),
+        "{items:?}"
+    );
+    let md = r.markdown("Plate", None);
+    assert!(!md.contains("80 → 30"), "{md}");
+}
