@@ -159,7 +159,14 @@ fn a_foreign_or_non_depth_curve_length_cannot_claim_the_depth_number() {
                 .0,
         );
         let current = numbers(&rewritten);
-        assert!(!current.iter().any(|c| c.number == 13));
+        // ADR P9: a foreign (unmarked) curve length in a file Specify wrote is another tool's
+        // PMI and is kept as it is, its own identifier with it; no Specify item takes 13.
+        assert!(current.iter().filter(|c| c.number == 13).all(|c| {
+            foreign
+                && c.source
+                    .as_ref()
+                    .is_none_or(|s| s.parameter != "bore.depth")
+        }));
         let depth = current
             .iter()
             .find(|c| {
@@ -277,10 +284,8 @@ fn every_kind_round_trips_standard_ids_additively_and_is_exposed_in_analysis_and
         analysis["characteristics"],
         serde_json::to_value(&ns).unwrap()
     );
-    assert!(
-        analysis["existing"].as_array().unwrap().is_empty(),
-        "resumed interview stays geometry-only"
-    );
+    // ADR P9: the file's PMI is read on reopening; none of it contradicts the answers.
+    assert!(analysis["resume"].get("conflicts").is_none());
     let existing = existing::read_existing(&written).unwrap();
     assert!(existing.iter().all(|e| e.number.is_some()));
     assert_eq!(

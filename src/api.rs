@@ -448,15 +448,25 @@ fn analyse_reconciling(
                 let defs = haecceity::step::read_part_definitions(&loaded.bytes)
                     .map_err(|e| refused(&e))?;
                 let reading = existing::read_parsed(loaded, doc, &defs).map_err(|e| refused(&e))?;
-                let existing = reading
+                // Specify's own (marked) requirements are its answers' to state: the rewrite
+                // replaces them, so the ones the answers do not explain are not the file's to
+                // keep (their questions are asked again), unless a conflict stands for them.
+                // The rest is another tool's PMI, shown and kept.
+                let mut existing = reading
                     .existing_except(loaded, &r.selection())
                     .map_err(|e| refused(&e))?;
+                existing.retain(|e| e.provenance.is_none() || e.question.is_some());
                 analysis.insert(
                     "existing".into(),
                     serde_json::to_value(existing).map_err(|e| refused(&e))?,
                 );
                 let mut settings = reading.settings(loaded);
-                settings.retain(|key, _| !r.settings.contains(key));
+                let marked = reading.settings_provenance(loaded);
+                settings.retain(|key, _| {
+                    !r.settings.contains(key)
+                        && (!marked.contains_key(key)
+                            || r.conflicts.iter().any(|c| c.id == format!("part.{key}")))
+                });
                 analysis.insert("part".into(), Value::Object(settings));
                 let resume = analysis
                     .get_mut("resume")

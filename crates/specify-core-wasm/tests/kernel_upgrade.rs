@@ -172,9 +172,15 @@ fn browser_reports_unmatched_values_and_leaves_current_question_open() {
         .review(resumed["answers"].as_object().unwrap())
         .unwrap();
     // The orphan retains its saved key/value; the current hole question owns floor 5.
+    // ADR P9: the file still states that hole's requirement as its default would, so the
+    // question is answered by the file (`resume.present`), not open.
     assert_eq!(key, "hole.function:holes:3");
     assert!(
-        review["open"]
+        resumed["present"].get("hole.function:holes:3.5").is_some(),
+        "{resumed}"
+    );
+    assert!(
+        !review["open"]
             .as_array()
             .unwrap()
             .contains(&json!("hole.function:holes:3.5"))

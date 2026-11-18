@@ -665,6 +665,8 @@ fn write_verified(
     for (loaded, _, answers) in jobs {
         let part = loaded.binding.part;
         let resumed = resume::has_answers(loaded).map_err(|e| WriteError::Failed(e.to_string()))?;
+        // Another tool's PMI: unmarked requirements the resumed answers do not explain.
+        let mut foreign = false;
         let kept = if resumed {
             match crate::api::reconciled(loaded).map_err(|e| WriteError::Failed(e.to_string()))? {
                 Some(r) => {
@@ -673,6 +675,9 @@ fn write_verified(
                         answers.unwrap_or(&empty),
                         &BTreeSet::new(),
                     );
+                    foreign = provenance::unmarked(&original.doc, &original.read, part)
+                        .iter()
+                        .any(|at| !r.explained.contains(at));
                     reconciled.insert(part, r);
                     kept
                 }
@@ -683,9 +688,7 @@ fn write_verified(
         };
         if resume::scoped(&original.doc, part) && resumed {
             scoped.push(part);
-        } else if !kept.is_empty()
-            || (resumed && provenance::any_unmarked(&original.doc, &original.read, part))
-        {
+        } else if !kept.is_empty() || foreign {
             if provenance::any_marked(&original.doc, &original.read, part) {
                 // Replace-written, with PMI to keep: only Specify's marked requirements are
                 // replaced, as a scoped Add; unmarked PMI (another tool's) is kept as it is.

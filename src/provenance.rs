@@ -205,40 +205,64 @@ pub fn all(p: &PartPmi, prov: &PartProvenance, doc: &Document) -> bool {
 /// Whether any requirement of part `part` carries Specify's provenance marker. A file written
 /// before requirements were marked (#22) has none.
 pub(crate) fn any_marked(doc: &Document, read: &haecceity::pmi::PmiRead, part: usize) -> bool {
-    marks(doc, read, part).contains(&true)
+    marks(doc, read, part).iter().any(|(_, marked)| *marked)
 }
 
-/// Whether any requirement of part `part` lacks Specify's provenance marker: PMI another
-/// tool wrote (or, in a file from before #22, Specify itself).
-pub(crate) fn any_unmarked(doc: &Document, read: &haecceity::pmi::PmiRead, part: usize) -> bool {
-    marks(doc, read, part).contains(&false)
+/// The requirements of part `part` without Specify's provenance marker, by haecceity
+/// collection and index: PMI another tool wrote (or, before #22, Specify itself).
+pub(crate) fn unmarked(
+    doc: &Document,
+    read: &haecceity::pmi::PmiRead,
+    part: usize,
+) -> Vec<(String, usize)> {
+    marks(doc, read, part)
+        .into_iter()
+        .filter(|(_, marked)| !marked)
+        .map(|(at, _)| at)
+        .collect()
 }
 
 /// Whether each requirement of part `part` is marked as Specify's.
-fn marks(doc: &Document, read: &haecceity::pmi::PmiRead, part: usize) -> Vec<bool> {
+fn marks(
+    doc: &Document,
+    read: &haecceity::pmi::PmiRead,
+    part: usize,
+) -> Vec<((String, usize), bool)> {
     let p = &read.parts[part];
     let prov = &read.provenance.parts[part];
-    let mut out: Vec<bool> = prov
+    let at = |collection: &str, i: usize| (collection.to_string(), i);
+    let mut out: Vec<_> = prov
         .dimensions
         .iter()
-        .map(|ids| dimension(doc, ids))
+        .enumerate()
+        .map(|(i, ids)| (at("dimensions", i), dimension(doc, ids)))
         .collect();
-    out.extend(
-        p.tolerances
-            .iter()
-            .map(|t| t.description.as_deref() == Some(MARKER)),
-    );
-    for (items, kind) in [
-        (&prov.datums, "datum"),
-        (&prov.general, "general"),
-        (&prov.threads, "thread"),
-        (&prov.knurls, "knurl"),
-        (&prov.surface_textures, "surface texture"),
+    out.extend(p.tolerances.iter().enumerate().map(|(i, t)| {
+        (
+            at("tolerances", i),
+            t.description.as_deref() == Some(MARKER),
+        )
+    }));
+    for (items, kind, collection) in [
+        (&prov.datums, "datum", "datums"),
+        (&prov.general, "general", "general"),
+        (&prov.threads, "thread", "threads"),
+        (&prov.knurls, "knurl", "knurls"),
+        (
+            &prov.surface_textures,
+            "surface texture",
+            "surface_textures",
+        ),
     ] {
-        out.extend(items.iter().map(|ids| marked(doc, ids, kind)));
+        out.extend(
+            items
+                .iter()
+                .enumerate()
+                .map(|(i, ids)| (at(collection, i), marked(doc, ids, kind))),
+        );
     }
     if p.material.is_some() {
-        out.push(marked(doc, &prov.material, "material"));
+        out.push((at("material", 0), marked(doc, &prov.material, "material")));
     }
     out
 }

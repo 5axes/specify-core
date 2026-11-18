@@ -134,8 +134,11 @@ pub(crate) fn reconcile(
         // A default the file states as the defaults would write it is present: the file
         // answers its question (`resume.present`), which stays answerable, not a suggestion.
         for (question, (unchanged, ids)) in other.defaults {
+            // The process is read from the file with its own source (an accepted suggestion
+            // stays one, `process::read`), so it is not taken as an answer here.
             if unchanged
                 && !ids.is_empty()
+                && question != crate::process::QUESTION
                 && let Some(value) = all.get(&question)
             {
                 truth.explained.extend(ids);

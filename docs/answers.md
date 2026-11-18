@@ -151,8 +151,12 @@ face corresponding to itself.
   neither open nor a conflict, it is not repeated in `existing`, and it can still be answered
   otherwise (the answer then replaces it). `resume.answers` stays the stored answers. A
   default the file states differently is the file's own PMI, below.
-- **Only in the file** (added elsewhere): in `existing`, present and kept, never a conflict.
-  Its question is not asked where the file's PMI already states it.
+- **Only in the file**, added by another tool (no Specify provenance marker): in
+  `existing`, present and kept, never a conflict. Its question is not asked where the file's
+  PMI already states it. Specify's own (marked) requirements that the answers no longer
+  explain, and that no conflict stands for (written by an older version, or a default
+  written differently), are not repeated in `existing`: they are Specify's to state, so their
+  questions are asked again and the rewrite states them from the answers.
 - **Different, or only in the answers (removed in the file):** a conflict,
   `resume.conflicts: [{id, stored, file}]` (`file` is the file's notation, `null` when the
   file has none), with an analysis warning each. Until it is decided the file's state is

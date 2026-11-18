@@ -16,6 +16,9 @@ mod notes;
 
 type PlannedScene = (Semantic, Map<String, Value>, BTreeMap<String, usize>);
 
+/// A scene with each id's item in the file's PMI, `(collection, index)`.
+type IndexedScene = (Value, BTreeMap<String, (String, usize)>);
+
 type Bindings = BTreeMap<(String, usize), (String, Value, usize)>;
 
 const NUMBERED: [&str; 6] = [
@@ -482,7 +485,7 @@ impl Scene {
         &self,
         loaded: &LoadedPart,
         analysis: &Value,
-    ) -> Result<(Value, BTreeMap<String, (String, usize)>), String> {
+    ) -> Result<IndexedScene, String> {
         let planned = match &self.stored {
             Some(saved) => Some(self.planned(loaded, analysis, saved, false)?.1),
             None => None,
@@ -496,7 +499,7 @@ impl Scene {
         planned: Option<&Map<String, Value>>,
         comparison: bool,
         source: Option<(&Document, &pmi::PmiRead)>,
-    ) -> Result<(Value, BTreeMap<String, (String, usize)>), String> {
+    ) -> Result<IndexedScene, String> {
         let (doc, read) = source.unwrap_or((&self.doc, &self.read));
         let stored = if source.is_some() {
             None
