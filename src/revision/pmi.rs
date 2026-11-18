@@ -551,7 +551,10 @@ fn compare(
 // Whether a paired requirement is unchanged: the same notation, cells, semantic fields and
 // (mapped) support.
 fn same(was: &Item, now: &Item, faces: &BTreeMap<usize, Bind>) -> bool {
-    was.text == now.text && was.cells == now.cells && was.semantic == now.semantic && !support_changed(was, now, faces)
+    was.text == now.text
+        && was.cells == now.cells
+        && was.semantic == now.semantic
+        && !support_changed(was, now, faces)
 }
 
 fn support_changed(was: &Item, now: &Item, faces: &BTreeMap<usize, Bind>) -> bool {
@@ -797,6 +800,9 @@ pub(crate) struct PlanTruth {
     /// Answered questions whose requirement the file changed or removed: the file's
     /// requirements for it (scene id, notation), none when it was removed in the file.
     pub conflicts: BTreeMap<String, Vec<(String, String)>>,
+    /// Questions not answered in `stored` whose requirements in the plan (a plan with
+    /// defaults taken) the file states: whether every one is unchanged, and the file's ids.
+    pub defaults: BTreeMap<String, (bool, Vec<String>)>,
 }
 
 /// Compare the plan of the stored answers (`plan`, a comparison scene) with the file's own
@@ -810,38 +816,87 @@ pub(crate) fn against_plan(
     stored: &Map<String, Value>,
 ) -> PlanTruth {
     let faces: BTreeMap<usize, Bind> = (0..face_count).map(|i| (i, Bind::To(i))).collect();
-    let planned = items(plan);
+    // The plan's `existing` rows echo the file's own requirements (a replace plan retains
+    // them for revision comparisons): they would pair with themselves, leaving the answers'
+    // requirements nothing to pair with.
+    let planned: Vec<Item> = items(plan)
+        .into_iter()
+        .filter(|item| item.status != "existing")
+        .collect();
     let actual = items(file);
-    let pairs = pair(&planned, &actual, &faces, false);
+    let mut pairs = pair(&planned, &actual, &faces, false);
+    // Recognition can grow or shrink a feature's faces between the write and now (a hole's
+    // tip cone claimed later): the same requirement, stated alike on overlapping support, is
+    // the same requirement, not a removal and an addition.
+    let alike = |was: &Item, now: &Item| {
+        was.kind == now.kind
+            && was.match_kind == now.match_kind
+            && was.text == now.text
+            && was.cells == now.cells
+            && was.semantic == now.semantic
+            && (was.faces.iter().any(|f| now.faces.contains(f))
+                || (was.faces.is_empty() && now.faces.is_empty()))
+    };
+    let mut used: BTreeSet<usize> = pairs.values().copied().collect();
+    for (i, was) in planned.iter().enumerate() {
+        if pairs.contains_key(&i) {
+            continue;
+        }
+        let candidates: Vec<usize> = (0..actual.len())
+            .filter(|j| !used.contains(j) && alike(was, &actual[*j]))
+            .collect();
+        if let [j] = candidates.as_slice() {
+            pairs.insert(i, *j);
+            used.insert(*j);
+        }
+    }
+    let same = |was: &Item, now: &Item, faces: &BTreeMap<usize, Bind>| {
+        same(was, now, faces) || alike(was, now)
+    };
     let mut truth = PlanTruth::default();
     let mut differs = BTreeSet::new();
     for (i, was) in planned.iter().enumerate() {
         let meta = &plan["specify"][&was.id];
         let paired = pairs.get(&i).map(|&j| &actual[j]);
-        // The plan's `existing` rows echo the file; a default contributes no PMI to a plan.
-        let answered = was.status == "answered"
+        // A basic location the dimension planner derives from the geometry states nothing the
+        // answer chose: how the plan merges such locations varies with the other answers and
+        // the planner's version, so it explains the file's equal one but never contradicts it.
+        let derived = was.id.starts_with("planner:") && was.semantic["tolerance"] == "basic";
+        let stated = was.status == "answered"
             && meta["question"]
                 .as_str()
                 .is_some_and(|q| stored.contains_key(q));
-        match (was.status.as_str(), answered) {
-            ("answered", true) | ("general", _) => {
-                let question = meta["question"].as_str().filter(|_| answered);
-                match (paired, question) {
-                    (Some(now), _) if same(was, now, &faces) => {
-                        truth.explained.insert(now.id.clone());
-                    }
-                    (now, Some(question)) => {
-                        differs.insert(question.to_string());
-                        let file = truth.conflicts.entry(question.to_string()).or_default();
-                        if let Some(now) = now {
-                            file.push((now.id.clone(), now.text.clone()));
-                        }
-                    }
-                    // A general-tolerance dimension the file changed is the file's.
-                    (_, None) => {}
-                }
+        let answered = stated && !derived;
+        if was.status == "answered"
+            && !stated
+            && let Some(question) = meta["question"].as_str()
+        {
+            let entry = truth
+                .defaults
+                .entry(question.to_string())
+                .or_insert((true, Vec::new()));
+            match paired {
+                Some(now) if same(was, now, &faces) => entry.1.push(now.id.clone()),
+                _ if derived => {}
+                _ => entry.0 = false,
             }
-            _ => {}
+        }
+        if stated || was.status == "general" {
+            let question = meta["question"].as_str().filter(|_| answered);
+            match (paired, question) {
+                (Some(now), _) if same(was, now, &faces) => {
+                    truth.explained.insert(now.id.clone());
+                }
+                (now, Some(question)) => {
+                    differs.insert(question.to_string());
+                    let file = truth.conflicts.entry(question.to_string()).or_default();
+                    if let Some(now) = now {
+                        file.push((now.id.clone(), now.text.clone()));
+                    }
+                }
+                // A general-tolerance or derived dimension the file changed is the file's.
+                (_, None) => {}
+            }
         }
     }
     // A question with any requirement changed is decided whole: its unchanged requirements

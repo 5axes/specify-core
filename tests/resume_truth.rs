@@ -47,7 +47,12 @@ fn edited() -> Map<String, Value> {
     answers
 }
 
-fn write(loaded_bytes: Vec<u8>, analysis: &Value, answers: &Map<String, Value>, stored: &Map<String, Value>) -> Vec<u8> {
+fn write(
+    loaded_bytes: Vec<u8>,
+    analysis: &Value,
+    answers: &Map<String, Value>,
+    stored: &Map<String, Value>,
+) -> Vec<u8> {
     let intent = api::apply(analysis, answers, true).unwrap();
     api::write_bytes(loaded_bytes, &[(intent, Some(stored.clone()))])
         .unwrap()
@@ -67,12 +72,22 @@ fn edited_plate() -> LoadedPart {
 #[ignore]
 fn regenerate_the_edited_plate() {
     let analysis = api::analyse_file(&plate(), None).unwrap();
-    let bytes = write(std::fs::read(plate()).unwrap(), &analysis, &edited(), &stored());
+    let bytes = write(
+        std::fs::read(plate()).unwrap(),
+        &analysis,
+        &edited(),
+        &stored(),
+    );
     let path = common::fixtures().join(EDITED);
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::best());
     std::io::Write::write_all(&mut gz, &bytes).unwrap();
     std::fs::write(path, gz.finish().unwrap()).unwrap();
+}
+
+/// `resume` resumes exactly the answers of `stored`.
+fn resumes(resume: &Value, stored: &Map<String, Value>) {
+    assert_eq!(resume["answers"], Value::Object(stored.clone()), "{resume}");
 }
 
 fn tolerances<'a>(existing: &'a Value, kind: &str, face: u64) -> Vec<&'a Value> {
@@ -114,7 +129,12 @@ fn an_edited_file_shows_its_pmi_and_lists_the_conflicts() {
     let mut expected = stored();
     expected.remove("datum.A.flatness");
     expected.remove("hole.position:holes:12");
-    assert_eq!(analysis["resume"]["answers"], Value::Object(expected));
+    resumes(&analysis["resume"], &expected);
+    let answers = analysis["resume"]["answers"].as_object().unwrap();
+    assert!(
+        !answers.contains_key("datum.A.flatness")
+            && !answers.contains_key("hole.position:holes:12")
+    );
     // The file's state is what is shown: its changed tolerance (tagged with its question) and
     // its added fit are present; the removed flatness is not.
     let existing = &analysis["existing"];
@@ -124,10 +144,14 @@ fn an_edited_file_shows_its_pmi_and_lists_the_conflicts() {
     assert_eq!(position[0]["question"], "hole.position:holes:12");
     assert!(tolerances(existing, "Flatness", 2).is_empty(), "{existing}");
     assert!(
-        existing.as_array().unwrap().iter().any(|e| e["kind"] == "dimension"
-            && e["type"] == "Size_Diameter"
-            && e["faces"] == json!([9])
-            && e.get("question").is_none()),
+        existing
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|e| e["kind"] == "dimension"
+                && e["type"] == "Size_Diameter"
+                && e["faces"] == json!([9])
+                && e.get("question").is_none()),
         "the added fit is present: {existing}"
     );
     // Not asked until decided; asked as conflicts instead.
@@ -181,8 +205,12 @@ fn restoring_writes_the_stored_answer_and_not_the_files() {
     assert_eq!(flatness, [json!(0.05)], "{written}");
     // Opened again: no conflict, every answer resumed.
     let again = api::analyse(&back).unwrap();
-    assert!(again["resume"].get("conflicts").is_none(), "{}", again["resume"]);
-    assert_eq!(again["resume"]["answers"], Value::Object(answers));
+    assert!(
+        again["resume"].get("conflicts").is_none(),
+        "{}",
+        again["resume"]
+    );
+    resumes(&again["resume"], &answers);
 }
 
 /// Keeping is recorded in `_specify.keep`; nothing else changes and the file's PMI is written.
@@ -209,38 +237,44 @@ fn keeping_writes_the_files_pmi() {
     assert!(tolerances(&written, "Flatness", 2).is_empty(), "{written}");
     // The kept tolerance is now the file's own: no conflict on reopening.
     let again = api::analyse(&back).unwrap();
-    assert!(again["resume"].get("conflicts").is_none(), "{}", again["resume"]);
-    assert_eq!(again["resume"]["answers"], Value::Object(saved));
+    assert!(
+        again["resume"].get("conflicts").is_none(),
+        "{}",
+        again["resume"]
+    );
+    resumes(&again["resume"], &saved);
     assert_eq!(tolerances(&again["existing"], "Position", 12).len(), 1);
 }
 
 /// A file written with defaults taken but only the given answers stored (as every writer did
-/// before ADR P9's approved defaults): the defaulted items read back as present, in
-/// `existing`, not as open questions, and nothing conflicts.
+/// before ADR P9's approved defaults): the defaulted requirements read back as present, not as
+/// open questions, and nothing conflicts. Each default the file states as the defaults would
+/// write it is in `resume.present` with its value: the file answers its question, which can
+/// still be answered otherwise.
 #[test]
 fn defaults_written_without_answers_read_back_as_present() {
     let analysis = api::analyse_file(&plate(), None).unwrap();
     let given = stored();
-    let back = load(write(std::fs::read(plate()).unwrap(), &analysis, &given, &given));
+    let back = load(write(
+        std::fs::read(plate()).unwrap(),
+        &analysis,
+        &given,
+        &given,
+    ));
     let again = api::analyse(&back).unwrap();
-    assert!(again["resume"].get("conflicts").is_none(), "{}", again["resume"]);
-    assert_eq!(again["resume"]["answers"], Value::Object(given.clone()));
-    // The pattern's defaulted position tolerance and fit, and the tapped hole's thread.
-    let existing = again["existing"].as_array().unwrap();
-    let pattern = 6;
     assert!(
-        existing.iter().any(|e| e["type"] == "Position"
-            && e["faces"].as_array().unwrap().contains(&json!(pattern))),
-        "{existing:?}"
+        again["resume"].get("conflicts").is_none(),
+        "{}",
+        again["resume"]
     );
-    assert!(
-        existing
-            .iter()
-            .any(|e| e["kind"] == "note" && e["type"] == "internal thread"),
-        "{existing:?}"
-    );
-    assert_eq!(again["part"]["general_tolerance"], "ISO 2768-m");
-    let review = api::review(&again, &given).unwrap();
+    resumes(&again["resume"], &given);
+    let present: Vec<&str> = again["resume"]["present"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect();
+    let review = api::review(&again, again["resume"]["answers"].as_object().unwrap()).unwrap();
     let open: Vec<&str> = review["open"]
         .as_array()
         .unwrap()
@@ -253,8 +287,15 @@ fn defaults_written_without_answers_read_back_as_present() {
         "hole.function:holes:12",
         "part.general_tolerance",
     ] {
+        assert!(present.contains(&id), "{id} is not present: {present:?}");
         assert!(!open.contains(&id), "{id} is open: {open:?}");
     }
+    // Present, so not repeated as the file's own PMI.
+    assert!(
+        tolerances(&again["existing"], "Position", 6).is_empty(),
+        "{}",
+        again["existing"]
+    );
 }
 
 /// An unchanged round trip resumes every answer with no conflict, across the corpus parts the
@@ -296,17 +337,10 @@ fn an_unchanged_round_trip_resumes_every_answer() {
             failures.push(format!("{}: {}", c.name, again["resume"]));
         }
     }
-    println!("unchanged round trips: {parts} parts, {} with conflicts", failures.len());
+    println!(
+        "unchanged round trips: {parts} parts, {} with conflicts",
+        failures.len()
+    );
     assert!(parts > 0);
     assert!(failures.is_empty(), "{failures:#?}");
-}
-
-#[test]
-#[ignore]
-fn explore_file() {
-    let path = std::env::var("P9_FILE").unwrap();
-    let loaded = specify_core::part::load(std::path::Path::new(&path), None).unwrap();
-    let (analysis, warnings) = api::analyse_reporting(&loaded).unwrap();
-    println!("warnings {warnings:#?}");
-    println!("resume {}", analysis["resume"]);
 }

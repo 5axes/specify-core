@@ -7,6 +7,8 @@
 //! comparison's item matching ([`crate::revision::against_plan`]) and every face its own.
 //!
 //! - **Same in both**: the answer resumes; the file's item is the answer's, not `existing`.
+//! - **A default the file states** as the defaults would write it (written, never stored as
+//!   an answer): `resume.present`, the file answering its question ([`answered`]).
 //! - **Only in the file**: `existing`, present and kept (new information).
 //! - **Different, or only in the answers**: a conflict for the person to decide. Until then
 //!   the file's state is shown and is what would be written: the file's items stay in
@@ -49,6 +51,9 @@ pub(crate) struct Reconciled {
     pub contested: BTreeMap<(String, usize), String>,
     /// Part settings (`part` keys) the resumed answers explain.
     pub settings: BTreeSet<String>,
+    /// Questions not stored as answers whose defaults the file states, with those defaults:
+    /// present in the file, so answered by it (`resume.present`).
+    pub present: Map<String, Value>,
 }
 
 impl Reconciled {
@@ -106,13 +111,15 @@ pub(crate) fn reconcile(
     // the file when either plan states its requirements as the file does.
     let plan = scene.comparison(loaded, analysis, Some(&stored))?;
     let mut truth = crate::revision::against_plan(&plan, &file, faces, &stored);
-    if !truth.conflicts.is_empty()
-        && let Ok(all) = crate::rules::with_all_defaults(analysis, &stored)
+    let mut present = Map::new();
+    if let Ok(all) = crate::rules::with_all_defaults(analysis, &stored)
         && all.len() > stored.len()
     {
         let planned = scene.comparison(loaded, analysis, Some(&all))?;
         let other = crate::revision::against_plan(&planned, &file, faces, &stored);
-        truth.conflicts.retain(|question, _| other.conflicts.contains_key(question));
+        truth
+            .conflicts
+            .retain(|question, _| other.conflicts.contains_key(question));
         truth.explained.extend(other.explained);
         // A question both plans contradict keeps the file's items either names.
         for (question, items) in other.conflicts {
@@ -122,6 +129,17 @@ pub(crate) fn reconcile(
                         mine.push(item);
                     }
                 }
+            }
+        }
+        // A default the file states as the defaults would write it is present: the file
+        // answers its question (`resume.present`), which stays answerable, not a suggestion.
+        for (question, (unchanged, ids)) in other.defaults {
+            if unchanged
+                && !ids.is_empty()
+                && let Some(value) = all.get(&question)
+            {
+                truth.explained.extend(ids);
+                present.insert(question, value.clone());
             }
         }
         let contested: BTreeSet<&String> = truth
@@ -148,14 +166,16 @@ pub(crate) fn reconcile(
                 texts.push(text.clone());
             }
         }
-        conflicts.insert(
-            question.clone(),
-            (!items.is_empty()).then_some(texts),
-        );
+        conflicts.insert(question.clone(), (!items.is_empty()).then_some(texts));
     }
     // Part settings: each is one scene item named by its question (notes one per note).
     let mut settings: BTreeMap<&str, bool> = BTreeMap::new();
-    for id in file["specify"].as_object().into_iter().flatten().map(|(id, _)| id) {
+    for id in file["specify"]
+        .as_object()
+        .into_iter()
+        .flatten()
+        .map(|(id, _)| id)
+    {
         if let Some(key) = setting(id) {
             let explained = truth.explained.contains(id);
             settings
@@ -196,6 +216,7 @@ pub(crate) fn reconcile(
             }
         }
     }
+    out.present = present;
     Ok(out)
 }
 
@@ -210,9 +231,7 @@ pub fn question(conflict: &Conflict) -> Value {
             format!("Keep the file's {file}"),
         ),
         None => (
-            format!(
-                "Saved answer {stored}: removed in the file. Restore it, or leave it removed?"
-            ),
+            format!("Saved answer {stored}: removed in the file. Restore it, or leave it removed?"),
             "Leave it removed".to_string(),
         ),
     };
@@ -260,6 +279,27 @@ pub(crate) fn conflict_ids(analysis: &Value) -> BTreeSet<&str> {
         .flatten()
         .filter_map(|c| c["id"].as_str())
         .collect()
+}
+
+/// The answers the rules see under `analysis`: `answers`, and for each question they leave
+/// unanswered the default a reopened file states (`resume.present`, ADR P9).
+pub fn answered<'a>(
+    analysis: &Value,
+    answers: &'a Map<String, Value>,
+) -> std::borrow::Cow<'a, Map<String, Value>> {
+    let Some(present) = analysis["resume"]["present"].as_object() else {
+        return std::borrow::Cow::Borrowed(answers);
+    };
+    if present.keys().all(|id| answers.contains_key(id)) {
+        return std::borrow::Cow::Borrowed(answers);
+    }
+    let mut out = answers.clone();
+    for (id, value) in present {
+        if !out.contains_key(id) {
+            out.insert(id.clone(), value.clone());
+        }
+    }
+    std::borrow::Cow::Owned(out)
 }
 
 /// `analysis` as the rules see it under `answers`: a conflict answered (restored, or answered
@@ -310,14 +350,16 @@ impl Reconciled {
         restated: &BTreeSet<(String, usize)>,
     ) -> BTreeSet<(String, usize)> {
         use haecceity::pmi::NoteOwner;
+        // Only a conflict's file items need keeping here: the rewrite replaces Specify's own
+        // (marked) requirements and protects every other one, which is another tool's.
         let keeps = |collection: &str, i: usize| {
             let at = (collection.to_string(), i);
             !self.explained.contains(&at)
                 && !restated.contains(&at)
-                && !self
+                && self
                     .contested
                     .get(&at)
-                    .is_some_and(|question| answers.contains_key(question))
+                    .is_some_and(|question| !answers.contains_key(question))
         };
         let mut out = BTreeSet::new();
         let lengths = [
@@ -336,6 +378,26 @@ impl Reconciled {
                 if keeps(collection, i) {
                     out.insert((collection.to_string(), i));
                 }
+            }
+        }
+        // A datum the rewrite states with the same letter on other faces cannot be kept beside
+        // it, nor therefore a tolerance citing the file's datum of that letter: the rewrite's
+        // datum stands for the letter, as the answers state it.
+        let cites = |tolerance: &haecceity::pmi::GeometricTolerance| -> Vec<usize> {
+            tolerance
+                .datums
+                .iter()
+                .flat_map(|system| system.compartments())
+                .flat_map(|c| &c.references)
+                .map(|r| r.datum.0)
+                .collect()
+        };
+        for (i, tolerance) in pmi.tolerances.iter().enumerate() {
+            if cites(tolerance)
+                .iter()
+                .any(|d| restated.contains(&("datum letters".to_string(), *d)))
+            {
+                out.remove(&("tolerances".to_string(), i));
             }
         }
         for (i, set) in pmi.attributes.iter().enumerate() {
@@ -374,8 +436,44 @@ impl Reconciled {
                 out.insert(("attributes".to_string(), i));
             }
         }
+        // A kept tolerance keeps the datums it cites, and a kept datum its feature (linked to
+        // the datum only from the feature's side, so not kept by the datum's own references):
+        // the rewrite's equal datum is then that one, not a second of the same letter.
+        for (i, tolerance) in pmi.tolerances.iter().enumerate() {
+            if out.contains(&("tolerances".to_string(), i)) {
+                // The rewrite's equal datum (same letter and faces) is then the kept one.
+                for d in cites(tolerance) {
+                    out.insert(("datums".to_string(), d));
+                }
+            }
+        }
+        let kept_datums: Vec<usize> = out
+            .iter()
+            .filter(|(c, _)| c == "datums")
+            .map(|(_, i)| *i)
+            .collect();
+        for d in kept_datums {
+            let Some(datum) = pmi.datums.get(d) else {
+                continue;
+            };
+            let mut features: Vec<usize> = datum.feature().into_iter().map(|f| f.0).collect();
+            for target in datum.targets() {
+                out.insert(("datum_targets".to_string(), target.0));
+                if let Some(t) = pmi.datum_targets.get(target.0) {
+                    if let haecceity::pmi::TargetShape::Area(f)
+                    | haecceity::pmi::TargetShape::Curve(f) = t.shape()
+                    {
+                        features.push(f.0);
+                    }
+                    features.extend(t.on().map(|f| f.0));
+                }
+            }
+            for f in features {
+                out.insert(("features".to_string(), f));
+            }
+        }
         if pmi.material.is_some()
-            && !self.settings.contains("material")
+            && self.conflicts.iter().any(|c| c.id == "part.material")
             && !restated.contains(&("material".to_string(), 0))
             && !answers.contains_key("part.material")
         {
@@ -401,6 +499,14 @@ pub(crate) fn restated(
         .filter(|(_, key)| keys.contains(key))
         .map(|((collection, i), _)| (collection.to_string(), i))
         .collect();
+    // A datum of a letter the rewrite states on other faces: the two cannot coexist.
+    let letters: BTreeSet<&str> = planned.datums.iter().map(|d| d.label().as_str()).collect();
+    for (i, datum) in before.datums.iter().enumerate() {
+        if letters.contains(datum.label().as_str()) && !out.contains(&("datums".to_string(), i)) {
+            out.insert(("datums".to_string(), i));
+            out.insert(("datum letters".to_string(), i));
+        }
+    }
     if !planned.general.is_empty() {
         out.extend((0..before.general.len()).map(|i| ("general".to_string(), i)));
     }
@@ -415,8 +521,7 @@ pub(crate) fn restated(
             .map(|(i, a)| (i, a.items.iter().map(|(name, _)| name.clone()).collect()))
             .collect()
     };
-    let planned_notes: Vec<Vec<String>> =
-        part_notes(planned).into_iter().map(|(_, n)| n).collect();
+    let planned_notes: Vec<Vec<String>> = part_notes(planned).into_iter().map(|(_, n)| n).collect();
     for (i, names) in part_notes(before) {
         if planned_notes.iter().any(|n| {
             n.iter()

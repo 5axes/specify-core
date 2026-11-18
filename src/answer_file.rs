@@ -24,9 +24,10 @@ pub fn validate(answers: &Map<String, Value>) -> Result<(), String> {
         return Err("_specify.unresolved must map question IDs to reasons".into());
     }
     if let Some(keep) = meta.get(crate::resume::truth::KEEP)
-        && !keep
-            .as_array()
-            .is_some_and(|ids| ids.iter().all(|id| id.as_str().is_some_and(|s| !s.is_empty())))
+        && !keep.as_array().is_some_and(|ids| {
+            ids.iter()
+                .all(|id| id.as_str().is_some_and(|s| !s.is_empty()))
+        })
     {
         return Err("_specify.keep must list question IDs".into());
     }

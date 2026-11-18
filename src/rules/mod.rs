@@ -454,6 +454,7 @@ impl Intent {
 /// in ± mode and when every feature uses the general tolerance. Datums the person changes
 /// or removes remain questions; a file's own frame is retained.
 pub fn questions(analysis: &Value, answers: &Map<String, Value>) -> Result<Vec<Question>> {
+    let answers = &*crate::resume::truth::answered(analysis, answers);
     let analysis = &*crate::resume::truth::restored(analysis, answers);
     carry_review(questions_in(&Ctx::new(analysis)?, answers)?, answers)
 }
@@ -464,6 +465,7 @@ pub fn questions_proposing(
     answers: &Map<String, Value>,
     propose: &str,
 ) -> Result<Vec<Question>> {
+    let answers = &*crate::resume::truth::answered(analysis, answers);
     let analysis = &*crate::resume::truth::restored(analysis, answers);
     carry_review(
         all_questions(&Ctx::new(analysis)?, answers, propose)?,
@@ -1101,6 +1103,7 @@ pub fn with_all_defaults(
     answers: &Map<String, Value>,
 ) -> Result<Map<String, Value>> {
     crate::answer_file::validate(answers).map_err(Error::Invalid)?;
+    let answers = &*crate::resume::truth::answered(analysis, answers);
     let analysis = &*crate::resume::truth::restored(analysis, answers);
     let (merged, qs) = settled(&Ctx::new(analysis)?, answers)?;
     // Defaults never answer a block; it refuses once its question is asked (#126).
@@ -1134,6 +1137,7 @@ fn settled(
 /// Turn a complete set of answers into intent. Refuses while any question is open.
 pub fn apply(analysis: &Value, answers: &Map<String, Value>) -> Result<Intent> {
     crate::answer_file::validate(answers).map_err(Error::Invalid)?;
+    let answers = &*crate::resume::truth::answered(analysis, answers);
     let analysis = &*crate::resume::truth::restored(analysis, answers);
     let ctx = Ctx::new(analysis)?;
     let qs = questions_in(&ctx, answers)?;
@@ -1158,6 +1162,7 @@ pub fn unasked_rows(
     analysis: &Value,
     answers: &Map<String, Value>,
 ) -> Result<Vec<Map<String, Value>>> {
+    let answers = &*crate::resume::truth::answered(analysis, answers);
     let analysis = &*crate::resume::truth::restored(analysis, answers);
     let ctx = Ctx::new(analysis)?;
     let qs = questions_in(&ctx, answers)?;
@@ -1196,6 +1201,7 @@ pub fn apply_with_defaults(
 /// full-thread question overrides that depth only when answered.
 /// Items keep the `default` field for front ends, always false for an answered question.
 pub fn preview(analysis: &Value, answers: &Map<String, Value>) -> Result<Intent> {
+    let answers = &*crate::resume::truth::answered(analysis, answers);
     let analysis = &*crate::resume::truth::restored(analysis, answers);
     let ctx = Ctx::new(analysis)?;
     let qs = questions_in(&ctx, answers)?;

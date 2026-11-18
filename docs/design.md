@@ -426,9 +426,10 @@ only marked Specify requirements through the kernel removal planner, then append
 intent and saved answers. Foreign dependencies, including shared features and datums, are
 protected. Specify's numbers survive value edits; foreign numbers reserve their values.
 Legacy resumed payloads without `pmi_scope` still use Replace when the file's PMI is all
-their answers'; reopening compares the PMI with the answers (ADR P9, [answers](answers.md#reopening-a-file-specify-wrote-the-pmi-is-the-truth)),
-and a part whose PMI holds items the answers do not explain is rewritten as a scoped Add
-that keeps them. Old Add-mode files without
+Specify's; reopening compares the PMI with the answers (ADR P9, [answers](answers.md#reopening-a-file-specify-wrote-the-pmi-is-the-truth)),
+and a part that also holds unmarked PMI, or a conflict kept undecided, is rewritten as a
+scoped Add that replaces only its marked requirements. A file with no marked requirements
+(before #22) is rewritten by Replace as before. Old Add-mode files without
 stored answers still open as existing PMI. A marker alone grants no deletion permission.
 One assembly part may be written alone, leaving the others byte for byte (D3); parts in a
 combined write may use different modes. Assemblies with foreign PMI are supported (Q6).

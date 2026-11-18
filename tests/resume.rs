@@ -94,10 +94,13 @@ fn reanalysed(base: &Value, loaded: &LoadedPart) -> Value {
     let mut out = base.clone();
     out["binding"] = serde_json::to_value(&loaded.binding).unwrap();
     match answers_for(loaded).unwrap() {
-        Some(a) => {
-            out["existing"] = json!([]);
-            out["part"] = json!({});
-            out["resume"] = json!({ "answers": a });
+        Some(_) => {
+            // ADR P9: reopened, the file's PMI is read first; the answers it agrees with
+            // resume, and the rest of its PMI is `existing` (no longer `[]`, `{}`).
+            let real = specify_core::api::analyse(loaded).unwrap();
+            for key in ["existing", "part", "resume"] {
+                out[key] = real[key].clone();
+            }
         }
         None => {
             out["existing"] = serde_json::to_value(read_existing(loaded).unwrap()).unwrap();
@@ -143,8 +146,18 @@ fn a_written_file_resumes_its_answers_and_is_rewritten_not_added_to() {
     let loaded = load(&first, None).unwrap();
     assert_eq!(answers_for(&loaded).unwrap(), given.as_object().cloned());
     let again = reanalysed(&base, &loaded);
-    assert_eq!(again["resume"], json!({ "answers": given }));
-    assert_eq!(again["existing"], json!([]));
+    // ADR P9: the defaults the file states are `resume.present`, beside the answers.
+    assert_eq!(again["resume"]["answers"], given);
+    assert!(again["resume"].get("conflicts").is_none());
+    // ADR P9: the defaults written with the answers (not stored as answers) are the file's
+    // own PMI, `existing`, not `[]`; none contradicts an answer.
+    assert!(
+        again["existing"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|e| e.get("question").is_none())
+    );
 
     // Changed and written again: the PMI is the new answers', once.
     let mut changed = given.clone();

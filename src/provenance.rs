@@ -202,6 +202,47 @@ pub fn all(p: &PartPmi, prov: &PartProvenance, doc: &Document) -> bool {
         && p.decimal_places.is_none()
 }
 
+/// Whether any requirement of part `part` carries Specify's provenance marker. A file written
+/// before requirements were marked (#22) has none.
+pub(crate) fn any_marked(doc: &Document, read: &haecceity::pmi::PmiRead, part: usize) -> bool {
+    marks(doc, read, part).contains(&true)
+}
+
+/// Whether any requirement of part `part` lacks Specify's provenance marker: PMI another
+/// tool wrote (or, in a file from before #22, Specify itself).
+pub(crate) fn any_unmarked(doc: &Document, read: &haecceity::pmi::PmiRead, part: usize) -> bool {
+    marks(doc, read, part).contains(&false)
+}
+
+/// Whether each requirement of part `part` is marked as Specify's.
+fn marks(doc: &Document, read: &haecceity::pmi::PmiRead, part: usize) -> Vec<bool> {
+    let p = &read.parts[part];
+    let prov = &read.provenance.parts[part];
+    let mut out: Vec<bool> = prov
+        .dimensions
+        .iter()
+        .map(|ids| dimension(doc, ids))
+        .collect();
+    out.extend(
+        p.tolerances
+            .iter()
+            .map(|t| t.description.as_deref() == Some(MARKER)),
+    );
+    for (items, kind) in [
+        (&prov.datums, "datum"),
+        (&prov.general, "general"),
+        (&prov.threads, "thread"),
+        (&prov.knurls, "knurl"),
+        (&prov.surface_textures, "surface texture"),
+    ] {
+        out.extend(items.iter().map(|ids| marked(doc, ids, kind)));
+    }
+    if p.material.is_some() {
+        out.push(marked(doc, &prov.material, "material"));
+    }
+    out
+}
+
 /// Remove only marked requirements of resumed Add-mode parts. Unmarked requirements and
 /// their complete forward dependencies are protected, including shared features/datums.
 /// The kernel planner handles helpers and presentation; any foreign edit is refused.
@@ -261,7 +302,11 @@ pub(crate) fn without_owned_except(
             (&prov.general, "general", "general"),
             (&prov.threads, "thread", "threads"),
             (&prov.knurls, "knurl", "knurls"),
-            (&prov.surface_textures, "surface texture", "surface_textures"),
+            (
+                &prov.surface_textures,
+                "surface texture",
+                "surface_textures",
+            ),
             (&prov.attributes, "attribute", "attributes"),
         ] {
             for (i, ids) in items.iter().enumerate() {

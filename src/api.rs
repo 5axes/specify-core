@@ -426,7 +426,20 @@ fn analyse_reconciling(
     // ADR P9: on reopening, the PMI is the truth. The stored answers are compared with the
     // file's PMI; only those it agrees with resume.
     let mut reconciled = None;
-    if analysis.contains_key("resume") {
+    // A file written before Specify marked its requirements (#22), by replace, keeps its
+    // behaviour: all its PMI is its answers', rewritten from them.
+    let marked = || -> bool {
+        let Ok(doc) = haecceity::p21::Document::parse(loaded.bytes.as_ref().clone()) else {
+            return false;
+        };
+        let Ok(defs) = haecceity::step::read_part_definitions(&loaded.bytes) else {
+            return false;
+        };
+        resume::scoped(&doc, loaded.binding.part)
+            || haecceity::pmi::read(&doc, &defs)
+                .is_ok_and(|read| crate::provenance::any_marked(&doc, &read, loaded.binding.part))
+    };
+    if analysis.contains_key("resume") && marked() {
         let base = Value::Object(analysis.clone());
         match resume::truth::reconcile(loaded, &base, &features) {
             Ok(r) => {
@@ -434,8 +447,7 @@ fn analyse_reconciling(
                     .map_err(|e| refused(&e))?;
                 let defs = haecceity::step::read_part_definitions(&loaded.bytes)
                     .map_err(|e| refused(&e))?;
-                let reading =
-                    existing::read_parsed(loaded, doc, &defs).map_err(|e| refused(&e))?;
+                let reading = existing::read_parsed(loaded, doc, &defs).map_err(|e| refused(&e))?;
                 let existing = reading
                     .existing_except(loaded, &r.selection())
                     .map_err(|e| refused(&e))?;
@@ -451,6 +463,9 @@ fn analyse_reconciling(
                     .and_then(Value::as_object_mut)
                     .ok_or_else(|| refused(&"the resumed answers are not an object"))?;
                 resume.insert("answers".into(), Value::Object(r.answers.clone()));
+                if !r.present.is_empty() {
+                    resume.insert("present".into(), Value::Object(r.present.clone()));
+                }
                 if !r.conflicts.is_empty() {
                     resume.insert(
                         "conflicts".into(),
@@ -510,7 +525,9 @@ pub fn questions(analysis: &Value, answers: &Map<String, Value>) -> Result<Vec<Q
 /// can be added by the caller with [`anchors`]. All values cross front end boundaries as JSON.
 pub fn review(analysis: &Value, answers: &Map<String, Value>) -> Result<Value> {
     let questions = questions(analysis, answers)?;
-    let open: Vec<_> = rules::open_questions(&questions, answers)
+    // A default the reopened file states answers its question (ADR P9, `resume.present`).
+    let answered = resume::truth::answered(analysis, answers);
+    let open: Vec<_> = rules::open_questions(&questions, &answered)
         .iter()
         .map(|question| question.id.clone())
         .collect();

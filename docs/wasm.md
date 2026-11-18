@@ -699,7 +699,10 @@ On reopening, the PMI is the truth (ADR P9; [answers](answers.md#reopening-a-fil
 `snapshot().analysis` reads the file's PMI first: `resume.answers` holds only the stored
 answers the file agrees with, `existing` the file's PMI they do not explain, and
 `resume.conflicts: [{id, stored, file}]` the stored answers the file changed (`file`, its
-notation) or removed (`file: null`). `review` presents the undecided ones as `conflicts`,
+notation) or removed (`file: null`). `resume.present: {id: value}` lists the defaults the
+file states (written but not stored as answers): the engine's `review`, `writePmi` and the
+other calls take each as its question's answer unless the answers give one, so a page may
+show them as answered. `review` presents the undecided ones as `conflicts`,
 `{id, kind: "conflict", text, stored, file, choices: [{choice: "keep", label}, {choice:
 "restore", label, answer}]}`. The page asks the person; it never decides for them:
 

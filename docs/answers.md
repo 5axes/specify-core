@@ -145,9 +145,14 @@ face corresponding to itself.
 
 - **Same in both:** the answer resumes (`resume.answers`) and its items are not repeated in
   `existing`.
-- **Only in the file** (added elsewhere, or a default written without being stored as an
-  answer): in `existing`, present and kept, never a conflict. Its question is not asked
-  where the file's PMI already states it.
+- **A default the file states** (written with defaults accepted, but not stored as an
+  answer): present. When the file states it exactly as the default would be written, it is
+  `resume.present: {id: value}`: the file answers the question with its default, so it is
+  neither open nor a conflict, it is not repeated in `existing`, and it can still be answered
+  otherwise (the answer then replaces it). `resume.answers` stays the stored answers. A
+  default the file states differently is the file's own PMI, below.
+- **Only in the file** (added elsewhere): in `existing`, present and kept, never a conflict.
+  Its question is not asked where the file's PMI already states it.
 - **Different, or only in the answers (removed in the file):** a conflict,
   `resume.conflicts: [{id, stored, file}]` (`file` is the file's notation, `null` when the
   file has none), with an analysis warning each. Until it is decided the file's state is
@@ -175,10 +180,14 @@ the file. Restore it, or leave it removed?", and `choices` `[{choice: "keep", la
 {choice: "restore", label, answer}]`. A front end or agent puts them to the person and never
 decides them itself. Conflicts are not `open` questions: they do not block a write.
 
-When the writer rewrites a reopened part, it keeps every item the resumed answers do not
-explain (what `existing` shows) and removes the rest, except a conflict's items when the
-answers restore it. A part written before by replace that has something to keep is
-rewritten as a scoped Add (`pmi_scope`); with nothing to keep the write is as before.
+When the writer rewrites a reopened part, it replaces Specify's own (provenance-marked)
+requirements from the answers and keeps every other one: PMI another tool added (unmarked)
+and, until decided, a conflict's file items (restoring gives them way). A part written by
+replace that holds such PMI is rewritten as a scoped Add (`pmi_scope`), so only its marked
+requirements are replaced; with nothing to keep the write is as before (a replace, and an
+unchanged rewrite keeps the file's bytes). A file written before Specify marked its
+requirements (#22) has none marked: all its PMI is its answers', so it opens and is rewritten
+as before (no reconciliation), and none of it is stated twice.
 
 ## Specify metadata
 

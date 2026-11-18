@@ -277,7 +277,13 @@ fn an_assembly_is_written_together_and_again_through_the_service() {
     );
     for k in [PLATE, PIN] {
         let back = api::analyse_file(&out, Some(k)).unwrap();
-        assert_eq!(back["resume"], json!({"answers": assembly_answers(k)}));
+        // ADR P9: every stored answer resumes; the defaults the file states resume too,
+        // listed in `present`.
+        let resumed = back["resume"]["answers"].as_object().unwrap();
+        for (id, value) in &assembly_answers(k) {
+            assert_eq!(resumed.get(id), Some(value), "{id}");
+        }
+        assert!(back["resume"].get("conflicts").is_none());
         // ADR P9: the file's PMI is read on reopening; what the answers explain is not
         // repeated, the defaults written without being stored are `existing`, never a
         // requirement the answers state.
@@ -316,10 +322,12 @@ fn an_assembly_is_written_together_and_again_through_the_service() {
     let listed = server.reply(&json!({"id": 2, "op": "parts", "step": again}));
     assert_eq!(listed["result"]["parts"][PIN]["written"], json!(true));
     let analysed = server.reply(&json!({"id": 3, "op": "analyse", "step": again, "part": PIN}));
-    assert_eq!(
-        analysed["result"]["analysis"]["resume"],
-        json!({"answers": assembly_answers(PIN)})
-    );
+    let resumed = analysed["result"]["analysis"]["resume"]["answers"]
+        .as_object()
+        .unwrap();
+    for (id, value) in &assembly_answers(PIN) {
+        assert_eq!(resumed.get(id), Some(value), "{id}");
+    }
     assert_eq!(
         analysed["result"]["mesh"]["faces"]
             .as_array()

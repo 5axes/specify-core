@@ -664,8 +664,7 @@ fn write_verified(
     let empty = Map::new();
     for (loaded, _, answers) in jobs {
         let part = loaded.binding.part;
-        let resumed =
-            resume::has_answers(loaded).map_err(|e| WriteError::Failed(e.to_string()))?;
+        let resumed = resume::has_answers(loaded).map_err(|e| WriteError::Failed(e.to_string()))?;
         let kept = if resumed {
             match crate::api::reconciled(loaded).map_err(|e| WriteError::Failed(e.to_string()))? {
                 Some(r) => {
@@ -684,21 +683,31 @@ fn write_verified(
         };
         if resume::scoped(&original.doc, part) && resumed {
             scoped.push(part);
-        } else if !kept.is_empty() {
-            scoped.push(part);
-            every.insert(part);
+        } else if !kept.is_empty()
+            || (resumed && provenance::any_unmarked(&original.doc, &original.read, part))
+        {
+            if provenance::any_marked(&original.doc, &original.read, part) {
+                // Replace-written, with PMI to keep: only Specify's marked requirements are
+                // replaced, as a scoped Add; unmarked PMI (another tool's) is kept as it is.
+                scoped.push(part);
+            } else {
+                // Written before requirements were marked (#22): all its PMI is Specify's,
+                // rewritten by replace as before, so none of it is stated twice.
+                continue;
+            }
         }
         if !kept.is_empty() {
             keep.insert(part, kept);
         }
     }
-    let clean = |scoped: &[usize],
-                 every: &BTreeSet<usize>,
-                 keep: &std::collections::BTreeMap<usize, BTreeSet<(String, usize)>>| {
-        provenance::without_owned_except(&original.doc, &original.read, scoped, every, keep)
-            .map_err(WriteError::Refused)
-            .and_then(|bytes| Source::of(&bytes))
-    };
+    let clean =
+        |scoped: &[usize],
+         every: &BTreeSet<usize>,
+         keep: &std::collections::BTreeMap<usize, BTreeSet<(String, usize)>>| {
+            provenance::without_owned_except(&original.doc, &original.read, scoped, every, keep)
+                .map_err(WriteError::Refused)
+                .and_then(|bytes| Source::of(&bytes))
+        };
     let mut cleaned = if scoped.is_empty() {
         None
     } else {
@@ -714,8 +723,7 @@ fn write_verified(
             let (Some(kept), Some(r)) = (narrowed.get_mut(&part), reconciled.get(&part)) else {
                 continue;
             };
-            let (planned, _) =
-                part_pmi(loaded, intent, &first_clean.read.parts[part], Mode::Add)?;
+            let (planned, _) = part_pmi(loaded, intent, &first_clean.read.parts[part], Mode::Add)?;
             let restated = resume::truth::restated(&original.read.parts[part], &planned);
             *kept = r.kept_items(
                 &original.read.parts[part],
@@ -742,9 +750,6 @@ fn write_verified(
                 Some(clean(&scoped, &every, &keep)?)
             };
         }
-    }
-    if std::env::var_os("P9_DEBUG").is_some() {
-        eprintln!("P9 keep {keep:?} scoped {scoped:?} every {every:?}");
     }
     let source = cleaned.as_ref().unwrap_or(&original);
     let failed = |e: crate::features::FeatureError| WriteError::Failed(e.to_string());
@@ -933,16 +938,47 @@ fn write_verified(
     // candidate above was still written and fully verified; keep the original only when
     // every planned part (including caller attributes and the exact answers payload) already
     // states precisely that candidate. Changed/removed notes or answers take the edit path.
-    let unchanged = modes.iter().all(|m| *m == Mode::Replace)
-        && planned.iter().all(|p| p.payload.is_some())
-        && items.iter().all(|(part, pmi)| {
+    // A replace-written part that keeps PMI (ADR P9) is rewritten by Add; it too is unchanged
+    // when the file read back states exactly what the original did.
+    let written_back = if every.is_empty() {
+        None
+    } else {
+        Some(Source::of(&back)?)
+    };
+    let unchanged = planned.iter().all(|p| p.payload.is_some())
+        && items.iter().zip(&modes).all(|((part, pmi), mode)| {
             // items is mapped from the same validated session bindings used to plan the writes above.
-            differences_as_stated(&source.read.parts[part.0], pmi).is_empty()
-                && provenance::all(
-                    &source.read.parts[part.0],
-                    &source.read.provenance.parts[part.0],
-                    &source.doc,
+            if *mode == Mode::Replace {
+                differences_as_stated(&source.read.parts[part.0], pmi).is_empty()
+                    && provenance::all(
+                        &source.read.parts[part.0],
+                        &source.read.provenance.parts[part.0],
+                        &source.doc,
+                    )
+            } else if every.contains(&part.0)
+                && let Some(back) = &written_back
+            {
+                // The characteristic-number history is bookkeeping restated from the same
+                // numbers; the original's is kept with its bytes.
+                let without_history = |p: &PartPmi| {
+                    let mut p = p.clone();
+                    p.attributes
+                        .retain(|a| a.name != crate::characteristics::PROPERTY);
+                    p
+                };
+                differences_as_stated(
+                    &without_history(&original.read.parts[part.0]),
+                    &without_history(&back.read.parts[part.0]),
                 )
+                .is_empty()
+                    && provenance::all(
+                        &original.read.parts[part.0],
+                        &original.read.provenance.parts[part.0],
+                        &original.doc,
+                    )
+            } else {
+                false
+            }
         });
     let back = if unchanged { bytes.to_vec() } else { back };
     let back = if jobs

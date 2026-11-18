@@ -569,9 +569,18 @@ fn unresolved_saved_answers_reach_review_and_leave_questions_open() {
     )
     .unwrap();
     // The unanswered current question includes the floor; the orphan retains its saved key.
+    // ADR P9: the file still states the hole's requirement as its default would, so the
+    // question is answered by the file (`resume.present`), not open.
     assert_eq!(key, "hole.function:holes:3");
     assert!(
-        review["open"]
+        analysis["resume"]["present"]
+            .get("hole.function:holes:3.5")
+            .is_some(),
+        "{}",
+        analysis["resume"]
+    );
+    assert!(
+        !review["open"]
             .as_array()
             .unwrap()
             .contains(&json!("hole.function:holes:3.5"))

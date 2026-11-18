@@ -705,7 +705,12 @@ impl Server {
             .docs
             .get(&handle)
             .map(|d| d.answers.clone())
-            .or_else(|| analysis["resume"]["answers"].as_object().cloned())
+            .or_else(|| {
+                // ADR P9: with the defaults the file states (`resume.present`), which it answers.
+                analysis["resume"]["answers"]
+                    .as_object()
+                    .map(|answers| crate::resume::truth::answered(&analysis, answers).into_owned())
+            })
             .unwrap_or_default();
         if let Some(kept) = from_file {
             answers = kept;
@@ -867,8 +872,10 @@ impl Server {
         if !keep.is_empty() {
             let conflicts = crate::resume::truth::conflict_ids(&doc.analysis);
             if let Some(id) = keep.iter().find(|id| !conflicts.contains(id.as_str())) {
-                return Err(ToolError::invalid(format!("{id} is not a conflict of this document"))
-                    .with("question", json!(id)));
+                return Err(
+                    ToolError::invalid(format!("{id} is not a conflict of this document"))
+                        .with("question", json!(id)),
+                );
             }
             let meta = trial
                 .entry(crate::answer_file::META)

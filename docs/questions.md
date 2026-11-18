@@ -21,7 +21,18 @@ building it:
   dimension to a hole and a pattern): an answer resumes when either plan states its
   requirements as the file does.
 - **Defaults written but not stored** (every file written with accepted defaults before P9's
-  approved defaults) read back as present in `existing`, not open questions and not conflicts.
+  approved defaults) read back as present, not open questions and not conflicts, but in
+  `resume.present: {id: value}` (the rules take each as the question's answer unless the
+  answers give one) rather than in `existing` as the brief proposed. Tried first as
+  `existing`: a defaulted requirement then became foreign PMI whose question is no longer
+  asked, so it could not be changed (`a_resumed_files_thread_can_be_answered_away`), and
+  every rewrite of a defaulted file had to keep it beside the rewritten PMI, which restated
+  datums and planner dimensions (characteristic numbering and datum-letter refusals) and lost
+  the byte-identical unchanged rewrite. A default the file states differently is `existing`.
+- **Derived basic locations.** The dimension planner's basic location dimensions for an
+  answered question explain the file's equal ones but never make a conflict: how they merge
+  (one location to a hole and a pattern) varies with the other answers and the planner's
+  version, and they state nothing the answer chose.
 
 
 ## Decision (2026-11-02): limit dimensions and combined ISO 2768 classes
