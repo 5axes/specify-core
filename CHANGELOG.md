@@ -6,6 +6,14 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+### Fixed
+
+- The release's npm job failed for 0.1.18: `npm pack` read the relative `release/pkg` as a
+  GitHub repository. `tools/npm_package.py` passes an absolute path; a test packs a relative
+  directory with npm.
+
+## 0.1.18 (2026-11-17)
+
 ### Added
 
 - docs/rule-sources.md: where each of Specify's defaults and tables comes from (standard,
@@ -34,6 +42,7 @@ All notable changes to specify-core-rust. The format follows
 - The WASM release archive and npm package carry NOTICE beside LICENSE (Apache-2.0 4(d)), from
   0.1.18. CI and the npm job refuse a packed tarball without both. The `.wasm` and `.js` are
   unchanged.
+- The npm job passes no `NPM_TOKEN`: it publishes through npm trusted publishing (OIDC) only.
 
 ## 0.1.17 (2026-11-16)
 

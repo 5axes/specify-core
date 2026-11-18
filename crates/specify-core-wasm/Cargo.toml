@@ -1,6 +1,6 @@
 [package]
 name = "specify-core-wasm"
-version = "0.1.17"
+version = "0.1.18"
 edition = "2024"
 license = "Apache-2.0"
 description = "Browser bindings for Specify's questions and manufacturing intent"
@@ -13,7 +13,7 @@ publish = false
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-specify-core = { path = "../..", version = "=0.1.17", default-features = false }
+specify-core = { path = "../..", version = "=0.1.18", default-features = false }
 # Keep the geometry/PMI kernel on the same release tag as the root crate.
 haecceity = { git = "https://github.com/pzfreo/quiddity", tag = "v0.5.4" }
 serde_json = "1.0.151"
