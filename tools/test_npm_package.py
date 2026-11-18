@@ -64,12 +64,13 @@ class NpmPackageTests(unittest.TestCase):
         # The release job passes `release/pkg`, which npm alone would read as a GitHub repository.
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)
-            pkg = write_pkg(root)
+            (root / "release").mkdir()
+            pkg = write_pkg(root / "release")
             npm_package.prepare(pkg, "0.1.17")
             cwd = os.getcwd()
             os.chdir(root)
             try:
-                packed = npm_package.check_pack(pathlib.Path("pkg"))
+                packed = npm_package.check_pack(pathlib.Path("release/pkg"))
             finally:
                 os.chdir(cwd)
             self.assertIn("NOTICE", packed)
