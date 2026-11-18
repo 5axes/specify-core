@@ -285,6 +285,16 @@ export const hasGraphics = (pmi: DrawnPmi): boolean =>
 export const hasFileGraphics = (pmi: DrawnPmi): boolean =>
   [...pmi.presentation.unlinked, ...Object.values(pmi.presentation.items).flat()].some((g) => g.source === 'file');
 
+/**
+ * View PMI's default (Paul, 2026-11-18): Graphical when the part has PMI with graphics from its
+ * file, a STEP Specify wrote included, Semantic otherwise. A file Specify wrote is read back with
+ * its PMI as Specify's own (``generated``, it resumes the answers), so it is known by ``resumed``,
+ * not by the graphics' source: the default is the file's, whatever order the scene and the
+ * answers arrive in.
+ */
+export const defaultShowing = (pmi: DrawnPmi | null, resumed: boolean): 'drawn' | 'semantic' =>
+  pmi && (hasFileGraphics(pmi) || (resumed && hasGraphics(pmi))) ? 'drawn' : 'semantic';
+
 /** Specify's general-notes block: in the 3D view a fixed panel shows the part's notes instead. */
 export const NOTES_BLOCK = 'generated:general-notes';
 

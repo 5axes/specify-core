@@ -7,7 +7,7 @@ import { addedOf, CALL_OUTS, describe, kindsFor, MAY_HAVE_DATUM, nextKey } from 
 import { codeOf } from './choose';
 import { appliedByRule, chosenForYou, type Chosen } from './chosen';
 import { datumChips, freeLetter, removal } from './datums';
-import { drawnShown, drawnViews, hasFileGraphics, partCentre, type DrawnPmi } from './drawn';
+import { defaultShowing, drawnShown, drawnViews, partCentre, type DrawnPmi } from './drawn';
 import { optionHint } from './hints';
 import { balloonsBySource, type Characteristic, characteristics, noteStatements, ranges, toCsv } from './characteristics';
 import { as9102 } from './as9102';
@@ -105,10 +105,10 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     labels: true, defaults: true, existing: true, general: false, farSide: true,
   });
   // View PMI, when the scene has graphics: as our labels (Semantic), as drawn (Graphical, key
-  // 'drawn'), or both. Until one is chosen, Graphical when the file has its own graphical PMI,
-  // Semantic otherwise. The choice lasts while the part is open; it is not saved.
+  // 'drawn'), or both. Until one is chosen, Graphical when the file has its own graphical PMI
+  // (a file Specify wrote included), Semantic otherwise. The choice lasts while the part is open; it is not saved.
   const [chosenShowing, setShowing] = useState<'semantic' | 'drawn' | 'both' | null>(null);
-  const showing = chosenShowing ?? (drawnPmi && hasFileGraphics(drawnPmi) ? 'drawn' : 'semantic');
+  const showing = chosenShowing ?? defaultShowing(drawnPmi, Boolean(session.analysis.resume));
   // A face clicked that no question is about shows what the general tolerance says of it.
   const [peek, setPeek] = useState<number | null>(null);
   // Set by a label clicked: the question it opens is turned to without moving the view.
@@ -354,7 +354,8 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
       return;
     }
     if (saved && Object.keys(saved).length > 0) {
-      setResumed(true);
+      // Said only of answers the STEP carries: a host's own (an agent's, the browser's) are not "saved with".
+      setResumed(Object.keys(session.analysis.resume?.answers ?? {}).length > 0);
       void start.commit(null, saved, (asked) =>
         nextNeeding(asked.filter((g) => g.key !== 'part'), saved));
       return;
