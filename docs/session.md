@@ -48,23 +48,28 @@ The existing tools (docs/mcp.md) work on the session, plus three new ones:
 | `answer` | as today | as today, plus the new `rev`; the page receives it as an `answers` event with `source: "mcp"` |
 | `changes` (new) | `doc`, `since` (a `rev`) | `rev`, and `changes`: `[{rev, part, source, set: {id: answer}, cleared: [id]}]` after `since`, oldest first. If `since` is older than the changes kept, `full: true` and the whole `answers` instead (every part's, by part index, as the page's `GET answers` gives `parts`) |
 | `show` (new) | `doc`, `browser?` (default `true`), `read_only?` | `url`, `mode`. Starts the page server for this session on 127.0.0.1 (random port and token), or returns the running one's address; opens the browser unless `browser: false`. A session opened with `old` is shown in `diff` mode: the page shows what changed and the carried answers, and the person may answer and save the new revision. `read_only: true` makes that page view-only (no answer changes or Save from the page); the agent can still answer. Only `read_only: true` is refused for a session opened with `old` or `in_place` (as `open` refuses `--read-only` with `--diff` or `--in-place`). A page already running in the other mode is never replaced: `show` is refused with its `url` and `mode` until the person has closed it |
-| `save` (new) | `doc`, `accept_defaults` (required: the defaults the person approved, `{"<part index>": [ids]}` as the page sends them, or a bare list of ids meaning the `doc`'s own part; `{}` or `[]` for none) | `path`, `bytes`, `rev`, `report`: writes the session's answers with the same writer and naming as the page's Save (docs/open.md); plus `complete` and `missing`. Open questions never refuse it: what is answered is written, as the page's Save does. The page gets the same `saved` event |
+| `save` (new) | `doc`, `accept_defaults` (required: the defaults the person approved, each id with the default value they saw: `{"<part index>": {"<id>": <value>}}` as the page sends them, or `{"<id>": <value>}` meaning the `doc`'s own part; `{}` for none) | `path`, `bytes`, `rev`, `report`: writes the session's answers with the same writer and naming as the page's Save (docs/open.md); plus `complete` and `missing`. Open questions never refuse it: what is answered is written, as the page's Save does. The page gets the same `saved` event |
 
 `write_pmi` stays for writing to a path of the agent's choosing; it does not change where
 Save writes.
 
 A default is written only when the person approves it, per id (ADR P9: "we shouldn't create
-the default, which then becomes gospel"). `save` requires `accept_defaults`, the list of
-exactly the defaults the person approved (`[]` for none): the agent names only those the person
-saw and confirmed, never every default unless the person saw the list and confirmed it. Each
-must be an open question with a default on the part it is listed for (else an `invalid` error
-naming the part and the id, nothing written); only that part gets it. They become answers (a
+the default, which then becomes gospel"). `save` requires `accept_defaults`, exactly the defaults
+the person approved, each with the value the person saw (`{}` for none): the agent names only
+those the person saw and confirmed, never every default unless the person saw the list and
+confirmed it. All are checked against the defaults as they stand before any is applied: each
+must be an open question with a default on the part it is listed for, and its value that
+default (else an `invalid` error naming the part and the id, with `expected` and `current`
+when the value differs; nothing written). They are applied together, and only that part gets
+them. They become answers (a
 new `rev`, an `answers` event with `"defaults": {"<part>": [ids]}`), are stored in the file, and
-the rest stay open, unwritten. A save writes only the parts that have at least one answer (and
-a file's only part); a part with no answers is left as it is. A part joining the session
+the rest stay open, unwritten. A save writes only the parts that have at least one answer (keys
+starting with `_` not counting); a part with no answers is left as it is, and with nothing to
+write the file is saved as it was opened. A part joining the session
 (opened by the agent, or first changed by the page) is a change: a new `rev` and an event with
-`"joined": true`. The page's Save sends the same list as `acceptDefaults`
-(docs/open.md). (Contract change, 2026-11-18: `accept_defaults` was `true` or `false`.) An incomplete save is written
+`"joined": true`. The page's Save sends the same object as `acceptDefaults`
+(docs/open.md). (Contract change, 2026-11-18: `accept_defaults` was `true` or `false`, then
+`{"<part>": [ids]}`; it is now `{"<part>": {"<id>": <value>}}`.) An incomplete save is written
 (docs/open.md, `save`): a STEP file with some requirements still open is a valid result.
 
 An agent that wants to follow the person's edits calls `changes` with the last `rev` it saw

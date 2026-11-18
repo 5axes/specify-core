@@ -115,20 +115,23 @@ The page sends no STEP bytes.
 `POST <token>/save` with a JSON body:
 
 ```json
-{"rev": 7, "acceptDefaults": {"0": ["part.general_tolerance"]}}
+{"rev": 7, "acceptDefaults": {"0": {"part.general_tolerance": "ISO 2768-m"}}}
 ```
 
 - `rev`: the session revision the page last saw (from `answers` or `events`). If the session
   has moved on since, the save is refused (409, with the current `rev`) so the page never
   saves answers it has not shown; the page refreshes and the person saves again.
 - `acceptDefaults` (required; 400 when absent or of another shape): an object keyed by part
-  index, as `GET answers`' `parts`, of the question ids of exactly the defaults the person
-  approved on that part: `{"0": ["id", …], "2": […]}`, `{}` for none. A default is written only
-  when the person approves it, per id and per part (ADR P9: "we shouldn't create the default,
-  which then becomes gospel"). Each id must be an open question that has a default on that part
-  at `rev` (or one an earlier id in its list asks); otherwise
-  `400 {"error": "…", "part": <k>, "question": "<id>"}` naming it, and nothing is changed or
-  written. Only the part named gets that default. The command first sets those answers to their
+  index, as `GET answers`' `parts`, of exactly the defaults the person approved on that part,
+  each question id with the default value the person saw: `{"0": {"<id>": <value>, …}, "2":
+  {…}}`, `{}` for none. A default is written only when the person approves it, per id and per
+  part (ADR P9: "we shouldn't create the default, which then becomes gospel"). Every approval is
+  checked against the defaults as they stand at `rev`, before any is applied: each id must be an
+  open question that has a default on that part, else `400 {"error": "…", "part": <k>,
+  "question": "<id>"}`; and its value must be that default, else `400 {"error": "…", "part":
+  <k>, "question": "<id>", "expected": <the value sent>, "current": <the default now>}`. Either
+  way the whole save is refused and nothing is changed or written. The approvals are then
+  applied together, so none changes another's value, and only the part named gets them. The command first sets those answers to their
   defaults in the session: a new `rev`, and for each part an `answers` event that also carries
   `"defaults": {"<k>": [ids]}`, with `source` as for the save (`"page"`, or `"mcp"` for the
   agent's `save`). Then it writes from that rev: the
@@ -136,8 +139,8 @@ The page sends no STEP bytes.
   with its PMI. Questions with a default that are not listed stay open and are never written.
   The 200 reply's `rev` is that new rev (the one asked for when nothing is listed).
   (Contract change, 2026-11-18: `acceptDefaults` was `true` or `false`, `true` filling every
-  open default; it is now the approved question ids by part, `{"<part>": [ids]}`, and a bool
-  or a list gets 400.)
+  open default; it was then `{"<part>": [ids]}`; it is now `{"<part>": {"<id>": <value>}}`, and
+  any other shape gets 400.)
 
 **An incomplete save is written** (Paul, 2026-11-18: "The user might want to save something
 with incomplete PMI. What's wrong with that? Lots of step files with ap242 don't have a complete
@@ -148,9 +151,10 @@ questions open. The answer says what is still open (`complete`, `missing`).
   `Transfer-Encoding` (411), at most 64 KB (413), the whole body within 30 s (408).
 - `Origin: http://127.0.0.1:<port>` exactly (403 otherwise, and when `Origin` is absent).
 
-Every part that has at least one answer in the session (approved defaults count), and a file's
-only part, is written in one edit; a part with no answers has nothing to write, and it and an
-assembly's other parts are left as they are (their PMI and stored answers untouched). A part
+Every part that has at least one answer in the session (approved defaults count; keys starting
+with `_`, such as `_specify`, do not) is written in one edit; a part with no answers has nothing
+to write, and it and an assembly's other parts are left as they are (their PMI and stored
+answers untouched). With nothing to write, the file is saved as it was opened. A part
 never gets a default not approved for it. The file is written to a temporary file next to the input and renamed
 into place:
 

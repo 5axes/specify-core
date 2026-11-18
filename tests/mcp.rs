@@ -1307,7 +1307,7 @@ fn the_agent_and_the_page_share_one_session() {
     let refused = client.refusal("save", json!({"doc": doc}));
     assert_eq!(refused["code"], json!("invalid"), "{refused}");
     assert!(!dir.join("plate.specified.step").exists());
-    let saved = client.call("save", json!({"doc": doc, "accept_defaults": []}));
+    let saved = client.call("save", json!({"doc": doc, "accept_defaults": {}}));
     assert_eq!(saved["complete"], json!(false), "{saved}");
     assert!(!saved["missing"].as_array().unwrap().is_empty());
     assert_eq!(saved["rev"], json!(2));
@@ -1557,7 +1557,7 @@ fn a_linked_file_saves_beside_the_link_and_reopens_to_its_session() {
     let saved = call(
         &mut server,
         "save",
-        json!({"doc": doc, "accept_defaults": []}),
+        json!({"doc": doc, "accept_defaults": {}}),
     );
     assert_eq!(
         saved["structuredContent"]["path"],
@@ -1591,7 +1591,7 @@ fn a_linked_file_saves_beside_the_link_and_reopens_to_its_session() {
     let saved = call(
         &mut server,
         "save",
-        json!({"doc": doc, "accept_defaults": []}),
+        json!({"doc": doc, "accept_defaults": {}}),
     );
     assert_eq!(saved["structuredContent"]["path"], json!(link), "{saved}");
     assert!(
@@ -1781,7 +1781,13 @@ fn save_writes_only_the_defaults_named() {
     let mut server = Server::new(std::slice::from_ref(&dir)).unwrap();
     let opened = call(&mut server, "open", json!({"path": copy}));
     let doc = opened["structuredContent"]["doc"].clone();
-    for bad in [json!(true), json!(false), json!("all")] {
+    for bad in [
+        json!(true),
+        json!(false),
+        json!("all"),
+        json!([]),
+        json!(["part.material"]),
+    ] {
         let refused = error_of(
             &mut server,
             "save",
@@ -1792,7 +1798,7 @@ fn save_writes_only_the_defaults_named() {
     let refused = error_of(
         &mut server,
         "save",
-        json!({"doc": doc, "accept_defaults": ["no.such.question"]}),
+        json!({"doc": doc, "accept_defaults": {"no.such.question": "x"}}),
     );
     assert_eq!(refused["code"], json!("invalid"));
     assert_eq!(refused["question"], json!("no.such.question"));
@@ -1800,19 +1806,29 @@ fn save_writes_only_the_defaults_named() {
     assert!(!dir.join("plate.specified.step").exists());
 
     let open = call(&mut server, "questions", json!({"doc": doc}));
-    let offered: Vec<String> = open["structuredContent"]["questions"]
+    let offered: Vec<(String, Value)> = open["structuredContent"]["questions"]
         .as_array()
         .unwrap()
         .iter()
         .filter(|q| !q["default"].is_null())
-        .map(|q| q["id"].as_str().unwrap().to_string())
+        .map(|q| (q["id"].as_str().unwrap().to_string(), q["default"].clone()))
         .collect();
     assert!(offered.len() >= 2, "{offered:?}");
+    // A value that is no longer the default: refused with both, nothing written.
+    let stale = error_of(
+        &mut server,
+        "save",
+        json!({"doc": doc, "accept_defaults": {&offered[0].0: "something else"}}),
+    );
+    assert_eq!(stale["expected"], json!("something else"));
+    assert_eq!(stale["current"], offered[0].1);
+    assert!(!dir.join("plate.specified.step").exists());
     let saved = call(
         &mut server,
         "save",
-        json!({"doc": doc, "accept_defaults": [offered[0]]}),
+        json!({"doc": doc, "accept_defaults": {&offered[0].0: offered[0].1}}),
     );
+    let offered: Vec<String> = offered.into_iter().map(|(id, _)| id).collect();
     let saved = &saved["structuredContent"];
     assert_eq!(saved["rev"], json!(1), "{saved}");
     let missing = saved["missing"].as_array().unwrap();
@@ -1988,28 +2004,28 @@ fn an_approved_default_goes_only_to_its_part() {
                 .clone()
         })
         .collect();
-    let offered = |server: &mut Server, doc: &Value| -> Vec<String> {
+    let offered = |server: &mut Server, doc: &Value| -> Map<String, Value> {
         call(server, "questions", json!({"doc": doc}))["structuredContent"]["questions"]
             .as_array()
             .unwrap()
             .iter()
             .filter(|q| !q["default"].is_null())
-            .map(|q| q["id"].as_str().unwrap().to_string())
+            .map(|q| (q["id"].as_str().unwrap().to_string(), q["default"].clone()))
             .collect()
     };
     let (first, second) = (
         offered(&mut server, &docs[0]),
         offered(&mut server, &docs[1]),
     );
-    let id = first
+    let (id, value) = first
         .iter()
-        .find(|id| second.contains(id))
-        .expect("a question open with a default on both parts")
-        .clone();
+        .find(|(id, _)| second.contains_key(*id))
+        .map(|(id, v)| (id.clone(), v.clone()))
+        .expect("a question open with a default on both parts");
     let saved = call(
         &mut server,
         "save",
-        json!({"doc": docs[0], "accept_defaults": {"0": [id]}}),
+        json!({"doc": docs[0], "accept_defaults": {"0": {&id: value}}}),
     );
     assert_eq!(saved["isError"], json!(false), "{saved}");
     let written = dir.join("two.specified.step");

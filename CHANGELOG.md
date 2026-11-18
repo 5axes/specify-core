@@ -24,7 +24,7 @@ All notable changes to specify-core-rust. The format follows
   Specify page (docs/open.md) for that session on 127.0.0.1 and opens the browser, so the agent
   and the person edit one set of answers. New MCP tools `changes` (what changed since a `rev`),
   `show` and `save` (the specified STEP written beside the file, or over it when opened
-  `in_place`; `accept_defaults` required, the ids of the defaults the person approved). `open` takes `old`, `old_answers` and `in_place`,
+  `in_place`; `accept_defaults` required, the defaults the person approved with the values they saw). `open` takes `old`, `old_answers` and `in_place`,
   and with `old` compares the revisions as `diff` does and starts from the carried answers;
   every tool that reads the answers returns `rev`. `answer` takes `partial: true` (every valid
   answer applied in one rev, each id's outcome or refusal given) and `questions` `compact: true`
@@ -56,8 +56,8 @@ All notable changes to specify-core-rust. The format follows
   `--wasm DIR` (or `SPECIFY_WASM_DIR`) the engine's wasm-pack `pkg/`. The contract for the
   app's authors is docs/open.md.
 - Save from the page sends `{rev, acceptDefaults}` (JSON; `acceptDefaults` required, by part
-  `{"<part>": [ids]}`, exactly the defaults the person approved, which become answers on that
-  part only, ADR P9), not the STEP bytes. A save writes only parts with answers, and a part
+  `{"<part>": {"<id>": <value>}}`, exactly the defaults the person approved with the values
+  they saw, checked against the current defaults and applied together on that part only, ADR P9), not the STEP bytes. A save writes only parts with answers, and a part
   joining the session is a change (`joined`): the command writes the session's answers with `specify-core write`'s writer, so a
   save from the page and one from the agent write the same file. An incomplete save is written
   (what is answered, the answers stored so reopening resumes them) and answers `complete` and

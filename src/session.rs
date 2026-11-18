@@ -119,11 +119,14 @@ pub enum SaveError {
     Stale(u64),
     /// The save would write outside the allowed directories.
     Outside(String),
-    /// A default approved that is not an open question with a default on its part.
+    /// A default approved that is not an open question with a default on its part, or
+    /// (`expected`, `current`) whose value is no longer its default.
     Question {
         message: String,
         part: usize,
         question: String,
+        /// The value approved and the default now, when they differ.
+        values: Option<Box<(Value, Value)>>,
     },
     /// An in-place save over a file changed on disk since it was opened (by anyone but this
     /// session).
@@ -473,15 +476,20 @@ impl Session {
             .find(|p| fs::symlink_metadata(p).is_err())
     }
 
-    /// The parts a save writes: every part with at least one answer, and a file's only part. A
-    /// part with no answers has nothing to write, and is left as it is.
+    /// The parts a save writes: every part with at least one answer, keys starting with `_`
+    /// (metadata such as `_specify`) not counting. A part with no answers has nothing to write
+    /// and is left as it is, with the PMI and stored answers it has.
     fn parts_to_write(&self) -> Vec<usize> {
-        let mut parts: BTreeSet<usize> = self
-            .answers
+        self.answers
             .iter()
-            .filter(|(_, a)| !a.is_empty())
+            .filter(|(_, a)| a.keys().any(|id| !id.starts_with('_')))
             .map(|(k, _)| *k)
-            .collect();
+            .collect()
+    }
+
+    /// The parts a save reports open questions for: those it writes, and a file's only part.
+    fn parts_to_report(&self) -> Vec<usize> {
+        let mut parts: BTreeSet<usize> = self.parts_to_write().into_iter().collect();
         if self.part_count() == 1 {
             parts.insert(0);
         }
@@ -556,7 +564,7 @@ fn analyse(step: &part::File, part: usize) -> Result<Value, Error> {
 pub fn save(
     shared: &Shared,
     rev: Option<u64>,
-    approved: &BTreeMap<usize, Vec<String>>,
+    approved: &Approved,
     source: &'static str,
 ) -> Result<Saved, SaveError> {
     let refused = |e: Error| match e {
@@ -579,10 +587,11 @@ pub fn save(
             return Err(SaveError::Question {
                 message: format!("the file has {count} part(s): there is no part {k}"),
                 part: k,
-                question: ids.first().cloned().unwrap_or_default(),
+                question: ids.keys().next().cloned().unwrap_or_default(),
+                values: None,
             });
         }
-        let mut parts = s.parts_to_write();
+        let mut parts = s.parts_to_report();
         let more: Vec<usize> = approved
             .keys()
             .filter(|k| !parts.contains(k))
@@ -617,7 +626,7 @@ pub fn save(
         for (k, (answers, ids)) in approve(&s, &analyses, approved)? {
             s.change(k, answers, source, Some(&ids));
         }
-        let parts = s.parts_to_write();
+        let parts = (s.parts_to_report(), s.parts_to_write());
         (
             parts,
             s.rev,
@@ -629,11 +638,12 @@ pub fn save(
             s.backup.clone(),
         )
     };
+    let (reported, parts) = parts;
     let mut loaded = Vec::with_capacity(parts.len());
     let mut intents = Vec::with_capacity(parts.len());
     let mut missing = Vec::new();
     let empty = Map::new();
-    for &k in &parts {
+    for &k in &reported {
         let analysis = &analyses[&k];
         let given = answers.get(&k).unwrap_or(&empty);
         let part = step.load(Some(k)).map_err(|e| refused(e.into()))?;
@@ -644,8 +654,10 @@ pub fn save(
             }
         })?;
         missing.extend(open);
-        loaded.push(part);
-        intents.push(intent);
+        if parts.contains(&k) {
+            loaded.push(part);
+            intents.push(intent);
+        }
     }
     let jobs: Vec<crate::writer::Job<'_>> = parts
         .iter()
@@ -653,9 +665,16 @@ pub fn save(
         .zip(&intents)
         .map(|((k, l), i)| (l, i, Some(answers.get(k).unwrap_or(&empty))))
         .collect();
-    let (text, report) =
-        crate::writer::write_parts_bytes(&jobs).map_err(|e| refused(Error::Write(e)))?;
-    let mut report = report.to_dict();
+    // With nothing to write, the file is saved as it was opened: its PMI and stored answers
+    // are never rewritten from no answers.
+    let (text, mut report) = if jobs.is_empty() {
+        let report = json!({"output": "", "written": [], "not_written": [], "warnings": []});
+        (step.bytes().to_vec(), report)
+    } else {
+        let (text, report) =
+            crate::writer::write_parts_bytes(&jobs).map_err(|e| refused(Error::Write(e)))?;
+        (text, report.to_dict())
+    };
     let cannot = |e: io::Error| SaveError::Failed(format!("cannot save: {e}"));
     let (path, bytes, stored) = if in_place {
         let stored = replace_input(shared, &file.path, gz, &mut backup, text).map_err(cannot)?;
@@ -799,59 +818,74 @@ fn intent_for(
     }
 }
 
-/// Approved defaults as the page and MCP give them: `{"<part index>": ["<question id>", ...]}`
-/// (`{}` for none). None for anything else.
-pub fn approvals(value: &Value) -> Option<BTreeMap<usize, Vec<String>>> {
+/// Approved defaults by part: each question id with the default value the person saw.
+pub type Approved = BTreeMap<usize, Map<String, Value>>;
+
+/// Approved defaults as the page and MCP give them: `{"<part index>": {"<question id>":
+/// <value>, ...}}` (`{}` for none). None for anything else.
+pub fn approvals(value: &Value) -> Option<Approved> {
     value
         .as_object()?
         .iter()
-        .map(|(k, ids)| {
-            let ids = ids
-                .as_array()?
-                .iter()
-                .map(|id| id.as_str().map(String::from))
-                .collect::<Option<Vec<_>>>()?;
-            Some((k.parse().ok()?, ids))
-        })
+        .map(|(k, ids)| Some((k.parse().ok()?, ids.as_object()?.clone())))
         .collect()
 }
 
 /// Each part's answers with the approved defaults taken, and the ids taken in it.
 type Approvals = BTreeMap<usize, (Map<String, Value>, Vec<String>)>;
 
-/// The answers each part takes when the defaults `approved` for it are accepted, in order (an
-/// id may be one an earlier approval asks), with the ids it took; refused, naming the part and
-/// the id, unless each is an open question with a default on that part. Only the part named
-/// takes a default.
+/// The answers each part takes with the defaults `approved` for it, and the ids taken. Every
+/// approval is checked against the defaults as they stand now, before any is applied: each id
+/// must be an open question with a default on its part, and the value approved must be that
+/// default (the one the person saw), else the whole save is refused naming it. They are then
+/// applied together, so no approval changes the value of another. Only the part named takes a
+/// default.
 fn approve(
     s: &Session,
     analyses: &BTreeMap<usize, Arc<Value>>,
-    approved: &BTreeMap<usize, Vec<String>>,
+    approved: &Approved,
 ) -> Result<Approvals, SaveError> {
     let mut out = Approvals::new();
     for (&k, wanted) in approved.iter().filter(|(_, ids)| !ids.is_empty()) {
         let analysis = &analyses[&k];
-        let mut answers = s.answers.get(&k).cloned().unwrap_or_default();
-        for id in wanted {
-            let qs = api::questions(analysis, &answers)
-                .map_err(|e| SaveError::Refused(e.to_string()))?;
-            let default = rules::open_questions(&qs, &answers)
-                .into_iter()
+        let answers = s.answers.get(&k).cloned().unwrap_or_default();
+        let qs =
+            api::questions(analysis, &answers).map_err(|e| SaveError::Refused(e.to_string()))?;
+        let open = rules::open_questions(&qs, &answers);
+        for (id, value) in wanted {
+            let current = open
+                .iter()
                 .find(|q| q.id == *id)
                 .and_then(|q| q.default.clone());
-            let Some(default) = default else {
-                return Err(SaveError::Question {
-                    message: format!(
-                        "part {k}: {id} is not an open question with a default: approve only \
-                         the defaults offered"
-                    ),
-                    part: k,
-                    question: id.clone(),
-                });
-            };
-            answers.insert(id.clone(), default);
+            match current {
+                None => {
+                    return Err(SaveError::Question {
+                        message: format!(
+                            "part {k}: {id} is not an open question with a default: approve \
+                             only the defaults offered"
+                        ),
+                        part: k,
+                        question: id.clone(),
+                        values: None,
+                    });
+                }
+                Some(current) if current != *value => {
+                    return Err(SaveError::Question {
+                        message: format!(
+                            "part {k}: {id}'s default is now {current}, not the {value} \
+                             approved: show it and approve again"
+                        ),
+                        part: k,
+                        question: id.clone(),
+                        values: Some(Box::new((value.clone(), current))),
+                    });
+                }
+                Some(_) => {}
+            }
         }
-        out.insert(k, (answers, wanted.clone()));
+        let mut taken = answers;
+        taken.extend(wanted.clone());
+        out.insert(k, (taken, wanted.keys().cloned().collect()));
     }
     Ok(out)
 }

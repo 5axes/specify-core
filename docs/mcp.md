@@ -89,7 +89,7 @@ JSON-RPC errors.
 | `diff` | `old`, `new`, `part?`, `doc?` | `verdict`, `summary`, carried `answers`, `report`, `markdown`, as `specify-core diff` (nothing is written) |
 | `changes` | `doc`, `since` (a `rev`) | `rev`, and `changes`: `[{rev, part, source, set, cleared}]` after `since`, oldest first (`source` `page` or `mcp`); if `since` is older than the 256 changes kept, `full: true` and `answers`, every part's answers by part index |
 | `show` | `doc`, `browser?` (default `true`), `read_only?` | `url`, `mode`: the Specify page for the document's session on 127.0.0.1 (docs/open.md), started or, if it is running, its address; the browser opened unless `browser: false`. `read_only` makes that page view-only (not for a session opened with `old` or `in_place`). A running page in the other mode is refused (`invalid`, with its `url` and `mode`), never replaced |
-| `save` | `doc`, `accept_defaults` (required: the ids of the defaults the person approved, `[]` for none) | `path`, `bytes`, `rev`, `report`, `complete`, `missing`: the session's answers written as the page's Save writes them, beside the file (or over it, opened `in_place`); open questions never refuse it |
+| `save` | `doc`, `accept_defaults` (required: the defaults the person approved with the values they saw, `{"<id>": <value>}` for the doc's part or `{"<part>": {"<id>": <value>}}`; `{}` for none) | `path`, `bytes`, `rev`, `report`, `complete`, `missing`: the session's answers written as the page's Save writes them, beside the file (or over it, opened `in_place`); open questions never refuse it |
 
 `answer` reads free text for a choice question as `serve`'s `interpret` does. `"M6"` on a hole
 becomes the matching `clearance:` or `tapped:` value, `"H7"` on a bore becomes a fit, and an

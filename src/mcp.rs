@@ -1357,19 +1357,20 @@ impl Server {
 
     fn save(&self, args: &Map<String, Value>) -> ToolResult {
         let (handle, doc) = self.doc(args)?;
-        // By part, as the page sends them; a bare list is the doc's own part's.
+        // By part, as the page sends them, or {id: value} for the doc's own part.
         let approved = match args.get("accept_defaults") {
-            Some(Value::Array(_)) => {
-                session::approvals(&json!({ doc.part.to_string(): args["accept_defaults"] }))
-            }
-            Some(v @ Value::Object(_)) => session::approvals(v),
+            Some(Value::Object(m)) if m.is_empty() => Some(session::Approved::new()),
+            Some(v @ Value::Object(m)) => session::approvals(v).or_else(|| {
+                (!m.keys().any(|k| k.parse::<usize>().is_ok()))
+                    .then(|| session::Approved::from([(doc.part, m.clone())]))
+            }),
             _ => None,
         };
         let Some(approved) = approved else {
             return Err(ToolError::invalid(
-                "accept_defaults is required: the question ids of exactly the defaults the person \
-                 approved, a list for this doc's part or {\"<part>\": [ids]} by part ([] or {} \
-                 for none)",
+                "accept_defaults is required: exactly the defaults the person approved, each id \
+                 with the default value the person saw: {\"<id>\": value} for this doc's part, \
+                 or {\"<part>\": {\"<id>\": value}} by part ({} for none)",
             ));
         };
         let saved = session::save(&doc.session, None, &approved, "mcp").map_err(|e| match e {
@@ -1377,9 +1378,17 @@ impl Server {
                 message,
                 part,
                 question,
-            } => ToolError::invalid(message)
-                .with("question", json!(question))
-                .with("part", json!(part)),
+                values,
+            } => {
+                let mut e = ToolError::invalid(message)
+                    .with("question", json!(question))
+                    .with("part", json!(part));
+                if let Some(values) = values {
+                    let (expected, current) = *values;
+                    e = e.with("expected", expected).with("current", current);
+                }
+                e
+            }
             session::SaveError::Refused(m) => ToolError::invalid(m),
             session::SaveError::Changed(m) => ToolError::new("stale", m),
             session::SaveError::Outside(m) => ToolError::refused(m),
@@ -2063,10 +2072,10 @@ pub fn tools() -> Vec<Value> {
         json!({
             "name": "save",
             "title": "Save the specified STEP",
-            "description": format!("Write the session's answers into the file as AP242 PMI, as the Specify page's Save does: beside the opened file as <name>.specified.step (then -2, -3, ...; nothing is overwritten), or over it if it was opened in_place (the original kept once as .bak). Open questions never refuse it: what is answered is written, the answers are stored in the file so opening it again resumes them, and complete/missing say what is still open. accept_defaults is required: the defaults to write, as a list of question ids for this doc's part, or {{\"<part index>\": [ids]}} by part (only the part named gets them). Name exactly the defaults the person approved; never pass every default unless the person saw the list and confirmed it. [] or {{}} writes no default: questions with a default that are not listed stay open and are not written. Each id must be an open question with a default (questions shows them), else the call is refused naming it. The approved defaults become answers (rev goes up) and are stored in the file. {MEMORY_RULE}"),
+            "description": format!("Write the session's answers into the file as AP242 PMI, as the Specify page's Save does: beside the opened file as <name>.specified.step (then -2, -3, ...; nothing is overwritten), or over it if it was opened in_place (the original kept once as .bak). Open questions never refuse it: what is answered is written, the answers are stored in the file so opening it again resumes them, and complete/missing say what is still open. accept_defaults is required: the defaults to write, each question id with the default value the person saw, as {{\"<id>\": value}} for this doc's part or {{\"<part index>\": {{\"<id>\": value}}}} by part (only the part named gets them). Name exactly the defaults the person approved; never pass every default unless the person saw the list and confirmed it. A value that is no longer the default refuses the save (expected, current). {{}} writes no default: questions with a default that are not listed stay open and are not written. Each id must be an open question with a default (questions shows them), else the call is refused naming it. The approved defaults become answers (rev goes up) and are stored in the file. {MEMORY_RULE}"),
             "inputSchema": input(json!({
                 "doc": doc(),
-                "accept_defaults": {"type": ["array", "object"], "items": {"type": "string"}, "additionalProperties": {"type": "array", "items": {"type": "string"}}, "description": "Exactly the defaults the person approved: question ids for this doc's part, or {\"<part index>\": [ids]} ([] or {} for none)."}
+                "accept_defaults": {"type": "object", "description": "Exactly the defaults the person approved, each id with the default value they saw: {\"<id>\": value} for this doc's part, or {\"<part index>\": {\"<id>\": value}} ({} for none)."}
             }), &["doc", "accept_defaults"]),
             "outputSchema": output(json!({
                 "doc": {"type": "string"},

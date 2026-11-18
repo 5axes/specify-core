@@ -920,8 +920,8 @@ fn save(stream: &mut TcpStream, ctx: &Ctx, request: &Request, body: Vec<u8>) {
         return refuse(
             stream,
             "400 Bad Request",
-            "acceptDefaults is required: by part index, the question ids of the defaults the \
-             person approved ({\"0\": [\"id\", ...]}; {} for none)",
+            "acceptDefaults is required: by part index, each approved question id with the \
+             default the person saw ({\"0\": {\"id\": value}}; {} for none)",
         );
     };
     let Some(rev) = value.get("rev").and_then(|v| v.as_u64()) else {
@@ -956,11 +956,16 @@ fn save(stream: &mut TcpStream, ctx: &Ctx, request: &Request, body: Vec<u8>) {
             message,
             part,
             question,
-        }) => reply_json(
-            stream,
-            "400 Bad Request",
-            &json!({"error": message, "part": part, "question": question}),
-        ),
+            values,
+        }) => {
+            let mut body = json!({"error": message, "part": part, "question": question});
+            if let Some(values) = values {
+                let (expected, current) = *values;
+                body["expected"] = expected;
+                body["current"] = current;
+            }
+            reply_json(stream, "400 Bad Request", &body)
+        }
         Err(session::SaveError::Refused(why)) => refuse(stream, "422 Unprocessable Content", &why),
         Err(session::SaveError::Failed(why)) => refuse(stream, "500 Internal Server Error", &why),
     }
