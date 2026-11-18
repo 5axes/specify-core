@@ -60,6 +60,15 @@ async function load(server, ready = '.pmi-lab-panel') {
   const context = await browser.newContext({ viewport: { width: 1400, height: 950 }, acceptDownloads: true });
   const requests = [];
   context.on('request', request => requests.push({ url: request.url(), method: request.method() }));
+  // Every message the page posts to a worker (the engine), by operation: what the engine was asked.
+  await context.addInitScript(() => {
+    window.__engineOps = [];
+    const post = Worker.prototype.postMessage;
+    Worker.prototype.postMessage = function (message, ...rest) {
+      if (message && typeof message.operation === 'string') window.__engineOps.push(message.operation);
+      return post.call(this, message, ...rest);
+    };
+  });
   const page = await context.newPage();
   page.on('pageerror', error => problems.push(String(error)));
   page.on('console', message => { if (message.type() === 'error') problems.push(`console: ${message.text()}`); });
@@ -75,6 +84,8 @@ const onlyLocal = (requests, origin) => {
 };
 const material = page => page.locator('[data-question="part.material"]');
 let first = null;
+/** The question ids the defaults dialog listed and the person confirmed. */
+let listed = [];
 /** `specify-core analyse` of ``file``: what Specify reads from it (its PMI as characteristics, the answers stored). */
 /** The answers a person gave: Specify's own `_` records left out. */
 const given = answers => Object.fromEntries(Object.entries(answers ?? {}).filter(([id]) => !id.startsWith('_')));
@@ -88,6 +99,8 @@ try {
     await check(page).toHaveTitle('part.step — Specify');
     await check(page.locator('.app-brand')).toHaveText('Specify');
     await check(page.getByText('Draftwright')).toHaveCount(0);
+    // A file of one part: no part named by the command.
+    assert.equal((await (await fetch(`${server.url}config`)).json()).part, null);
     await check(page.locator('.app-target')).toHaveText(specified);
     // Save with the material, which is required, still open is not refused: it writes what is answered
     // (nothing, here), and says what is still open. Many STEP files have no complete answer to everything.
@@ -115,6 +128,8 @@ try {
     assert.ok(!existsSync(withDefaults), 'nothing written when the list is cancelled');
     // Confirmed: Save writes beside the file and says where.
     await page.getByRole('button', { name: 'Save with defaults' }).click();
+    await check(list.locator('[data-default]').first()).toBeVisible();
+    listed = await list.locator('[data-default]').evaluateAll(items => items.map(item => item.getAttribute('data-default')).sort());
     await list.getByRole('button', { name: /^Save with these \d+ defaults$/ }).click();
     await check(page.locator('.app-saved')).toContainText(withDefaults);
     await check(page.getByRole('alert')).toHaveCount(0);
@@ -138,12 +153,16 @@ try {
         assert.equal(answers['part.material'], 'Aluminium 6082-T6', 'the answers file has the answer given');
       }
     }
-    // A plain Save writes the answers given, and assumes no defaults.
+    // A plain Save writes the answers given and assumes no new defaults. The defaults the person
+    // confirmed earlier are answers in the session now (the command made them so), so with the
+    // material given nothing is left open (before the per-part contract they were never answers, so
+    // the page said 'still open' and stored the material alone).
     await page.getByRole('button', { name: 'Save', exact: true }).click();
     await check(page.locator('.app-saved')).toContainText(second);
-    await check(page.locator('.app-saved')).toContainText('still open');
+    await check(page.locator('.app-saved')).toContainText('complete');
     await check(page.locator('.app-dirty')).toHaveCount(0);
-    assert.deepEqual(given(analyse(second).resume?.answers), { 'part.material': 'Aluminium 6082-T6' }, 'Save stores only the answers given');
+    assert.deepEqual(Object.keys(given(analyse(second).resume?.answers)).sort(), [...listed, 'part.material'].sort(), 'Save stores the answers given and the defaults confirmed, nothing else');
+    assert.equal(given(analyse(second).resume?.answers)['part.material'], 'Aluminium 6082-T6');
     onlyLocal(requests, server.origin);
     // Leaving the page (pagehide, not into the back/forward cache) sends `closed`: the command then
     // stops 90 s later (without it, after 30 minutes), checked at the end.
@@ -155,10 +174,10 @@ try {
   {
     const analysis = analyse(withDefaults);
     assert.ok(!('part.material' in (analysis.resume?.answers ?? {})), 'the defaults save had no material');
-    // The command writes as `specify-core write --accept-defaults` does: the defaults become PMI, and the
-    // answers stored are the session's (none here), not the defaults (a contract change from the page's
-    // own writer, which stored them; reported to specify-core).
-    assert.deepEqual(given(analysis.resume?.answers), {}, 'the answers stored are the session\'s');
+    // The page sends the ids it listed and the person confirmed (`acceptDefaults: {"0": [ids]}`): the
+    // command makes exactly those answers (a new rev) and stores them, so the answers stored are the
+    // confirmed defaults and nothing else (before the per-part contract: the session's, none here).
+    assert.deepEqual(Object.keys(given(analysis.resume?.answers)).sort(), listed, 'the answers stored are the defaults confirmed');
     const plain = (analyse(specified).characteristics ?? []).length;
     assert.ok((analysis.characteristics ?? []).length > plain, 'the defaults save has the defaults\' PMI');
     const kinds = new Set((analysis.characteristics ?? []).map(c => c.kind));
@@ -202,7 +221,7 @@ try {
     if (shots) await page.screenshot({ path: join(shots, 'read-only.png') });
     // The command refuses a save as the page would send it (its Origin, the session's rev).
     const { rev } = await (await fetch(`${server.url}answers`)).json();
-    const refused = await fetch(`${server.url}save`, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: server.origin }, body: JSON.stringify({ rev, acceptDefaults: false }) });
+    const refused = await fetch(`${server.url}save`, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: server.origin }, body: JSON.stringify({ rev, acceptDefaults: {} }) });
     assert.equal(refused.status, 409, 'a save is refused when read-only');
     onlyLocal(requests, server.origin);
     await context.close();
@@ -218,9 +237,11 @@ try {
     const server = await open([oldFile, newFile], '--diff');
     const config = await (await fetch(`${server.url}config`)).json();
     assert.equal(config.mode, 'diff');
-    // GET diff: WASM diff()'s {report, markdown, view} (specify-core 2026-11-18), or report.json before.
+    // GET diff: exactly WASM diff()'s {report, markdown, view}, with the PMI scenes in report.pmi.scenes.
     const body = await (await fetch(`${server.url}diff`)).json();
-    const report = body.view ? body.report : body;
+    assert.deepEqual(Object.keys(body).sort(), ['markdown', 'report', 'view']);
+    assert.ok(body.report.pmi?.scenes && 'old' in body.report.pmi.scenes && 'new' in body.report.pmi.scenes, 'GET diff carries the PMI scenes');
+    const report = body.report;
     const { parts } = await (await fetch(`${server.url}answers`)).json();
     const carried = given(parts['0']);
     assert.ok(Object.keys(carried).length > 5, `the old revision's answers are carried: ${Object.keys(carried)}`);
@@ -232,6 +253,12 @@ try {
     // What changed, first: the comparison drawn, its summary.
     await check(page.getByRole('tab', { name: 'What changed' })).toHaveAttribute('aria-selected', 'true');
     await check(page.locator('.diff-summary').first()).toBeVisible();
+    // The page drew it from GET diff and compared nothing itself: no `diff` request reached its engine
+    // (it still asks the engine to open NEW and for the parts' meshes).
+    const ops = await page.evaluate(() => window.__engineOps);
+    assert.ok(ops.length > 0 && ops.includes('open'), `the engine was used: ${ops}`);
+    assert.ok(!ops.includes('diff'), `no engine diff call in diff mode: ${ops}`);
+    assert.ok(requests.some(({ url, method }) => method === 'GET' && url === `${server.url}diff`), 'the comparison came from GET diff');
     // What needs a decision, from the command's report: each one a button that opens its question.
     const decide = [...report.unresolved ?? [], ...report.check ?? [], ...report.questions ?? []];
     assert.deepEqual([(report.unresolved ?? []).length, (report.check ?? []).length, (report.questions ?? []).length], [0, 2, 1], 'two to check, one new');

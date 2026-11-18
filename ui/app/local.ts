@@ -11,6 +11,8 @@ export interface LocalConfig {
   /** The file's name (NEW's in diff mode), and its absolute path as given. */
   name: string;
   path: string;
+  /** The part index the page is shown for (an agent's `show` on a part of a file of several); otherwise null. */
+  part: number | null;
   /** OLD's, in diff mode; otherwise null. */
   oldName: string | null;
   oldPath: string | null;
@@ -27,7 +29,13 @@ export type Source = 'page' | 'mcp' | 'start';
 /** An `answers` event: the start state (``parts``) or one part's change. */
 export type AnswersEvent =
   | { rev: number; parts: Record<string, PmiAnswers>; source: 'start' }
-  | { rev: number; part: number; answers: PmiAnswers; source: 'page' | 'mcp' };
+  | {
+    rev: number; part: number; answers: PmiAnswers; source: 'page' | 'mcp';
+    /** A save approved these defaults, by part: question ids now answered with their defaults. */
+    defaults?: Record<string, string[]>;
+    /** The part joined the session (the agent opened it, or the page first changed it); its answers may be `{}`. */
+    joined?: boolean;
+  };
 export interface SavedEvent { path: string; bytes: number; rev: number; source: 'page' | 'mcp' }
 /** A save's answer: what was written, and the required questions still open in it. */
 export interface Saved { path: string; bytes: number; rev: number; report: unknown; complete: boolean; missing: string[] }
@@ -72,20 +80,22 @@ export const putAnswers = (rev: number, part: number, answers: PmiAnswers) => js
   method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rev, part, answers }),
 }));
 
-/** The command writes the specified STEP from the session's answers at ``rev``. Never refused for
- * open questions; 409 when the session moved on, or (--in-place) the file changed on disk. */
-export const save = (rev: number, acceptDefaults: boolean) => json<Saved>(fetch('save', {
+/** The defaults the person approved, by part index: `{"<part>": [question ids]}`; `{}` for none. */
+export type AcceptDefaults = Record<string, string[]>;
+
+/** The command writes the specified STEP from the session's answers at ``rev``, after setting
+ * ``acceptDefaults`` (exactly the defaults the person approved, per part) as answers. Never refused
+ * for open questions; 409 when the session moved on, or (--in-place) the file changed on disk; 400
+ * `{error, part, question}` when a default listed is not an open question with a default there. */
+export const save = (rev: number, acceptDefaults: AcceptDefaults) => json<Saved>(fetch('save', {
   method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rev, acceptDefaults }),
 }));
 
-/** Diff mode: the command's comparison. Since specify-core's 2026-11-18 contract change it is what
- * WASM `diff()` returns (`{report, markdown, view}`, an assembly's `{report, markdown, parts}`);
- * before, `specify-core diff`'s report.json alone. Either way, the report. */
-export async function getDiff(): Promise<{ report: unknown; compared: unknown | null }> {
-  const body = await json<Record<string, unknown>>(fetch('diff', { cache: 'no-store' }));
-  return body && typeof body === 'object' && 'report' in body && ('view' in body || 'parts' in body)
-    ? { report: body.report, compared: body } : { report: body, compared: null };
-}
+/** Diff mode: the command's comparison, exactly what WASM `diff()` returns with the PMI scenes
+ * (specify-core docs/open.md): a part's `{report, markdown, view}`, an assembly's `{report, markdown, parts}`;
+ * the scenes are `report.pmi.scenes` (an assembly's, each compared part's). */
+export interface DiffBody { report: unknown; markdown: string; view?: unknown; parts?: unknown[] }
+export const getDiff = () => json<DiffBody>(fetch('diff', { cache: 'no-store' }));
 
 /** The session's changes as they happen (the start state first, again on each reconnect), and
  * each save, whoever asked for it. ``onLive(false)`` when the stream is lost or refused (a 503:

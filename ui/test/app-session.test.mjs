@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createSession, createSessionStore, reapply } from '../app/answers.ts';
-import { Refused } from '../app/local.ts';
-import { DefaultsChanged, FileChanged, NotShown, sessionSaver, Stale } from '../app/save.ts';
+import { getDiff, Refused, save as postSave } from '../app/local.ts';
+import { acceptedDefaults, DefaultRefused, DefaultsChanged, FileChanged, NotShown, sessionSaver, Stale, writtenParts } from '../app/save.ts';
 // The local app's answers store over the command's session (specify-core docs/open.md): the page's
 // changes go up with `PUT answers {rev, part, answers}`, reapplied on a 409; events from others land.
 
@@ -176,7 +176,8 @@ test('a save with defaults writes only the defaults confirmed', async () => {
   await sessionSaver(store, store.session, () => ({ a: 1 }), defaultsOf, write).save({ defaults: [] });
   await assert.rejects(sessionSaver(store, store.session, () => ({ a: 1 }), defaultsOf, write).save({ defaults: [d(0, 'b', 1)] }), DefaultsChanged);
   await sessionSaver(store, store.session, () => ({ a: 1 }), defaultsOf, write).save({ defaults: [d(0, 'c', 2), d(0, 'b', 1)] });
-  assert.deepEqual(writes, [[2, false], [2, true]], 'defaults asked for only with the confirmed list; nothing written for a list that changed');
+  // The command's `acceptDefaults` is now the confirmed question ids by part (was a boolean): `{}` for a plain save.
+  assert.deepEqual(writes, [[2, {}], [2, { 0: ['c', 'b'] }]], 'exactly the confirmed ids, by part; nothing written for a list that changed');
 });
 
 // Review round 2, item 2: the same questions defaulted to another value (an agent's answer changed
@@ -193,7 +194,7 @@ test('a confirmed default whose value changed before the save is confirmed again
   await assert.rejects(sessionSaver(store, store.session, () => ({ a: 2 }), defaultsOf, write).save({ defaults: confirmed }), DefaultsChanged);
   assert.deepEqual(writes, [], 'nothing written: the list is shown again');
   await sessionSaver(store, store.session, () => ({ a: 2 }), defaultsOf, write).save({ defaults: await defaultsOf(store.session.parts()) });
-  assert.deepEqual(writes, [[3, true]]);
+  assert.deepEqual(writes, [[3, { 0: ['b'] }]]);
 });
 
 // Review round 2, item 1 (ADR P9): a save writes every part with answers in the session, so the
@@ -210,7 +211,7 @@ test('a save with defaults of an assembly checks the defaults of every part it w
   assert.deepEqual(asked, [['0', '3']], 'the defaults of every part in the session');
   assert.deepEqual(writes, []);
   await sessionSaver(store, session, () => ({ a: 1 }), defaultsOf, write).save({ defaults: [d(3, 'edges', 0.5), d(0, 'edges', 0.5)] });
-  assert.deepEqual(writes, [[5, true]]);
+  assert.deepEqual(writes, [[5, { 0: ['edges'], 3: ['edges'] }]]);
 });
 
 // Review round 2, nit: answers an agent gave a part before the page loaded are unsaved, even when
@@ -227,4 +228,78 @@ test('answers given to a part not shown before the page loaded are unsaved', () 
   written.markSaved(2);
   written.fileAnswers(4, {});
   assert.equal(written.dirty(), false, 'after a save, the save is what is on disk');
+});
+
+// Contract change (specify-core 2026-11-18): the approvals are per part. Approving a default for
+// part 0 sends part 0's id only: part 1 has the same question with a default, and is not named.
+test('approving a default for one part names that part only', async () => {
+  const session = createSession(2, { 0: { a: 1 }, 1: { m: 'Steel' } }, async () => ({ rev: 3 }));
+  const store = session.store(0, {});
+  const writes = [];
+  const write = async (rev, acceptDefaults) => { writes.push(acceptDefaults); return { path: 'p', bytes: 1, rev, report: {}, complete: true, missing: [] }; };
+  const defaultsOf = async () => [d(0, 'edges', 0.5), d(1, 'edges', 0.5)];
+  await assert.rejects(sessionSaver(store, session, () => ({ a: 1 }), defaultsOf, write).save({ defaults: [d(0, 'edges', 0.5)] }), DefaultsChanged, 'the list shown had both: one alone is not it');
+  // The person confirmed the list as shown; the body names each id on its own part.
+  await sessionSaver(store, session, () => ({ a: 1 }), async () => [d(0, 'edges', 0.5)], write).save({ defaults: [d(0, 'edges', 0.5)] });
+  assert.deepEqual(writes, [{ 0: ['edges'] }], 'part 1 is not named, so it is untouched');
+  assert.deepEqual(acceptedDefaults([d(2, 'x', 1), d(0, 'a', 1), d(2, 'y', 1)]), { 0: ['a'], 2: ['x', 'y'] });
+  assert.deepEqual(acceptedDefaults([]), {});
+});
+
+test('a default the command refuses (400 with its part and question) is reported by them', async () => {
+  const store = createSessionStore(0, 2, { a: 1 }, { a: 1 }, async () => ({ rev: 3 }));
+  const write = async () => { throw new Refused('no open question with a default', 400, { error: 'no open question with a default', part: 0, question: 'b' }); };
+  await assert.rejects(sessionSaver(store, store.session, () => ({ a: 1 }), async () => [d(0, 'b', 1)], write).save({ defaults: [d(0, 'b', 1)] }),
+    (e) => e instanceof DefaultRefused && e.part === 0 && e.question === 'b' && /no open question/.test(e.message));
+});
+
+test('the page sends acceptDefaults as the per-part object, never a boolean', async () => {
+  const real = globalThis.fetch;
+  const sent = [];
+  globalThis.fetch = async (url, init) => { sent.push(JSON.parse(init.body)); return new Response('{"path":"p","bytes":1,"rev":4,"report":{},"complete":true,"missing":[]}', { status: 200 }); };
+  try {
+    await postSave(4, {});
+    await postSave(4, { 1: ['edges'] });
+  } finally { globalThis.fetch = real; }
+  assert.deepEqual(sent, [{ rev: 4, acceptDefaults: {} }, { rev: 4, acceptDefaults: { 1: ['edges'] } }]);
+});
+
+// A save writes only parts with at least one answer, plus a single-part file's only part.
+test('a save writes the parts with answers, and a file\'s only part', () => {
+  assert.deepEqual(writtenParts({ 0: { a: 1 }, 1: {}, 2: { _specify: { x: 1 } }, 3: { m: 'Steel' } }, true), [0, 3], 'no answers (or only Specify\'s records): not written');
+  assert.deepEqual(writtenParts({ 0: {} }, false), [0], 'a single part is always written');
+  assert.deepEqual(writtenParts({}, false), [0]);
+  assert.deepEqual(writtenParts({}, true), []);
+});
+
+// A joining part event is a change (a new rev, answers possibly empty): the session holds it, a save
+// at the older rev is stale, and the defaults a save lists include the part once it has an answer.
+test('a part joining the session is held, and counts for a save once it has answers', () => {
+  const session = createSession(2, { 0: { a: 1 } });
+  const store = session.store(0, {});
+  session.receive({ rev: 3, part: 1, answers: {}, source: 'mcp', joined: true });
+  assert.equal(session.rev(), 3, 'the join is a new rev: a save at 2 gets a 409 and the page re-lists');
+  assert.deepEqual(Object.keys(session.parts()), ['0', '1'], 'part 1 is in the page\'s model');
+  assert.deepEqual(writtenParts(session.parts(), true), [0], 'with no answers it is not written');
+  session.receive({ rev: 4, part: 1, answers: { m: 'Steel' }, source: 'mcp' });
+  assert.deepEqual(writtenParts(session.parts(), true), [0, 1]);
+  store.close();
+});
+
+test('a save approving defaults is shown as answers on the part: the event carries them', () => {
+  const session = createSession(2, { 0: { a: 1 }, 1: { m: 'Steel' } });
+  const store0 = session.store(0, {});
+  const store1 = session.store(1, {});
+  const seen = [];
+  store1.subscribe((answers, source, previous) => seen.push({ answers, source, previous }));
+  session.receive({ rev: 3, part: 1, answers: { m: 'Steel', edges: 0.5 }, source: 'mcp', defaults: { 1: ['edges'] } });
+  assert.deepEqual(seen, [{ answers: { m: 'Steel', edges: 0.5 }, source: 'mcp', previous: { m: 'Steel' } }], 'the approved default is an answer on part 1');
+  assert.deepEqual(store0.get(), { a: 1 }, 'part 0 untouched');
+});
+
+test('GET diff is read as WASM diff() gives it, with its scenes', async () => {
+  const real = globalThis.fetch;
+  const body = { report: { verdict: 'ok', pmi: { scenes: { old: {}, new: {} } } }, markdown: '# x', view: { faces: {} } };
+  globalThis.fetch = async () => new Response(JSON.stringify(body), { status: 200 });
+  try { assert.deepEqual(await getDiff(), body, 'handed on whole: StepDiff draws from it'); } finally { globalThis.fetch = real; }
 });

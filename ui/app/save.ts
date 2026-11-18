@@ -4,7 +4,7 @@
 // everything, and a part with incomplete PMI is still worth saving. It says what is still open.
 import type { PmiAnswers } from '../src/types/pmi';
 import type { AnswersSession, AnswersStore } from './answers.ts';
-import { Refused, save as post, type Saved } from './local.ts';
+import { Refused, save as post, type AcceptDefaults, type Saved } from './local.ts';
 
 /** A default a save with defaults would write: part ``part``'s question ``id`` set to ``value``
  * (``raw``, the default itself, is what is compared; ``value`` is how it reads). */
@@ -26,6 +26,27 @@ export class Stale extends Error {}
 export class FileChanged extends Error {}
 /** Nothing saved: the defaults a save would write are no longer the ones the person confirmed. */
 export class DefaultsChanged extends Error {}
+/** Nothing saved: the command refused a default listed (not an open question with a default on that part). */
+export class DefaultRefused extends Error {
+  readonly part: number | null;
+  readonly question: string | null;
+  constructor(message: string, part: number | null, question: string | null) { super(message); this.part = part; this.question = question; }
+}
+
+/** The parts a save writes (specify-core docs/open.md): every part with at least one answer in the
+ * session (approved defaults count), and a file's only part. A part with no answers is left as it is. */
+export function writtenParts(parts: Record<string, PmiAnswers>, several: boolean): number[] {
+  const out = new Set(Object.entries(parts).filter(([, answers]) => Object.keys(answers).some((id) => !id.startsWith('_'))).map(([k]) => Number(k)));
+  if (!several) out.add(0);
+  return [...out].sort((a, b) => a - b);
+}
+
+/** The defaults as the command takes them: the question ids confirmed, by part index. */
+export function acceptedDefaults(defaults: readonly Default[]): AcceptDefaults {
+  const out: AcceptDefaults = {};
+  for (const d of defaults) (out[String(d.part)] ??= []).push(d.id);
+  return out;
+}
 
 const given = (answers: PmiAnswers) => JSON.stringify(Object.entries(answers).filter(([id]) => !id.startsWith('_')).sort(([a], [b]) => (a < b ? -1 : 1)));
 
@@ -50,15 +71,16 @@ export function sessionSaver(store: AnswersStore, session: Pick<AnswersSession, 
       // answered meanwhile) means a list the person has not confirmed.
       if (defaults.length && !sameDefaults(await defaultsOf(parts), defaults)) throw new DefaultsChanged('the defaults to write changed');
       try {
-        // TODO(specify-core `POST save {acceptDefaults: [question ids]}`): send ``defaults`` itself,
-        // so only those are defaulted. Until then the boolean, which defaults every open question
-        // that has one in every part written: exactly the confirmed list, checked above for every
-        // part at this rev (a later rev is a 409).
-        return await write(rev, defaults.length > 0);
+        // Exactly the defaults the person confirmed, each on the part it was listed for; checked
+        // above for every part at this rev (a later rev is a 409).
+        return await write(rev, acceptedDefaults(defaults));
       } catch (error) {
         // Both are 409s with the session's rev: when the session is still at the page's rev, it is the file that changed.
         if (error instanceof Refused && error.status === 409 && typeof error.body.rev === 'number') {
           throw error.body.rev === rev ? new FileChanged(error.message) : new Stale(error.message);
+        }
+        if (error instanceof Refused && error.status === 400 && typeof error.body.question === 'string') {
+          throw new DefaultRefused(error.message, typeof error.body.part === 'number' ? error.body.part : null, error.body.question);
         }
         throw error;
       }

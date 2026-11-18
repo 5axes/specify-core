@@ -33,6 +33,7 @@ const dir = mkdtempSync(join(tmpdir(), 'specify-agent-'));
 const env = { SPECIFY_APP_DIR: app, SPECIFY_WASM_DIR: wasm };
 const analyse = (file, part) => JSON.parse(execFileSync(cli, ['analyse', '--output', '-', ...(part === undefined ? [] : ['--part', String(part)]), file], { encoding: 'utf8', maxBuffer: 1 << 28, stdio: ['ignore', 'pipe', 'ignore'] }));
 const stored = file => analyse(file).resume?.answers ?? {};
+const stored2 = (file, part) => analyse(file, part).resume?.answers ?? {};
 /** The answers a person or agent gave: Specify's own `_` keys left out. */
 const given = answers => Object.fromEntries(Object.entries(answers).filter(([id]) => !id.startsWith('_')));
 
@@ -42,6 +43,15 @@ async function load(url, ready = '.pmi-lab-panel') {
   const context = await browser.newContext({ viewport: { width: 1400, height: 950 } });
   const requests = [];
   context.on('request', request => requests.push(request.url()));
+  // Every message the page posts to a worker (the engine), by operation.
+  await context.addInitScript(() => {
+    window.__engineOps = [];
+    const post = Worker.prototype.postMessage;
+    Worker.prototype.postMessage = function (message, ...rest) {
+      if (message && typeof message.operation === 'string') window.__engineOps.push(message.operation);
+      return post.call(this, message, ...rest);
+    };
+  });
   const page = await context.newPage();
   page.on('pageerror', error => problems.push(String(error)));
   page.on('console', message => { if (message.type() === 'error') problems.push(`console: ${message.text()}`); });
@@ -99,7 +109,7 @@ try {
     const asked = await agent.call('questions', { doc, state: 'answered' });
     assert.ok(JSON.stringify(asked).includes('Aluminium 6061-T6'), 'the agent reads the page\'s answer');
     // The agent saves (no defaults): part.specified.step beside the part, incomplete, saying what is missing.
-    const byAgent = await agent.call('save', { doc, accept_defaults: false });
+    const byAgent = await agent.call('save', { doc, accept_defaults: [] });
     assert.equal(byAgent.path, join(dir, 'part.specified.step'));
     assert.equal(byAgent.complete, false);
     assert.ok(byAgent.missing.includes('part.surface_finish'), `missing: ${byAgent.missing}`);
@@ -122,7 +132,7 @@ try {
     assert.deepEqual(given(stored(join(dir, 'part.specified-2.step'))), want, 'the page\'s save stores the same');
     // A save of a revision the page has not seen is refused, with the current one.
     const origin = new URL(shown.url).origin;
-    const stale = await fetch(`${shown.url}save`, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: origin }, body: JSON.stringify({ rev: 0, acceptDefaults: false }) });
+    const stale = await fetch(`${shown.url}save`, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: origin }, body: JSON.stringify({ rev: 0, acceptDefaults: {} }) });
     assert.equal(stale.status, 409);
     assert.equal(typeof (await stale.json()).rev, 'number');
     assert.ok(!existsSync(join(dir, 'part.specified-3.step')), 'nothing written for a stale save');
@@ -143,12 +153,14 @@ try {
     const docB = (await first.call('open', { path: asm, part: b })).doc;
     await first.call('answer', { doc: docA, set: { 'part.material': 'Steel 1.4301' } });
     await first.call('answer', { doc: docB, set: { 'part.material': 'Brass CW614N' } });
-    const written = await first.call('save', { doc: docA, accept_defaults: false });
+    const written = await first.call('save', { doc: docA, accept_defaults: [] });
     assert.equal(written.path, join(dir, 'asm.specified.step'));
     first.stop();
     const second = await mcp(cli, { cwd: dir, env }); agents.push(second);
     const docB2 = (await second.call('open', { path: written.path, part: b })).doc;
     const shown = await second.call('show', { doc: docB2, browser: false });
+    // `show` names the part: the page starts on it (not on the first part with answers).
+    assert.equal((await (await fetch(`${shown.url}config`)).json()).part, b);
     const session = await (await fetch(`${shown.url}answers`)).json();
     assert.equal(session.parts[String(a)]?.['part.material'], 'Steel 1.4301', `the other part's stored answers resume: ${JSON.stringify(session.parts).slice(0, 300)}`);
     assert.equal(session.parts[String(b)]?.['part.material'], 'Brass CW614N');
@@ -156,6 +168,7 @@ try {
     const { context, page, requests } = await load(shown.url);
     await check(page.locator('.app-part select')).toBeVisible();
     await check(page.locator('.pmi-lab-panel')).toContainText(/1\.4301|CW614N/);
+    await check(page.locator('.app-part select')).toHaveValue(String(b));
     const showing = Number(await page.locator('.app-part select').inputValue());
     const other = showing === a ? b : a;
     await page.locator('.app-part select').selectOption(String(other));
@@ -226,6 +239,107 @@ try {
     assert.ok(withDefaults > without, `part b's defaults written: ${withDefaults} > ${without}`);
     assert.equal(given(analyse(saved, b).resume?.answers ?? {})['part.material'], 'Bronze CC491K');
     await check(page.locator('.app-dirty')).toHaveCount(0);
+    await context.close();
+    agent.stop();
+  }
+
+  // A part the agent opens while the page is open joins the session (`joined`): the page takes it
+  // in (said, listed in the picker), a save asked for at the rev before it is stale (409), and the
+  // defaults a save lists include it once it has an answer, not before (a save writes only parts with answers).
+  {
+    const asm = join(dir, 'asm-join.step');
+    writeFileSync(asm, gunzipSync(readFileSync('test/fixtures/gramil_assembly_before.step.gz')));
+    const agent = await mcp(cli, { cwd: dir, env }); agents.push(agent);
+    const listed = await agent.call('open', { path: asm });
+    const [a, b] = listed.parts.map(p => p.part);
+    const nameB = listed.parts.find(p => p.part === b).name;
+    const docA = (await agent.call('open', { path: asm, part: a })).doc;
+    await agent.call('answer', { doc: docA, set: { 'part.material': 'Steel 1.4301' } });
+    const shown = await agent.call('show', { doc: docA, browser: false });
+    const origin = new URL(shown.url).origin;
+    const { context, page } = await load(shown.url);
+    await check(page.locator('.app-part select')).toHaveValue(String(a));
+    await check(page.locator(`.app-part option[value="${b}"]`)).toHaveText(nameB);
+    const before = (await (await fetch(`${shown.url}answers`)).json());
+    assert.equal(String(b) in before.parts, false, 'the session holds part a only');
+    // The agent opens part b: a join, with no answers.
+    const docB = (await agent.call('open', { path: asm, part: b })).doc;
+    await check(page.locator('.app-agent')).toContainText(`Your agent opened ${nameB}`);
+    const after = (await (await fetch(`${shown.url}answers`)).json());
+    assert.ok(after.rev > before.rev, 'the join is a new rev');
+    assert.deepEqual(after.parts[String(b)], {}, 'part b is in the session with no answers');
+    // A save at the rev before the join is refused (409), and writes nothing.
+    const stale = await fetch(`${shown.url}save`, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: origin }, body: JSON.stringify({ rev: before.rev, acceptDefaults: {} }) });
+    assert.equal(stale.status, 409);
+    assert.ok(!existsSync(join(dir, 'asm-join.specified.step')), 'nothing written for the stale save');
+    // The defaults dialog lists the parts the save writes: a, not b (no answers yet).
+    await page.getByRole('button', { name: 'Save with defaults' }).click();
+    const list = page.getByRole('dialog', { name: 'Save with defaults' });
+    await check(list.locator('[data-part]')).toHaveCount(1);
+    await check(list.locator(`[data-part="${a}"]`)).toBeVisible();
+    await check(list.locator('[data-written]')).not.toContainText(nameB);
+    await check(list.locator('[data-written]')).toContainText('a part with no answers is left as it is');
+    await list.getByRole('button', { name: 'Cancel' }).click();
+    // Once b has an answer it is written, and listed.
+    await agent.call('answer', { doc: docB, set: { 'part.material': 'Brass CW614N' } });
+    await page.getByRole('button', { name: 'Save with defaults' }).click();
+    await check(list.locator('[data-part]')).toHaveCount(2);
+    await check(list.locator(`[data-part="${b}"] h4`)).toHaveText(nameB);
+    await check(list.locator('[data-written]')).toContainText(nameB);
+    await context.close();
+    agent.stop();
+  }
+
+  // Approvals name their part (`acceptDefaults: {"<part>": [ids]}`): a default approved for part a
+  // only is written to a and part b is untouched. A refused one (400 with its part and question)
+  // writes nothing and the page says which.
+  {
+    const asm = join(dir, 'asm-approve.step');
+    writeFileSync(asm, readFileSync(join(dir, 'asm.specified.step')));
+    const agent = await mcp(cli, { cwd: dir, env }); agents.push(agent);
+    const listed = await agent.call('open', { path: asm });
+    const [a, b] = listed.parts.map(p => p.part);
+    const docA = (await agent.call('open', { path: asm, part: a })).doc;
+    await agent.call('open', { path: asm, part: b });
+    const shown = await agent.call('show', { doc: docA, browser: false });
+    const origin = new URL(shown.url).origin;
+    const { context, page } = await load(shown.url);
+    await page.getByRole('button', { name: 'Save with defaults' }).click();
+    const list = page.getByRole('dialog', { name: 'Save with defaults' });
+    await check(list.locator(`[data-part="${b}"] li`).first()).toBeVisible();
+    const ofA = await list.locator(`[data-part="${a}"] [data-default]`).evaluateAll(items => items.map(item => item.getAttribute('data-default')));
+    const ofB = await list.locator(`[data-part="${b}"] [data-default]`).evaluateAll(items => items.map(item => item.getAttribute('data-default')));
+    assert.ok(ofA.length > 0 && ofB.length > 0);
+    const id = ofA.find(x => ofB.includes(x)) ?? ofA[0];
+    // The page shows the command's refusal of a default when it sends one it refuses (here, forced).
+    await page.route('**/save', route => route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: 'not an open question with a default', part: b, question: id }) }));
+    await list.getByRole('button', { name: /^Save with these \d+ defaults$/ }).click();
+    await check(page.getByRole('alert').first()).toContainText(`the default for ${id}`);
+    await check(page.getByRole('alert').first()).toContainText(listed.parts.find(p => p.part === b).name);
+    await check(page.getByRole('alert').first()).toContainText('Nothing was written');
+    await page.unroute('**/save');
+    problems.splice(0, problems.length, ...problems.filter(p => !/400/.test(p)));
+    assert.ok(!existsSync(join(dir, 'asm-approve.specified.step')), 'nothing written for a refused default');
+    // The command's own refusal, as the page would meet it: a default that is no question.
+    const { rev } = await (await fetch(`${shown.url}answers`)).json();
+    const post = (acceptDefaults) => fetch(`${shown.url}save`, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: origin }, body: JSON.stringify({ rev, acceptDefaults }) });
+    const bad = await post({ [a]: ['nope.unknown'] });
+    assert.equal(bad.status, 400);
+    const badBody = await bad.json();
+    assert.equal(badBody.part, a); assert.equal(badBody.question, 'nope.unknown');
+    assert.equal((await post(true)).status, 400, 'a boolean is no longer a body');
+    // Approved for part a only.
+    const good = await post({ [a]: [id] });
+    assert.equal(good.status, 200, await good.clone().text());
+    const { path } = await good.json();
+    const was = id => analyse(asm, id).characteristics?.length ?? 0;
+    assert.ok((analyse(path, a).characteristics ?? []).length > was(a), 'part a has the default\'s PMI');
+    assert.equal((analyse(path, b).characteristics ?? []).length, was(b), 'part b is untouched');
+    assert.ok(id in given(stored2(path, a)), 'the approved default is an answer stored on part a');
+    assert.ok(!(id in given(stored2(path, b))) || ofB.length === 0, 'part b has no default answer');
+    const session = await (await fetch(`${shown.url}answers`)).json();
+    assert.ok(id in session.parts[String(a)], 'the default is an answer on part a in the session');
+    assert.ok(!(id in session.parts[String(b)]), 'and not on part b');
     await context.close();
     agent.stop();
   }
@@ -307,6 +421,10 @@ try {
     await check(page.getByRole('tab', { name: 'What changed' })).toHaveAttribute('aria-selected', 'true');
     await check(page.locator('.app-path')).toHaveText(`${oldFile} → ${newFile}`);
     await check(page.locator('.app-decision')).toHaveCount(3);
+    // Drawn from GET diff (the session's comparison): no engine diff call.
+    const ops = await page.evaluate(() => window.__engineOps);
+    assert.ok(ops.includes('open') && !ops.includes('diff'), `no engine diff call in diff mode: ${ops}`);
+    assert.ok(requests.some(u => u === `${shown.url}diff`), 'the comparison came from GET diff');
     onlyLocal(requests, shown.url);
     await context.close();
     agent.stop();

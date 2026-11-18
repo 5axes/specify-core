@@ -261,6 +261,10 @@ export interface StepDiffProps {
   after: { name: string; bytes: Uint8Array };
   /** The answers the revisions are compared with. Compared again when the object changes. */
   answers?: unknown;
+  /** The comparison, when the host already has it: exactly what the engine's `diff()` gives for these two files with the
+   *  PMI scenes (a part's `{report, markdown, view}`, an assembly's `{report, markdown, parts}`, scenes in
+   *  `report.pmi.scenes`). It is drawn as it is and the engine does not compare again. */
+  compared?: unknown;
   /** The assembly part open, controlled by the host: its name, or none for the parts list. */
   part?: string | null;
   /** Hears the part the person opens, or none for "All parts". */
@@ -279,7 +283,7 @@ export interface StepDiffProps {
 
 const NO_ANSWERS = {};
 
-export default function StepDiff({ before, after, answers = NO_ANSWERS, part: wanted, onPart, onEvent, header, hostError, wasmUrl }: StepDiffProps) {
+export default function StepDiff({ before, after, answers = NO_ANSWERS, compared, part: wanted, onPart, onEvent, header, hostError, wasmUrl }: StepDiffProps) {
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
   // What the 3D view draws: a part's comparison, or an assembly's open part's.
@@ -383,10 +387,14 @@ export default function StepDiff({ before, after, answers = NO_ANSWERS, part: wa
     const mine = ++run.current;
     setDiffed(null); setAssembly(null); setFiles(null); setPart(null); setNotice(''); meshes.current = new Map(); setError(''); setPicked(null); setPointed(null);
     try {
-      setStatus('Comparing them with Specify…');
       const input = { oldName: before.name, old: before.bytes, newName: after.name, new: after.bytes, answers };
       // With the two PMI scenes it compares (each part's, an assembly's), drawn as they are.
-      const result = await engine.current!.request<Diffed | AssemblyDiffed>('diff', { ...input, title: input.newName, scenes: true });
+      let result: Diffed | AssemblyDiffed;
+      if (compared) result = compared as Diffed | AssemblyDiffed;
+      else {
+        setStatus('Comparing them with Specify…');
+        result = await engine.current!.request<Diffed | AssemblyDiffed>('diff', { ...input, title: input.newName, scenes: true });
+      }
       if (mine !== run.current) return;
       if ('parts' in result) {
         const both = { old: { name: input.oldName, bytes: input.old }, next: { name: input.newName, bytes: input.new } };
@@ -403,7 +411,7 @@ export default function StepDiff({ before, after, answers = NO_ANSWERS, part: wa
     }
   };
 
-  useEffect(() => { void compare(); }, [before, after, answers]);
+  useEffect(() => { void compare(); }, [before, after, answers, compared]);
 
   useEffect(() => {
     if (!diffed || !stage.current) return;

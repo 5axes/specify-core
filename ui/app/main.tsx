@@ -18,8 +18,8 @@ import { defaultsToWrite, groupQuestions } from '../src/specify/review';
 import { saveFile } from '../src/specify/SpecifyReview';
 import { changedIds, createSession, sameAnswers, type AnswersSession, type AnswersStore } from './answers';
 import { decisions, type Decision } from './diff-report';
-import { getAnswers, getConfig, getDiff, getFile, keepAlive, listen, type LocalConfig } from './local';
-import { DefaultsChanged, FileChanged, NotShown, sessionSaver, Stale, type Default, type Saver } from './save';
+import { getAnswers, getConfig, getDiff, getFile, keepAlive, listen, type DiffBody, type LocalConfig } from './local';
+import { DefaultRefused, DefaultsChanged, FileChanged, NotShown, sessionSaver, Stale, writtenParts, type Default, type Saver } from './save';
 
 declare const __APP_VERSION__: string;
 const DOCS = 'https://github.com/pzfreo/specify-core#readme';
@@ -34,16 +34,17 @@ const fileOf = (name: string, bytes: Uint8Array, part: number, several: boolean)
 });
 
 /** The defaults a save with defaults writes for the session's answers ``parts``: each part's that
- * the save writes (every part the session holds answers for, and a file's only part), in part order. */
+ * the save writes (every part with at least one answer, and a file's only part), in part order. */
 async function defaultsOf(worker: WorkerClient, name: string, bytes: Uint8Array, several: boolean, parts: Record<string, PmiAnswers>): Promise<Default[]> {
-  const written = new Set(Object.keys(parts).map(Number));
-  if (!several) written.add(0);
   const out: Default[] = [];
-  for (const part of [...written].sort((a, b) => a - b)) {
+  for (const part of writtenParts(parts, several)) {
     const answers = parts[String(part)] ?? {};
-    const { questions } = await worker.request<IntentReview>('review', { ...fileOf(name, bytes, part, several), answers });
+    const { questions, open } = await worker.request<IntentReview>('review', { ...fileOf(name, bytes, part, several), answers });
     const raw = new Map(questions.map((q) => [q.id, JSON.stringify(q.default)] as const));
-    out.push(...defaultsToWrite(questions, answers).map((d) => ({ ...d, part, raw: raw.get(d.id)! })));
+    // The command takes only open questions' defaults (not the process, a full-thread depth or a
+    // parts-list row, which are never "open"): approving any other is a 400.
+    const asked = new Set(open);
+    out.push(...defaultsToWrite(questions, answers).filter((d) => asked.has(d.id)).map((d) => ({ ...d, part, raw: raw.get(d.id)! })));
   }
   return out;
 }
@@ -61,7 +62,8 @@ interface Opened {
   /** Specify's review of ``answers``, for answers that arrive from outside the page. */
   reviewOf(answers: PmiAnswers): Promise<IntentReview>;
 }
-interface Compared { old: { name: string; bytes: Uint8Array }; next: { name: string; bytes: Uint8Array }; decisions: Decision[]; verdict: string; summary: string }
+/** The revision comparison the command gave (``body``: WASM `diff()`'s, with the PMI scenes), drawn as it is. */
+interface Compared { old: { name: string; bytes: Uint8Array }; next: { name: string; bytes: Uint8Array }; body: DiffBody; decisions: Decision[]; verdict: string; summary: string }
 
 /** Opens the part on the engine with the session's answers: its analysis and mesh, their review,
  * and the PMI as drawn. ``edited``: called on each change the person makes. */
@@ -128,9 +130,9 @@ function App() {
   // An in-place save refused because another program changed the file: Save cannot succeed again.
   const [fileChanged, setFileChanged] = useState(false);
   // Save with defaults: the defaults it would write, of every part it writes, listed for the person
-  // to confirm (ADR P9). ``shownLeftOut``: the part shown has no answers in the session, so the save
-  // does not write it.
-  const [confirming, setConfirming] = useState<{ defaults: Default[]; shownLeftOut: boolean } | null>(null);
+  // to confirm (ADR P9). ``written``: the parts the save writes (those with answers, and a file's only
+  // part). ``shownLeftOut``: the part shown has no answers in the session, so the save does not write it.
+  const [confirming, setConfirming] = useState<{ defaults: Default[]; written: number[]; shownLeftOut: boolean } | null>(null);
   // Answers that arrived from outside the page but could not be shown (their review failed): Save
   // is refused until they are, so the page offers to show them again.
   const [unshown, setUnshown] = useState<string | null>(null);
@@ -146,7 +148,7 @@ function App() {
   // agent changed. The note stays until it is dismissed, the person changes something, or the
   // agent changes something else.
   const [agent, setAgent] = useState<{ ids: string[]; n: number } | null>(null);
-  const [other, setOther] = useState<{ name: string; part: number; n: number } | null>(null);
+  const [other, setOther] = useState<{ name: string; part: number; n: number; joined: boolean } | null>(null);
   const [focus, setFocus] = useState<{ questionId: string; faces?: readonly number[]; scroll?: boolean } | null>(null);
   const [lit, setLit] = useState<{ faces: readonly number[]; n: number } | undefined>(undefined);
   const edited = () => setAgent(null);
@@ -170,28 +172,37 @@ function App() {
       sessionRef.current = answersSession;
       unwatch = answersSession.subscribe(() => setDirty(answersSession.dirty()));
       // An assembly's parts: the page shows one at a time, first the first the session has answers for.
-      const rows = (await worker.current.request<PartRow[]>('parts', { name: first.name, bytes })).map(({ part, name, written }) => ({ part, name, written: written === true }));
-      const several = rows.length > 1;
+      const listed = (await worker.current.request<PartRow[]>('parts', { name: first.name, bytes })).map(({ part, name, written }) => ({ part, name, written: written === true }));
+      const several = listed.length > 1;
+      let rows = listed;
       const withAnswers = rows.find((row) => Object.keys(answers.parts[String(row.part)] ?? {}).some((id) => !id.startsWith('_')));
-      const at = { part: several ? (withAnswers ?? rows[0]!).part : 0, several };
+      // The part the agent's `show` named (config.part), else the first with answers.
+      const asked = rows.find((row) => row.part === first.part);
+      const at = { part: several ? (asked ?? withAnswers ?? rows[0]!).part : 0, several };
       setParts(several ? rows : []);
       const part = await openPart(worker.current, answersSession, first.name, bytes, at, edited);
       if (old && diff) {
-        const { report } = diff;
-        const r = report as { verdict?: string; summary?: string };
+        const r = diff.report as { verdict?: string; summary?: string };
         setCompared({
-          old: { name: first.oldName ?? 'old.step', bytes: old }, next: { name: first.name, bytes },
-          decisions: decisions(report), verdict: r.verdict ?? '', summary: r.summary ?? '',
+          old: { name: first.oldName ?? 'old.step', bytes: old }, next: { name: first.name, bytes }, body: diff,
+          decisions: decisions(diff.report), verdict: r.verdict ?? '', summary: r.summary ?? '',
         });
       }
       shownRef.current = part;
       let lost = false;
       unlisten = listen((event) => {
         answersSession.receive(event);
+        // A part joining the session is added to the page's model: the picker lists it, and the
+        // session (so the defaults a save lists) holds it, with the answers it has.
+        if ('part' in event && several && !rows.some((r) => r.part === event.part)) {
+          rows = [...rows, { part: event.part, name: `Part ${event.part}`, written: false }];
+          setParts(rows);
+        }
         // An agent's change to another part than the one shown: said, by name.
         if (event.source === 'mcp' && 'part' in event && event.part !== shownRef.current?.part) {
           const row = rows.find((r) => r.part === event.part);
-          setOther({ name: row?.name ?? `part ${event.part}`, part: event.part, n: Date.now() });
+          const joined = event.joined === true && !Object.keys(event.answers).some((id) => !id.startsWith('_'));
+          setOther({ name: row?.name ?? `part ${event.part}`, part: event.part, n: Date.now(), joined });
         }
       }, (event) => {
         answersSession.markSaved(event.rev);
@@ -318,14 +329,15 @@ function App() {
 
   /** Save with defaults, first: the full list of the defaults it would write, in every part it
    * writes (an assembly's other parts included), to confirm. */
-  const askDefaults = async () => {
+  const askDefaults = async (keepProblem = false) => {
     if (!opened || !config || !worker.current || !sessionRef.current) return;
-    setProblem(null);
+    if (!keepProblem) setProblem(null);
     try {
       await opened.store.settled();
       const parts = sessionRef.current.parts();
       const defaults = await defaultsOf(worker.current, config.name, opened.bytes, opened.several, parts);
-      setConfirming({ defaults, shownLeftOut: opened.several && !(String(opened.part) in parts) });
+      const written = writtenParts(parts, opened.several);
+      setConfirming({ defaults, written, shownLeftOut: opened.several && !written.includes(opened.part) });
     } catch (error) { setProblem(`The defaults could not be listed: ${message(error)}`); }
   };
 
@@ -347,7 +359,13 @@ function App() {
           + 'Your answers are still here: keep them with Answers (JSON), then open the file again.');
       } else if (error instanceof DefaultsChanged) {
         setProblem('Not saved: the answers changed, so the defaults to write are not the ones you confirmed. Check the new list.');
-        void askDefaults();
+        void askDefaults(true);
+      } else if (error instanceof DefaultRefused) {
+        // The command refused a default it was sent: said by the part and the question, and the list is made again.
+        const row = error.part === null ? undefined : parts.find((r) => r.part === error.part);
+        const where = error.part === null ? '' : ` on ${row?.name ?? `part ${error.part}`}`;
+        setProblem(`Not saved: the default for ${error.question}${where} was refused (${error.message}). Nothing was written; check the new list.`);
+        void askDefaults(true);
       } else if (error instanceof NotShown && unshown) {
         // The answers that could not be shown: tried again; until they show, Save cannot write them.
         setProblem('Not saved: the latest answers in the session are not shown yet (see below). Trying to show them again.');
@@ -472,7 +490,12 @@ function App() {
                 ) : <div key={part}>{list}</div>;
               })}
             </>
-          ) : <p>Every question with a default is answered: nothing to fill in.</p>}
+          ) : confirming.written.length ? <p>Every question with a default is answered: nothing to fill in.</p>
+            : <p>No part has an answer yet, so a save writes no PMI.</p>}
+          {opened?.several && confirming.written.length > 0 && (
+            <p data-written>This save writes {confirming.written.map((part) => parts.find((row) => row.part === part)?.name ?? `Part ${part}`).join(', ')};
+              a part with no answers is left as it is.</p>
+          )}
           {confirming.shownLeftOut && <p>The part shown has no answers yet, so this save does not write it.</p>}
           <button type="button" className="app-save" onClick={() => void onSave(confirming.defaults)}>
             {confirming.defaults.length ? `Save with these ${plural(confirming.defaults.length, 'default')}` : 'Save'}
@@ -493,7 +516,7 @@ function App() {
       )}
       {other && (
         <p className="app-agent" role="status">
-          Updated by your agent: {other.name}{' '}
+          {other.joined ? 'Your agent opened' : 'Updated by your agent:'} {other.name}{' '}
           <button type="button" onClick={() => void showPart(other.part)}>Show it</button>
         </p>
       )}
@@ -517,12 +540,7 @@ function App() {
         {!opened && !problem && <p className="app-loading">Opening {config?.name ?? 'the part'}…</p>}
         {compared && (
           <div className="app-diff diff-page" hidden={!showingChanges}>
-            {/* TODO(StepDiff from the command's comparison): StepDiff compares the two files again in
-                the page's engine. specify-core's GET diff now gives WASM diff()'s {report, markdown,
-                view} (getDiff's ``compared``), but computed without the PMI scenes (diff()'s
-                ``scenes`` false), which StepDiff draws the PMI changes from; drawing from it would
-                lose them. Switch once GET diff carries `report.pmi.scenes`. */}
-            <StepDiff before={compared.old} after={compared.next} wasmUrl={config?.wasmUrl} />
+            <StepDiff before={compared.old} after={compared.next} compared={compared.body} wasmUrl={config?.wasmUrl} />
           </div>
         )}
         <div className={`app-slot app-view${showingChanges ? ' app-under' : ''}`} ref={view} />
