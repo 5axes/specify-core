@@ -54,14 +54,6 @@ All notable changes to specify-core-rust. The format follows
   `--wasm DIR` (or `SPECIFY_WASM_DIR`) the engine's wasm-pack `pkg/`. The contract for the
   app's authors is docs/open.md.
 
-### WASM API
-
-- `engine.review` / `review` add `conflicts` (only when there are some): a reopened file's
-  stored answers its PMI contradicts, `{id, kind: "conflict", text, stored, file, choices}`;
-  `snapshot().analysis.resume` adds `conflicts` and `present`, and `existing`/`part` now hold the file's
-  PMI its answers do not explain (ADR P9). Answers accept `_specify.keep: [id]`. The
-  generated declarations are unchanged.
-
 ### Removed
 
 - `specify-core open`'s `--site` and `--editor`, and its handoff to
@@ -101,6 +93,11 @@ All notable changes to specify-core-rust. The format follows
   required questions still open). An incomplete set is still written, as before.
 - `diff()`'s PMI items gain an optional `detail`: the explanation that used to be appended to a
   retired item's `reason`, which is now always the plain code.
+- `engine.review` / `review` add `conflicts` (only when there are some): a reopened file's
+  stored answers its PMI contradicts, `{id, kind: "conflict", text, stored, file, choices}`;
+  `snapshot().analysis.resume` adds `conflicts` and `present`, and `existing`/`part`
+  now hold the file's PMI its answers do not explain (ADR P9). Answers accept `_specify.keep: [id]`. The
+  generated declarations are unchanged.
 
 ## 0.1.18 (2026-11-17)
 
