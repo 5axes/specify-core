@@ -301,7 +301,7 @@ impl Session {
                 .map_err(|error| error.to_string())?;
         // A partial write is allowed (an AP242 file need not answer everything), but never
         // silent: say which required questions are still open, as `write` would list them.
-        let missing = open_required(&self.analysis, answers)?;
+        let missing = open_required(&self.analysis, answers);
         let mut report = report.to_dict();
         if let Some(object) = report.as_object_mut() {
             object.insert("complete".into(), json!(missing.is_empty()));
@@ -439,11 +439,12 @@ fn carried_attributes(
 }
 
 /// The required questions `answers` leaves open: the ids `write` without defaults would refuse
-/// as incomplete; empty when it would write.
-fn open_required(analysis: &Value, answers: &Map<String, Value>) -> Result<Vec<String>, String> {
+/// as incomplete (only the pending carry blocks, while there are any, as `write` lists them);
+/// empty when it would write. Any other refusal is the write's business, not this report's, so
+/// it never makes a write fail.
+fn open_required(analysis: &Value, answers: &Map<String, Value>) -> Vec<String> {
     match api::apply(analysis, answers, false) {
-        Ok(_) => Ok(Vec::new()),
-        Err(api::Error::Rules(specify_core::rules::Error::Incomplete(e))) => Ok(e.missing),
-        Err(error) => Err(error.to_string()),
+        Err(api::Error::Rules(specify_core::rules::Error::Incomplete(e))) => e.missing,
+        _ => Vec::new(),
     }
 }
