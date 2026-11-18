@@ -173,6 +173,12 @@ fn pmi_another_tool_added_to_a_replace_written_part_is_kept() {
     );
     let analysis = api::analyse(&loaded).unwrap();
     assert!(analysis["resume"]["answers"].is_object());
+    let resumed = analysis["resume"]["answers"].as_object().unwrap().clone();
+    let editor = preview_write(&loaded, &analysis, &resumed);
+    assert_eq!(flatness(&editor), added, "editor write");
+    let cli = cli_rewrite(&loaded.bytes, "foreign");
+    assert_eq!(flatness(&cli), added, "CLI write");
+    // Shown on reopening as the file's own PMI.
     assert!(
         analysis["existing"]
             .as_array()
@@ -182,11 +188,6 @@ fn pmi_another_tool_added_to_a_replace_written_part_is_kept() {
         "{}",
         analysis["existing"]
     );
-    let resumed = analysis["resume"]["answers"].as_object().unwrap().clone();
-    let editor = preview_write(&loaded, &analysis, &resumed);
-    assert_eq!(flatness(&editor), added, "editor write");
-    let cli = cli_rewrite(&loaded.bytes, "foreign");
-    assert_eq!(flatness(&cli), added, "CLI write");
     // Specify's own requirements are replaced, not stated twice.
     assert_eq!(count(&cli, "datum"), count(&loaded, "datum"));
     assert_eq!(
@@ -270,12 +271,6 @@ fn defaults_written_without_their_answers_are_kept() {
     let reopened = api::analyse(&loaded).unwrap();
     assert!(reopened["resume"].get("conflicts").is_none());
     let resumed = reopened["resume"]["answers"].as_object().unwrap().clone();
-    let review = api::review(&reopened, &resumed).unwrap();
-    assert!(
-        !review["open"].as_array().unwrap().contains(&json!(pattern)),
-        "the defaulted position reads back as present: {}",
-        review["open"]
-    );
     let editor = preview_write(&loaded, &reopened, &resumed);
     assert_eq!(
         positions(&editor),
@@ -285,4 +280,10 @@ fn defaults_written_without_their_answers_are_kept() {
     for kind in ["datum", "geometric_tolerance", "dimension", "note"] {
         assert_eq!(count(&editor, kind), count(&loaded, kind), "{kind}");
     }
+    let review = api::review(&reopened, &resumed).unwrap();
+    assert!(
+        !review["open"].as_array().unwrap().contains(&json!(pattern)),
+        "the defaulted position reads back as present: {}",
+        review["open"]
+    );
 }
