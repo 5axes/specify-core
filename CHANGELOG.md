@@ -70,6 +70,8 @@ All notable changes to specify-core-rust. The format follows
 
 ### WASM API
 
+- WASM `writePmi`'s report says whether the answers were complete: `complete` and `missing` (the
+  required questions still open). An incomplete set is still written, as before.
 - `diff()`'s PMI items gain an optional `detail`: the explanation that used to be appended to a
   retired item's `reason`, which is now always the plain code.
 

@@ -104,6 +104,10 @@ export interface SavedViewFinding {
 /** Report in writePmi JSON; optional diagnostic keys are absent when empty. */
 export interface WriteReport {
   output: string;
+  /** False when required questions are still open; the file is written all the same. */
+  complete: boolean;
+  /** The required question ids still open (as `write` would list them); [] when complete. */
+  missing: string[];
   written: string[];
   not_written: string[];
   warnings: string[];
