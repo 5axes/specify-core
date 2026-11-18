@@ -943,6 +943,7 @@ fn save(stream: &mut TcpStream, ctx: &Ctx, request: &Request, body: Vec<u8>) {
                 &json!({"error": why, "rev": current}),
             )
         }
+        Err(session::SaveError::Outside(why)) => refuse(stream, "403 Forbidden", &why),
         Err(session::SaveError::Refused(why)) => refuse(stream, "422 Unprocessable Content", &why),
         Err(session::SaveError::Failed(why)) => refuse(stream, "500 Internal Server Error", &why),
     }

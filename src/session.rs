@@ -117,6 +117,8 @@ impl Saved {
 pub enum SaveError {
     /// The session has moved on from the rev asked for (its current rev).
     Stale(u64),
+    /// The save would write outside the allowed directories.
+    Outside(String),
     /// An in-place save over a file changed on disk since it was opened (by anyone but this
     /// session).
     Changed(String),
@@ -130,7 +132,10 @@ impl std::fmt::Display for SaveError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             SaveError::Stale(rev) => write!(f, "the answers have moved on to rev {rev}"),
-            SaveError::Changed(m) | SaveError::Refused(m) | SaveError::Failed(m) => f.write_str(m),
+            SaveError::Changed(m)
+            | SaveError::Outside(m)
+            | SaveError::Refused(m)
+            | SaveError::Failed(m) => f.write_str(m),
         }
     }
 }
@@ -152,8 +157,11 @@ pub struct Session {
     current: Arc<Vec<u8>>,
     /// In place: where the first save kept the original.
     backup: Option<PathBuf>,
-    /// In place: SHA-256 of what the last save wrote, so the file is not taken as changed.
-    written: Option<String>,
+    /// In place: SHA-256 of each file this session's saves wrote, so the file is not taken as
+    /// changed (recorded before the file is renamed into place).
+    written: Vec<String>,
+    /// The directories saves may write in (MCP's `--allow`); None: anywhere beside the file.
+    allowed: Option<Vec<PathBuf>>,
     analyses: BTreeMap<usize, Arc<Value>>,
     answers: BTreeMap<usize, Map<String, Value>>,
     rev: u64,
@@ -194,7 +202,8 @@ impl Session {
             gz,
             step: Arc::new(step),
             backup: None,
-            written: None,
+            written: Vec::new(),
+            allowed: None,
             analyses: BTreeMap::new(),
             answers: BTreeMap::new(),
             rev: 0,
@@ -286,7 +295,7 @@ impl Session {
     /// Whether bytes with this SHA-256 are the file as opened, or as this session's own last
     /// in-place save left it.
     pub fn is_ours(&self, sha: &str) -> bool {
-        sha == self.sha || self.written.as_deref() == Some(sha)
+        sha == self.sha || self.written.iter().any(|w| w == sha)
     }
 
     /// What `file` serves: the input as opened, or as the last in-place save left it.
@@ -440,6 +449,37 @@ impl Session {
         parts.into_iter().collect()
     }
 
+    /// Saves write only inside these directories (canonical), as MCP's `--allow` says.
+    pub fn set_allowed(&mut self, dirs: Vec<PathBuf>) {
+        self.allowed = Some(dirs);
+    }
+
+    /// Refuses a save that would write outside the allowed directories: beside the file as
+    /// given, or (in place) over the file it leads to.
+    fn check_allowed(&self) -> Result<(), SaveError> {
+        let Some(dirs) = &self.allowed else {
+            return Ok(());
+        };
+        let path = &self.file.path;
+        let failed = |e: io::Error| SaveError::Failed(format!("{}: {e}", path.display()));
+        let dir = path.parent().unwrap_or(Path::new("/"));
+        let mut written = vec![dir.canonicalize().map_err(failed)?];
+        if self.in_place {
+            written.push(path.canonicalize().map_err(failed)?);
+        }
+        if written
+            .iter()
+            .all(|w| dirs.iter().any(|d| w.starts_with(d)))
+        {
+            Ok(())
+        } else {
+            Err(SaveError::Outside(format!(
+                "{} is outside the directories this server may write in: nothing is saved",
+                path.display()
+            )))
+        }
+    }
+
     /// Whether part `part` has been analysed (is open in the session).
     pub fn is_open(&self, part: usize) -> bool {
         self.analyses.contains_key(&part)
@@ -493,6 +533,7 @@ pub fn save(
         if rev.is_some_and(|r| r != s.rev) {
             return Err(SaveError::Stale(s.rev));
         }
+        s.check_allowed()?;
         if s.in_place {
             let now = fs::read(&s.file.path)
                 .map(|b| sha256(&b))
@@ -544,7 +585,7 @@ pub fn save(
     let mut report = report.to_dict();
     let cannot = |e: io::Error| SaveError::Failed(format!("cannot save: {e}"));
     let (path, bytes, stored) = if in_place {
-        let stored = replace_input(&file.path, gz, &mut backup, text).map_err(cannot)?;
+        let stored = replace_input(shared, &file.path, gz, &mut backup, text).map_err(cannot)?;
         (file.path.clone(), stored.len(), Some(stored))
     } else {
         let bytes = text.len();
@@ -563,7 +604,6 @@ pub fn save(
     let mut s = lock(shared);
     if let Some(stored) = stored {
         s.backup = backup;
-        s.written = Some(sha256(&stored));
         s.current = Arc::new(stored);
     }
     let data = json!({"path": saved.path, "bytes": saved.bytes, "rev": saved.rev,
@@ -611,8 +651,11 @@ fn write_new(file: &Opened, body: &[u8]) -> io::Result<PathBuf> {
 /// save of the session (`backup` None) first copies the original to the first free `.bak`
 /// beside the path as given; later saves keep no other copy. A link is followed (its target
 /// replaced, the link kept). The replacement keeps the original's permissions, and a gzipped
-/// input is written gzipped. Returns the bytes stored.
+/// input is written gzipped. What is stored is recorded as the session's own before the
+/// rename (and forgotten if it fails), so a reopen or a check meanwhile never takes the file as
+/// changed by someone else. Returns the bytes stored.
 fn replace_input(
+    shared: &Shared,
     step: &Path,
     gz: bool,
     backup: &mut Option<PathBuf>,
@@ -635,7 +678,20 @@ fn replace_input(
         if backup.is_none() {
             *backup = Some(back_up(step, &real)?);
         }
-        fs::rename(&temp, &real)
+        let sha = sha256(&stored);
+        let recorded = {
+            let mut s = lock(shared);
+            let new = !s.written.contains(&sha);
+            if new {
+                s.written.push(sha.clone());
+            }
+            new
+        };
+        let renamed = fs::rename(&temp, &real);
+        if renamed.is_err() && recorded {
+            lock(shared).written.retain(|w| *w != sha);
+        }
+        renamed
     })();
     if let Err(e) = replaced {
         let _ = fs::remove_file(&temp);

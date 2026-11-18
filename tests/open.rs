@@ -1611,7 +1611,9 @@ fn closed_stops_the_server_unless_a_page_comes_back_or_is_still_open() {
 #[test]
 fn heartbeats_keep_an_idle_server_running() {
     let scratch = Scratch::new("heartbeat");
-    let idle = Duration::from_millis(1000);
+    // An idle time well above the beat, so a beat delayed on a loaded machine (other tests
+    // save in parallel) does not look like silence.
+    let idle = Duration::from_millis(3000);
     let served = Served::start(&scratch, Duration::from_secs(600), idle);
     served.heartbeats(Duration::from_millis(200), idle * 3);
     let notices = served.stopped(idle + Duration::from_secs(5));
@@ -1774,4 +1776,108 @@ fn step_names_are_step_or_stp_or_either_gzipped() {
     ] {
         assert!(!open::is_step_name(name), "{name}");
     }
+}
+
+/// Saves racing answer changes: every file written holds exactly the answers of the rev it was
+/// asked for, and a save of a rev the session has left is refused (409), never written.
+#[test]
+fn racing_saves_write_exactly_their_rev() {
+    let scratch = Scratch::new("race");
+    let opened = Opened::start(&scratch.input(), &scratch, &[]);
+    let page = opened.page();
+    let start = page.answers();
+    let mut by_rev = std::collections::BTreeMap::new();
+    by_rev.insert(0u64, start["parts"]["0"].clone());
+    let materials = ["6061-T6", "6082-T6", "7075-T6", "2024-T3"];
+    // Every other save races a change sent as the save is sent; the others race nothing.
+    let (go, went) = std::sync::mpsc::channel::<()>();
+    let (done, finished) = std::sync::mpsc::channel::<()>();
+    let changes = {
+        let page = page.clone();
+        std::thread::spawn(move || {
+            let mut written = Vec::new();
+            let mut rev = 0;
+            for i in 0.. {
+                if went.recv().is_err() {
+                    break;
+                }
+                let answers = json!({"part.material": materials[i % materials.len()]});
+                let got = page.put(rev, 0, answers.clone());
+                assert_eq!(got.status, 200);
+                rev = got.json()["rev"].as_u64().unwrap();
+                written.push((rev, answers));
+                done.send(()).unwrap();
+            }
+            written
+        })
+    };
+    let mut saved = Vec::new();
+    let mut stale = 0;
+    for i in 0..8 {
+        let rev = page.answers()["rev"].as_u64().unwrap();
+        let racing = i % 2 == 1;
+        if racing {
+            go.send(()).unwrap();
+        }
+        let got = page.save(rev, false);
+        if racing {
+            finished.recv().unwrap();
+        }
+        match got.status {
+            200 => {
+                let body = got.json();
+                assert_eq!(body["rev"], rev);
+                saved.push((rev, PathBuf::from(body["path"].as_str().unwrap())));
+            }
+            409 if racing => {
+                assert!(got.json()["rev"].as_u64().unwrap() > rev);
+                stale += 1;
+            }
+            other => panic!("save {i}: {other}"),
+        }
+    }
+    drop(go);
+    by_rev.extend(changes.join().unwrap());
+    // One more, certainly stale.
+    assert_eq!(page.save(0, false).status, 409);
+    assert!(saved.len() >= 4, "{stale} stale");
+    for (rev, path) in saved {
+        assert_eq!(
+            analysis_of(&path)["resume"]["answers"],
+            by_rev[&rev],
+            "{} holds rev {rev}",
+            path.display()
+        );
+    }
+}
+
+/// An event stream that stops reading is dropped once it is more than `MAX_BEHIND` events
+/// behind (its receiver ends after what it was sent); the others carry on.
+#[test]
+fn a_stream_too_far_behind_is_dropped_and_the_others_carry_on() {
+    let scratch = Scratch::new("behind");
+    let shared = session_of(&scratch.input());
+    let (stuck, reading) = {
+        let mut s = shared.lock().unwrap();
+        (s.subscribe(), s.subscribe())
+    };
+    assert!(reading.try_recv().is_ok(), "the start event");
+    let limit = specify_core::session::MAX_BEHIND;
+    for i in 0..=limit {
+        let material = if i % 2 == 0 { "6061-T6" } else { "6082-T6" };
+        let answers: Map<String, Value> =
+            serde_json::from_value(json!({ "part.material": material })).unwrap();
+        assert!(shared.lock().unwrap().set(0, answers, "page").is_some());
+        assert!(reading.try_recv().is_ok(), "change {i} reaches the reader");
+    }
+    // The stuck one got the start and `limit` changes, then was dropped.
+    assert_eq!(stuck.try_iter().count(), 1 + limit);
+    assert!(matches!(
+        stuck.try_recv(),
+        Err(std::sync::mpsc::TryRecvError::Disconnected)
+    ));
+    let answers: Map<String, Value> =
+        serde_json::from_value(json!({"part.material": "7075-T6"})).unwrap();
+    shared.lock().unwrap().set(0, answers, "page");
+    assert!(reading.try_recv().is_ok(), "the reader carries on");
 }

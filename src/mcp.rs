@@ -657,6 +657,20 @@ impl Server {
         Ok(path)
     }
 
+    /// An existing file named by a call: canonical, and as given (made absolute, not
+    /// resolved). Both the file and the directory it is named in must be inside `--allow`, so
+    /// nothing written beside it (a save, a `.bak`) leaves the allowed directories.
+    fn given_path(&self, raw: &str) -> Result<(PathBuf, PathBuf), ToolError> {
+        let path = self.existing_path(raw)?;
+        let given = absolute(raw)?;
+        let dir = given.parent().unwrap_or(Path::new("/"));
+        let real = dir
+            .canonicalize()
+            .map_err(|e| ToolError::invalid(format!("{}: {e}", dir.display())))?;
+        self.inside(&real, raw)?;
+        Ok((path, given))
+    }
+
     /// A file a call will write, inside `--allow` (its directory must exist; a symbolic link is
     /// followed and its target checked); an existing file only with `overwrite`.
     fn output_path(&self, raw: &str, overwrite: bool) -> Result<PathBuf, ToolError> {
@@ -742,11 +756,10 @@ impl Server {
     }
 
     fn open(&mut self, args: &Map<String, Value>) -> ToolResult {
-        let raw = string(args, "path")?;
-        let path = self.existing_path(raw)?;
-        // The session keeps the path as given (made absolute, not resolved): Save goes beside
-        // a link, and every path shown is the link's (docs/open.md).
-        let given = absolute(raw)?;
+        // The file read (canonical) and the path as given (made absolute, not resolved): the
+        // session, the document and every path shown keep the latter, so Save goes beside a
+        // link (docs/open.md); both are inside --allow.
+        let (path, given) = self.given_path(string(args, "path")?)?;
         let part = optional_index(args, "part")?;
         let in_place = match args.get("in_place") {
             None | Some(Value::Null) => None,
@@ -754,7 +767,7 @@ impl Server {
             Some(_) => return Err(ToolError::invalid("'in_place' is true or false")),
         };
         let old = match optional_string(args, "old")? {
-            Some(raw) => Some((self.existing_path(raw)?, absolute(raw)?)),
+            Some(raw) => Some(self.given_path(raw)?),
             None => None,
         };
         let old_answers = match optional_string(args, "old_answers")? {
@@ -763,7 +776,7 @@ impl Server {
                     "old_answers are the answers of `old`: give old too",
                 ));
             }
-            Some(raw) => Some(read_answers(&self.existing_path(raw)?)?),
+            Some(raw) => Some(read_answers(&self.given_path(raw)?.0)?),
             None => None,
         };
         let (answers_file, from_file) = match optional_string(args, "answers_file")? {
@@ -834,6 +847,7 @@ impl Server {
                     None => Session::of(opened, file, in_place.unwrap_or(false)),
                 };
                 new.keep_analysis(index, Arc::clone(&analysis));
+                new.set_allowed(self.allow.clone());
                 if new.old().is_none() {
                     new.resume()?;
                 }
@@ -878,7 +892,7 @@ impl Server {
         let previous_file = self.docs.get(&handle).and_then(|d| d.answers_file.clone());
         let doc = Doc {
             session: shared,
-            path: path.clone(),
+            path: given.clone(),
             file_sha,
             part: index,
             analysis,
@@ -895,7 +909,7 @@ impl Server {
             .collect();
         let mut out = Map::new();
         out.insert("doc".into(), json!(handle));
-        out.insert("path".into(), json!(path));
+        out.insert("path".into(), json!(given));
         out.insert("part".into(), json!(index));
         out.insert("name".into(), json!(loaded.name));
         out.insert("faces".into(), json!(loaded.binding.face_count));
@@ -1340,18 +1354,11 @@ impl Server {
             }
             Some(_) => return Err(ToolError::invalid("'accept_defaults' is true or false")),
         };
-        // Save writes beside the file as given (a link's directory), which must be allowed too.
-        let target = session::lock(&doc.session).file().path.clone();
-        if let Some(dir) = target.parent() {
-            let real = dir
-                .canonicalize()
-                .map_err(|e| ToolError::invalid(format!("{}: {e}", dir.display())))?;
-            self.inside(&real, &target.display().to_string())?;
-        }
         let saved =
             session::save(&doc.session, None, accept_defaults, "mcp").map_err(|e| match e {
                 session::SaveError::Refused(m) => ToolError::invalid(m),
                 session::SaveError::Changed(m) => ToolError::new("stale", m),
+                session::SaveError::Outside(m) => ToolError::refused(m),
                 other => ToolError::new("failed", other.to_string()),
             })?;
         eprintln!("Saved {} ({} bytes).", saved.path, saved.bytes);

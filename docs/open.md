@@ -158,7 +158,9 @@ Answers:
 - `409 {"error": "…", "rev": <current>}`: the session moved on, or read-only, or (`--in-place`)
   the file was changed on disk by another program since it was opened (nothing written);
 - `422 {"error": "…"}`: an answer the writer refuses (the message names the question); nothing
-  written.
+  written;
+- `403 {"error": "…"}`: under an agent, the save would write outside the directories the agent's
+  server may use (`--allow`); nothing written.
 
 The command prints `Saved <path> (<bytes> bytes).` for each save.
 

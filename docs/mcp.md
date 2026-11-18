@@ -100,8 +100,10 @@ before it. The call is all-or-nothing: if one answer is refused, nothing changes
 
 `in_place` on a file whose session is already open changes where its Save writes only when the
 call gives it. Under `open` the session keeps the path as given (made absolute, not resolved),
-so Save goes beside a link and its `.bak` is named after the link; that directory must be inside
-`--allow` too.
+so Save goes beside a link and its `.bak` is named after the link. The directory a file is
+named in must be inside `--allow` as well as the file itself (for `path`, `old` and
+`old_answers`), and every save, from the agent or the page, is refused (`refused`, 403 from the
+page) if it would write outside `--allow`.
 
 `open` with `old` compares the two as `diff` does (the old answers from `old_answers`, else those
 stored in `old`) and the session starts from the answers carried to `path`. `old_answers` needs

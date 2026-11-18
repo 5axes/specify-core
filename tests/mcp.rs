@@ -1640,3 +1640,87 @@ fn a_diff_session_is_shown_in_diff_mode_and_saves_new() {
     drop(server);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A file named through a link whose own directory is outside `--allow` is refused, though its
+/// target is inside: Save would write beside the link. And a session that holds such a path
+/// anyway refuses every save, from the page and from the agent, writing nothing.
+#[cfg(unix)]
+#[test]
+fn nothing_is_saved_outside_the_allowed_directories() {
+    let allowed = scratch("allowed-saves");
+    let outside = scratch("outside-saves");
+    std::fs::create_dir_all(allowed.join("lib")).unwrap();
+    let inside = allowed.join("lib/abc.step");
+    std::fs::copy(part("plate"), &inside).unwrap();
+    let evil = outside.join("evil.step");
+    std::os::unix::fs::symlink(&inside, &evil).unwrap();
+    std::fs::write(allowed.join("a.json"), b"{}").unwrap();
+    let evil_answers = outside.join("old.json");
+    std::os::unix::fs::symlink(allowed.join("a.json"), &evil_answers).unwrap();
+    let mut server = Server::new(std::slice::from_ref(&allowed)).unwrap();
+    for arguments in [
+        json!({"path": evil}),
+        json!({"path": inside, "old": evil}),
+        json!({"path": inside, "old": inside, "old_answers": evil_answers}),
+    ] {
+        let refused = error_of(&mut server, "open", arguments.clone());
+        assert_eq!(refused["code"], json!("refused"), "{arguments}: {refused}");
+    }
+    let names = || {
+        let mut n: Vec<String> = std::fs::read_dir(&outside)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        n.sort();
+        n
+    };
+
+    // Second line of defence: the session itself refuses.
+    for in_place in [false, true] {
+        let mut held = specify_core::session::Session::new(
+            specify_core::session::Opened::read(&evil).unwrap(),
+            in_place,
+        )
+        .unwrap();
+        held.set_allowed(vec![allowed.clone()]);
+        let shared = std::sync::Arc::new(std::sync::Mutex::new(held));
+        // The agent's save.
+        let refused = specify_core::session::save(&shared, None, false, "mcp");
+        assert!(
+            matches!(refused, Err(specify_core::session::SaveError::Outside(_))),
+            "{refused:?}"
+        );
+        // The page's save.
+        let app = specify_core::open::App::new(
+            shared,
+            stub_app(&allowed),
+            &specify_core::open::Options::default(),
+        )
+        .unwrap();
+        let url = app.url();
+        let served = thread::spawn(move || {
+            app.serve(Duration::from_secs(60), Duration::from_millis(1500), |_| {})
+                .unwrap()
+        });
+        let (status, body) = page(
+            &url,
+            "POST",
+            "save",
+            Some(&json!({"rev": 0, "acceptDefaults": false})),
+        );
+        assert_eq!(status, 403, "{body}");
+        assert!(body["error"].is_string());
+        served.join().unwrap();
+        assert_eq!(
+            names(),
+            ["evil.step", "old.json"],
+            "nothing written outside"
+        );
+    }
+    assert_eq!(
+        std::fs::read(&inside).unwrap(),
+        std::fs::read(part("plate")).unwrap()
+    );
+    let _ = std::fs::remove_dir_all(&allowed);
+    let _ = std::fs::remove_dir_all(&outside);
+}
