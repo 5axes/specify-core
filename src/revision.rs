@@ -2871,11 +2871,18 @@ fn faces_moved(
     prints: [&qc::Fingerprints; 2],
 ) -> Option<bool> {
     let a = &corr.alignment;
-    // Exact surface data (a plane's offset along its normal, an axis point's offset off the
-    // old axis) agree to the kernel's precision, 1e-7 mm, on an unchanged face; a move the report
-    // can print is 0.05 mm or more. A millionth of the part's size (0.1 µm on a 100 mm part)
-    // lies between: any printable move is found, rounding never is.
-    let tol = prints[0].scale.max(prints[1].scale) * 1e-6;
+    // `scale` is the square root of the part's surface area (124 mm for a 100 × 60 × 10 plate).
+    // Exact surface data (a plane's offset along its normal, an axis or sphere point's offset)
+    // agree to the kernel's precision, 1e-7 mm, on an unchanged face, and a move the report can
+    // print is 0.05 mm or more: a millionth of the scale (0.12 µm there) lies between, so any
+    // printable move is found and rounding never is.
+    let scale = prints[0].scale.max(prints[1].scale);
+    let tol = scale * 1e-6;
+    // A centroid is not exact surface data: it shifts when a face is trimmed. The slide test
+    // takes faces within 0.1% of their area as the same size, and removing that much moves a
+    // centroid by up to about 0.1% of the face's size, so centroids are compared to a thousandth
+    // of the scale (0.12 mm there; the tolerance quiddity's own self-fit check uses).
+    let centroid_tol = scale * 1e-3;
     let turn = |v: [f64; 3]| {
         [0, 1, 2]
             .map(|i| a.rotation[i][0] * v[0] + a.rotation[i][1] * v[1] + a.rotation[i][2] * v[2])
@@ -2935,7 +2942,7 @@ fn faces_moved(
                 parallel < 1.0 - 1e-6 || off > tol
             }
             ("sphere", _, _, Some(o0), Some(o1)) => norm(sub(o1, place(o0))) > tol,
-            _ => norm(sub(now.centroid, place(was.centroid))) > tol,
+            _ => norm(sub(now.centroid, place(was.centroid))) > centroid_tol,
         };
         // A face of the same area whose centroid moved slid in its own surface: a flat moved
         // along its plane. A trimmed face changes area too.
@@ -2943,7 +2950,7 @@ fn faces_moved(
             (Some(x), Some(y)) => (x - y).abs() <= 1e-3 * x.abs().max(y.abs()),
             _ => true,
         };
-        let slid = same_area && norm(sub(now.centroid, place(was.centroid))) > tol;
+        let slid = same_area && norm(sub(now.centroid, place(was.centroid))) > centroid_tol;
         if moved || slid {
             return Some(true);
         }

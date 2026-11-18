@@ -157,7 +157,8 @@ and (70, 30), which moves to (75, 30); the old plate fits the new one turned 180
 well as it lies. `pair_after_removal`: the Ø8 hole at (80, 15) is removed, so the Ø5 pair's
 faces 8, 9 become 7, 8.
 
-`enclosure_pmi` is the maintainer's electronics enclosure base, each revision written with
+`enclosure_pmi` is text-to-cad's electronics enclosure base (MIT; source, commit and licence in
+`LICENSE-enclosure`), each revision written with
 Specify PMI (the old file carries its answers and number history): rev2 opens the four
 mounting holes from Ø3 to Ø3.4 and adds a Ø8 cable entry in the +X wall. The new file was
 written without the old file's number history, so its flatness and finish are numbered #25 and
@@ -166,4 +167,5 @@ written without the old file's number history, so its flatness and finish are nu
 `hole_nudged`, `pocket_moved` and `slot_slid` are made by `small_moves.py` (build123d 0.11.0):
 a plate with two unequal anchor holes and one feature moved, a Ø5 hole by 0.1 mm, a pocket by
 3 mm and a through slot by 4 mm, all in X. The pocket and slot pairs leave too few anchors for an
-alignment, so their moves are found in the parts' own frames.
+alignment, so their moves are found in the parts' own frames. `pocket_pin` (the same script) cuts a
+Ø0.5 hole through the pocket's floor: the pocket's faces stay, so it has not moved.

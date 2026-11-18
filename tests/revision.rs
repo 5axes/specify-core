@@ -1369,3 +1369,32 @@ fn small_and_unaligned_moves_are_reported() {
         assert!(md.contains(words), "{case}: {md}");
     }
 }
+
+#[test]
+fn a_hole_cut_in_a_pocket_floor_does_not_move_the_pocket() {
+    // A Ø0.5 hole through the floor of an unmoved pocket (small_moves.py): the floor loses well
+    // under 0.1% of its area and its centroid shifts, but no face of the pocket moved.
+    let r = revised("pocket_pin", json!({}));
+    assert!(
+        r.features
+            .iter()
+            .all(|f| !f.changes.contains_key("position")),
+        "{:?}",
+        r.features
+    );
+    assert!(
+        r.features
+            .iter()
+            .any(|f| f.class == "new" && f.family == "holes"),
+        "{:?}",
+        r.features
+    );
+    assert!(
+        r.change_lines()
+            .iter()
+            .all(|(line, _)| !line.contains(": moved") && !line.contains("; moved")),
+        "{:?}",
+        r.change_lines()
+    );
+    assert!(!r.summary.contains(" moved"), "{}", r.summary);
+}
