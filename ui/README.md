@@ -116,6 +116,24 @@ calling yours, and `preview` passes through; use it for your own read-only code 
 The helpers `characteristics`, `as9102`, `xlsx`, the diff and PMI-diff functions and the `types/pmi` types are
 exported too; see `src/index.ts`.
 
+## The local app (`specify-core open`)
+
+`app/` is Specify on your own computer: the page `specify-core open part.step` serves on 127.0.0.1, under the
+contract in specify-core's `docs/open.md`. It shows the part and its questions (or, with `--read-only`, its PMI),
+saves the specified STEP back to disk through the command (beside it as `part.specified.step`), and offers the
+answers JSON, inspection list (CSV) and AS9102 workbook as downloads. It has no account, AI chat or analytics,
+stores nothing in the browser, and requests nothing but its own origin; IBM Plex Mono is bundled. Save writes the
+answers given; Specify's defaults are written only when the person chooses Save with defaults.
+
+`npm run build:app` builds it into `dist-app/` (relative URLs, no inline scripts; the engine is not included: the
+command serves its own at `config.wasmUrl`). Each release attaches it as `specify-ui-app-<version>.tgz` (the app's
+files at the archive's root) with a `.sha256`. To try it: `specify-core open --app dist-app --wasm public/wasm/intent part.step`.
+
+`npm run test:app` builds it and drives it in Chromium under the real `specify-core open` (`SPECIFY_CORE`, default
+`specify-core` on `PATH`; it needs `open --app/--wasm`, after specify-core 0.1.18), on a part: answer, save, read
+the PMI back with `specify-core analyse`, resume, read only, and no request off 127.0.0.1. It takes about two
+minutes (it waits for the heartbeat and for the command to stop after `closed`).
+
 ## Development
 
 Node 22.

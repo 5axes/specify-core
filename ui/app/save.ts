@@ -3,6 +3,8 @@
 // answers (`POST save {rev, acceptDefaults}` → 200 / 409 stale rev / 422 missing). Only this file
 // changes when the contract does.
 import type { WorkerClient } from '../src/engine/rpc';
+import type { IntentReview } from '../src/types/pmi';
+import { needs } from '../src/specify/review';
 import type { AnswersStore } from './answers';
 import { save as postStep } from './local';
 
@@ -21,15 +23,15 @@ export interface Saver { save(options: SaveOptions): Promise<SaveResult> }
 export function engineSaver(worker: WorkerClient, file: { name: string; bytes: Uint8Array; sourceId: string }, store: AnswersStore): Saver {
   return {
     async save({ acceptDefaults }) {
-      let document: { bytes: Uint8Array };
-      try {
-        document = await worker.request('write', { ...file, answers: store.get(), acceptDefaults });
-      } catch (error) {
-        // The engine's refusal of open questions: shown with its reason, nothing sent to disk.
-        const message = error instanceof Error ? error.message : String(error);
-        if (acceptDefaults) throw error;
-        return { ok: false, missing: [], message };
+      const answers = store.get();
+      if (!acceptDefaults) {
+        // The engine's writePmi does not refuse a required question left open (it writes the part
+        // without it), so the page checks first, as the command's 422 will.
+        const { questions } = await worker.request<IntentReview>('review', { ...file, answers });
+        const missing = questions.filter((q) => needs(q, answers) === 'required').map((q) => q.id);
+        if (missing.length) return { ok: false, missing, message: 'required questions are unanswered' };
       }
+      const document = await worker.request<{ bytes: Uint8Array }>('write', { ...file, answers, acceptDefaults });
       const written = await postStep(document.bytes);
       return { ok: true, ...written };
     },

@@ -96,7 +96,16 @@ function App() {
   }, []);
 
   // The answers given since the last save; closing the tab asks first.
-  useEffect(() => opened?.store.subscribe(() => setDirty(opened.store.dirty())), [opened]);
+  useEffect(() => opened?.store.subscribe((answers) => {
+    setDirty(opened.store.dirty());
+    // A refused save's list follows the answers: what is answered since leaves it, and with
+    // nothing left the refusal goes.
+    setRefused((shown) => {
+      if (!shown?.missing.length) return shown;
+      const missing = shown.missing.filter((id) => !(id in answers));
+      return missing.length ? { ...shown, missing } : null;
+    });
+  }), [opened]);
   // Answers an agent gave (source "mcp", from the session's events once the command has one) are
   // shown as they land: the review takes them, the first changed question opens, its faces are lit,
   // and a note says what the agent changed.
