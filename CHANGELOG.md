@@ -6,6 +6,12 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+### Added
+
+- docs/rule-sources.md: where each of Specify's defaults and tables comes from (standard,
+  edition where recorded, convention, vendor figure or assumption) and where it is in the code,
+  with the review still open (for #196).
+
 ### Fixed
 
 - The release's npm job failed for 0.1.18: `npm pack` read the relative `release/pkg` as a

@@ -705,6 +705,9 @@ Listed entry by entry in [known-differences.md](known-differences.md), "Open wor
 
 ### Open questions
 
+Where each default and table comes from (standard, convention, vendor figure or assumption) is
+indexed in [rule-sources.md](rule-sources.md).
+
 The remaining questions and interim behaviour are recorded in [questions.md](questions.md):
 
 - **Interchange between engines:** Q1 (mixing engines on one analysis), Q10 and Q13 (a file whose
