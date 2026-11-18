@@ -191,7 +191,7 @@ default on the corpus and fixture analyses has one. Where it appears:
 | `datums.none` | convention | — | no face proposed (empty) |
 | `datums.control.none` | convention | — | no flatness or datum control |
 | `holes.function.clearance` | standard | ISO 273 | `clearance:<bolt>` |
-| `holes.function.tapped` | standard | ISO 261:1998 (coarse pitch) | `tapped:<size>` |
+| `holes.function.tapped` | convention | ISO 261 (coarse pitch: the thread size; the tap-drill match is Specify's) | `tapped:<size>` |
 | `holes.function.general` | convention | — | `general` |
 | `holes.function.printed` | convention | ISO 273 | clearance hole on a printed or sheet metal part |
 | `holes.frame.primary` | convention | — | the whole frame, A then B then C |
@@ -200,14 +200,14 @@ default on the corpus and fixture analyses has one. Where it appears:
 | `holes.position.floating` | convention | ISO 273 | ØH − F |
 | `holes.position.no_bolt` | convention | — | Ø0.1 |
 | `holes.location.general` | convention | — | `general` |
-| `holes.full_thread` | convention | ISO 261:1998 (coarse pitch) | drill depth − 3P, down to 0.5 mm, ≥ P |
+| `holes.full_thread` | convention | ISO 261 (coarse pitch) | drill depth − 3P, down to 0.5 mm, ≥ P |
 | `holes.full_thread.given` | convention | — | the depth the tapped answer states |
 | `turned.fit.general` | convention | — | `general` |
 | `turned.runout.none` | convention | — | no runout |
 | `mates.tapped` | convention | ISO 273 | `tapped:<size>` from a mate |
 | `mates.clearance` | convention | ISO 273 | `clearance:<bolt>` from a mate |
 | `mates.fit` | assumption | ISO 286-1:2010 | `fit:H7` / `h6` from a mate |
-| `mates.thread` | convention | ISO 261:1998 | `thread:<size>` from a mate |
+| `mates.thread` | convention | ISO 261 | `thread:<size>` from a mate |
 | `bom.make_buy.guess` | convention | — | made or bought, from the name |
 | `bom.make_buy.recorded` | convention | — | the answer or file value, proposed back |
 

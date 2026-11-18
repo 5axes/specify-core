@@ -85,11 +85,8 @@ const ISO_273_MEDIUM: Ref = Ref {
     clause: Some("medium series"),
     ..ISO_273
 };
-const ISO_261: Ref = Ref {
-    standard: "ISO 261",
-    edition: Some("1998"),
-    clause: None,
-};
+// The edition is recalled, not checked against a copy (docs/next-session.md), so none is cited.
+const ISO_261: Ref = cite("ISO 261");
 const ISO_261_COARSE: Ref = Ref {
     clause: Some("coarse pitch"),
     ..ISO_261
@@ -133,7 +130,7 @@ pub static DATUM_CONTROL_NONE: Rule = rule("datums.control.none", Convention, &[
 
 // Holes.
 pub static HOLE_CLEARANCE: Rule = rule("holes.function.clearance", Standard, &[ISO_273]);
-pub static HOLE_TAPPED: Rule = rule("holes.function.tapped", Standard, &[ISO_261_COARSE]);
+pub static HOLE_TAPPED: Rule = rule("holes.function.tapped", Convention, &[ISO_261_COARSE]);
 pub static HOLE_GENERAL: Rule = rule("holes.function.general", Convention, &[]);
 pub static HOLE_PRINTED: Rule = rule("holes.function.printed", Convention, &[ISO_273]);
 pub static HOLE_FRAME: Rule = rule("holes.frame.primary", Convention, &[]);
