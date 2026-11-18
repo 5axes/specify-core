@@ -79,8 +79,8 @@ JSON-RPC errors.
 | --- | --- | --- |
 | `list_parts` | `path` | `parts`: `[{part, name, product_id, faces, instances, ...}]`, as `serve`'s `parts` |
 | `open` | `path`, `part?`, `old?`, `old_answers?`, `in_place?`, `answers_file?`, `overwrite?` | `doc`, `rev`, `open_questions`, `features` (counts by family), `faces`, `existing_pmi`, `resumed`, `warnings?`; with `old`, the comparison's `verdict`, `summary` and `report`. For an assembly opened without `part`, the result is `needs_part: true` with its `parts` |
-| `questions` | `doc`, `state?` (`open` by default, `answered`, `all`) | each question as review presents it, with its `state` (`open`, `answered`, `optional`) and its `answer`; a default's `source` names the rule behind it ([rule-sources.md](rule-sources.md#rule-ids)); `rev` |
-| `answer` | `doc`, `set?: {id: value or text}`, `clear?: [id]`, `answers_file?`, `overwrite?` | each answer as stored, with `interpreted_from` when it was typed, and its `state`; the `open` ids; the new `rev` |
+| `questions` | `doc`, `state?` (`open` by default, `answered`, `all`), `compact?` (only the open questions, `{id, prompt, choices or hint, suggested?, rule?}`) | each question as review presents it, with its `state` (`open`, `answered`, `optional`) and its `answer`; a default's `source` names the rule behind it ([rule-sources.md](rule-sources.md#rule-ids)); `rev` |
+| `answer` | `doc`, `set?: {id: value or text}`, `clear?: [id]`, `partial?`, `answers_file?`, `overwrite?` | each answer as stored, with `interpreted_from` when it was typed, and its `state`; the `open` ids; the new `rev`; with `partial`, `outcomes`: `{id: {stored, interpreted_from?, state}}` or `{id: {refused: reason}}` |
 | `review` | `doc` | `open`, `problems`, `writable`/`missing` as answered, `writable_with_defaults`/`missing_with_defaults`; `rev` |
 | `characteristics` | `doc` | `intent`: the preview, as `serve`'s `preview`; `sources` (question ID to the rule behind each answer that is its question's default); `rev` |
 | `read_pmi` | `doc` | `existing` (the file's PMI by face), `part_settings`, `resumed`, `saved_answers?`; `rev` |
@@ -94,7 +94,8 @@ JSON-RPC errors.
 `answer` reads free text for a choice question as `serve`'s `interpret` does. `"M6"` on a hole
 becomes the matching `clearance:` or `tapped:` value, `"H7"` on a bore becomes a fit, and an
 exact option is taken as it is. Answers are applied in order, each checked against the answers
-before it. The call is all-or-nothing: if one answer is refused, nothing changes.
+before it. The call is all-or-nothing: if one answer is refused, nothing changes. With `partial: true`, every
+valid answer is applied in one `rev` and each refused one is reported in `outcomes` with its reason.
 
 `diff` with `doc` carries that document's answers. The document must be of `old`.
 
@@ -108,6 +109,20 @@ page) if it would write outside `--allow`.
 `open` with `old` compares the two as `diff` does (the old answers from `old_answers`, else those
 stored in `old`) and the session starts from the answers carried to `path`. `old_answers` needs
 `old`.
+
+## Two ways to work
+
+- **Intent known** (the agent designed the part, or was told the intent): answer everything known
+  in one `answer` call with `partial: true` (each id's outcome is given; the valid ones apply in
+  one `rev`), then ask the person only the gaps in chat, from `questions` with `compact: true`
+  (`{id, prompt, choices or hint, suggested?, rule?}` per open question), and `save`.
+- **No context** (an incoming STEP): answer only what can be inferred, then offer `show`, so the
+  person answers in the page instead of a long chat Q&A, and read their answers with `changes`.
+
+Either way a default is never intent (ADR P9): a suggestion is the person's to approve, and
+`save`'s `accept_defaults` lists only the ones they approved. Where Specify reports that a file
+and its stored answers disagree, the agent brings it to the person and never decides it. The
+server's `instructions` say this for the client.
 
 ## The session
 

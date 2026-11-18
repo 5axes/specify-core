@@ -745,9 +745,9 @@ fn replace_input(
 }
 
 /// The intent `write` writes for these answers, and the required questions still open. When
-/// none is open it is exactly `write`'s (`api::apply`). Otherwise what is answered (with
-/// `accept_defaults`, and every default taken): the preview, with what `apply` reports as not
-/// written, as the editor writes an incomplete part.
+/// none is open it is exactly `write`'s (`api::apply`). Otherwise what is answered (never a
+/// default not approved): the preview, with what `apply` reports as not written, as the editor
+/// writes an incomplete part.
 fn intent_for(
     loaded: &part::LoadedPart,
     analysis: &Value,

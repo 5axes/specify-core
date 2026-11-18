@@ -26,7 +26,11 @@ All notable changes to specify-core-rust. The format follows
   `show` and `save` (the specified STEP written beside the file, or over it when opened
   `in_place`; `accept_defaults` required, the ids of the defaults the person approved). `open` takes `old`, `old_answers` and `in_place`,
   and with `old` compares the revisions as `diff` does and starts from the carried answers;
-  every tool that reads the answers returns `rev`. Set up with
+  every tool that reads the answers returns `rev`. `answer` takes `partial: true` (every valid
+  answer applied in one rev, each id's outcome or refusal given) and `questions` `compact: true`
+  (the open questions as `{id, prompt, choices or hint, suggested?, rule?}`); the server's
+  instructions give the two agent patterns (intent known: answer in one call, ask the gaps;
+  no context: `show`) and ADR P9 (never a default as intent). Set up with
   `claude mcp add specify -- specify-core mcp`.
 - `specify-core open --diff OLD NEW [--answers FILE]`: the page shows what changed (`GET diff`,
   what WASM `diff()` returns, `{report, markdown, view}` or for an assembly

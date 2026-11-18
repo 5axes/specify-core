@@ -1836,3 +1836,138 @@ fn save_writes_only_the_defaults_named() {
     drop(server);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Intent known: everything answered in one call with `partial`, each id's outcome given, the
+/// valid ones applied in one rev and a refused one reported with its reason.
+#[test]
+fn a_partial_answer_applies_the_valid_ones_in_one_rev() {
+    let dir = scratch("partial");
+    let copy = dir.join("plate.step");
+    std::fs::copy(part("plate"), &copy).unwrap();
+    let mut server = Server::new(std::slice::from_ref(&dir)).unwrap();
+    let opened = call(&mut server, "open", json!({"path": copy}));
+    let doc = opened["structuredContent"]["doc"].clone();
+    let all = call(
+        &mut server,
+        "questions",
+        json!({"doc": doc, "state": "all"}),
+    );
+    let hole = all["structuredContent"]["questions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|q| q["default"] == "tapped:M5")
+        .unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let set = json!({"part.material": "6061-T6", "datum.A": [9999], &hole: "M5"});
+    // Without partial, all or nothing, as before.
+    let refused = error_of(&mut server, "answer", json!({"doc": doc, "set": set}));
+    assert_eq!(refused["question"], json!("datum.A"));
+    let answered = call(
+        &mut server,
+        "answer",
+        json!({"doc": doc, "set": set, "partial": true}),
+    );
+    assert_eq!(answered["isError"], json!(false), "{answered}");
+    let out = &answered["structuredContent"];
+    assert_eq!(out["rev"], json!(1));
+    let outcomes = out["outcomes"].as_object().unwrap();
+    assert_eq!(outcomes.len(), 3);
+    assert_eq!(outcomes["part.material"]["stored"], json!("6061-T6"));
+    assert_eq!(outcomes["part.material"]["state"], json!("answered"));
+    assert_eq!(outcomes[&hole]["interpreted_from"], json!("M5"));
+    assert!(outcomes[&hole]["stored"].is_string());
+    let reason = outcomes["datum.A"]["refused"].as_str().unwrap();
+    assert!(reason.contains("datum.A"), "{reason}");
+    assert!(outcomes["datum.A"].get("stored").is_none());
+    let changes = call(&mut server, "changes", json!({"doc": doc, "since": 0}));
+    let changes = changes["structuredContent"]["changes"]
+        .as_array()
+        .unwrap()
+        .clone();
+    assert_eq!(changes.len(), 1, "one rev");
+    assert_eq!(changes[0]["set"].as_object().unwrap().len(), 2);
+    assert!(changes[0]["set"].get("datum.A").is_none());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The open questions compactly, to ask the gaps in chat: id, prompt, choices or a hint, and
+/// the suggestion with its rule when there is one.
+#[test]
+fn compact_questions_give_what_a_chat_needs() {
+    let mut server = Server::new(&[common::fixtures()]).unwrap();
+    let opened = call(&mut server, "open", json!({"path": part("plate")}));
+    let doc = opened["structuredContent"]["doc"].clone();
+    let full = call(&mut server, "questions", json!({"doc": doc}));
+    let compact = call(
+        &mut server,
+        "questions",
+        json!({"doc": doc, "compact": true}),
+    );
+    let compact = &compact["structuredContent"];
+    let open = compact["open"].as_array().unwrap();
+    assert_eq!(
+        open.iter().map(|q| q["id"].clone()).collect::<Vec<_>>(),
+        full["structuredContent"]["open"]
+            .as_array()
+            .unwrap()
+            .clone()
+    );
+    assert_eq!(compact["rev"], json!(0));
+    assert!(compact.get("questions").is_none());
+    let mut suggested = 0;
+    for q in open {
+        let keys: Vec<&str> = q.as_object().unwrap().keys().map(String::as_str).collect();
+        for key in &keys {
+            assert!(
+                ["id", "prompt", "choices", "hint", "suggested", "rule"].contains(key),
+                "{q}"
+            );
+        }
+        assert!(q["prompt"].is_string(), "{q}");
+        assert!(
+            q["choices"]
+                .as_array()
+                .is_some_and(|c| c.iter().all(Value::is_string))
+                ^ q["hint"].is_string(),
+            "{q}"
+        );
+        if q.get("suggested").is_some() {
+            suggested += 1;
+            assert!(q["rule"].is_string(), "{q}");
+        }
+    }
+    assert!(suggested > 0);
+}
+
+/// The two agent patterns and ADR P9 are in the server's instructions, in both protocol eras.
+#[test]
+fn the_instructions_say_the_two_patterns_and_never_to_take_a_default() {
+    let mut server = Server::new(&[scratch("instructions")]).unwrap();
+    let modern = server
+        .handle(&modern(1, "server/discover", json!({})), None)
+        .body
+        .unwrap();
+    let mut legacy = Server::new(&[scratch("instructions-legacy")]).unwrap();
+    let init = json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
+        "protocolVersion": mcp::LEGACY, "capabilities": {},
+        "clientInfo": {"name": "test", "version": "0"}}});
+    let legacy = legacy.handle(&init, None).body.unwrap();
+    for reply in [&modern, &legacy] {
+        let text = reply["result"]["instructions"].as_str().unwrap();
+        for needed in [
+            "Intent known",
+            "partial: true",
+            "No context",
+            "`show`",
+            "`changes`",
+            "Never take a default as intent",
+            "accept_defaults",
+            "never decide it yourself",
+        ] {
+            assert!(text.contains(needed), "{needed}: {text}");
+        }
+    }
+}

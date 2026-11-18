@@ -71,16 +71,21 @@ const MAX_BODY: usize = 64 * 1024 * 1024;
 
 const INSTRUCTIONS: &str = "Specify adds AP242 semantic PMI (datums, tolerances, fits, threads, \
 material, general tolerance) to a STEP part by asking questions about its recognised features. \
-Typical flow: list_parts (for an assembly) -> open (returns a `doc` handle; with `old`, a \
-revision compared and its answers carried) -> questions -> answer (free text such as \"M6\" or \
-\"H7\" is interpreted) -> review -> save. The opened file's answers are a session held in this \
-server's memory and lost when the server restarts unless an `answers_file` was given or the file \
-was saved. `show` opens the Specify page in the person's browser on the same session: the \
-person's edits there are what your next call reads, and your answers appear there as you make \
-them; every result carries `rev`, and `changes` with the last `rev` you saw says what the person \
-changed. `save` writes the specified STEP beside the file: what is answered, plus only the \
-defaults the person approved, named in `accept_defaults`. Paths must lie inside the directories the server was \
-started with (--allow). The analysis and a triangle mesh of an open document are resources: \
+open a part (list_parts first for an assembly; with `old`, a previous revision is compared and its \
+answers carried) and work on the `doc` it returns.\n\
+Intent known (you designed the part or were told the intent): answer everything you know in one \
+`answer` call with partial: true, then ask the person only the gaps, in chat, with their choices \
+(questions with compact: true lists them), and save.\n\
+No context (an incoming STEP): answer only what you can infer, then offer `show`, which opens the \
+Specify page on the same answers, instead of a long chat Q&A; read the person's answers with \
+`changes` (every result carries `rev`).\n\
+Never take a default as intent: a suggested value is the person's to approve. `save` writes what \
+is answered plus exactly the defaults listed in accept_defaults, so list only those the person \
+approved. Where Specify reports that the file and its stored answers disagree, bring it to the \
+person; never decide it yourself.\n\
+The answers are held in this server's memory and lost when it restarts unless saved or kept in \
+an answers_file. Paths must lie inside the directories the server was started with (--allow). \
+The analysis and a triangle mesh of an open document are resources: \
 specify://doc/{doc}/analysis and specify://doc/{doc}/mesh.";
 
 /// Which revision's semantics a request is served under.
@@ -960,6 +965,14 @@ impl Server {
             (s.answers(doc.part).cloned().unwrap_or_default(), s.rev())
         };
         let qs = api::questions(&doc.analysis, &answers)?;
+        if flag(args, "compact")? {
+            // The open questions only, each as an agent asks it in chat.
+            let compact: Vec<Value> = rules::open_questions(&qs, &answers)
+                .iter()
+                .map(|q| compact_question(q))
+                .collect();
+            return Ok(json!({"doc": handle, "open": compact, "rev": rev}));
+        }
         let open: Vec<&str> = rules::open_questions(&qs, &answers)
             .iter()
             .map(|q| q.id.as_str())
@@ -1027,6 +1040,7 @@ impl Server {
             ),
             None => None,
         };
+        let partial = flag(args, "partial")?;
         // The session stays locked from reading the answers to replacing them, so a page's edit
         // in between is not lost.
         let shared = Arc::clone(&doc.session);
@@ -1037,36 +1051,16 @@ impl Server {
             trial.remove(id);
         }
         let mut changed = Vec::new();
+        let mut refused = Map::new();
         for (id, given) in &set {
-            // Earlier answers can ask new questions, so each is read against the ones before.
-            let qs = api::questions(&doc.analysis, &trial)?;
-            let q = qs.iter().find(|q| q.id == *id);
-            let mut entry = Map::new();
-            entry.insert("id".into(), json!(id));
-            let value = match (q, given) {
-                (Some(q), Value::String(text))
-                    if q.kind == "choice" && !q.options.iter().any(|o| o == text) =>
-                {
-                    let value = choices::interpret(&q.id, text, &q.options, q.diameter, q.depth)
-                        .map_err(|e| {
-                            ToolError::invalid(format!("{id}: {}", e.0)).with("question", json!(id))
-                        })?;
-                    entry.insert("interpreted_from".into(), json!(text));
-                    json!(value)
+            match try_answer(&doc.analysis, &mut trial, id, given) {
+                Ok(entry) => changed.push(entry),
+                // With partial, a refused answer is reported and the others still apply.
+                Err(e) if partial => {
+                    refused.insert(id.clone(), json!({"refused": e.message}));
                 }
-                _ => given.clone(),
-            };
-            trial.insert(id.clone(), value.clone());
-            api::review(&doc.analysis, &trial).map_err(|e| {
-                let e = ToolError::from(e);
-                ToolError {
-                    message: format!("{id}: {}", e.message),
-                    ..e
-                }
-                .with("question", json!(id))
-            })?;
-            entry.insert("value".into(), value);
-            changed.push(entry);
+                Err(e) => return Err(e),
+            }
         }
         if !clear.is_empty() {
             api::review(&doc.analysis, &trial)?;
@@ -1103,6 +1097,19 @@ impl Server {
         out.insert("cleared".into(), json!(clear));
         out.insert("open".into(), json!(open));
         out.insert("rev".into(), json!(rev));
+        if partial {
+            // Each id given: how it was stored, or why it was refused.
+            let mut outcomes = Map::new();
+            for entry in &changed {
+                let mut outcome = json!({"stored": entry["value"], "state": entry["state"]});
+                if let Some(text) = entry.get("interpreted_from") {
+                    outcome["interpreted_from"] = text.clone();
+                }
+                outcomes.insert(entry["id"].as_str().unwrap_or_default().into(), outcome);
+            }
+            outcomes.extend(refused);
+            out.insert("outcomes".into(), Value::Object(outcomes));
+        }
         if let Some(f) = &doc.answers_file {
             out.insert("answers_file".into(), json!(f));
         }
@@ -1581,6 +1588,72 @@ fn sha256(bytes: &[u8]) -> String {
         .collect()
 }
 
+/// One answer of `answer`'s `set`, read against the answers before it (an earlier answer can
+/// ask a new question) and checked with them: its entry `{id, value, interpreted_from?}`, the
+/// answer kept in `trial`; refused, naming the question, with `trial` as it was.
+fn try_answer(
+    analysis: &Value,
+    trial: &mut Map<String, Value>,
+    id: &str,
+    given: &Value,
+) -> Result<Map<String, Value>, ToolError> {
+    let qs = api::questions(analysis, trial)?;
+    let q = qs.iter().find(|q| q.id == id);
+    let mut entry = Map::new();
+    entry.insert("id".into(), json!(id));
+    let value = match (q, given) {
+        (Some(q), Value::String(text))
+            if q.kind == "choice" && !q.options.iter().any(|o| o == text) =>
+        {
+            let value =
+                choices::interpret(&q.id, text, &q.options, q.diameter, q.depth).map_err(|e| {
+                    ToolError::invalid(format!("{id}: {}", e.0)).with("question", json!(id))
+                })?;
+            entry.insert("interpreted_from".into(), json!(text));
+            json!(value)
+        }
+        _ => given.clone(),
+    };
+    let before = trial.insert(id.to_string(), value.clone());
+    if let Err(e) = api::review(analysis, trial) {
+        match before {
+            Some(v) => trial.insert(id.to_string(), v),
+            None => trial.remove(id),
+        };
+        let e = ToolError::from(e);
+        return Err(ToolError {
+            message: format!("{id}: {}", e.message),
+            ..e
+        }
+        .with("question", json!(id)));
+    }
+    entry.insert("value".into(), value);
+    Ok(entry)
+}
+
+/// An open question as an agent asks it in chat: `{id, prompt, choices}` (the values to choose
+/// from) or `{id, prompt, hint}` (what to type), with `suggested` (its default, to offer, never
+/// to take unasked) and `rule` (the rule behind the suggestion) when it has one.
+fn compact_question(q: &rules::Question) -> Value {
+    let mut out = json!({"id": q.id, "prompt": q.prompt});
+    if q.kind == "choice" {
+        out["choices"] = json!(q.options);
+    } else {
+        out["hint"] = json!(match q.kind {
+            "faces" => "face indices, as a list of integers",
+            "text_list" => "a list of texts",
+            _ => "free text",
+        });
+    }
+    if let Some(default) = &q.default {
+        out["suggested"] = default.clone();
+        if let Some(rule) = q.to_presented_dict()["source"]["rule"].as_str() {
+            out["rule"] = json!(rule);
+        }
+    }
+    out
+}
+
 /// `answered`, `open` (asked, unanswered, no default taken for it) or `optional` (unanswered
 /// but never counted open: BOM suggestions, the process, a full-thread depth).
 fn state_of(id: &str, open: &[&str], answers: &Map<String, Value>) -> &'static str {
@@ -1804,29 +1877,31 @@ pub fn tools() -> Vec<Value> {
         json!({
             "name": "questions",
             "title": "List the questions",
-            "description": format!("The questions Specify asks about the open document, given the answers so far: id, kind (choice, text, text_list, faces), prompt, default, why, options/choices, faces, attention, reason, basis and source (the rule behind the default: rule id, kind standard/convention/vendor/assumption, and the standards it cites), and state (open, answered, or optional: a suggestion never required). state selects which (default open). {SESSION_RULE} {MEMORY_RULE}"),
+            "description": format!("The questions Specify asks about the open document, given the answers so far: id, kind (choice, text, text_list, faces), prompt, default, why, options/choices, faces, attention, reason, basis and source (the rule behind the default: rule id, kind standard/convention/vendor/assumption, and the standards it cites), and state (open, answered, or optional: a suggestion never required). state selects which (default open). compact: true returns only the open questions, each {{id, prompt, choices (the values) or hint (what to type), suggested (the default, if any: offer it, never take it as the answer unasked), rule (the rule behind the suggestion)}}, to ask the gaps in chat. {SESSION_RULE} {MEMORY_RULE}"),
             "inputSchema": input(json!({
                 "doc": doc(),
-                "state": {"type": "string", "enum": ["open", "answered", "all"], "description": "Which questions (default open)."}
+                "state": {"type": "string", "enum": ["open", "answered", "all"], "description": "Which questions (default open)."},
+                "compact": {"type": "boolean", "description": "Only the open questions, each {id, prompt, choices or hint, suggested?, rule?}: to ask the gaps in chat."}
             }), &["doc"]),
             "outputSchema": output(json!({
                 "doc": {"type": "string"},
                 "state": {"type": "string"},
                 "questions": {"type": "array", "items": {"type": "object", "properties": {"source": source_schema()}}},
-                "open": strings(),
+                "open": {"type": "array", "description": "The open ids; with compact, the open questions {id, prompt, choices or hint, suggested?, rule?}."},
                 "counts": {"type": "object"},
                 "rev": rev()
-            }), &["doc", "questions", "open"]),
+            }), &["doc", "open"]),
             "annotations": {"readOnlyHint": true, "openWorldHint": false},
         }),
         json!({
             "name": "answer",
             "title": "Answer questions",
-            "description": format!("Set or clear answers on the open document. set maps question id to answer: a choice question takes one of its options or free text Specify interprets (\"M6\" for a hole, \"H7\" for a bore, \"6061-T6\" for material); a faces question takes a list of face indices; text questions take text. Answers are applied in order and all-or-nothing: a refused answer is an error naming the question and nothing changes. The change goes to the session (rev goes up) and appears in the Specify page if it is shown. {MEMORY_RULE} answers_file also saves them to that JSON file from now on."),
+            "description": format!("Set or clear answers on the open document. set maps question id to answer: a choice question takes one of its options or free text Specify interprets (\"M6\" for a hole, \"H7\" for a bore, \"6061-T6\" for material); a faces question takes a list of face indices; text questions take text. Answers are applied in order and all-or-nothing: a refused answer is an error naming the question and nothing changes. With partial: true (answer everything you know in one call), every valid answer is applied in one rev and outcomes gives each id {{stored, interpreted_from?, state}} or {{refused: reason}}. Give only what the person or the design intends: never a default as intent. The change goes to the session (rev goes up) and appears in the Specify page if it is shown. {MEMORY_RULE} answers_file also saves them to that JSON file from now on."),
             "inputSchema": input(json!({
                 "doc": doc(),
                 "set": {"type": "object", "description": "Question id to answer.", "additionalProperties": true},
                 "clear": {"type": "array", "items": {"type": "string"}, "description": "Question ids whose answers to remove."},
+                "partial": {"type": "boolean", "description": "Apply every valid answer and report each id's outcome instead of refusing them all."},
                 "answers_file": {"type": "string", "description": "Optional .json file to keep the answers in. An existing file that is not an answers map is refused unless overwrite is true."},
                 "overwrite": {"type": "boolean", "description": "Replace an existing answers_file that is not an answers map."}
             }), &["doc"]),
@@ -1835,6 +1910,7 @@ pub fn tools() -> Vec<Value> {
                 "set": {"type": "array", "items": {"type": "object"}},
                 "cleared": strings(),
                 "open": strings(),
+                "outcomes": {"type": "object", "description": "With partial: each id's {stored, interpreted_from?, state} or {refused}."},
                 "rev": rev(),
                 "answers_file": {"type": "string"}
             }), &["doc", "set", "open"]),
