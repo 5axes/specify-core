@@ -109,17 +109,17 @@ test('an agent\'s change landing during a page PUT is shown, and settled() is it
   // Save: the session's rev 2 is saved only once the page shows rev 2's answers.
   const writes = [];
   const write = async (at) => { writes.push(at); return { path: 'p', bytes: 1, rev: at, report: {}, complete: true, missing: [] }; };
-  await assert.rejects(sessionSaver(store, () => ({ b: 2 }), none, write).save({ defaults: [] }), NotShown);
+  await assert.rejects(sessionSaver(store, store.session, () => ({ b: 2 }), none, write).save({ defaults: [] }), NotShown);
   assert.deepEqual(writes, [], 'nothing saved that the page has not shown');
-  await sessionSaver(store, () => ({ c: 3, b: 2 }), none, write).save({ defaults: [] });
+  await sessionSaver(store, store.session, () => ({ c: 3, b: 2 }), none, write).save({ defaults: [] });
   assert.deepEqual(writes, [2]);
 });
 
 test('a save refused because the file changed on disk is told apart from a stale rev', async () => {
   const store = createSessionStore(0, 4, { a: 1 }, { a: 1 }, async () => ({ rev: 5 }));
   const refuse = rev => async () => { throw new Refused('changed', 409, { rev }); };
-  await assert.rejects(sessionSaver(store, () => ({ a: 1 }), none, refuse(4)).save({ defaults: [] }), FileChanged);
-  await assert.rejects(sessionSaver(store, () => ({ a: 1 }), none, refuse(6)).save({ defaults: [] }), Stale);
+  await assert.rejects(sessionSaver(store, store.session, () => ({ a: 1 }), none, refuse(4)).save({ defaults: [] }), FileChanged);
+  await assert.rejects(sessionSaver(store, store.session, () => ({ a: 1 }), none, refuse(6)).save({ defaults: [] }), Stale);
 });
 
 // S1: unsaved is the whole file's, whichever part is shown: answers left unsaved on a part not
@@ -166,13 +166,65 @@ test('a page change that changes nothing (Specify reviewing the answers it opene
 
 // ADR P9: defaults are written only when the person confirmed the list of them. A plain save never
 // asks for defaults; a save with defaults asks only when the defaults it would write are the ones confirmed.
+const d = (part, id, value) => ({ part, id, prompt: id, value: String(value), raw: JSON.stringify(value) });
+
 test('a save with defaults writes only the defaults confirmed', async () => {
   const store = createSessionStore(0, 2, { a: 1 }, { a: 1 }, async () => ({ rev: 3 }));
   const writes = [];
   const write = async (rev, acceptDefaults) => { writes.push([rev, acceptDefaults]); return { path: 'p', bytes: 1, rev, report: {}, complete: true, missing: [] }; };
-  const defaultsOf = async () => ['b', 'c'];
-  await sessionSaver(store, () => ({ a: 1 }), defaultsOf, write).save({ defaults: [] });
-  await assert.rejects(sessionSaver(store, () => ({ a: 1 }), defaultsOf, write).save({ defaults: ['b'] }), DefaultsChanged);
-  await sessionSaver(store, () => ({ a: 1 }), defaultsOf, write).save({ defaults: ['c', 'b'] });
+  const defaultsOf = async () => [d(0, 'b', 1), d(0, 'c', 2)];
+  await sessionSaver(store, store.session, () => ({ a: 1 }), defaultsOf, write).save({ defaults: [] });
+  await assert.rejects(sessionSaver(store, store.session, () => ({ a: 1 }), defaultsOf, write).save({ defaults: [d(0, 'b', 1)] }), DefaultsChanged);
+  await sessionSaver(store, store.session, () => ({ a: 1 }), defaultsOf, write).save({ defaults: [d(0, 'c', 2), d(0, 'b', 1)] });
   assert.deepEqual(writes, [[2, false], [2, true]], 'defaults asked for only with the confirmed list; nothing written for a list that changed');
+});
+
+// Review round 2, item 2: the same questions defaulted to another value (an agent's answer changed
+// what a default is) is not what was confirmed.
+test('a confirmed default whose value changed before the save is confirmed again', async () => {
+  const s = session(2, { a: 1 });
+  const store = createSessionStore(0, 2, { a: 1 }, { a: 1 }, s.put);
+  const writes = [];
+  const write = async (rev, acceptDefaults) => { writes.push([rev, acceptDefaults]); return { path: 'p', bytes: 1, rev, report: {}, complete: true, missing: [] }; };
+  // The default of b follows a: 0.1 while a is 1, 0.2 once the agent answers a = 2.
+  const defaultsOf = async (parts) => [d(0, 'b', parts['0'].a === 1 ? 0.1 : 0.2)];
+  const confirmed = await defaultsOf(store.session.parts());
+  store.receive({ rev: 3, part: 0, answers: { a: 2 }, source: 'mcp' });
+  await assert.rejects(sessionSaver(store, store.session, () => ({ a: 2 }), defaultsOf, write).save({ defaults: confirmed }), DefaultsChanged);
+  assert.deepEqual(writes, [], 'nothing written: the list is shown again');
+  await sessionSaver(store, store.session, () => ({ a: 2 }), defaultsOf, write).save({ defaults: await defaultsOf(store.session.parts()) });
+  assert.deepEqual(writes, [[3, true]]);
+});
+
+// Review round 2, item 1 (ADR P9): a save writes every part with answers in the session, so the
+// defaults confirmed are every such part's, not only the part shown's.
+test('a save with defaults of an assembly checks the defaults of every part it writes', async () => {
+  const session = createSession(5, { 0: { a: 1 }, 3: { m: 'Steel' } }, async () => ({ rev: 6 }));
+  const store = session.store(0, {});
+  const writes = [];
+  const write = async (rev, acceptDefaults) => { writes.push([rev, acceptDefaults]); return { path: 'p', bytes: 1, rev, report: {}, complete: true, missing: [] }; };
+  const asked = [];
+  const defaultsOf = async (parts) => { asked.push(Object.keys(parts).sort()); return Object.keys(parts).map((k) => d(Number(k), 'edges', 0.5)); };
+  // Only the part shown's default confirmed: refused, and nothing written.
+  await assert.rejects(sessionSaver(store, session, () => ({ a: 1 }), defaultsOf, write).save({ defaults: [d(0, 'edges', 0.5)] }), DefaultsChanged);
+  assert.deepEqual(asked, [['0', '3']], 'the defaults of every part in the session');
+  assert.deepEqual(writes, []);
+  await sessionSaver(store, session, () => ({ a: 1 }), defaultsOf, write).save({ defaults: [d(3, 'edges', 0.5), d(0, 'edges', 0.5)] });
+  assert.deepEqual(writes, [[5, true]]);
+});
+
+// Review round 2, nit: answers an agent gave a part before the page loaded are unsaved, even when
+// the page never shows that part (the file stores none for it, or others).
+test('answers given to a part not shown before the page loaded are unsaved', () => {
+  const fresh = createSession(2, { 0: {}, 4: { 'part.material': 'Steel' } });
+  fresh.store(0, {});
+  fresh.fileAnswers(4, {});
+  assert.equal(fresh.dirty(), true, 'the file stores no answers for part 4');
+  const written = createSession(2, { 0: {}, 4: { 'part.material': 'Steel' } });
+  written.store(0, {});
+  written.fileAnswers(4, { 'part.material': 'Steel' });
+  assert.equal(written.dirty(), false, 'what the file stores is not unsaved');
+  written.markSaved(2);
+  written.fileAnswers(4, {});
+  assert.equal(written.dirty(), false, 'after a save, the save is what is on disk');
 });

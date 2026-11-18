@@ -1,11 +1,13 @@
 name: Release
 
 # Runs only when a GitHub release is published (created by Paul). The build job checks the
-# tag against package.json and the WASM pin, then runs the CI suites and packs the tarball and
-# the local app (specify-ui-app-<version>.tgz), after running the app's tests against the
-# specify-core release engines.lock.json pins. The app-assets job attests the app archive's build
-# provenance and attaches it to the release.
-# The publish job then waits for approval in the `npm` environment and publishes that tarball
+# tag against package.json and the WASM pin, then runs the CI suites and packs the tarball.
+# The app job, separately, builds the local app (specify-ui-app-<version>.tgz) and runs its tests
+# against the specify-core command engines.lock.json pins (sha256 pinned there too); the
+# app-assets job, after build and app, attests the app archive's build provenance and attaches it
+# to the release. The npm library never waits on the app: an app that cannot be tested (a pinned
+# specify-core without the session contract) attaches nothing, and the library still publishes.
+# The publish job waits for approval in the `npm` environment and publishes that tarball
 # with npm trusted publishing (OIDC): configured on npmjs.com for this repo, release.yml and
 # environment `npm`. The workflow passes no npm token, so every publish goes through the
 # trusted publisher (the token-based first publish, v0.1.0, is done).
@@ -132,32 +134,79 @@ jobs:
           name: npm-tarball
           path: "*.tgz"
           if-no-files-found: error
+
+  # The local app `specify-core open` serves (app/): built, tested against the pinned specify-core
+  # command, and packed. Only app-assets needs it, so the npm library's publish never waits on it.
+  app:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: refs/tags/${{ github.event.release.tag_name }}
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+      - run: npm ci
+      - name: Cache upstream release archives
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .cache/wasm-releases
+          key: wasm-releases-${{ hashFiles('engines.lock.json') }}
+      - name: Fetch the pinned Specify WASM
+        run: npm run fetch:wasm
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
       # The app's tests (test/app-browser.mjs, test/app-agent.mjs) need the specify-core command
       # that serves it: the Linux binary of the specify-core release engines.lock.json pins (the
-      # release whose WASM the app runs), checked against that release's sha256 file. A pin
-      # without the session contract (`open`, `GET answers`, `POST save {rev}`) fails here, so an
-      # app is never released for a specify-core that cannot serve it.
+      # release whose WASM the app runs), checked against the sha256 pinned in engines.lock.json
+      # (`command`), not against the release's own .sha256 file.
       - name: Fetch the pinned specify-core command
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -eu
-          repo=$(node -p "require('./engines.lock.json').intent.repository")
-          tag=$(node -p "require('./engines.lock.json').intent.tag")
-          asset="specify-core-$tag-x86_64-unknown-linux-gnu.tar.gz"
+          repo=$(node -p "require('./engines.lock.json').command.repository")
+          tag=$(node -p "require('./engines.lock.json').command.tag")
+          intent_tag=$(node -p "require('./engines.lock.json').intent.tag")
+          asset=$(node -p "require('./engines.lock.json').command.assets['x86_64-unknown-linux-gnu'].asset")
+          sha=$(node -p "require('./engines.lock.json').command.assets['x86_64-unknown-linux-gnu'].sha256")
+          [ "$tag" = "$intent_tag" ] || { echo "::error::engines.lock.json pins the command at $tag but the WASM at $intent_tag: pin the same specify-core release."; exit 1; }
           mkdir -p .cache/specify-core
           cd .cache/specify-core
-          gh release download "$tag" --repo "$repo" --pattern "$asset" --pattern "$asset.sha256"
-          sha256sum -c "$asset.sha256"
+          gh release download "$tag" --repo "$repo" --pattern "$asset"
+          echo "$sha  $asset" | sha256sum -c -
           tar -xzf "$asset"
           bin=$(find "$PWD" -type f -name specify-core -perm -u+x | head -1)
           [ -n "$bin" ] || { echo "::error::$asset has no specify-core binary."; exit 1; }
-          "$bin" --version
           echo "SPECIFY_CORE=$bin" >> "$GITHUB_ENV"
+      # The app needs the command's session contract (`open` serving the app, `GET answers`,
+      # `PUT answers`, `POST save {rev}`; specify-core docs/open.md). A pin without it fails here,
+      # by name: no app is attached to this release; the npm library is published regardless.
+      - name: The pinned specify-core serves the app
+        run: |
+          set -eu
+          tag=$(node -p "require('./engines.lock.json').command.tag")
+          if ! "$SPECIFY_CORE" open --help | grep -q -- '--in-place'; then
+            echo "::error::specify-core $tag (engines.lock.json) has no session contract (open serving the app, GET/PUT answers, POST save {rev}): the local app is not tested or attached to this release. The npm library is published without it. Pin a specify-core release with the session contract to release the app."
+            exit 1
+          fi
+      - name: Cache Playwright browsers
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+      - run: npx playwright install --with-deps chromium
       # build:app, then the app against `specify-core open` and `mcp`; the archive below is that build.
-      - run: npm run test:app
-      # The local app `specify-core open` serves (app/), from the same commit and the build just
-      # tested: its files at the archive's root (index.html first level), with its sha256.
+      - name: Test the local app
+        run: |
+          npm run test:app || {
+            echo "::error::The local app's tests failed against specify-core $(node -p "require('./engines.lock.json').command.tag"): no app is attached to this release (the npm library is published without it)."
+            exit 1
+          }
+      # Its files at the archive's root (index.html first level), with its sha256.
       - name: Pack the local app
         run: |
           set -eu
@@ -175,7 +224,8 @@ jobs:
   # can write to the repository (contents: write, for the release's assets) or sign (id-token and
   # attestations, for the attestation); it checks out nothing and runs no package code.
   app-assets:
-    needs: build
+    # build too: its release guard (tag on main, matching package.json) holds for the app as well.
+    needs: [build, app]
     runs-on: ubuntu-latest
     permissions:
       contents: write

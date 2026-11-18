@@ -31,11 +31,17 @@ export interface AnswersStore {
 export interface AnswersSession {
   rev(): number;
   answers(part: number): PmiAnswers;
+  /** Every part's answers at ``rev()``, by part index: the parts a save writes (with a file's only part). */
+  parts(): Record<string, PmiAnswers>;
   /** An `answers` event (or a `GET answers` resync, as a "start" event). */
   receive(event: AnswersEvent): void;
   /** The store for part ``part``. ``onDisk``: its answers stored in the file as opened, so answers
    * an agent gave before the page opened show as unsaved (until a save). */
   store(part: number, onDisk?: PmiAnswers): AnswersStore;
+  /** Part ``part``'s answers stored in the file as opened (none for a part Specify did not write),
+   * so answers an agent gave it before the page opened count as unsaved, whether or not the part
+   * is ever shown. Ignored once the page has saved. */
+  fileAnswers(part: number, answers: PmiAnswers): void;
   /** The answers of session revision ``rev`` are on disk (a save's answer, or a `saved` event). */
   markSaved(rev: number): void;
   /** Answers given, in any part, that are not on disk: since the last save, or since the file was opened. */
@@ -100,6 +106,7 @@ export function createSession(rev: number, parts: Record<string, PmiAnswers>, pu
   const session: AnswersSession = {
     rev: () => state.rev,
     answers: (part) => state.parts[String(part)] ?? {},
+    parts: () => ({ ...state.parts }),
     receive(event) {
       if (event.source !== 'start') lastSource = event.source;
       if ('parts' in event) known(event.rev, event.parts, true, event.source);
@@ -107,7 +114,7 @@ export function createSession(rev: number, parts: Record<string, PmiAnswers>, pu
     },
     store(part, fileAnswers) {
       const key = String(part);
-      if (fileAnswers && savedRev === null) { onDisk = { ...onDisk, [key]: asGiven(fileAnswers) }; queueMicrotask(changed); }
+      if (fileAnswers) session.fileAnswers(part, fileAnswers);
       // The page's changes not in the session yet, in order: each from ``before`` to ``after``.
       const pending: { before: PmiAnswers; after: PmiAnswers }[] = [];
       const shown = () => pending.reduce((answers, c) => reapply(answers, c.before, c.after), session.answers(part));
@@ -164,6 +171,11 @@ export function createSession(rev: number, parts: Record<string, PmiAnswers>, pu
       const entry = { store, update };
       stores.add(entry);
       return store;
+    },
+    fileAnswers(part, answers) {
+      if (savedRev !== null) return;
+      onDisk = { ...onDisk, [String(part)]: asGiven(answers) };
+      queueMicrotask(changed);
     },
     markSaved(at) {
       savedRev = at;

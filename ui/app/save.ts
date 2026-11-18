@@ -3,13 +3,17 @@
 // `save`. It never refuses for open questions: many AP242 files have no complete answer to
 // everything, and a part with incomplete PMI is still worth saving. It says what is still open.
 import type { PmiAnswers } from '../src/types/pmi';
-import type { AnswersStore } from './answers.ts';
+import type { AnswersSession, AnswersStore } from './answers.ts';
 import { Refused, save as post, type Saved } from './local.ts';
 
+/** A default a save with defaults would write: part ``part``'s question ``id`` set to ``value``
+ * (``raw``, the default itself, is what is compared; ``value`` is how it reads). */
+export interface Default { part: number; id: string; prompt: string; value: string; raw: string }
+
 export interface SaveOptions {
-  /** The questions whose defaults the person saw listed and confirmed (ADR P9: a default is written
-   * only when approved); none for a plain save. */
-  defaults: readonly string[];
+  /** The defaults the person saw listed and confirmed, of every part the save writes (ADR P9: a
+   * default is written only when approved); none for a plain save. */
+  defaults: readonly Default[];
 }
 
 export interface Saver { save(options: SaveOptions): Promise<Saved> }
@@ -25,23 +29,31 @@ export class DefaultsChanged extends Error {}
 
 const given = (answers: PmiAnswers) => JSON.stringify(Object.entries(answers).filter(([id]) => !id.startsWith('_')).sort(([a], [b]) => (a < b ? -1 : 1)));
 
+/** The same defaults, part, question and value, in whatever order. */
+export function sameDefaults(a: readonly Default[], b: readonly Default[]): boolean {
+  const key = (list: readonly Default[]) => list.map((d) => JSON.stringify([d.part, d.id, d.raw])).sort().join('\n');
+  return key(a) === key(b);
+}
+
 /** Saves the session at the revision the page shows, once the page's own changes are in it.
  * ``shown()``: the answers the page shows, so a save never writes answers the person has not seen.
- * ``defaultsOf(answers)``: the questions a save with defaults would default for ``answers``. */
-export function sessionSaver(store: AnswersStore, shown: () => PmiAnswers, defaultsOf: (answers: PmiAnswers) => Promise<string[]>, write = post): Saver {
+ * ``defaultsOf(parts)``: the defaults a save with defaults would write for the session's answers
+ * ``parts`` (every part's, by index): those of every part the save writes. */
+export function sessionSaver(store: AnswersStore, session: Pick<AnswersSession, 'parts'>, shown: () => PmiAnswers, defaultsOf: (parts: Record<string, PmiAnswers>) => Promise<Default[]>, write = post): Saver {
   return {
     async save({ defaults }) {
       const rev = await store.settled();
       const answers = store.get();
+      const parts = session.parts();
       if (given(answers) !== given(shown())) throw new NotShown('the answers changed just now');
-      if (defaults.length) {
-        const now = await defaultsOf(answers);
-        if ([...now].sort().join('\n') !== [...defaults].sort().join('\n')) throw new DefaultsChanged('the defaults to write changed');
-      }
+      // The whole set, part by part, value by value: any default added, gone or changed (an agent
+      // answered meanwhile) means a list the person has not confirmed.
+      if (defaults.length && !sameDefaults(await defaultsOf(parts), defaults)) throw new DefaultsChanged('the defaults to write changed');
       try {
         // TODO(specify-core `POST save {acceptDefaults: [question ids]}`): send ``defaults`` itself,
         // so only those are defaulted. Until then the boolean, which defaults every open question
-        // that has one: exactly the confirmed list, checked above at this rev (a later rev is a 409).
+        // that has one in every part written: exactly the confirmed list, checked above for every
+        // part at this rev (a later rev is a 409).
         return await write(rev, defaults.length > 0);
       } catch (error) {
         // Both are 409s with the session's rev: when the session is still at the page's rev, it is the file that changed.

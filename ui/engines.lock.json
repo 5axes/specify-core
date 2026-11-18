@@ -6,5 +6,15 @@
     "asset": "specify-core-wasm-0.1.18.tgz",
     "sha256": "e562de579b7467a909082516e35a9b0484806dc5ae3d4b4514d7705c1fb47724",
     "module": "specify_core_wasm"
+  },
+  "command": {
+    "repository": "pzfreo/specify-core",
+    "tag": "v0.1.18",
+    "assets": {
+      "x86_64-unknown-linux-gnu": {
+        "asset": "specify-core-v0.1.18-x86_64-unknown-linux-gnu.tar.gz",
+        "sha256": "1fdba220deb7605f625e12a0e9cc0a98d7c95381af9fc8171d93996b32c301a3"
+      }
+    }
   }
 }

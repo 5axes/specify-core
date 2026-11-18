@@ -19,13 +19,34 @@ import { saveFile } from '../src/specify/SpecifyReview';
 import { changedIds, createSession, sameAnswers, type AnswersSession, type AnswersStore } from './answers';
 import { decisions, type Decision } from './diff-report';
 import { getAnswers, getConfig, getDiff, getFile, keepAlive, listen, type LocalConfig } from './local';
-import { DefaultsChanged, FileChanged, NotShown, sessionSaver, Stale, type Saver } from './save';
+import { DefaultsChanged, FileChanged, NotShown, sessionSaver, Stale, type Default, type Saver } from './save';
 
 declare const __APP_VERSION__: string;
 const DOCS = 'https://github.com/pzfreo/specify-core#readme';
 const ISSUES = 'https://github.com/pzfreo/specify-core/issues';
-/** A part of the file, as the engine's `parts` lists them; the session keeps answers by its index. */
-interface PartRow { part: number; name: string }
+/** A part of the file, as the engine's `parts` lists them; the session keeps answers by its index.
+ * ``written``: the file stores Specify's answers for it. */
+interface PartRow { part: number; name: string; written: boolean }
+
+/** Part ``part`` of the file, as the engine opens it: a file of one part whole, a part of several as that part. */
+const fileOf = (name: string, bytes: Uint8Array, part: number, several: boolean) => ({
+  name, bytes, sourceId: several ? `${name}#${part}` : name, ...(several ? { part } : {}),
+});
+
+/** The defaults a save with defaults writes for the session's answers ``parts``: each part's that
+ * the save writes (every part the session holds answers for, and a file's only part), in part order. */
+async function defaultsOf(worker: WorkerClient, name: string, bytes: Uint8Array, several: boolean, parts: Record<string, PmiAnswers>): Promise<Default[]> {
+  const written = new Set(Object.keys(parts).map(Number));
+  if (!several) written.add(0);
+  const out: Default[] = [];
+  for (const part of [...written].sort((a, b) => a - b)) {
+    const answers = parts[String(part)] ?? {};
+    const { questions } = await worker.request<IntentReview>('review', { ...fileOf(name, bytes, part, several), answers });
+    const raw = new Map(questions.map((q) => [q.id, JSON.stringify(q.default)] as const));
+    out.push(...defaultsToWrite(questions, answers).map((d) => ({ ...d, part, raw: raw.get(d.id)! })));
+  }
+  return out;
+}
 
 interface Opened {
   /** The part shown: its index in the session, and whether the file has others. */
@@ -45,9 +66,8 @@ interface Compared { old: { name: string; bytes: Uint8Array }; next: { name: str
 /** Opens the part on the engine with the session's answers: its analysis and mesh, their review,
  * and the PMI as drawn. ``edited``: called on each change the person makes. */
 async function openPart(worker: WorkerClient, answersSession: AnswersSession, name: string, bytes: Uint8Array, at: { part: number; several: boolean }, edited: () => void): Promise<Opened> {
-  const sourceId = at.several ? `${name}#${at.part}` : name;
-  // A file of one part is opened whole; a part of several is opened as that part.
-  const file = { name, bytes, sourceId, ...(at.several ? { part: at.part } : {}) };
+  const file = fileOf(name, bytes, at.part, at.several);
+  const { sourceId } = file;
   const snapshot = await worker.request<{ analysis: PmiLabSession['analysis']; mesh: PmiLabSession['mesh'] }>('open', file);
   const answers = answersSession.answers(at.part);
   const review = await worker.request<IntentReview>('review', { ...file, answers });
@@ -75,10 +95,10 @@ async function openPart(worker: WorkerClient, answersSession: AnswersSession, na
   const scene = drawnFromScene(await worker.request('scene', { ...file, state: { answers } }));
   const drawn = scene.ok ? withoutNotesBlock(scene.value) : null;
   const reviewOf = (given: PmiAnswers) => worker.request<IntentReview>('review', { ...file, answers: given });
-  const defaultsOf = async (given: PmiAnswers) => defaultsToWrite((await reviewOf(given)).questions, given).map((d) => d.id);
+  const defaults = (parts: Record<string, PmiAnswers>) => defaultsOf(worker, name, bytes, at.several, parts);
   return {
     ...at, session, review, engine, drawn: drawn && hasGraphics(drawn) ? drawn : null, bytes, store, shown,
-    saver: sessionSaver(store, () => shown.answers, defaultsOf), external: { answers, review }, reviewOf,
+    saver: sessionSaver(store, answersSession, () => shown.answers, defaults), external: { answers, review }, reviewOf,
   };
 }
 
@@ -107,8 +127,14 @@ function App() {
   const [live, setLive] = useState<boolean | null>(null);
   // An in-place save refused because another program changed the file: Save cannot succeed again.
   const [fileChanged, setFileChanged] = useState(false);
-  // Save with defaults: the defaults it would write, listed for the person to confirm (ADR P9).
-  const [confirming, setConfirming] = useState<{ id: string; prompt: string; value: string }[] | null>(null);
+  // Save with defaults: the defaults it would write, of every part it writes, listed for the person
+  // to confirm (ADR P9). ``shownLeftOut``: the part shown has no answers in the session, so the save
+  // does not write it.
+  const [confirming, setConfirming] = useState<{ defaults: Default[]; shownLeftOut: boolean } | null>(null);
+  // Answers that arrived from outside the page but could not be shown (their review failed): Save
+  // is refused until they are, so the page offers to show them again.
+  const [unshown, setUnshown] = useState<string | null>(null);
+  const reshow = useRef<() => void>(() => {});
   const worker = useRef<WorkerClient | null>(null);
   const view = useRef<HTMLDivElement>(null);
   const panel = useRef<HTMLDivElement>(null);
@@ -144,7 +170,7 @@ function App() {
       sessionRef.current = answersSession;
       unwatch = answersSession.subscribe(() => setDirty(answersSession.dirty()));
       // An assembly's parts: the page shows one at a time, first the first the session has answers for.
-      const rows = (await worker.current.request<PartRow[]>('parts', { name: first.name, bytes })).map(({ part, name }) => ({ part, name }));
+      const rows = (await worker.current.request<PartRow[]>('parts', { name: first.name, bytes })).map(({ part, name, written }) => ({ part, name, written: written === true }));
       const several = rows.length > 1;
       const withAnswers = rows.find((row) => Object.keys(answers.parts[String(row.part)] ?? {}).some((id) => !id.startsWith('_')));
       const at = { part: several ? (withAnswers ?? rows[0]!).part : 0, several };
@@ -179,6 +205,15 @@ function App() {
         lost = false;
       });
       setOpened(part);
+      // The other parts the session holds answers for: what the file stores for each, so answers an
+      // agent gave them before the page opened count as unsaved. A part Specify did not write
+      // stores none; one it wrote is read from the file, after the part shown is up.
+      for (const row of rows) {
+        if (row.part === at.part || !(String(row.part) in answers.parts)) continue;
+        if (!row.written) { answersSession.fileAnswers(row.part, {}); continue; }
+        const snapshot = await worker.current.request<{ analysis: PmiLabSession['analysis'] }>('open', fileOf(first.name, bytes, row.part, true)).catch(() => null);
+        if (snapshot) answersSession.fileAnswers(row.part, snapshot.analysis.resume?.answers ?? {});
+      }
     })().catch((error: unknown) => setProblem(message(error)));
     return () => { stop(); unlisten(); unwatch(); worker.current?.dispose(); };
   }, []);
@@ -214,12 +249,13 @@ function App() {
     const fromAgent = new Set<string>();
     const show = (answers: PmiAnswers, source: string, previous: PmiAnswers) => {
       if (source === 'mcp') for (const id of changedIds(previous, answers)) fromAgent.add(id);
-      // The page's own change, as SpecifyReview already shows it.
-      if (sameAnswers(answers, shown.answers)) return;
+      // The page's own change, as SpecifyReview already shows it (or answers back to what it shows).
+      if (sameAnswers(answers, shown.answers)) { setUnshown(null); return; }
       void opened.reviewOf(answers).then((review) => {
         // Another part shown since, or a newer change on its way (shown when it lands).
         if (current.current?.store !== store || !sameAnswers(store.get(), answers)) return;
         shown.answers = answers;
+        setUnshown(null);
         setOpened((now) => (now?.store === store ? { ...now, external: { answers, review } } : now));
         const ids = [...fromAgent];
         fromAgent.clear();
@@ -230,12 +266,19 @@ function App() {
         setTab('answers');
         setFocus({ questionId: ids[0]!, faces, scroll: true });
         setLit({ faces, n });
-      }, (error: unknown) => setProblem(`An answer from your agent could not be shown: ${message(error)}`));
+      }, (error: unknown) => {
+        if (current.current?.store !== store || !sameAnswers(store.get(), answers)) return;
+        // Not shown, so not saved: said, with a way to try again (a later change also tries again).
+        setUnshown(message(error));
+      });
     };
+    // The session's answers, shown again if the page does not show them yet.
+    const again = () => { if (current.current?.store === store && !sameAnswers(store.get(), shown.answers)) show(store.get(), 'start', shown.answers); };
+    reshow.current = again;
     const unsubscribe = store.subscribe(show);
     // A change that landed while the part was opening, before this listened.
-    if (!sameAnswers(store.get(), shown.answers)) show(store.get(), 'start', shown.answers);
-    return unsubscribe;
+    again();
+    return () => { unsubscribe(); setUnshown(null); };
   }, [opened?.store]);
   // The questions the agent changed are marked in the panel while its note shows: marked now and
   // again whenever the panel re-renders (the review opens the question after this runs).
@@ -273,20 +316,22 @@ function App() {
     setSaved({ path, open: review ? prompts(review.open, review) : null, byAgent: true });
   };
 
-  /** Save with defaults, first: the full list of the defaults it would write, to confirm. */
+  /** Save with defaults, first: the full list of the defaults it would write, in every part it
+   * writes (an assembly's other parts included), to confirm. */
   const askDefaults = async () => {
-    if (!opened) return;
+    if (!opened || !config || !worker.current || !sessionRef.current) return;
     setProblem(null);
     try {
       await opened.store.settled();
-      const answers = opened.store.get();
-      setConfirming(defaultsToWrite((await opened.reviewOf(answers)).questions, answers));
+      const parts = sessionRef.current.parts();
+      const defaults = await defaultsOf(worker.current, config.name, opened.bytes, opened.several, parts);
+      setConfirming({ defaults, shownLeftOut: opened.several && !(String(opened.part) in parts) });
     } catch (error) { setProblem(`The defaults could not be listed: ${message(error)}`); }
   };
 
   // Save writes the answers given, whatever is still open, and says what is. Defaults are written
   // only when the person has seen and confirmed the list of them (``defaults``).
-  const onSave = async (defaults: readonly string[]) => {
+  const onSave = async (defaults: readonly Default[]) => {
     if (!opened) return;
     setConfirming(null);
     setSaving(true); setProblem(null);
@@ -303,6 +348,10 @@ function App() {
       } else if (error instanceof DefaultsChanged) {
         setProblem('Not saved: the answers changed, so the defaults to write are not the ones you confirmed. Check the new list.');
         void askDefaults();
+      } else if (error instanceof NotShown && unshown) {
+        // The answers that could not be shown: tried again; until they show, Save cannot write them.
+        setProblem('Not saved: the latest answers in the session are not shown yet (see below). Trying to show them again.');
+        reshow.current();
       } else if (error instanceof Stale || error instanceof NotShown) {
         // The session moved on (an agent answered meanwhile): the page shows its answers before any save.
         if (error instanceof Stale) {
@@ -310,6 +359,7 @@ function App() {
           if (now) sessionRef.current?.receive({ ...now, source: 'start' });
         }
         setProblem('Not saved: the answers changed while you saved (your agent answered). The answers now shown are the latest; check them and Save again.');
+        reshow.current();
       } else setProblem(`Not saved: ${message(error)}`);
     } finally { setSaving(false); }
   };
@@ -399,16 +449,33 @@ function App() {
         )}
       </header>
       {problem && <p className="app-problem" role="alert">{problem}</p>}
+      {unshown && (
+        <p className="app-problem app-unshown" role="alert">
+          The latest answers in the session (from your agent or another window) could not be shown, so Save
+          waits until they are: {unshown}{' '}
+          <button type="button" onClick={() => reshow.current()}>Show the latest answers</button>
+        </p>
+      )}
       {confirming && (
         <div className="app-defaults" role="dialog" aria-label="Save with defaults">
-          {confirming.length ? (
+          {confirming.defaults.length ? (
             <>
-              <p>Save writes {plural(confirming.length, 'default')} as requirements, as if you had given each answer:</p>
-              <ul>{confirming.map((d) => <li key={d.id} data-default={d.id}>{d.prompt} <strong>{d.value}</strong></li>)}</ul>
+              <p>Save writes {plural(confirming.defaults.length, 'default')} as requirements, as if you had given each answer:</p>
+              {[...new Set(confirming.defaults.map((d) => d.part))].map((part) => {
+                const list = <ul>{confirming.defaults.filter((d) => d.part === part).map((d) => <li key={d.id} data-default={d.id}>{d.prompt} <strong>{d.value}</strong></li>)}</ul>;
+                // An assembly's defaults, by part: every part the save writes, not only the one shown.
+                return opened?.several ? (
+                  <section key={part} data-part={part}>
+                    <h4>{parts.find((row) => row.part === part)?.name ?? `Part ${part}`}{part === opened.part ? ' (shown)' : ''}</h4>
+                    {list}
+                  </section>
+                ) : <div key={part}>{list}</div>;
+              })}
             </>
           ) : <p>Every question with a default is answered: nothing to fill in.</p>}
-          <button type="button" className="app-save" onClick={() => void onSave(confirming.map((d) => d.id))}>
-            {confirming.length ? `Save with these ${plural(confirming.length, 'default')}` : 'Save'}
+          {confirming.shownLeftOut && <p>The part shown has no answers yet, so this save does not write it.</p>}
+          <button type="button" className="app-save" onClick={() => void onSave(confirming.defaults)}>
+            {confirming.defaults.length ? `Save with these ${plural(confirming.defaults.length, 'default')}` : 'Save'}
           </button>{' '}
           <button type="button" onClick={() => setConfirming(null)}>Cancel</button>
         </div>

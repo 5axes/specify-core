@@ -11,7 +11,9 @@ import { mcp } from './mcp-client.mjs';
 // the page loads with the agent's answer, and an answer the agent gives while it is open lands with
 // "Updated by your agent". The person's edit in the page is what `changes` returns. The agent's
 // `save` and the page's Save write the same naming, and an incomplete save says what is `missing`.
-// Then an assembly (every part's stored answers resume when one part is opened) and a part opened
+// Then an assembly (every part's stored answers resume when one part is opened; an agent's answer
+// to a part not shown is unsaved; Save with defaults lists every written part's defaults), answers
+// the page cannot show (said, retried, Save explains), and a part opened
 // through a symbolic link (the link's path is kept, Save writes beside the link), and a diff the agent
 // opened, which `show` serves in diff mode.
 // `npm run test:app` runs it after app-browser.mjs.
@@ -29,7 +31,7 @@ assert.ok(existsSync(join(app, 'index.html')), 'dist-app is built (npm run build
 
 const dir = mkdtempSync(join(tmpdir(), 'specify-agent-'));
 const env = { SPECIFY_APP_DIR: app, SPECIFY_WASM_DIR: wasm };
-const analyse = file => JSON.parse(execFileSync(cli, ['analyse', '--output', '-', file], { encoding: 'utf8', maxBuffer: 1 << 28, stdio: ['ignore', 'pipe', 'ignore'] }));
+const analyse = (file, part) => JSON.parse(execFileSync(cli, ['analyse', '--output', '-', ...(part === undefined ? [] : ['--part', String(part)]), file], { encoding: 'utf8', maxBuffer: 1 << 28, stdio: ['ignore', 'pipe', 'ignore'] }));
 const stored = file => analyse(file).resume?.answers ?? {};
 /** The answers a person or agent gave: Specify's own `_` keys left out. */
 const given = answers => Object.fromEntries(Object.entries(answers).filter(([id]) => !id.startsWith('_')));
@@ -180,6 +182,93 @@ try {
     onlyLocal(requests, shown.url);
     await context.close();
     second.stop();
+  }
+
+  // The assembly Specify wrote above (parts a and b answered), with part b changed by an agent before
+  // the page loaded. The page shows a: b's answers are unsaved though b is never shown, and Save with
+  // defaults lists (and so writes) the defaults of every part the save writes, by part (ADR P9).
+  {
+    const asm = join(dir, 'asm.specified.step');
+    const agent = await mcp(cli, { cwd: dir, env }); agents.push(agent);
+    const listed = await agent.call('open', { path: asm });
+    const [a, b] = listed.parts.map(p => p.part);
+    const docA = (await agent.call('open', { path: asm, part: a })).doc;
+    const docB = (await agent.call('open', { path: asm, part: b })).doc;
+    await agent.call('answer', { doc: docB, set: { 'part.material': 'Bronze CC491K' } });
+    const shown = await agent.call('show', { doc: docA, browser: false });
+    const { context, page } = await load(shown.url);
+    await check(page.locator('.app-part select')).toHaveValue(String(a));
+    await check(page.locator('.pmi-lab-panel')).toContainText('1.4301');
+    await check(page.locator('.app-dirty')).toBeVisible();
+    const session = await (await fetch(`${shown.url}answers`)).json();
+    const written = Object.keys(session.parts).map(Number).sort((x, y) => x - y);
+    assert.deepEqual(written, [a, b].sort((x, y) => x - y), `the save writes parts a and b: ${written}`);
+    await page.getByRole('button', { name: 'Save with defaults' }).click();
+    const list = page.getByRole('dialog', { name: 'Save with defaults' });
+    await check(list).toBeVisible();
+    // Every part written has its own list, the one not shown too, under its name.
+    await check(list.locator('[data-part]')).toHaveCount(written.length);
+    const nameB = listed.parts.find(p => p.part === b).name;
+    await check(list.locator(`[data-part="${b}"] h4`)).toHaveText(nameB);
+    await check(list.locator(`[data-part="${a}"] h4`)).toContainText('(shown)');
+    const ofB = await list.locator(`[data-part="${b}"] li`).count();
+    assert.ok(ofB > 0, 'part b\'s defaults are listed');
+    await check(list.locator(`[data-part="${b}"] [data-default="part.material"]`)).toHaveCount(0);
+    const total = await list.locator('li').count();
+    await check(list.getByRole('button', { name: `Save with these ${total} defaults` })).toBeVisible();
+    if (shots) await page.screenshot({ path: join(shots, 'assembly-defaults.png') });
+    await list.getByRole('button', { name: `Save with these ${total} defaults` }).click();
+    await check(page.locator('.app-saved')).toContainText('asm.specified.specified');
+    const saved = (await page.locator('.app-saved code').textContent()).trim();
+    // Part b, never shown, got the defaults listed for it: its PMI has more than its answers alone give.
+    const withDefaults = (analyse(saved, b).characteristics ?? []).length;
+    const without = (analyse(asm, b).characteristics ?? []).length;
+    assert.ok(withDefaults > without, `part b's defaults written: ${withDefaults} > ${without}`);
+    assert.equal(given(analyse(saved, b).resume?.answers ?? {})['part.material'], 'Bronze CC491K');
+    await check(page.locator('.app-dirty')).toHaveCount(0);
+    await context.close();
+    agent.stop();
+  }
+
+  // Answers in the session the page cannot show (another window sent one Specify does not know):
+  // the page says so and offers to show them again, Save says why it does not write, and the page
+  // recovers once the session's answers can be shown.
+  {
+    const part = join(dir, 'unshown.step');
+    writeFileSync(part, gunzipSync(readFileSync('test/fixtures/gramil_shaft_before.step.gz')));
+    const agent = await mcp(cli, { cwd: dir, env }); agents.push(agent);
+    const { doc } = await agent.call('open', { path: part });
+    const shown = await agent.call('show', { doc, browser: false });
+    const { context, page } = await load(shown.url);
+    const origin = new URL(shown.url).origin;
+    const put = async answers => {
+      const { rev } = await (await fetch(`${shown.url}answers`)).json();
+      const response = await fetch(`${shown.url}answers`, { method: 'PUT', headers: { 'Content-Type': 'application/json', Origin: origin }, body: JSON.stringify({ rev, part: 0, answers }) });
+      assert.equal(response.status, 200, await response.text());
+    };
+    await put({ 'part.material': 'Steel 1.4301', 'nope.unknown': 1 });
+    const unshown = page.locator('.app-unshown');
+    await check(unshown).toContainText('could not be shown');
+    await check(unshown).toContainText('nope.unknown');
+    await check(unshown.getByRole('button', { name: 'Show the latest answers' })).toBeVisible();
+    await unshown.getByRole('button', { name: 'Show the latest answers' }).click();
+    await check(unshown).toContainText('could not be shown');
+    // Save does not write answers the page has not shown, and says why rather than nothing.
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    await check(page.locator('.app-problem').first()).toContainText('not shown yet');
+    await check(unshown).toBeVisible();
+    assert.ok(!existsSync(join(dir, 'unshown.specified.step')), 'nothing written');
+    // The session's answers become ones Specify knows: shown, and Save writes them.
+    await put({ 'part.material': 'Steel 1.4301' });
+    await check(unshown).toHaveCount(0);
+    await check(page.locator('.pmi-lab-panel')).toContainText('1.4301');
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    await check(page.locator('.app-saved')).toContainText(join(dir, 'unshown.specified.step'));
+    assert.equal(given(stored(join(dir, 'unshown.specified.step')))['part.material'], 'Steel 1.4301');
+    // The page's own errors (the failed review) are said in the page, not thrown.
+    problems.splice(0, problems.length, ...problems.filter(p => !/nope\.unknown|unknown answer ID/.test(p)));
+    await context.close();
+    agent.stop();
   }
 
   // A part opened through a symbolic link: the link's path is shown and Save writes beside it.
