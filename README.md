@@ -103,15 +103,15 @@ are named `max_deviation_mm`. See [mesh tolerance](docs/mesh-tolerance.md).
 `-o -` writes `analyse`'s or `mesh`'s JSON to stdout (the summary goes to stderr), for a pipe:
 `specify-core analyse plate.step -o - | jq '.features[].family'`.
 
-`specify-core open plate.step` opens the file in [draftwright.io/specify](https://draftwright.io/specify)
-in your browser, with nothing to click and nothing uploaded: it serves the file once on
-127.0.0.1, to the editor's origin only, and exits once the page has fetched it (or after 10
-minutes). `--editor` opens the full editor instead, `--site ORIGIN` another deployment, and
-`--no-browser` only prints the address. The first time, Chrome asks whether
-"draftwright.io wants to access other apps and services on this device": Allow lets the page
-fetch the file from 127.0.0.1, and is remembered. If the file did not open while that prompt
-was up, stop the command (Ctrl-C) and run it again. If you chose Block, allow it again in
-draftwright.io's site settings.
+`specify-core open plate.step` opens the file in Specify in your browser, served by the
+command itself on 127.0.0.1: nothing is uploaded and nothing depends on a website. Specify's
+Save writes `plate.specified.step` next to the input (then `plate.specified-2.step`, …; nothing
+is overwritten); `--in-place` saves over the input (through a link, over its target) and keeps
+the original once as `plate.step.bak`, and `--read-only` refuses saves. `--port N` picks the
+port and `--no-browser` only prints the address. The command stops 90 seconds after the last
+page is closed, or after 30 minutes without a request. The app is not bundled yet: pass `--app DIR` (or set `SPECIFY_APP_DIR`) to the built
+Specify app and `--wasm DIR` (or `SPECIFY_WASM_DIR`) to the engine's wasm-pack `pkg/`
+directory. See [docs/open.md](docs/open.md).
 
 **Shell completion.** `specify-core completions SHELL` prints a completion script for `bash`,
 `zsh`, `fish`, `powershell` or `elvish`:
