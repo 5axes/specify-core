@@ -26,6 +26,8 @@ suggestion first, on its own, then that process's defaults.
 
 ## What each process changes
 
+The source of each default below is indexed in [rule-sources.md](rule-sources.md).
+
 | Process | General tolerance | Holes | Locating | Not asked |
 |---|---|---|---|---|
 | machined | ISO 2768-m | as before | position tolerances | — |

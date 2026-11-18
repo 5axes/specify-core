@@ -8,6 +8,9 @@ All notable changes to specify-core-rust. The format follows
 
 ### Added
 
+- docs/rule-sources.md: where each of Specify's defaults and tables comes from (standard,
+  edition where recorded, convention, vendor figure or assumption) and where it is in the code,
+  with the review still open (#196).
 - `specify-core mcp`: a Model Context Protocol server, so an LLM client (Claude Code, Claude
   Desktop) can specify a part. It speaks revision 2026-07-28 (`server/discover`, per-request
   `_meta`) and the legacy 2025-11-25 (`initialize`), over stdio or, with `--http`, Streamable
