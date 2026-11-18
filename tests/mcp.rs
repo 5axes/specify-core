@@ -1394,6 +1394,19 @@ fn a_diff_session_starts_from_the_carried_answers() {
         .cloned()
         .expect("carried");
     assert_eq!(material["answer"], json!("6061-T6"));
+    // A comparison is not shown view-only, said in the tool's own terms.
+    server.set_app(stub_app(&dir));
+    let refused = error_of(
+        &mut server,
+        "show",
+        json!({"doc": doc, "browser": false, "read_only": true}),
+    );
+    assert_eq!(refused["code"], json!("invalid"));
+    let message = refused["message"].as_str().unwrap();
+    assert!(
+        message.contains("old") && !message.contains("--"),
+        "{message}"
+    );
     // old_answers belong to old.
     let refused = error_of(
         &mut server,
@@ -1401,5 +1414,174 @@ fn a_diff_session_starts_from_the_carried_answers() {
         json!({"path": new, "old_answers": old_answers}),
     );
     assert_eq!(refused["code"], json!("invalid"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A file of two parts, each written with its own answers, starts its MCP session from both,
+/// as `specify-core open` does, whichever part the agent opens.
+#[test]
+fn an_mcp_session_resumes_every_part_s_stored_answers() {
+    let dir = scratch("resume-parts");
+    let source = part("a_file_with_two_parts_must_say_which");
+    let file = specify_core::part::File::read(&source).unwrap();
+    let mut jobs = Vec::new();
+    for (k, material) in ["6061-T6", "6082-T6"].into_iter().enumerate() {
+        let loaded = file.load(Some(k)).unwrap();
+        let (analysis, _) = specify_core::api::analyse_reporting_in(&file, &loaded).unwrap();
+        let answers: Map<String, Value> =
+            serde_json::from_value(json!({"part.material": material})).unwrap();
+        let intent = specify_core::api::apply(&analysis, &answers, true).unwrap();
+        jobs.push((intent, Some(answers)));
+    }
+    let written = dir.join("two.step");
+    specify_core::api::write_parts(&source, &jobs, &written).unwrap();
+
+    let mut server = Server::new(std::slice::from_ref(&dir)).unwrap();
+    server.set_app(stub_app(&dir));
+    let opened = call(&mut server, "open", json!({"path": written, "part": 0}));
+    let doc = opened["structuredContent"]["doc"].clone();
+    assert_eq!(opened["isError"], json!(false), "{opened}");
+    let shown = call(&mut server, "show", json!({"doc": doc, "browser": false}));
+    let url = shown["structuredContent"]["url"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let (status, answers) = page(&url, "GET", "answers", None);
+    assert_eq!(status, 200);
+    assert_eq!(
+        answers["parts"]["0"]["part.material"],
+        json!("6061-T6"),
+        "{answers}"
+    );
+    assert_eq!(
+        answers["parts"]["1"]["part.material"],
+        json!("6082-T6"),
+        "{answers}"
+    );
+    // The other part, opened next, is in the same session with its own answers.
+    let other = call(&mut server, "open", json!({"path": written, "part": 1}));
+    let other = other["structuredContent"]["doc"].clone();
+    let answered = call(
+        &mut server,
+        "questions",
+        json!({"doc": other, "state": "answered"}),
+    );
+    let material = answered["structuredContent"]["questions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|q| q["id"] == "part.material")
+        .cloned()
+        .unwrap();
+    assert_eq!(material["answer"], json!("6082-T6"));
+    drop(server);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Under MCP, a link opened is kept as the link: the page shows it, Save goes beside it and
+/// in place keeps its `.bak` beside it. The session's own in-place save does not make a second
+/// session; `in_place` changes only when given; a running page is not replaced in another mode.
+#[cfg(unix)]
+#[test]
+fn a_linked_file_saves_beside_the_link_and_reopens_to_its_session() {
+    let dir = scratch("linked");
+    for sub in ["proj", "lib"] {
+        std::fs::create_dir_all(dir.join(sub)).unwrap();
+    }
+    std::fs::copy(part("plate"), dir.join("lib/abc.step")).unwrap();
+    let link = dir.join("proj/part.step");
+    std::os::unix::fs::symlink(dir.join("lib/abc.step"), &link).unwrap();
+    let names = |sub: &str| {
+        let mut n: Vec<String> = std::fs::read_dir(dir.join(sub))
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        n.sort();
+        n
+    };
+    let mut server = Server::new(std::slice::from_ref(&dir)).unwrap();
+    server.set_app(stub_app(&dir));
+
+    let opened = call(&mut server, "open", json!({"path": link}));
+    let doc = opened["structuredContent"]["doc"].clone();
+    let shown = call(&mut server, "show", json!({"doc": doc, "browser": false}));
+    let url = shown["structuredContent"]["url"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let (_, config) = page(&url, "GET", "config", None);
+    assert_eq!(config["path"], json!(link));
+    assert_eq!(
+        config["saveTarget"],
+        json!(dir.join("proj/part.specified.step"))
+    );
+    let saved = call(
+        &mut server,
+        "save",
+        json!({"doc": doc, "accept_defaults": false}),
+    );
+    assert_eq!(
+        saved["structuredContent"]["path"],
+        json!(dir.join("proj/part.specified.step")),
+        "{saved}"
+    );
+    assert_eq!(
+        names("lib"),
+        ["abc.step"],
+        "nothing beside the link's target"
+    );
+
+    // A running editable page is not replaced by a view-only one.
+    let refused = error_of(
+        &mut server,
+        "show",
+        json!({"doc": doc, "browser": false, "read_only": true}),
+    );
+    assert_eq!(refused["code"], json!("invalid"), "{refused}");
+    assert!(
+        refused["message"].as_str().unwrap().contains(&url),
+        "{refused}"
+    );
+
+    // In place, given explicitly on the same file: the same session, Save over the link's
+    // target, the .bak beside the link and named after it.
+    let in_place = call(&mut server, "open", json!({"path": link, "in_place": true}));
+    assert_eq!(in_place["structuredContent"]["doc"], doc);
+    let (_, config) = page(&url, "GET", "config", None);
+    assert_eq!(config["saveTarget"], json!(link));
+    let saved = call(
+        &mut server,
+        "save",
+        json!({"doc": doc, "accept_defaults": false}),
+    );
+    assert_eq!(saved["structuredContent"]["path"], json!(link), "{saved}");
+    assert!(
+        std::fs::symlink_metadata(&link)
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+    assert_eq!(names("lib"), ["abc.step"]);
+    assert_eq!(
+        names("proj"),
+        ["part.specified.step", "part.step", "part.step.bak"]
+    );
+    assert_eq!(
+        std::fs::read(dir.join("proj/part.step.bak")).unwrap(),
+        std::fs::read(part("plate")).unwrap()
+    );
+
+    // Opened again after its own in-place save, without in_place: the same session and
+    // document, still saving in place, and the same page.
+    let rev = in_place["structuredContent"]["rev"].clone();
+    let again = call(&mut server, "open", json!({"path": link}));
+    assert_eq!(again["isError"], json!(false), "{again}");
+    assert_eq!(again["structuredContent"]["doc"], doc);
+    assert_eq!(again["structuredContent"]["rev"], rev);
+    let (_, config) = page(&url, "GET", "config", None);
+    assert_eq!(config["saveTarget"], json!(link));
+    let shown = call(&mut server, "show", json!({"doc": doc, "browser": false}));
+    assert_eq!(shown["structuredContent"]["url"], json!(url));
+    drop(server);
     let _ = std::fs::remove_dir_all(&dir);
 }

@@ -26,6 +26,10 @@ use crate::writer::WriteError;
 /// The changes kept for `changes since`; an older `since` gets the whole answers instead.
 pub const KEPT_CHANGES: usize = 256;
 
+/// The most events a subscriber may fall behind by; one further behind is dropped (its stream
+/// ends, and a page reconnecting gets the whole state again).
+pub const MAX_BEHIND: usize = 1000;
+
 /// A session shared between the MCP server and the page server it started.
 pub type Shared = Arc<Mutex<Session>>;
 
@@ -111,6 +115,8 @@ impl Saved {
 /// Why nothing was saved.
 #[derive(Debug)]
 pub enum SaveError {
+    /// The session has moved on from the rev asked for (its current rev).
+    Stale(u64),
     /// An in-place save over a file changed on disk since it was opened (by anyone but this
     /// session).
     Changed(String),
@@ -123,6 +129,7 @@ pub enum SaveError {
 impl std::fmt::Display for SaveError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            SaveError::Stale(rev) => write!(f, "the answers have moved on to rev {rev}"),
             SaveError::Changed(m) | SaveError::Refused(m) | SaveError::Failed(m) => f.write_str(m),
         }
     }
@@ -140,7 +147,7 @@ pub struct Session {
     in_place: bool,
     gz: bool,
     /// The file, parsed from its bytes as opened (every save writes from these).
-    step: part::File,
+    step: Arc<part::File>,
     /// What `file` serves: the input, or what the last in-place save left.
     current: Arc<Vec<u8>>,
     /// In place: where the first save kept the original.
@@ -153,7 +160,9 @@ pub struct Session {
     changes: VecDeque<Change>,
     /// The newest `rev` whose change is no longer kept (0: none dropped).
     dropped: u64,
-    subscribers: Vec<mpsc::Sender<String>>,
+    subscribers: Vec<mpsc::SyncSender<String>>,
+    /// One save at a time (held while writing, without the session's lock).
+    save_lock: Arc<Mutex<()>>,
     /// The page server serving this session, if one was started.
     pub page: Option<crate::open::Page>,
 }
@@ -183,7 +192,7 @@ impl Session {
             report: None,
             in_place,
             gz,
-            step,
+            step: Arc::new(step),
             backup: None,
             written: None,
             analyses: BTreeMap::new(),
@@ -192,6 +201,7 @@ impl Session {
             changes: VecDeque::new(),
             dropped: 0,
             subscribers: Vec::new(),
+            save_lock: Arc::new(Mutex::new(())),
             page: None,
         }
     }
@@ -200,18 +210,25 @@ impl Session {
     /// file Specify wrote resumes them, part by part, as `analyse` reports them).
     pub fn open(file: Opened, in_place: bool) -> Result<Session, Error> {
         let mut session = Session::new(file, in_place)?;
-        let written: Vec<usize> = api::parts_of(&session.step)
+        session.resume()?;
+        Ok(session)
+    }
+
+    /// Starts every part the file stores answers for (a file Specify wrote) from them, as
+    /// `analyse` resumes them. For a session just made, before anyone has seen it.
+    pub fn resume(&mut self) -> Result<(), Error> {
+        let written: Vec<usize> = api::parts_of(&self.step)
             .iter()
             .filter(|p| p["written"] == json!(true))
             .filter_map(|p| p["part"].as_u64().map(|k| k as usize))
             .collect();
         for k in written {
-            let analysis = session.analysis(k)?;
+            let analysis = self.analysis(k)?;
             if let Some(resumed) = analysis["resume"]["answers"].as_object() {
-                session.answers.insert(k, resumed.clone());
+                self.answers.entry(k).or_insert_with(|| resumed.clone());
             }
         }
-        Ok(session)
+        Ok(())
     }
 
     /// `specify-core open --diff OLD NEW` (and MCP's `open` with `old`): `diff OLD NEW` compared
@@ -292,9 +309,7 @@ impl Session {
         if let Some(a) = self.analyses.get(&part) {
             return Ok(Arc::clone(a));
         }
-        let loaded = self.step.load(Some(part))?;
-        let (analysis, _) = api::analyse_reporting_in(&self.step, &loaded)?;
-        let analysis = Arc::new(analysis);
+        let analysis = Arc::new(analyse(&self.step, part)?);
         self.analyses.insert(part, Arc::clone(&analysis));
         Ok(analysis)
     }
@@ -388,7 +403,7 @@ impl Session {
     /// A new subscriber: its first event is the current state (`source: "start"`), then one
     /// per change and save.
     pub fn subscribe(&mut self) -> mpsc::Receiver<String> {
-        let (tell, events) = mpsc::channel();
+        let (tell, events) = mpsc::sync_channel(MAX_BEHIND + 1);
         let data = json!({"rev": self.rev, "parts": self.parts(), "source": "start"});
         let _ = tell.send(event("answers", Some(self.rev), &data));
         self.subscribers.push(tell);
@@ -396,8 +411,9 @@ impl Session {
     }
 
     fn publish(&mut self, text: &str) {
+        // A subscriber too far behind (or gone) is dropped: its stream ends.
         self.subscribers
-            .retain(|s| s.send(text.to_string()).is_ok());
+            .retain(|s| s.try_send(text.to_string()).is_ok());
     }
 
     /// Where the next save goes: the input (in place), or the first free
@@ -424,155 +440,208 @@ impl Session {
         parts.into_iter().collect()
     }
 
-    /// Writes the session's answers (docs/open.md, `save`), from the file as opened, with
-    /// `write`'s writer; `accept_defaults` fills each open question that has a default, as
-    /// `write --accept-defaults` does. Open questions never refuse it: what is answered is
-    /// written and `missing` says what is still open. Every subscriber gets a `saved` event.
-    pub fn save(&mut self, accept_defaults: bool, source: &str) -> Result<Saved, SaveError> {
-        let refused = |e: Error| match e {
-            Error::Rules(rules::Error::Invalid(m)) | Error::Write(WriteError::Invalid(m)) => {
-                SaveError::Refused(m)
-            }
-            Error::Rules(e) => SaveError::Refused(e.to_string()),
-            other => SaveError::Failed(other.to_string()),
-        };
-        if self.in_place {
-            let now = fs::read(&self.file.path)
+    /// Whether part `part` has been analysed (is open in the session).
+    pub fn is_open(&self, part: usize) -> bool {
+        self.analyses.contains_key(&part)
+    }
+}
+
+/// Part `part`'s analysis, made without holding the session's lock (and kept: the part is
+/// then open in the session).
+pub fn analysis(shared: &Shared, part: usize) -> Result<Arc<Value>, Error> {
+    let step = {
+        let s = lock(shared);
+        if let Some(a) = s.analyses.get(&part) {
+            return Ok(Arc::clone(a));
+        }
+        Arc::clone(&s.step)
+    };
+    let made = Arc::new(analyse(&step, part)?);
+    let mut s = lock(shared);
+    Ok(Arc::clone(s.analyses.entry(part).or_insert(made)))
+}
+
+/// Part `part` of `step`, analysed.
+fn analyse(step: &part::File, part: usize) -> Result<Value, Error> {
+    let loaded = step.load(Some(part))?;
+    Ok(api::analyse_reporting_in(step, &loaded)?.0)
+}
+
+/// Writes the session's answers at `rev` (docs/open.md, `save`; None: the current rev), from
+/// the file as opened, with `write`'s writer; `accept_defaults` fills each open question that
+/// has a default, as `write --accept-defaults` does. Open questions never refuse it: what is
+/// answered is written and `missing` says what is still open. The answers are taken under the
+/// session's lock and written without it (one save at a time), so the file holds exactly the
+/// answers of `rev`. Every subscriber gets a `saved` event.
+pub fn save(
+    shared: &Shared,
+    rev: Option<u64>,
+    accept_defaults: bool,
+    source: &str,
+) -> Result<Saved, SaveError> {
+    let refused = |e: Error| match e {
+        Error::Rules(rules::Error::Invalid(m)) | Error::Write(WriteError::Invalid(m)) => {
+            SaveError::Refused(m)
+        }
+        Error::Rules(e) => SaveError::Refused(e.to_string()),
+        other => SaveError::Failed(other.to_string()),
+    };
+    let save_lock = Arc::clone(&lock(shared).save_lock);
+    let _one_at_a_time = save_lock.lock().unwrap_or_else(|p| p.into_inner());
+    let (rev, parts, answers, step, file, in_place, gz, mut backup) = {
+        let s = lock(shared);
+        if rev.is_some_and(|r| r != s.rev) {
+            return Err(SaveError::Stale(s.rev));
+        }
+        if s.in_place {
+            let now = fs::read(&s.file.path)
                 .map(|b| sha256(&b))
-                .map_err(|e| SaveError::Failed(format!("{}: {e}", self.file.path.display())))?;
-            if !self.is_ours(&now) {
+                .map_err(|e| SaveError::Failed(format!("{}: {e}", s.file.path.display())))?;
+            if !s.is_ours(&now) {
                 return Err(SaveError::Changed(format!(
                     "{} has changed on disk since it was opened: nothing is written over it",
-                    self.file.path.display()
+                    s.file.path.display()
                 )));
             }
         }
-        let parts = self.parts_to_write();
-        let mut loaded = Vec::with_capacity(parts.len());
-        let mut intents = Vec::with_capacity(parts.len());
-        let mut missing = Vec::new();
-        let empty = Map::new();
-        for &k in &parts {
-            let analysis = self.analysis(k).map_err(refused)?;
-            let answers = self.answers.get(&k).unwrap_or(&empty);
-            let part = self.step.load(Some(k)).map_err(|e| refused(e.into()))?;
-            let (intent, open) =
-                intent_for(&part, &analysis, answers, accept_defaults).map_err(|e| {
-                    let e = refused(e);
-                    match (e, parts.len() > 1) {
-                        (SaveError::Refused(m), true) => {
-                            SaveError::Refused(format!("part {k}: {m}"))
-                        }
-                        (e, _) => e,
-                    }
-                })?;
-            missing.extend(open);
-            loaded.push(part);
-            intents.push(intent);
-        }
-        let jobs: Vec<crate::writer::Job<'_>> = parts
-            .iter()
-            .zip(&loaded)
-            .zip(&intents)
-            .map(|((k, l), i)| (l, i, Some(self.answers.get(k).unwrap_or(&empty))))
-            .collect();
-        let (text, report) =
-            crate::writer::write_parts_bytes(&jobs).map_err(|e| refused(Error::Write(e)))?;
-        let mut report = report.to_dict();
-        let (path, bytes) = if self.in_place {
-            self.replace_input(text)
-        } else {
-            let bytes = text.len();
-            self.write_new(&text).map(|p| (p, bytes))
-        }
-        .map_err(|e| SaveError::Failed(format!("cannot save: {e}")))?;
-        let shown = path.display().to_string();
-        report["output"] = json!(shown);
-        let saved = Saved {
-            path: shown,
-            bytes,
-            rev: self.rev,
-            report,
-            complete: missing.is_empty(),
-            missing,
-        };
-        let data = json!({"path": saved.path, "bytes": saved.bytes, "rev": saved.rev,
-                          "source": source});
-        self.publish(&event("saved", None, &data));
-        Ok(saved)
+        (
+            s.rev,
+            s.parts_to_write(),
+            s.answers.clone(),
+            Arc::clone(&s.step),
+            s.file.clone(),
+            s.in_place,
+            s.gz,
+            s.backup.clone(),
+        )
+    };
+    let mut loaded = Vec::with_capacity(parts.len());
+    let mut intents = Vec::with_capacity(parts.len());
+    let mut missing = Vec::new();
+    let empty = Map::new();
+    for &k in &parts {
+        let analysis = analysis(shared, k).map_err(refused)?;
+        let given = answers.get(&k).unwrap_or(&empty);
+        let part = step.load(Some(k)).map_err(|e| refused(e.into()))?;
+        let (intent, open) = intent_for(&part, &analysis, given, accept_defaults).map_err(|e| {
+            match (refused(e), parts.len() > 1) {
+                (SaveError::Refused(m), true) => SaveError::Refused(format!("part {k}: {m}")),
+                (e, _) => e,
+            }
+        })?;
+        missing.extend(open);
+        loaded.push(part);
+        intents.push(intent);
     }
+    let jobs: Vec<crate::writer::Job<'_>> = parts
+        .iter()
+        .zip(&loaded)
+        .zip(&intents)
+        .map(|((k, l), i)| (l, i, Some(answers.get(k).unwrap_or(&empty))))
+        .collect();
+    let (text, report) =
+        crate::writer::write_parts_bytes(&jobs).map_err(|e| refused(Error::Write(e)))?;
+    let mut report = report.to_dict();
+    let cannot = |e: io::Error| SaveError::Failed(format!("cannot save: {e}"));
+    let (path, bytes, stored) = if in_place {
+        let stored = replace_input(&file.path, gz, &mut backup, text).map_err(cannot)?;
+        (file.path.clone(), stored.len(), Some(stored))
+    } else {
+        let bytes = text.len();
+        (write_new(&file, &text).map_err(cannot)?, bytes, None)
+    };
+    let shown = path.display().to_string();
+    report["output"] = json!(shown);
+    let saved = Saved {
+        path: shown,
+        bytes,
+        rev,
+        report,
+        complete: missing.is_empty(),
+        missing,
+    };
+    let mut s = lock(shared);
+    if let Some(stored) = stored {
+        s.backup = backup;
+        s.written = Some(sha256(&stored));
+        s.current = Arc::new(stored);
+    }
+    let data = json!({"path": saved.path, "bytes": saved.bytes, "rev": saved.rev,
+                      "source": source});
+    s.publish(&event("saved", None, &data));
+    Ok(saved)
+}
 
-    /// A save beside the input under the first free candidate name, taken with `create_new`
-    /// (nothing is overwritten, even in a race), the written temporary file renamed onto it.
-    fn write_new(&self, body: &[u8]) -> io::Result<PathBuf> {
-        let dir = self
-            .file
-            .path
-            .parent()
-            .ok_or_else(|| io::Error::other("the input has no directory"))?;
-        let stem = stem(&self.file.name);
-        let temp = temp_file(dir, body)?;
-        for n in 1..=MAX_CANDIDATES {
-            let target = candidate(dir, stem, n);
-            match OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(&target)
-            {
-                Ok(_) => {
-                    if let Err(e) = fs::rename(&temp, &target) {
-                        let _ = fs::remove_file(&temp);
-                        let _ = fs::remove_file(&target);
-                        return Err(e);
-                    }
-                    return Ok(target);
-                }
-                Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
-                Err(e) => {
+/// A save beside the input under the first free candidate name, taken with `create_new`
+/// (nothing is overwritten, even in a race), the written temporary file renamed onto it.
+fn write_new(file: &Opened, body: &[u8]) -> io::Result<PathBuf> {
+    let dir = file
+        .path
+        .parent()
+        .ok_or_else(|| io::Error::other("the input has no directory"))?;
+    let stem = stem(&file.name);
+    let temp = temp_file(dir, body)?;
+    for n in 1..=MAX_CANDIDATES {
+        let target = candidate(dir, stem, n);
+        match OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&target)
+        {
+            Ok(_) => {
+                if let Err(e) = fs::rename(&temp, &target) {
                     let _ = fs::remove_file(&temp);
+                    let _ = fs::remove_file(&target);
                     return Err(e);
                 }
+                return Ok(target);
+            }
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(e) => {
+                let _ = fs::remove_file(&temp);
+                return Err(e);
             }
         }
-        let _ = fs::remove_file(&temp);
-        Err(io::Error::other("every candidate name is taken"))
     }
+    let _ = fs::remove_file(&temp);
+    Err(io::Error::other("every candidate name is taken"))
+}
 
-    /// In place: the input replaced by renaming a written temporary file onto it. The first
-    /// save of the session first copies the original to the first free `.bak` beside the path
-    /// as given; later saves keep no other copy. A link is followed (its target replaced, the
-    /// link kept). The replacement keeps the original's permissions, and a gzipped input is
-    /// written gzipped. Returns the path as given and the bytes written.
-    fn replace_input(&mut self, text: Vec<u8>) -> io::Result<(PathBuf, usize)> {
-        let step = self.file.path.clone();
-        let real = fs::canonicalize(&step)?;
-        let dir = real
-            .parent()
-            .ok_or_else(|| io::Error::other("the input has no directory"))?;
-        let stored = if self.gz {
-            let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
-            gz.write_all(&text)?;
-            gz.finish()?
-        } else {
-            text
-        };
-        let temp = temp_file(dir, &stored)?;
-        let replaced = (|| {
-            fs::set_permissions(&temp, fs::metadata(&real)?.permissions())?;
-            if self.backup.is_none() {
-                self.backup = Some(back_up(&step, &real)?);
-            }
-            fs::rename(&temp, &real)
-        })();
-        if let Err(e) = replaced {
-            let _ = fs::remove_file(&temp);
-            return Err(e);
+/// In place: the input `step` replaced by renaming a written temporary file onto it. The first
+/// save of the session (`backup` None) first copies the original to the first free `.bak`
+/// beside the path as given; later saves keep no other copy. A link is followed (its target
+/// replaced, the link kept). The replacement keeps the original's permissions, and a gzipped
+/// input is written gzipped. Returns the bytes stored.
+fn replace_input(
+    step: &Path,
+    gz: bool,
+    backup: &mut Option<PathBuf>,
+    text: Vec<u8>,
+) -> io::Result<Vec<u8>> {
+    let real = fs::canonicalize(step)?;
+    let dir = real
+        .parent()
+        .ok_or_else(|| io::Error::other("the input has no directory"))?;
+    let stored = if gz {
+        let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        gz.write_all(&text)?;
+        gz.finish()?
+    } else {
+        text
+    };
+    let temp = temp_file(dir, &stored)?;
+    let replaced = (|| {
+        fs::set_permissions(&temp, fs::metadata(&real)?.permissions())?;
+        if backup.is_none() {
+            *backup = Some(back_up(step, &real)?);
         }
-        let bytes = stored.len();
-        self.written = Some(sha256(&stored));
-        self.current = Arc::new(stored);
-        Ok((step, bytes))
+        fs::rename(&temp, &real)
+    })();
+    if let Err(e) = replaced {
+        let _ = fs::remove_file(&temp);
+        return Err(e);
     }
+    Ok(stored)
 }
 
 /// The intent `write` writes for these answers, and the required questions still open. When

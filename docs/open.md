@@ -210,7 +210,8 @@ data: {"rev": 8, "part": 0, "answers": {…}, "source": "page"}
 `source` is `"page"` (a `PUT answers`), `"mcp"` (the agent's tools, docs/session.md) or
 `"start"` (the first event).
 Every open page receives every change, its own included (it can skip a `rev` it already has).
-A comment line (`: keep-alive`) is sent every 15 s. A reconnecting `EventSource` gets the full
+A comment line (`: keep-alive`) is sent every 15 s. A stream that falls more than 1,000 events
+behind is closed; reconnecting, it gets the full state. A reconnecting `EventSource` gets the full
 current state again; `Last-Event-ID` is ignored. A `save` also sends
 
 ```text

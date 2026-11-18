@@ -742,11 +742,19 @@ impl Server {
     }
 
     fn open(&mut self, args: &Map<String, Value>) -> ToolResult {
-        let path = self.existing_path(string(args, "path")?)?;
+        let raw = string(args, "path")?;
+        let path = self.existing_path(raw)?;
+        // The session keeps the path as given (made absolute, not resolved): Save goes beside
+        // a link, and every path shown is the link's (docs/open.md).
+        let given = absolute(raw)?;
         let part = optional_index(args, "part")?;
-        let in_place = flag(args, "in_place")?;
+        let in_place = match args.get("in_place") {
+            None | Some(Value::Null) => None,
+            Some(Value::Bool(b)) => Some(*b),
+            Some(_) => return Err(ToolError::invalid("'in_place' is true or false")),
+        };
         let old = match optional_string(args, "old")? {
-            Some(raw) => Some(self.existing_path(raw)?),
+            Some(raw) => Some((self.existing_path(raw)?, absolute(raw)?)),
             None => None,
         };
         let old_answers = match optional_string(args, "old_answers")? {
@@ -768,7 +776,29 @@ impl Server {
         let bytes = std::fs::read(&path)
             .map_err(|e| ToolError::invalid(format!("{raw}: {e}", raw = path.display())))?;
         let file_sha = sha256(&bytes);
-        let opened = Opened::of(path.clone(), bytes);
+        // The session: this file's (compared with the same `old`), as already open (or as its
+        // own in-place save left it), else a new one, which for `old` starts from the answers
+        // `diff` carries and otherwise from those every part stores.
+        let old_given = old.as_ref().map(|(_, g)| g);
+        let known = self
+            .sessions
+            .iter()
+            .find(|s| {
+                let s = session::lock(s);
+                s.file().path == given
+                    && s.is_ours(&file_sha)
+                    && s.old().map(|o| &o.path) == old_given
+            })
+            .cloned();
+        let created = known.is_none();
+        // A known session is read as it was opened: its documents' handles stay.
+        let (opened, file_sha) = match &known {
+            Some(s) => {
+                let s = session::lock(s);
+                (s.file().clone(), s.sha().to_string())
+            }
+            None => (Opened::of(given.clone(), bytes), file_sha),
+        };
         let file = part::File::of_shared(&path, Arc::clone(&opened.bytes)).map_err(Error::Load)?;
         if part.is_none() && file.definitions().len() > 1 {
             return Ok(json!({
@@ -784,35 +814,29 @@ impl Server {
         let (analysis, warnings) = api::analyse_reporting_in(&file, &loaded)?;
         let index = loaded.binding.part;
         let handle = format!("{}-{index}", loaded.binding.source_sha256);
-        // The session: this file's (compared with the same `old`), as already open, else a
-        // new one, which for `old` starts from the answers `diff` carries.
-        let same = |s: &Session| {
-            s.file().path == path && s.sha() == file_sha && s.old().map(|o| &o.path) == old.as_ref()
-        };
-        let known = self
-            .sessions
-            .iter()
-            .find(|s| same(&session::lock(s)))
-            .cloned();
-        let created = known.is_none();
+        let analysis = Arc::new(analysis);
         let shared = match known {
             Some(s) => s,
             None => {
-                let new = match &old {
-                    Some(old_path) => {
+                let mut new = match &old {
+                    Some((old_path, old_given)) => {
                         let old_bytes = std::fs::read(old_path).map_err(|e| {
                             ToolError::invalid(format!("{}: {e}", old_path.display()))
                         })?;
                         Session::diff(
-                            Opened::of(old_path.clone(), old_bytes),
+                            Opened::of(old_given.clone(), old_bytes),
                             opened,
                             part,
                             &old_answers.clone().unwrap_or_default(),
-                            in_place,
+                            in_place.unwrap_or(false),
                         )?
                     }
-                    None => Session::of(opened, file, in_place),
+                    None => Session::of(opened, file, in_place.unwrap_or(false)),
                 };
+                new.keep_analysis(index, Arc::clone(&analysis));
+                if new.old().is_none() {
+                    new.resume()?;
+                }
                 Arc::new(Mutex::new(new))
             }
         };
@@ -824,10 +848,12 @@ impl Server {
             .get(&handle)
             .filter(|d| !Arc::ptr_eq(&d.session, &shared))
             .map(Doc::answers);
-        let analysis = Arc::new(analysis);
         let (answers, rev, report) = {
             let mut s = session::lock(&shared);
-            s.set_in_place(in_place);
+            // Only when the call says so: where a running page's Save writes changes with it.
+            if let Some(in_place) = in_place {
+                s.set_in_place(in_place);
+            }
             s.keep_analysis(index, Arc::clone(&analysis));
             let current = s.answers(index).cloned();
             let start = match (from_file, &current, s.old().is_some()) {
@@ -1249,12 +1275,38 @@ impl Server {
         };
         let read_only = flag(args, "read_only")?;
         let shared = Arc::clone(&doc.session);
-        if let Some(page) = session::lock(&shared)
-            .page
-            .as_ref()
-            .filter(|p| p.is_running())
         {
-            return Ok(json!({"doc": handle, "url": page.url, "mode": page.mode}));
+            let s = session::lock(&shared);
+            if let Some(page) = s.page.as_ref().filter(|p| p.is_running()) {
+                // A page is open in the person's browser: it is never replaced under them.
+                if (page.mode == "read-only") != read_only {
+                    return Err(ToolError::invalid(format!(
+                        "the page for this session is open at {} as {}: call show without \
+                         changing read_only, or again once the person has closed it",
+                        page.url,
+                        if page.mode == "read-only" {
+                            "view-only"
+                        } else {
+                            "editable"
+                        }
+                    ))
+                    .with("url", json!(page.url))
+                    .with("mode", json!(page.mode)));
+                }
+                return Ok(json!({"doc": handle, "url": page.url, "mode": page.mode}));
+            }
+            if read_only && s.old().is_some() {
+                return Err(ToolError::invalid(
+                    "read_only is not offered for a session opened with old (a comparison): \
+                     call show without read_only",
+                ));
+            }
+            if read_only && s.in_place() {
+                return Err(ToolError::invalid(
+                    "read_only is not offered for a session opened in_place: call show \
+                     without read_only",
+                ));
+            }
         }
         let assets = match &self.app {
             Some(a) => a.clone(),
@@ -1288,12 +1340,19 @@ impl Server {
             }
             Some(_) => return Err(ToolError::invalid("'accept_defaults' is true or false")),
         };
-        let saved = session::lock(&doc.session)
-            .save(accept_defaults, "mcp")
-            .map_err(|e| match e {
+        // Save writes beside the file as given (a link's directory), which must be allowed too.
+        let target = session::lock(&doc.session).file().path.clone();
+        if let Some(dir) = target.parent() {
+            let real = dir
+                .canonicalize()
+                .map_err(|e| ToolError::invalid(format!("{}: {e}", dir.display())))?;
+            self.inside(&real, &target.display().to_string())?;
+        }
+        let saved =
+            session::save(&doc.session, None, accept_defaults, "mcp").map_err(|e| match e {
                 session::SaveError::Refused(m) => ToolError::invalid(m),
                 session::SaveError::Changed(m) => ToolError::new("stale", m),
-                session::SaveError::Failed(m) => ToolError::new("failed", m),
+                other => ToolError::new("failed", other.to_string()),
             })?;
         eprintln!("Saved {} ({} bytes).", saved.path, saved.bytes);
         let mut out = saved.to_json();
@@ -1473,6 +1532,11 @@ fn error_response(id: &Value, e: &RpcError) -> Value {
         error.insert("data".into(), data.clone());
     }
     json!({"jsonrpc": "2.0", "id": id, "error": error})
+}
+
+/// `raw` made absolute against the working directory, not resolved (a link stays the link).
+fn absolute(raw: &str) -> Result<PathBuf, ToolError> {
+    std::path::absolute(raw).map_err(|e| ToolError::invalid(format!("{raw}: {e}")))
 }
 
 /// Refuses a document whose file has changed since it was opened, except by its session's own

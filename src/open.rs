@@ -783,10 +783,13 @@ fn put_answers(stream: &mut TcpStream, ctx: &Ctx, request: &Request, body: Vec<u
         );
     };
     let part = part as usize;
+    let stale = |s: &session::Session| {
+        json!({"error": "the answers have changed since that rev: apply the change to these and try again",
+               "rev": s.rev(), "parts": s.parts()})
+    };
     let mut s = session::lock(&shared.session);
     if rev != s.rev() {
-        let current = json!({"error": "the answers have changed since that rev: apply the change to these and try again",
-                             "rev": s.rev(), "parts": s.parts()});
+        let current = stale(&s);
         drop(s);
         return reply_json(stream, "409 Conflict", &current);
     }
@@ -799,10 +802,19 @@ fn put_answers(stream: &mut TcpStream, ctx: &Ctx, request: &Request, body: Vec<u
             &format!("the file has {count} part(s): there is no part {part}"),
         );
     }
-    // A part the agent has not opened is opened in the session on its first change.
-    if let Err(e) = s.analysis(part) {
+    // A part the agent has not opened is opened in the session on its first change: analysed
+    // without the session's lock, then the rev checked again.
+    if !s.is_open(part) {
         drop(s);
-        return refuse(stream, "400 Bad Request", &format!("part {part}: {e}"));
+        if let Err(e) = session::analysis(&shared.session, part) {
+            return refuse(stream, "400 Bad Request", &format!("part {part}: {e}"));
+        }
+        s = session::lock(&shared.session);
+        if rev != s.rev() {
+            let current = stale(&s);
+            drop(s);
+            return reply_json(stream, "409 Conflict", &current);
+        }
     }
     s.set(part, answers.clone(), "page");
     let rev = s.rev();
@@ -911,31 +923,26 @@ fn save(stream: &mut TcpStream, ctx: &Ctx, request: &Request, body: Vec<u8>) {
             "rev is required: the session revision the page last saw",
         );
     };
-    let mut s = session::lock(&shared.session);
-    if rev != s.rev() {
-        let current = s.rev();
-        drop(s);
-        return reply_json(
-            stream,
-            "409 Conflict",
-            &json!({"error": "the answers have changed since that rev: show them and save again", "rev": current}),
-        );
-    }
-    let saved = s.save(accept_defaults, "page");
-    let current = s.rev();
-    drop(s);
-    match saved {
+    match session::save(&shared.session, Some(rev), accept_defaults, "page") {
         Ok(saved) => {
             let _ = ctx
                 .tell
                 .send(format!("Saved {} ({} bytes).", saved.path, saved.bytes));
             reply_json(stream, "200 OK", &saved.to_json());
         }
-        Err(session::SaveError::Changed(why)) => reply_json(
+        Err(session::SaveError::Stale(current)) => reply_json(
             stream,
             "409 Conflict",
-            &json!({"error": why, "rev": current}),
+            &json!({"error": "the answers have changed since that rev: show them and save again", "rev": current}),
         ),
+        Err(session::SaveError::Changed(why)) => {
+            let current = session::lock(&shared.session).rev();
+            reply_json(
+                stream,
+                "409 Conflict",
+                &json!({"error": why, "rev": current}),
+            )
+        }
         Err(session::SaveError::Refused(why)) => refuse(stream, "422 Unprocessable Content", &why),
         Err(session::SaveError::Failed(why)) => refuse(stream, "500 Internal Server Error", &why),
     }

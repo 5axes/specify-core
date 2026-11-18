@@ -88,7 +88,7 @@ JSON-RPC errors.
 | `export_answers` | `doc`, `output?`, `overwrite?` | `answers`: the complete sidecar (docs/answers.md); `rev` |
 | `diff` | `old`, `new`, `part?`, `doc?` | `verdict`, `summary`, carried `answers`, `report`, `markdown`, as `specify-core diff` (nothing is written) |
 | `changes` | `doc`, `since` (a `rev`) | `rev`, and `changes`: `[{rev, part, source, set, cleared}]` after `since`, oldest first (`source` `page` or `mcp`); if `since` is older than the 256 changes kept, `full: true` and `answers`, every part's answers by part index |
-| `show` | `doc`, `browser?` (default `true`), `read_only?` | `url`, `mode`: the Specify page for the document's session on 127.0.0.1 (docs/open.md), started or, if it is running, its address; the browser opened unless `browser: false`. `read_only` makes that page view-only (not for a session opened with `old`) |
+| `show` | `doc`, `browser?` (default `true`), `read_only?` | `url`, `mode`: the Specify page for the document's session on 127.0.0.1 (docs/open.md), started or, if it is running, its address; the browser opened unless `browser: false`. `read_only` makes that page view-only (not for a session opened with `old` or `in_place`). A running page in the other mode is refused (`invalid`, with its `url` and `mode`), never replaced |
 | `save` | `doc`, `accept_defaults` (required) | `path`, `bytes`, `rev`, `report`, `complete`, `missing`: the session's answers written as the page's Save writes them, beside the file (or over it, opened `in_place`); open questions never refuse it |
 
 `answer` reads free text for a choice question as `serve`'s `interpret` does. `"M6"` on a hole
@@ -97,6 +97,11 @@ exact option is taken as it is. Answers are applied in order, each checked again
 before it. The call is all-or-nothing: if one answer is refused, nothing changes.
 
 `diff` with `doc` carries that document's answers. The document must be of `old`.
+
+`in_place` on a file whose session is already open changes where its Save writes only when the
+call gives it. Under `open` the session keeps the path as given (made absolute, not resolved),
+so Save goes beside a link and its `.bak` is named after the link; that directory must be inside
+`--allow` too.
 
 `open` with `old` compares the two as `diff` does (the old answers from `old_answers`, else those
 stored in `old`) and the session starts from the answers carried to `path`. `old_answers` needs
@@ -107,8 +112,9 @@ stored in `old`) and the session starts from the answers carried to `path`. `old
 Each opened file has one session, held in memory, which every part of it opened shares (see
 [session.md](session.md)): its answers by part, a `rev` that goes up by one on every change
 (from `answer`, `open` with an `answers_file`, or the page's edits), and the last 256 changes.
-Opening the same file again (the same path and contents, and the same `old`) returns its
-session with its answers. Every tool that reads the answers reads the session as it is now,
+Opening the same file again (the same path, its contents as opened or as the session's own
+in-place save left them, and the same `old`) returns its session, its documents and their
+answers. Every tool that reads the answers reads the session as it is now,
 page edits included, and returns `rev`; `changes` says what changed since a `rev` (MCP over
 stdio cannot push to the agent, so it asks).
 
