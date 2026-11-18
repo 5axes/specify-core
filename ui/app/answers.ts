@@ -1,8 +1,10 @@
 import type { PmiAnswers } from '../src/types/pmi';
 
-/** Who changed the answers: the page (SpecifyReview's commits), or, from stage 2, the command's
- * shared session (its event stream, fed by an AI client over MCP). */
-export type AnswersSource = 'page' | 'server';
+/** Who changed the answers, as the command's session will say in its `answers` events: the page
+ * (SpecifyReview's commits), an AI client over MCP, or the session's first state. Today only the
+ * page sets them; the next contract feeds the store from `GET events` and sends the page's own
+ * changes with `PUT answers {rev, part, answers}` (a store over the session, same interface). */
+export type AnswersSource = 'page' | 'mcp' | 'start';
 
 /** The part's answers for this run: what Save writes and what the unsaved-changes guard compares. */
 export interface AnswersStore {

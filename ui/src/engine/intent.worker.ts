@@ -86,8 +86,10 @@ self.onmessage = ({ data }) => {
           // was not answered, and every part numbered. A file of several parts not placed in an
           // assembly (no assembly product definition) has no parts list to write them to: Specify
           // refuses the BOM there, so the part is written without it and without any bom.* answers.
+          // ``acceptDefaults: false`` (the local app, until the person asks for the defaults) writes only
+          // the answers given; the engine then refuses a required question left open.
           const write = (answers: Record<string, unknown>, bom: boolean) =>
-            JSON.parse(engine!.writePmi(accepted(answers), args.project, undefined, bom));
+            JSON.parse(engine!.writePmi(args.acceptDefaults === false ? JSON.stringify(answers) : accepted(answers), args.project, undefined, bom));
           const withoutBom = () => write(Object.fromEntries(Object.entries(args.answers ?? {}).filter(([id]) => !id.startsWith('bom.'))), false);
           let document;
           const fileId = args.fileId ?? args.sourceId;

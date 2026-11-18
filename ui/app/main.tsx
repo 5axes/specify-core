@@ -15,7 +15,8 @@ import { stepBytes } from '../src/model/diff';
 import { groupQuestions } from '../src/specify/review';
 import { saveFile } from '../src/specify/SpecifyReview';
 import { createAnswersStore, type AnswersStore } from './answers';
-import { getConfig, getFile, keepAlive, modeOf, save, type LocalConfig } from './local';
+import { getConfig, getFile, keepAlive, modeOf, type LocalConfig } from './local';
+import { engineSaver, type Saver } from './save';
 
 declare const __APP_VERSION__: string;
 const DOCS = 'https://github.com/pzfreo/specify-core#readme';
@@ -23,7 +24,7 @@ const ISSUES = 'https://github.com/pzfreo/specify-core/issues';
 
 interface Opened {
   session: PmiLabSession; review: IntentReview; engine: SpecifyEngine; drawn: DrawnPmi | null;
-  bytes: Uint8Array; store: AnswersStore;
+  bytes: Uint8Array; store: AnswersStore; saver: Saver;
   /** What SpecifyReview starts from; a new object only when the answers change outside the page (stage 2). */
   external: { answers: PmiAnswers; review: IntentReview };
 }
@@ -53,7 +54,10 @@ async function openPart(worker: WorkerClient, name: string, bytes: Uint8Array): 
   };
   const scene = drawnFromScene(await worker.request('scene', { ...file, state: { answers: saved } }));
   const shown = scene.ok ? withoutNotesBlock(scene.value) : null;
-  return { session, review, engine, drawn: shown && hasGraphics(shown) ? shown : null, bytes, store, external: { answers: saved, review } };
+  return {
+    session, review, engine, drawn: shown && hasGraphics(shown) ? shown : null, bytes, store,
+    saver: engineSaver(worker, file, store), external: { answers: saved, review },
+  };
 }
 
 const stem = (name: string) => name.replace(/\.gz$/i, '').replace(/\.(step|stp)$/i, '');
@@ -63,6 +67,7 @@ function App() {
   const [opened, setOpened] = useState<Opened | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [refused, setRefused] = useState<{ missing: string[]; message: string } | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
   const worker = useRef<WorkerClient | null>(null);
@@ -98,15 +103,15 @@ function App() {
 
   const readOnly = config ? modeOf(config) === 'read-only' : true;
 
-  const onSave = async () => {
-    if (!opened || !config || !worker.current) return;
-    setSaving(true); setProblem(null);
+  // Save writes the answers given. The defaults are taken only when the person asks (the second button).
+  const onSave = async (acceptDefaults: boolean) => {
+    if (!opened) return;
+    setSaving(true); setProblem(null); setRefused(null);
     try {
-      const answers = opened.store.get();
-      const document = await worker.current.request<{ bytes: Uint8Array }>('write', { name: config.name, bytes: opened.bytes, sourceId: config.name, answers });
-      const written = await save(document.bytes);
+      const result = await opened.saver.save({ acceptDefaults });
+      if (!result.ok) { setRefused(result); return; }
       opened.store.markSaved(); setDirty(false);
-      setSaved(written.path);
+      setSaved(result.path);
       setConfig(await getConfig());
     } catch (error) {
       setProblem(`Not saved: ${error instanceof Error ? error.message : String(error)}`);
@@ -155,9 +160,11 @@ function App() {
             </>}
           </div>
           {config && !readOnly && (
-            <button type="button" className="app-save" onClick={() => void onSave()} disabled={!opened || saving}>
-              {saving ? 'Saving…' : 'Save'}
-            </button>
+            <>
+              <button type="button" className="app-save" onClick={() => void onSave(false)} disabled={!opened || saving}>
+                {saving ? 'Saving…' : 'Save'}
+              </button>
+            </>
           )}
         </div>
         {config && (
@@ -168,6 +175,13 @@ function App() {
         )}
       </header>
       {problem && <p className="app-problem" role="alert">{problem}</p>}
+      {refused && (
+        <p className="app-problem" role="alert">
+          Not saved: {refused.missing.length ? `still to answer: ${refused.missing.join(', ')}` : refused.message}.
+          {' '}Answer them, or take Specify's default for each:{' '}
+          <button type="button" onClick={() => void onSave(true)} disabled={saving}>Save with defaults</button>
+        </p>
+      )}
       <main className="app-main">
         {!opened && !problem && <p className="app-loading">Opening {config?.name ?? 'the part'}…</p>}
         <div className="app-slot app-view" ref={view} />
