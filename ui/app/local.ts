@@ -1,50 +1,93 @@
-// The page's side of the `specify-core open` contract (specify-core docs/open.md). Every URL is
-// relative: the app is served under `http://127.0.0.1:<port>/<token>/`, never at `/`.
+// The page's side of the `specify-core open` contract (specify-core docs/open.md): the page server
+// started by `specify-core open` or by the MCP server's `show`. Every URL is relative: the app is
+// served under `http://127.0.0.1:<port>/<token>/`, never at `/`.
+import type { PmiAnswers } from '../src/types/pmi';
 
-/** `GET config`. `mode` is the contract's next addition (diff); until the command sends it, it follows `readOnly`. */
-export interface LocalConfig {
-  name: string;
-  readOnly: boolean;
-  wasmUrl: string;
-  saveTarget: string | null;
-  specifyCore: string;
-  /** Not in the contract yet: the file's absolute path, shown when the command sends it. */
-  path?: string;
-  mode?: Mode;
-}
 export type Mode = 'specify' | 'read-only' | 'diff';
 
-export const modeOf = (config: LocalConfig): Mode => config.mode ?? (config.readOnly ? 'read-only' : 'specify');
+/** `GET config`. */
+export interface LocalConfig {
+  mode: Mode;
+  /** The file's name (NEW's in diff mode), and its absolute path as given. */
+  name: string;
+  path: string;
+  /** OLD's, in diff mode; otherwise null. */
+  oldName: string | null;
+  oldPath: string | null;
+  readOnly: boolean;
+  wasmUrl: string;
+  /** Where the next save writes; null when read-only. */
+  saveTarget: string | null;
+  specifyCore: string;
+}
 
-async function failure(response: Response): Promise<Error> {
+/** The session's answers: one answer map per part, by part index ("0" for a single part). */
+export interface SessionAnswers { rev: number; parts: Record<string, PmiAnswers> }
+export type Source = 'page' | 'mcp' | 'start';
+/** An `answers` event: the start state (``parts``) or one part's change. */
+export type AnswersEvent =
+  | { rev: number; parts: Record<string, PmiAnswers>; source: 'start' }
+  | { rev: number; part: number; answers: PmiAnswers; source: 'page' | 'mcp' };
+export interface SavedEvent { path: string; bytes: number; rev: number; source: 'page' | 'mcp' }
+/** A save's answer: what was written, and the required questions still open in it. */
+export interface Saved { path: string; bytes: number; rev: number; report: unknown; complete: boolean; missing: string[] }
+
+/** A refusal: the command's `error`, its status, and the body's other fields (``rev``, ``parts``). */
+export class Refused extends Error {
+  readonly status: number;
+  readonly body: Record<string, unknown>;
+  constructor(message: string, status: number, body: Record<string, unknown>) { super(message); this.status = status; this.body = body; }
+}
+
+async function failure(response: Response): Promise<Refused> {
   let reason = `${response.status} ${response.statusText}`.trim();
+  let body: Record<string, unknown> = {};
   try {
-    const body = await response.json() as { error?: string };
-    if (body.error) reason = body.error;
+    body = await response.json() as Record<string, unknown>;
+    if (typeof body.error === 'string') reason = body.error;
   } catch { /* no body */ }
-  return new Error(reason);
+  return new Refused(reason, response.status, body);
 }
 
-export async function getConfig(): Promise<LocalConfig> {
-  const response = await fetch('config', { cache: 'no-store' });
+async function json<T>(request: Promise<Response>): Promise<T> {
+  const response = await request;
   if (!response.ok) throw await failure(response);
-  return response.json();
+  return response.json() as Promise<T>;
 }
 
-/** The STEP as on disk (gzipped if the file is). */
-export async function getFile(): Promise<Blob> {
-  const response = await fetch('file', { cache: 'no-store' });
+export const getConfig = () => json<LocalConfig>(fetch('config', { cache: 'no-store' }));
+
+/** The STEP as on disk (gzipped if the file is); in diff mode ``old`` is OLD's. */
+export async function getFile(rev: 'old' | 'new' = 'new'): Promise<Blob> {
+  const response = await fetch(rev === 'old' ? 'file?rev=old' : 'file?rev=new', { cache: 'no-store' });
   if (!response.ok) throw await failure(response);
   return response.blob();
 }
 
-/** Writes the specified STEP to disk; the path written and its size. An ArrayBuffer body: the
- * command needs `Content-Length` and refuses a chunked one. */
-export async function save(bytes: Uint8Array): Promise<{ path: string; bytes: number }> {
-  const body = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
-  const response = await fetch('save', { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body });
-  if (!response.ok) throw await failure(response);
-  return response.json();
+export const getAnswers = () => json<SessionAnswers>(fetch('answers', { cache: 'no-store' }));
+
+/** Replaces part ``part``'s answers if the session is still at ``rev``: the new rev. A 409 is
+ * thrown as `Refused` with the current ``rev`` and ``parts``. */
+export const putAnswers = (rev: number, part: number, answers: PmiAnswers) => json<{ rev: number }>(fetch('answers', {
+  method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rev, part, answers }),
+}));
+
+/** The command writes the specified STEP from the session's answers at ``rev``. Never refused for
+ * open questions; 409 when the session moved on, or (--in-place) the file changed on disk. */
+export const save = (rev: number, acceptDefaults: boolean) => json<Saved>(fetch('save', {
+  method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rev, acceptDefaults }),
+}));
+
+/** Diff mode: the revision report, as `specify-core diff`'s report.json. */
+export const getDiff = () => json<unknown>(fetch('diff', { cache: 'no-store' }));
+
+/** The session's changes as they happen (the start state first, again on each reconnect), and
+ * each save, whoever asked for it. */
+export function listen(onAnswers: (event: AnswersEvent) => void, onSaved: (event: SavedEvent) => void): () => void {
+  const source = new EventSource('events');
+  source.addEventListener('answers', (event) => onAnswers(JSON.parse((event as MessageEvent<string>).data) as AnswersEvent));
+  source.addEventListener('saved', (event) => onSaved(JSON.parse((event as MessageEvent<string>).data) as SavedEvent));
+  return () => source.close();
 }
 
 /** The heartbeat (`GET config` every 30 s while the page is open) and `closed` when it goes away

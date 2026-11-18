@@ -1,18 +1,23 @@
 import assert from 'node:assert/strict';
 import { spawn, execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
+import { basename, join, resolve } from 'node:path';
 import { gunzipSync } from 'node:zlib';
 import { chromium, expect } from '@playwright/test';
-// The local app (dist-app, `npm run build:app`) served by the real `specify-core open`, on a part:
-// it loads, is titled for the file, takes an answer, saves part.specified.step beside it (whose PMI
-// `specify-core analyse` reads back) even with questions open, saves with the defaults when asked,
-// resumes from that file with the open questions still open, has no Save when read-only, and
-// requests nothing from anywhere but 127.0.0.1. `npm run test:app`.
+// The local app (dist-app, `npm run build:app`) served by the real `specify-core open`, the manual
+// way in (no agent; test/app-agent.mjs is the agent's): on a part it loads, is titled for the file,
+// takes an answer, has the command save part.specified.step beside it (whose PMI `specify-core
+// analyse` reads back) even with questions open, saying which, saves with the defaults when asked,
+// resumes from that file with the open questions still open, and has no Save when read-only. With
+// `open --diff OLD NEW` it shows what changed, lists what needs a decision, opens NEW's
+// requirements in Graphical, and Save writes NEW with the carried answers. Nothing is requested
+// from anywhere but 127.0.0.1. `npm run test:app`.
 //
-//   SPECIFY_CORE  the specify-core binary (default: specify-core on PATH); it needs `open --app/--wasm`
-//                 (specify-core #198, after 0.1.18).
+//   SPECIFY_CORE  the specify-core binary (default: specify-core on PATH); it needs the session
+//                 contract (`GET answers`, `POST save {rev, acceptDefaults}`, `open --diff`).
+//   DIFF_OLD, DIFF_NEW  the revisions for diff mode (default: the electronics enclosure pair in
+//                 ~/Downloads/enclosure-demo, else the spindle fixtures).
 //   SPECIFY_WASM_DIR  the engine's pkg/ (default: public/wasm/intent, from `npm run fetch:wasm`).
 //   SHOTS         a directory to save screenshots in (optional).
 const check = expect.configure({ timeout: 90000 });
@@ -33,9 +38,9 @@ const specified = join(dir, 'part.specified.step');
 const withDefaults = join(dir, 'part.specified-2.step');
 const second = join(dir, 'part.specified-3.step');
 
-/** `specify-core open` on ``file``: its address once it prints it, and a way to stop it. */
+/** `specify-core open` on ``files`` (one, or `--diff` and two): its address once it prints it, and a way to stop it. */
 async function open(file, ...flags) {
-  const child = spawn(cli, ['open', '--app', app, '--wasm', wasm, '--no-browser', ...flags, file], { stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawn(cli, ['open', '--app', app, '--wasm', wasm, '--no-browser', ...flags, ...[file].flat()], { stdio: ['ignore', 'pipe', 'pipe'] });
   let out = '';
   child.stdout.on('data', chunk => { out += chunk; });
   child.stderr.on('data', chunk => { out += chunk; });
@@ -51,7 +56,7 @@ async function open(file, ...flags) {
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined, args: ['--no-sandbox', '--use-gl=angle', '--use-angle=swiftshader'] });
 const problems = [];
 /** A page on the served app, every request it (and its worker) makes recorded. */
-async function load(server) {
+async function load(server, ready = '.pmi-lab-panel') {
   const context = await browser.newContext({ viewport: { width: 1400, height: 950 }, acceptDownloads: true });
   const requests = [];
   context.on('request', request => requests.push({ url: request.url(), method: request.method() }));
@@ -59,7 +64,7 @@ async function load(server) {
   page.on('pageerror', error => problems.push(String(error)));
   page.on('console', message => { if (message.type() === 'error') problems.push(`console: ${message.text()}`); });
   await page.goto(server.url);
-  await check(page.locator('.pmi-lab-panel')).toBeVisible();
+  await check(page.locator(ready).first()).toBeVisible();
   return { context, page, requests };
 }
 /** Nothing but the page's own origin (and its blob:/data: URLs) was asked for. */
@@ -71,6 +76,8 @@ const onlyLocal = (requests, origin) => {
 const material = page => page.locator('[data-question="part.material"]');
 let first = null;
 /** `specify-core analyse` of ``file``: what Specify reads from it (its PMI as characteristics, the answers stored). */
+/** The answers a person gave: Specify's own `_` records left out. */
+const given = answers => Object.fromEntries(Object.entries(answers ?? {}).filter(([id]) => !id.startsWith('_')));
 const analyse = file => JSON.parse(execFileSync(cli, ['analyse', '--output', '-', file], { encoding: 'utf8', maxBuffer: 1 << 28, stdio: ['ignore', 'pipe', 'ignore'] }));
 
 try {
@@ -90,7 +97,7 @@ try {
     await check(page.locator('.app-saved')).toContainText('part.material');
     await check(page.getByRole('alert')).toHaveCount(0);
     assert.ok(existsSync(specified), 'part.specified.step written with a required question open');
-    assert.deepEqual(analyse(specified).resume?.answers ?? {}, {}, 'a plain Save with nothing answered stores no answers');
+    assert.deepEqual(given(analyse(specified).resume?.answers), {}, 'a plain Save with nothing answered stores no answers');
     if (shots) await page.screenshot({ path: join(shots, 'save-partial.png') });
     // The person chooses the defaults, which is its own button, always there: Save writes beside the file and says where.
     await page.getByRole('button', { name: 'Save with defaults' }).click();
@@ -120,7 +127,7 @@ try {
     await check(page.locator('.app-saved')).toContainText(second);
     await check(page.locator('.app-saved')).toContainText('still open');
     await check(page.locator('.app-dirty')).toHaveCount(0);
-    assert.deepEqual(analyse(second).resume?.answers, { 'part.material': 'Aluminium 6082-T6' }, 'Save stores only the answers given');
+    assert.deepEqual(given(analyse(second).resume?.answers), { 'part.material': 'Aluminium 6082-T6' }, 'Save stores only the answers given');
     onlyLocal(requests, server.origin);
     // Leaving the page (pagehide, not into the back/forward cache) sends `closed`: the command then
     // stops 90 s later (without it, after 30 minutes), checked at the end.
@@ -132,7 +139,12 @@ try {
   {
     const analysis = analyse(withDefaults);
     assert.ok(!('part.material' in (analysis.resume?.answers ?? {})), 'the defaults save had no material');
-    assert.equal(analysis.resume?.answers?.['part.general_tolerance'], 'ISO 2768-m', 'the defaults taken are stored in the file');
+    // The command writes as `specify-core write --accept-defaults` does: the defaults become PMI, and the
+    // answers stored are the session's (none here), not the defaults (a contract change from the page's
+    // own writer, which stored them; reported to specify-core).
+    assert.deepEqual(given(analysis.resume?.answers), {}, 'the answers stored are the session\'s');
+    const plain = (analyse(specified).characteristics ?? []).length;
+    assert.ok((analysis.characteristics ?? []).length > plain, 'the defaults save has the defaults\' PMI');
     const kinds = new Set((analysis.characteristics ?? []).map(c => c.kind));
     assert.ok(kinds.has('datum') && kinds.has('dimension'), `the PMI written reads back: ${[...kinds]}`);
   }
@@ -172,9 +184,57 @@ try {
     await check(page.locator('.app-target')).toHaveCount(0);
     await check(page.getByRole('button', { name: 'Inspection list (CSV)' })).toBeEnabled();
     if (shots) await page.screenshot({ path: join(shots, 'read-only.png') });
-    // The command refuses a save as the page would send it (its Origin, a STEP body).
-    const refused = await fetch(`${server.url}save`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream', Origin: server.origin }, body: readFileSync(withDefaults) });
+    // The command refuses a save as the page would send it (its Origin, the session's rev).
+    const { rev } = await (await fetch(`${server.url}answers`)).json();
+    const refused = await fetch(`${server.url}save`, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: server.origin }, body: JSON.stringify({ rev, acceptDefaults: false }) });
     assert.equal(refused.status, 409, 'a save is refused when read-only');
+    onlyLocal(requests, server.origin);
+    await context.close();
+    server.stop();
+  }
+  // Diff: what changed from OLD to NEW, what needs a decision, and Save writes NEW with the carried answers.
+  {
+    const demo = join(homedir(), 'Downloads', 'enclosure-demo');
+    const [oldSource, newSource] = process.env.DIFF_OLD && process.env.DIFF_NEW ? [process.env.DIFF_OLD, process.env.DIFF_NEW]
+      : existsSync(join(demo, 'electronics-enclosure-base-rev2-pmi.step'))
+        ? [join(demo, 'electronics-enclosure-base-pmi.step'), join(demo, 'electronics-enclosure-base-rev2-pmi.step')]
+        : ['test/fixtures/spindle_pmi_before.step.gz', 'test/fixtures/spindle_pmi_after.step.gz'];
+    const oldFile = join(dir, basename(oldSource));
+    const newFile = join(dir, basename(newSource));
+    copyFileSync(oldSource, oldFile); copyFileSync(newSource, newFile);
+    const server = await open([oldFile, newFile], '--diff');
+    const config = await (await fetch(`${server.url}config`)).json();
+    assert.equal(config.mode, 'diff');
+    const report = await (await fetch(`${server.url}diff`)).json();
+    const { parts } = await (await fetch(`${server.url}answers`)).json();
+    const carried = given(parts['0']);
+    // It opens on what changed; the requirements are behind their tab.
+    const { context, page, requests } = await load(server, '.diff-summary');
+    await check(page.locator('.pmi-lab-panel')).toBeAttached();
+    await check(page).toHaveTitle(`${basename(newFile)} — Specify`);
+    await check(page.locator('.app-path')).toHaveText(`${oldFile} → ${newFile}`);
+    // What changed, first: the comparison drawn, its summary.
+    await check(page.getByRole('tab', { name: 'What changed' })).toHaveAttribute('aria-selected', 'true');
+    await check(page.locator('.diff-summary').first()).toBeVisible();
+    // What needs a decision, from the command's report: each one a button that opens its question.
+    const decide = [...report.unresolved ?? [], ...report.check ?? [], ...report.questions ?? []];
+    await check(page.locator('.app-decision')).toHaveCount(decide.length);
+    if (shots) await page.screenshot({ path: join(shots, 'diff.png') });
+    if (decide.length) {
+      await page.locator('.app-decision').last().click();
+      await check(page.getByRole('tab', { name: /^Requirements for/ })).toHaveAttribute('aria-selected', 'true');
+      await check(page.locator(`[data-question="${decide.at(-1).id}"]`).first()).toBeVisible();
+    } else await page.getByRole('tab', { name: /^Requirements for/ }).click();
+    // NEW carries PMI (its own, or Specify's): View PMI opens in Graphical.
+    await check(page.getByRole('radio', { name: 'Graphical' })).toBeChecked();
+    if (shots) await page.screenshot({ path: join(shots, 'diff-decide.png') });
+    // NEW is not specified yet: the carried answers are unsaved until Save.
+    if (Object.keys(carried).length) await check(page.locator('.app-dirty')).toBeVisible();
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    const target = join(dir, `${basename(newFile).replace(/\.gz$/, '').replace(/\.(step|stp)$/, '')}.specified.step`);
+    await check(page.locator('.app-saved')).toContainText(target);
+    await check(page.locator('.app-dirty')).toHaveCount(0);
+    assert.deepEqual(given(analyse(target).resume?.answers), carried, 'Save writes NEW with the session\'s (carried) answers');
     onlyLocal(requests, server.origin);
     await context.close();
     server.stop();

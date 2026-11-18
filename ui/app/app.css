@@ -36,3 +36,14 @@ body { background: #fff; color: #1a1d21; font: 13px/1.45 ui-sans-serif, -apple-s
 }
 .app-agent { margin: 0; padding: 6px 14px; background: #e8f3ee; color: #2c6650; animation: app-agent-in 1.2s ease-out; }
 @keyframes app-agent-in { from { background: #bfe3cf; } to { background: #e8f3ee; } }
+.app-old { color: #707880; font-weight: 500; }
+.app-tabs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 6px 14px; border-bottom: 1px solid #d9dee4; background: #f7f8fa; }
+.app-tabs [role="tab"][aria-selected="true"] { background: #2f6fb5; border-color: #2f6fb5; color: #fff; }
+.app-decide { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-left: 12px; color: #a86500; }
+.app .app-decision { border-color: #e0b56a; background: #fff8ea; max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.app-diff { position: absolute; inset: 0; z-index: 2; overflow: auto; background: #fff; }
+.app-diff[hidden] { display: none; }
+/* The answers stay laid out under the changes, so their view keeps its size. */
+.app-slot.app-under, .app-slot.app-under * { visibility: hidden !important; }
+.app-part { font-size: 12px; color: #3a4450; } .app-part select { font: inherit; max-width: 240px; }
+.app-agent-lit { outline: 2px solid #3d9a6e; outline-offset: 2px; border-radius: 4px; background: #e8f3ee; animation: app-agent-in 1.2s ease-out; }

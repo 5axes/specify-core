@@ -116,24 +116,36 @@ calling yours, and `preview` passes through; use it for your own read-only code 
 The helpers `characteristics`, `as9102`, `xlsx`, the diff and PMI-diff functions and the `types/pmi` types are
 exported too; see `src/index.ts`.
 
-## The local app (`specify-core open`)
+## The local app (`specify-core open`, or an agent's `show`)
 
-`app/` is Specify on your own computer: the page `specify-core open part.step` serves on 127.0.0.1, under the
-contract in specify-core's `docs/open.md`. It shows the part and its questions (or, with `--read-only`, its PMI),
-saves the specified STEP back to disk through the command (beside it as `part.specified.step`), and offers the
-answers JSON, inspection list (CSV) and AS9102 workbook as downloads. It has no account, AI chat or analytics,
-stores nothing in the browser, and requests nothing but its own origin; IBM Plex Mono is bundled. Save never refuses for
+`app/` is Specify on your own computer: the page served on 127.0.0.1 under the contract in specify-core's
+`docs/open.md` and `docs/session.md`. An AI agent with Specify as its MCP server (`specify-core mcp`) opens a part,
+answers what it was told and calls `show`; by hand, `specify-core open part.step` (or `open --diff old.step
+new.step`) serves the same page. The answers live in the command's session: the page sends its changes there
+(`PUT answers`, reapplied on a 409) and hears everyone else's (`GET events`); an agent's answer lands in the open
+page with "Updated by your agent", its question opened and its faces lit. Save asks the command to write the
+specified STEP (beside it as `part.specified.step`), the same file the agent's `save` writes. Save never refuses for
 questions still open (many AP242 files have no complete answer to everything): it writes the answers given and says
 which questions are still open. Specify's defaults are written only when the person chooses Save with defaults.
+
+Read only (`--read-only`) shows the part's PMI. In diff mode the page shows what changed (StepDiff), lists what the
+command's comparison leaves to decide (requirements not carried, carried ones to check, new questions), each
+opening its question in the new revision's requirements, and Save writes the new revision with the carried
+answers. An assembly is shown a part at a time. It offers the answers JSON, inspection list (CSV) and AS9102
+workbook as downloads; it has no account, AI chat or analytics, stores nothing in the browser, and requests nothing
+but its own origin; IBM Plex Mono is bundled.
 
 `npm run build:app` builds it into `dist-app/` (relative URLs, no inline scripts; the engine is not included: the
 command serves its own at `config.wasmUrl`). Each release attaches it as `specify-ui-app-<version>.tgz` (the app's
 files at the archive's root) with a `.sha256`. To try it: `specify-core open --app dist-app --wasm public/wasm/intent part.step`.
 
-`npm run test:app` builds it and drives it in Chromium under the real `specify-core open` (`SPECIFY_CORE`, default
-`specify-core` on `PATH`; it needs `open --app/--wasm`, after specify-core 0.1.18), on a part: answer, save, read
-the PMI back with `specify-core analyse`, resume, read only, and no request off 127.0.0.1. It takes about two
-minutes (it waits for the heartbeat and for the command to stop after `closed`).
+`npm run test:app` builds it and drives it in Chromium under the real command (`SPECIFY_CORE`, default
+`specify-core` on `PATH`; it needs the session contract): `test/app-browser.mjs` by hand (answer, save, read the PMI
+back with `specify-core analyse`, resume, read only, diff with `DIFF_OLD`/`DIFF_NEW` or the enclosure pair in
+`~/Downloads/enclosure-demo`, else the spindle fixtures) and `test/app-agent.mjs` as an agent (`specify-core mcp`
+over stdio: open, answer, `show`, the page's edit seen by `changes`, both saves, an assembly, a symbolic link).
+Both check that no request leaves 127.0.0.1. It takes about three minutes (it waits for the heartbeat and for the
+command to stop after `closed`).
 
 ## Development
 
