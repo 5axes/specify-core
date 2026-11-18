@@ -116,8 +116,8 @@ All structured inputs and outputs are **JSON strings**, except the constructor's
 | `IntentEngine.openPart(name, bytes, part)` | Opens part `part` (an index from `parts`) of any file: an assembly's part, or a part placed more than once. See "Assemblies" below. Part 0 of a file of one part used once opens exactly as the constructor opens it. |
 | `IntentEngine.bom(bytes)` | The file's BOM rows as JSON, one per distinct part, as `specify-core bom` gives them: each field `{value, source}`. Reading never accepts suggestions or allocates numbers. See [BOM](bom.md). |
 | `engine.snapshot(max_deviation_mm?)` | `{analysis, mesh, provenance: {source_sha256, face_entities, part}}`; `part` is the part opened (0 from the constructor). |
-| `engine.review(answersJson)` | `{questions, open, intent, problems}`; adds geometry anchors to `intent.anchors`. |
-| `engine.exportAnswers(answersJson)` | Complete answer map as a JSON string: every accepted PMI default explicit, plus `_specify.evidence` and empty `_specify.unresolved`. Refuses unanswered required questions, carry blocks and stale evidence. Recursively sorts object keys; preserves array order. Does not write or mutate the session. Save with `JSON.stringify(JSON.parse(result), null, 2) + "\n"`. Accepted directly by review, writePmi and diff. See [answer files](answers.md). |
+| `engine.review(answersJson)` | `{questions, open, intent, sources, problems}`; adds geometry anchors to `intent.anchors`. |
+| `engine.exportAnswers(answersJson)` | Complete answer map as a JSON string: every accepted PMI default explicit, plus `_specify.evidence`, empty `_specify.unresolved` and `_specify.sources` (each answered default's rule source; see [rule sources](rule-sources.md)). Refuses unanswered required questions, carry blocks and stale evidence. Recursively sorts object keys; preserves array order. Does not write or mutate the session. Save with `JSON.stringify(JSON.parse(result), null, 2) + "\n"`. Accepted directly by review, writePmi and diff. See [answer files](answers.md). |
 | `engine.acceptDefaults(answersJson)` | Answers object with every unanswered default filled to a fixed point, using the same rules as CLI/serve `accept_defaults`. Preserves supplied answers; questions without defaults stay unanswered. |
 | `engine.writePmi(answersJson, projectBase64?, payloadJson?, bom?)` | `{bytes, source_sha256, report}`; `bytes` is an array of byte values. Writes and verifies answered PMI and stored answers in memory. Unanswered defaults remain suggestions. `report` is the upstream writer's report; its `output` is the constructor's name. `payloadJson` is `{name, value}`: any JSON value carried in the STEP under `name` (give the project or a payload, not both; see below). |
 | `engine.payload(name)` | The JSON text of the payload `name` the opened STEP carries, or `undefined`. |
@@ -138,8 +138,11 @@ additional `max_deviation_mm` and `achieved_deviation_mm` keys only when request
 readers should ignore unknown keys. The reported value is sampled on emitted
 triangles, not a continuous error certificate; see [mesh tolerance](mesh-tolerance.md).
 
-Questions use `to_presented_dict()` with `diameter` and `depth` added when present. `open`
+Questions use `to_presented_dict()` with `diameter` and `depth` added when present; a question
+with a default has `source` beside `basis`, the rule behind the default
+([rule-sources.md](rule-sources.md#rule-ids)). `open`
 is the list of ids returned by `rules::open_questions`. `intent` is `api::preview(...).to_dict()`;
+`sources` maps the ID of each answer that is its question's default to that default's source;
 `problems` comes from `problems::problems`. Native front ends can use `api::review` directly.
 
 Defaults and their reasons remain in `questions`, and unanswered ids remain in `open`.

@@ -435,6 +435,7 @@ pub fn review(analysis: &Value, answers: &Map<String, Value>) -> Result<Value> {
         .map(|question| question.id.clone())
         .collect();
     let intent = preview(analysis, answers)?;
+    let sources = rules::answered_sources(&questions, answers);
     let problems = crate::problems::problems(analysis, answers)?;
     Ok(json!({
         "questions": questions.iter().map(|question| {
@@ -445,6 +446,7 @@ pub fn review(analysis: &Value, answers: &Map<String, Value>) -> Result<Value> {
         }).collect::<Vec<_>>(),
         "open": open,
         "intent": intent.to_dict(),
+        "sources": sources,
         "problems": problems,
     }))
 }
@@ -477,13 +479,29 @@ pub fn export_answers(
     let mut complete = rules::with_all_defaults(analysis, answers)?;
     let intent = rules::apply(analysis, &complete)?;
     writer::check_binding(loaded, &intent)?;
+    let sources = rules::answered_sources(&questions(analysis, &complete)?, &complete);
     crate::answer_file::attach(loaded, &mut complete, answers, std::iter::empty())
         .map_err(|why| Error::Rules(rules::Error::Invalid(why)))?;
+    // attach() has just set the metadata object; its sources are output only.
+    complete[crate::answer_file::META]["sources"] = Value::Object(sources);
     // Sort objects recursively, including caller-supplied extra requirements. Arrays keep
     // their semantic order (datum precedence, feature members, and note sequences).
     let mut value = Value::Object(complete);
     value.sort_all_objects();
     Ok(value.as_object().expect("constructed an object").clone())
+}
+
+/// For each answer that is its question's default, the rule behind it
+/// ([`rules::answered_sources`]): what `review` and the MCP `characteristics` give beside the
+/// preview intent as `sources`.
+pub fn preview_sources(
+    analysis: &Value,
+    answers: &Map<String, Value>,
+) -> Result<Map<String, Value>> {
+    Ok(rules::answered_sources(
+        &questions(analysis, answers)?,
+        answers,
+    ))
 }
 
 /// What the answers so far amount to (`rules::preview`). Unanswered defaults stay suggestions

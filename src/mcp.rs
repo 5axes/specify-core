@@ -941,7 +941,8 @@ impl Server {
     fn characteristics(&self, args: &Map<String, Value>) -> ToolResult {
         let (handle, doc) = self.doc(args)?;
         let intent = api::preview(&doc.analysis, &doc.answers)?;
-        Ok(json!({"doc": handle, "intent": intent.to_dict()}))
+        let sources = api::preview_sources(&doc.analysis, &doc.answers)?;
+        Ok(json!({"doc": handle, "intent": intent.to_dict(), "sources": sources}))
     }
 
     fn read_pmi(&self, args: &Map<String, Value>) -> ToolResult {
@@ -1392,6 +1393,24 @@ fn output(properties: Value, required: &[&str]) -> Value {
     })
 }
 
+/// A default's `source` (`rule_sources::Rule::to_json`).
+fn source_schema() -> Value {
+    json!({
+        "type": "object",
+        "description": "The rule that proposed the default and what it rests on.",
+        "properties": {
+            "rule": {"type": "string"},
+            "kind": {"type": "string", "enum": ["standard", "convention", "vendor", "assumption"]},
+            "refs": {"type": "array", "items": {"type": "object", "properties": {
+                "standard": {"type": "string"},
+                "edition": {"type": "string"},
+                "clause": {"type": "string"}
+            }, "required": ["standard"]}}
+        },
+        "required": ["rule", "kind", "refs"]
+    })
+}
+
 fn input(properties: Value, required: &[&str]) -> Value {
     json!({
         "type": "object",
@@ -1451,7 +1470,7 @@ pub fn tools() -> Vec<Value> {
         json!({
             "name": "questions",
             "title": "List the questions",
-            "description": format!("The questions Specify asks about the open document, given the answers so far: id, kind (choice, text, text_list, faces), prompt, default, why, options/choices, faces, attention, reason, and state (open, answered, or optional: a suggestion never required). state selects which (default open). {MEMORY_RULE}"),
+            "description": format!("The questions Specify asks about the open document, given the answers so far: id, kind (choice, text, text_list, faces), prompt, default, why, options/choices, faces, attention, reason, basis and source (the rule behind the default: rule id, kind standard/convention/vendor/assumption, and the standards it cites), and state (open, answered, or optional: a suggestion never required). state selects which (default open). {MEMORY_RULE}"),
             "inputSchema": input(json!({
                 "doc": doc(),
                 "state": {"type": "string", "enum": ["open", "answered", "all"], "description": "Which questions (default open)."}
@@ -1459,7 +1478,7 @@ pub fn tools() -> Vec<Value> {
             "outputSchema": output(json!({
                 "doc": {"type": "string"},
                 "state": {"type": "string"},
-                "questions": {"type": "array", "items": {"type": "object"}},
+                "questions": {"type": "array", "items": {"type": "object", "properties": {"source": source_schema()}}},
                 "open": strings(),
                 "counts": {"type": "object"}
             }), &["doc", "questions", "open"]),
@@ -1504,9 +1523,9 @@ pub fn tools() -> Vec<Value> {
         json!({
             "name": "characteristics",
             "title": "Preview the specification",
-            "description": format!("The intent the answers so far amount to (part settings, datums, requirements with their tolerances, and the dimensions the general tolerance covers), as write_pmi would write it; unanswered defaults stay suggestions and are not included. {MEMORY_RULE}"),
+            "description": format!("The intent the answers so far amount to (part settings, datums, requirements with their tolerances, and the dimensions the general tolerance covers), as write_pmi would write it; unanswered defaults stay suggestions and are not included. sources maps each answer that is its question's default to the rule behind it. {MEMORY_RULE}"),
             "inputSchema": input(json!({"doc": doc()}), &["doc"]),
-            "outputSchema": output(json!({"doc": {"type": "string"}, "intent": {"type": "object"}}), &["doc", "intent"]),
+            "outputSchema": output(json!({"doc": {"type": "string"}, "intent": {"type": "object"}, "sources": {"type": "object", "additionalProperties": source_schema()}}), &["doc", "intent"]),
             "annotations": {"readOnlyHint": true, "openWorldHint": false},
         }),
         json!({
@@ -1545,7 +1564,7 @@ pub fn tools() -> Vec<Value> {
         json!({
             "name": "export_answers",
             "title": "Export a complete answers file",
-            "description": format!("A complete, editable answer map for the open document, defaults accepted, with face evidence (_specify), without writing STEP; refused (incomplete) if a required question has no answer or default. Optionally saved to output (.json; overwrite: true to replace). {MEMORY_RULE}"),
+            "description": format!("A complete, editable answer map for the open document, defaults accepted, with face evidence (_specify) and the rule behind each accepted default (_specify.sources), without writing STEP; refused (incomplete) if a required question has no answer or default. Optionally saved to output (.json; overwrite: true to replace). {MEMORY_RULE}"),
             "inputSchema": input(json!({
                 "doc": doc(),
                 "output": {"type": "string", "description": "Optional .json file to save the map to."},

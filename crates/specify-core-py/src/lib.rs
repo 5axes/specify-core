@@ -708,6 +708,10 @@ fn record(question: &Question) -> Value {
     out.insert("diameter".into(), json!(question.diameter));
     out.insert("depth".into(), json!(question.depth));
     out.insert("basis".into(), json!(question.basis));
+    out.insert(
+        "source".into(),
+        question.source_json().unwrap_or(Value::Null),
+    );
     out.insert("mate".into(), json!(question.mate));
     Value::Object(out)
 }

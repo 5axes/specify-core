@@ -10,6 +10,7 @@ use super::records::{Ctx, Datums, Faces, Feature};
 use super::{Characteristic, Error, GENERAL, NONE, Question, Result, invalid};
 use crate::choices;
 use crate::locations;
+use crate::rule_sources::{self as sources, Rule};
 use crate::standards::{
     self, CLEARANCE, CLEARANCE_COARSE, CLEARANCE_FINE, HOLE_FITS, PITCH, TAP_DRILL,
 };
@@ -214,6 +215,7 @@ pub(crate) fn hole_questions(
         GENERAL.to_string()
     };
     let mut basis = function_basis(&chosen, diameter, tapped)?;
+    let mut source = function_source(&chosen, printed);
     if printed && chosen != GENERAL {
         let insert = if crate::process::printed_plastic(process) {
             "; a screw goes into a heat-set insert or a printed thread rather than a tapped one"
@@ -234,6 +236,7 @@ pub(crate) fn hole_questions(
             let reason = mated_reason(mated)?;
             default = value.clone();
             basis = sentence(reason);
+            source = sources::of_mate(v);
             mate = reason.to_string();
         }
     }
@@ -284,6 +287,7 @@ pub(crate) fn hole_questions(
         diameter: Some(diameter),
         depth,
         basis,
+        source: Some(source),
         mate,
         ..Question::new(
             qid.clone(),
@@ -323,6 +327,11 @@ pub(crate) fn hole_questions(
                     "Drill depth minus 3 pitches, rounded down to 0.5 mm (at least one pitch)."
                         .into()
                 },
+                source: Some(if inline.is_some() {
+                    &sources::FULL_THREAD_GIVEN
+                } else {
+                    &sources::FULL_THREAD
+                }),
                 ..Question::new(
                     id,
                     "text",
@@ -354,6 +363,7 @@ pub(crate) fn hole_questions(
                 title: Some(label.clone()),
                 feature: Some(target.id.to_string()),
                 basis: "The part's whole frame, A then B then C.".to_string(),
+                source: Some(&sources::HOLE_FRAME),
                 ..Question::new(
                     fid.clone(),
                     "choice",
@@ -412,6 +422,7 @@ pub(crate) fn hole_questions(
             parts: parts.clone(),
             characteristic: Some(Characteristic::Position),
             basis: position_basis(function, diameter, tol)?,
+            source: Some(position_source(function, diameter)),
             ..Question::new(
                 format!("hole.position:{}", target.id),
                 "choice",
@@ -433,6 +444,7 @@ pub(crate) fn hole_questions(
             title: Some(label.clone()),
             feature: Some(target.id.to_string()),
             parts,
+            source: Some(&sources::LOCATION_GENERAL),
             ..Question::new(
                 format!("hole.location:{}", target.id),
                 "choice",
@@ -492,6 +504,33 @@ fn function_basis(default: &str, diameter: f64, tapped: Option<&str>) -> Result<
         return Ok(format!("⌀{d} is the tap-drill size for {size}."));
     }
     Ok(String::new()) // left to the general tolerance: nothing was chosen
+}
+
+/// The rule behind a hole's default purpose (`chosen`), on a part whose holes are clearance
+/// holes by default (`printed`) or not.
+fn function_source(chosen: &str, printed: bool) -> &'static Rule {
+    if chosen == GENERAL {
+        &sources::HOLE_GENERAL
+    } else if printed {
+        &sources::HOLE_PRINTED
+    } else if chosen.starts_with("tapped:") {
+        &sources::HOLE_TAPPED
+    } else {
+        &sources::HOLE_CLEARANCE
+    }
+}
+
+/// The rule behind a hole's default position tolerance: the branches of [`default_position`].
+fn position_source(function: &str, diameter: f64) -> &'static Rule {
+    let (kind, size, _) = choices::split(function);
+    match kind {
+        "fit" => &sources::POSITION_FITTED,
+        "tapped" => &sources::POSITION_TAPPED,
+        _ if size.is_empty() && standards::largest_bolt_below(diameter).is_none() => {
+            &sources::POSITION_NO_BOLT
+        }
+        _ => &sources::POSITION_FLOATING,
+    }
 }
 
 /// `standards.bolt_diameter`, refusing as Python's `float()` does a size that is not `M` and a

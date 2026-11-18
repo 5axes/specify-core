@@ -11,6 +11,14 @@ All notable changes to specify-core-rust. The format follows
 - docs/rule-sources.md: where each of Specify's defaults and tables comes from (standard,
   edition where recorded, convention, vendor figure or assumption) and where it is in the code,
   with the review still open (for #196).
+- Every default carries a structured `source` beside its `basis`: `{rule, kind, refs}`, the
+  rule's stable id, `standard`/`convention`/`vendor`/`assumption`, and the standards it cites
+  (edition and clause where recorded). In `api::review` and WASM `review`, the MCP `questions`
+  tool, Python `Question.source`, and CLI `questions --sources` / serve `questions` with
+  `"sources": true` (without them the Python-compatible document is unchanged); `review` and MCP
+  `characteristics` give `sources` beside the preview intent, and answer exports `_specify.sources`.
+  Additive: `Question::to_dict`, intents written and the STEP are unchanged. Rule ids are
+  listed in docs/rule-sources.md (for #196).
 
 ### Changed
 

@@ -649,13 +649,16 @@ pub(crate) fn questions(analysis: &Map<String, Value>) -> Vec<Question> {
         let suggestion = match key {
             "make_buy" if bom[key]["source"] == "answered" => {
                 q.reason = "Your answer".into();
+                q.source = Some(&crate::rule_sources::MAKE_BUY_RECORDED);
                 value.clone()
             }
             "make_buy" if bom[key]["source"] != "default" => {
                 q.reason = "From the file".into();
+                q.source = Some(&crate::rule_sources::MAKE_BUY_RECORDED);
                 value.clone()
             }
             "make_buy" => {
+                q.source = Some(&crate::rule_sources::MAKE_BUY_GUESS);
                 let guess = guessed(bom["name"]["value"].as_str().unwrap_or(""));
                 q.reason = match &guess {
                     Guess::PartNumber => "Proposed: made (the name carries a part number)".into(),

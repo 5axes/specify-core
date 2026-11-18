@@ -19,6 +19,7 @@ use std::fmt;
 use serde_json::{Map, Value};
 
 use crate::choices::{self, SpecError};
+use crate::rule_sources::{self as sources, Rule};
 use crate::{extras, general, locations, materials, standards};
 
 pub mod datums;
@@ -222,6 +223,9 @@ pub struct Question {
     pub depth: Option<f64>,
     /// Why the default is what it is, in a sentence.
     pub basis: String,
+    /// Which rule proposed the default, and what that rule rests on (`docs/rule-sources.md`).
+    /// Set wherever there is a default; not in [`Question::to_dict`], Python's document.
+    pub source: Option<&'static Rule>,
     /// When the default comes from how the part fits another in its assembly: why (not
     /// serialised; it becomes the `reason` of a `check`).
     pub mate: String,
@@ -250,14 +254,39 @@ impl Question {
             diameter: None,
             depth: None,
             basis: String::new(),
+            source: None,
             mate: String::new(),
+        }
+    }
+
+    /// The structured source of the default, as [`Rule::to_json`] gives it.
+    pub fn source_json(&self) -> Option<Value> {
+        self.source.map(Rule::to_json)
+    }
+
+    /// [`Question::to_dict`] with the default's `source` beside its `basis`: the document the
+    /// command line and `serve` give.
+    pub fn to_traced_dict(&self) -> Value {
+        let mut out = self.to_dict();
+        if let Some(source) = self.source_json() {
+            out["source"] = source;
+        }
+        out
+    }
+
+    /// [`Question::to_traced_dict`] when `sources` is asked for, else [`Question::to_dict`].
+    pub fn to_dict_with(&self, sources: bool) -> Value {
+        if sources {
+            self.to_traced_dict()
+        } else {
+            self.to_dict()
         }
     }
 
     /// Additive presentation record for clients that must not parse the prompt.
     /// `to_dict` retains the Python-compatible document for existing callers.
     pub fn to_presented_dict(&self) -> Value {
-        let mut out = self.to_dict();
+        let mut out = self.to_traced_dict();
         if let Some(title) = &self.title {
             // to_dict() constructs an object; Value writes add string keys without bounds checks.
             out["title"] = Value::from(title.as_str());
@@ -454,6 +483,7 @@ fn carry_review(
             q.attention = "required";
             q.reason = format!("carried answer could not be applied: {reason}");
             q.basis.clear();
+            q.source = None;
         }
     }
     Ok(questions)
@@ -504,18 +534,20 @@ fn all_questions(
             .iter()
             .any(|f| f.family == "holes" || f.family == "hole_patterns")
     {
-        let (default, basis) = if crate::process::locates_by_dimensions(process) {
+        let (default, basis, source) = if crate::process::locates_by_dimensions(process) {
             (
                 LOCATING[1],
                 format!(
                     "± dimensions, as a {process} part's holes are usually located on the \
                      drawing; choose position tolerances where they must line up."
                 ),
+                &sources::LOCATING_DIMENSIONS,
             )
         } else {
             (
                 LOCATING[0],
                 "Position tolerances, as holes usually take parts that must line up.".to_string(),
+                &sources::LOCATING_POSITION,
             )
         };
         out.push(Question {
@@ -526,6 +558,7 @@ fn all_questions(
                   tolerance. In both modes, datums say where the part is measured from."
                 .to_string(),
             basis,
+            source: Some(source),
             ..Question::new(
                 "part.locating".into(),
                 "choice",
@@ -789,12 +822,14 @@ pub(crate) fn part_questions_for(process: &str) -> Vec<Question> {
                     );
                     q.attention = "check";
                     q.reason = q.basis.clone();
+                    q.source = Some(&sources::GENERAL_TOLERANCE_PRINTED);
                 }
             }
             "part.coating" => q.default = Some(Value::from("None")),
             "part.edges" if process == process::SHEET_METAL => {
                 q.default = Some(Value::from(EDGES[2]));
                 q.basis = "Deburring the cut edges is the usual note for sheet metal.".into();
+                q.source = Some(&sources::EDGES_SHEET_METAL);
             }
             _ => {}
         }
@@ -803,20 +838,30 @@ pub(crate) fn part_questions_for(process: &str) -> Vec<Question> {
 }
 
 fn machined_part_questions() -> Vec<Question> {
-    let choice =
-        |id: &str, prompt: &str, default: &str, options: &[&str], why: &str, basis: &str| {
-            Question {
-                default: Some(Value::from(default)),
-                options: options.iter().map(|o| o.to_string()).collect(),
-                why: why.to_string(),
-                basis: basis.to_string(),
-                ..Question::new(id.into(), "choice", prompt.into(), Vec::new())
-            }
-        };
-    let text = |id: &str, prompt: &str, default: Option<&str>, why: &str, suggestions| Question {
+    let choice = |id: &str,
+                  prompt: &str,
+                  default: &str,
+                  options: &[&str],
+                  why: &str,
+                  basis: &str,
+                  source: &'static Rule| Question {
+        default: Some(Value::from(default)),
+        options: options.iter().map(|o| o.to_string()).collect(),
+        why: why.to_string(),
+        basis: basis.to_string(),
+        source: Some(source),
+        ..Question::new(id.into(), "choice", prompt.into(), Vec::new())
+    };
+    let text = |id: &str,
+                prompt: &str,
+                default: Option<&str>,
+                why: &str,
+                suggestions,
+                source: Option<&'static Rule>| Question {
         default: default.map(Value::from),
         why: why.to_string(),
         suggestions,
+        source,
         ..Question::new(id.into(), "text", prompt.into(), Vec::new())
     };
     vec![
@@ -826,6 +871,7 @@ fn machined_part_questions() -> Vec<Question> {
             None,
             "Every drawing states the material; it also decides what tolerances are sensible.",
             materials::suggestions(),
+            None,
         ),
         choice(
             "part.general_tolerance",
@@ -835,6 +881,7 @@ fn machined_part_questions() -> Vec<Question> {
             "Covers every dimension without its own tolerance, so most features need no \
              question.",
             "ISO 2768-m (medium) is the usual general tolerance for machined parts.",
+            &sources::GENERAL_TOLERANCE_MACHINED,
         ),
         choice(
             "part.surface_finish",
@@ -844,6 +891,7 @@ fn machined_part_questions() -> Vec<Question> {
             "Ra 3.2 is ordinary machining; finer costs more. Faces that need better, such as \
              bores and seals, can be given their own.",
             "Ra 3.2 is what ordinary machining gives without extra passes.",
+            &sources::SURFACE_FINISH_MACHINED,
         ),
         text(
             "part.coating",
@@ -851,6 +899,7 @@ fn machined_part_questions() -> Vec<Question> {
             Some("None (as machined)"),
             "A coating changes the size of every face it covers, and the price.",
             materials::suggested(materials::COATINGS),
+            Some(&sources::COATING_NONE),
         ),
         text(
             "part.heat_treatment",
@@ -858,6 +907,7 @@ fn machined_part_questions() -> Vec<Question> {
             Some("None"),
             "Hardening is done after machining, and is written on the drawing.",
             materials::suggested(materials::HEAT_TREATMENTS),
+            Some(&sources::HEAT_TREATMENT_NONE),
         ),
         choice(
             "part.edges",
@@ -866,12 +916,14 @@ fn machined_part_questions() -> Vec<Question> {
             &EDGES,
             "Sharp edges cut hands and chip; a standard note says how far to break them.",
             "Breaking edges to 0.2 is the common standard note.",
+            &sources::EDGES_MACHINED,
         ),
         Question {
             default: Some(Value::Array(Vec::new())),
             why: "Notes about making the part are stored with the model. Drawing-only notes \
                   belong in the drawing specification."
                 .into(),
+            source: Some(&sources::NOTES_NONE),
             ..Question::new(
                 "part.notes".into(),
                 "text_list",
@@ -962,6 +1014,16 @@ fn reviewed(mut q: Question, faces: &Faces) -> Result<Question> {
         q.attention = "refine";
     }
     Ok(q)
+}
+
+/// The source of each answer among `answers` that is its question's default: question ID to
+/// [`Rule::to_json`]. What a person typed that happens to equal the default is traced too, as
+/// the value is still that rule's.
+pub fn answered_sources(qs: &[Question], answers: &Map<String, Value>) -> Map<String, Value> {
+    qs.iter()
+        .filter(|q| q.default.is_some() && answers.get(&q.id) == q.default.as_ref())
+        .filter_map(|q| Some((q.id.clone(), q.source_json()?)))
+        .collect()
 }
 
 /// Unanswered questions that need answers. Full-thread depth is an optional override of

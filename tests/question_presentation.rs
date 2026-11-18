@@ -15,6 +15,7 @@ fn hole_titles_and_characteristics_are_data_not_prompt_readings() {
     assert_eq!(q.title.as_deref(), Some("6× Ø6.6 holes"));
     q.prompt = "A translated question".into();
     let mut expected = q.to_dict();
+    expected["source"] = q.source_json().unwrap();
     expected["title"] = json!("6× Ø6.6 holes");
     assert_eq!(q.to_presented_dict(), expected);
     for (id, characteristic, wire) in [

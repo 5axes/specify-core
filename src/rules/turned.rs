@@ -9,6 +9,7 @@ use super::py::{self, fmt, object, sentence};
 use super::records::{Ctx, DatumKind, Datums, Feature};
 use super::{Characteristic, Error, GENERAL, NONE, Question, Result, invalid};
 use crate::choices;
+use crate::rule_sources as sources;
 use crate::standards::{self, KNURL_PATTERNS, PITCH, SHAFT_FITS};
 
 /// Runout zones offered for a turned diameter, beside none.
@@ -66,6 +67,7 @@ pub(crate) fn turned_question(group: &[&Feature<'_>], ctx: &Ctx<'_>) -> Result<Q
     }
     let mut default = Value::from(GENERAL);
     let (mut basis, mut mate) = (String::new(), String::new());
+    let mut source = &sources::TURNED_GENERAL;
     if let Some(mated) = suggestion(ctx.mates, &on)? {
         let value = mated_value(mated)?;
         if let Value::String(v) = value
@@ -74,6 +76,7 @@ pub(crate) fn turned_question(group: &[&Feature<'_>], ctx: &Ctx<'_>) -> Result<Q
             let reason = mated_reason(mated)?;
             default = value.clone();
             basis = sentence(reason);
+            source = sources::of_mate(v);
             mate = reason.to_string();
         }
     }
@@ -92,6 +95,7 @@ pub(crate) fn turned_question(group: &[&Feature<'_>], ctx: &Ctx<'_>) -> Result<Q
         choices: described,
         diameter: Some(d),
         basis,
+        source: Some(source),
         mate,
         ..Question::new(
             qid,
@@ -171,6 +175,7 @@ pub(crate) fn runout_question(
         title: Some(format!("Turned {times}Ø{}", fmt(d)?)),
         feature: Some(feature.id.to_string()),
         characteristic: Some(Characteristic::Runout),
+        source: Some(&sources::RUNOUT_NONE),
         frame: Some(frame.to_string()),
         parts: parts(group, ctx)?,
         ..Question::new(

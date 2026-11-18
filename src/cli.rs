@@ -147,6 +147,9 @@ when the server stops, unless a call names an answers_file. See docs/mcp.md.")]
         /// matching STEP part for export (required with --resolve-defaults)
         #[arg(long)]
         step: Option<PathBuf>,
+        /// add each default's source: the rule behind it (docs/rule-sources.md)
+        #[arg(long)]
+        sources: bool,
     },
     /// write intent as AP242 PMI
     Write {
@@ -397,6 +400,7 @@ fn run(cmd: Cmd, out: &mut impl Write) -> Result<(), Exit> {
             open,
             resolve_defaults,
             step,
+            sources,
         } => {
             let analysis = read_json(&analysis)?;
             let answers = match answers {
@@ -432,10 +436,10 @@ fn run(cmd: Cmd, out: &mut impl Write) -> Result<(), Exit> {
             let shown: Vec<Value> = if open {
                 rules::open_questions(&qs, &answers)
                     .iter()
-                    .map(|q| q.to_dict())
+                    .map(|q| q.to_dict_with(sources))
                     .collect()
             } else {
-                qs.iter().map(|q| q.to_dict()).collect()
+                qs.iter().map(|q| q.to_dict_with(sources)).collect()
             };
             print(out, &indent1_keeping_non_ascii(&Value::Array(shown)))
         }
