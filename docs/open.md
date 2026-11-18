@@ -1,8 +1,16 @@
 # `specify-core open`: the local app contract
 
-`specify-core open FILE` serves the Specify app, the engine and one STEP file from this
-computer and opens the browser at the app. This page is the contract between the command
-(src/open.rs) and the app (built by specify-ui) that it serves.
+The Specify page serves the Specify app, the engine and one STEP file (two for a diff) from
+this computer on 127.0.0.1 and opens the browser at the app. This page is the contract between
+that page server (src/open.rs) and the app (built by specify-ui) that it serves.
+
+The page server is started in one of two ways, with the same code and the same contract:
+
+- **By an AI agent** (the usual way): Specify is set up once as the agent's stdio MCP server,
+  `specify-core mcp`; the agent opens a part and calls the `show` tool, which starts the page
+  server for that session and returns its address (docs/session.md).
+- **By hand**, with no agent: `specify-core open FILE` or `specify-core open --diff OLD NEW`,
+  below.
 
 ```text
 specify-core open FILE [--read-only | --in-place] [--port N] [--no-browser]
@@ -28,9 +36,10 @@ The run has one of three modes, given to the app as `config.mode`:
 In `diff` mode everything below that speaks of "the file" or `FILE` means `NEW`; `OLD` is
 only read.
 
-The answers being edited live in the command for the run (the *session*, below), not only in
-the page, so that an AI client connected to the same command over MCP sees the page's answers
-and the page sees the AI's as they are made.
+The answers being edited live in the process that serves the page (the *session*, below, and
+docs/session.md), not only in the page: under an agent, the MCP server process, so the agent
+sees the page's answers and the page sees the agent's as they are made. In what follows, "the
+command" is that process: `specify-core open`, or `specify-core mcp` after `show`.
 
 ## Addresses
 
@@ -39,11 +48,10 @@ characters drawn from the operating system's random source for each run. The com
 
 ```text
 Open part.step: http://127.0.0.1:<port>/<token>/
-MCP: http://127.0.0.1:<port>/<token>/mcp
 ```
 
-and opens the browser there (not with `--no-browser`). The second line is the address to give
-an AI client (below). `<token>`
+and opens the browser there (not with `--no-browser`). (Under an agent nothing is printed: the
+`show` tool returns the address, and opens the browser unless asked not to.) `<token>`
 without its trailing slash is redirected (308) to it. The app must use relative URLs only: it is served under the token, never
 at `/`.
 
@@ -61,7 +69,6 @@ at `/`.
 | `GET <token>/diff` | `diff` mode: the revision report, below |
 | `POST <token>/save` | the specified STEP written to disk from the session's answers, below |
 | `POST <token>/closed` | the page went away, below |
-| `POST <token>/mcp` | Specify's MCP server on the session, below (not for the page) |
 
 A query string is ignored, except `rev` on `file`. `file` serves the input as it was opened, or
 as the last `--in-place` save left it. Outside `diff` mode `?rev=old` is 404, and `diff` is 404.
@@ -185,7 +192,8 @@ id: 8
 data: {"rev": 8, "part": 0, "answers": {…}, "source": "page"}
 ```
 
-`source` is `"page"` (a `PUT answers`), `"mcp"` (an MCP tool) or `"start"` (the first event).
+`source` is `"page"` (a `PUT answers`), `"mcp"` (the agent's tools, docs/session.md) or
+`"start"` (the first event).
 Every open page receives every change, its own included (it can skip a `rev` it already has).
 A comment line (`: keep-alive`) is sent every 15 s. A reconnecting `EventSource` gets the full
 current state again; `Last-Event-ID` is ignored. A `save` also sends
@@ -218,32 +226,12 @@ open questions in the session; answering them (page or MCP) changes the session,
 report is not recomputed. Save writes `NEW` (beside it, or over it with `--in-place`) from the
 session's answers.
 
-## MCP on the session
+## The agent's side
 
-The same process serves Specify's MCP server (docs/mcp.md) at `POST <token>/mcp`, using
-Streamable HTTP as `specify-core mcp --http` does, both protocol eras. It is for an AI client
-on this computer, not for the page:
-
-- The run's token authorises it: it is in the path (`<token>/mcp`), and there is no other key.
-  An `Authorization: Bearer` header is not needed; if one is sent it must carry the same token
-  (401 otherwise), so a client configured with a bearer header works too. `Host` must be
-  exactly `127.0.0.1:<port>`, and a request carrying any `Origin` header is refused (403), so
-  no web page, the app's own included, can call it.
-- `--allow` is the directory of `FILE` (and of `OLD` in `diff` mode): tools read and write
-  only there, as `mcp --allow DIR` does.
-- The session's part is already open: a `session` tool (open runs only) returns its document
-  handle (`doc`) for each part, the `mode`, and the names. `open` on the session's file returns
-  the same handles. `questions`, `answer`, `review`, `characteristics`, `read_pmi`,
-  `export_answers` and `write_pmi` on a session handle read and write the session: an `answer`
-  becomes a new `rev` and an `answers` event with `source: "mcp"`, so the page shows it at
-  once; the page's changes are what the next `questions` sees. In `read-only` mode `answer`
-  on the session is a tool error. `answers_file` still works, and also saves to that file.
-- `write_pmi` on a session handle writes where its `output` says (with `overwrite` rules, as
-  in docs/mcp.md); it does not change `saveTarget`. To save as the page does, the AI can ask
-  the person to press Save.
-- Other files opened through MCP work as in `specify-core mcp` and are not part of the session.
-
-MCP requests count as requests for the idle and close timers below.
+Under `specify-core mcp` the agent reads and changes the same session through MCP tools
+(docs/session.md): its answers reach the page as `answers` events with `source: "mcp"`, and
+the page's `PUT answers` are what its next call sees. Its `save` tool writes as the page's Save
+does and sends the same `saved` event.
 
 ### Heartbeat and `closed`
 
@@ -262,6 +250,11 @@ after 30 minutes with no request, printing `Stopped: no request for 30 minutes.`
 (Contract addition, after the first version: the heartbeat, the `!event.persisted` rule and
 the 90 s delay, which was 3 s.)
 
+Under an agent, "the command stops" means the page server stops: the MCP server and its
+session carry on, nothing is printed on stdout (it carries the MCP protocol; notices go to
+stderr), and the agent can call `show` again for a new address. When the MCP server exits, its
+page servers stop with it.
+
 ## Which answers have a body
 
 - A JSON `{"error": "…"}` body (`application/json`), with the extra fields given above: every
@@ -270,7 +263,6 @@ the 90 s delay, which was 3 s.)
   (403).
 - JSON: `config`, `answers`, `diff`, a successful `save` and `PUT answers` (200).
 - `events`: `text/event-stream`, never closed by the command but at exit.
-- `mcp`: as docs/mcp.md says for HTTP.
 - No body (`Content-Length: 0`): `closed` (204), a wrong `Host` (403), a `GET` from another
   origin (403), any other token or path (404), a 404 under the token, a wrong method (405,
   with `Allow`), a request that cannot be read (400), the 308 redirect and 503.
