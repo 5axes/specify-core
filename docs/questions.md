@@ -1,5 +1,28 @@
 # Questions for the maintainer
 
+## Decision (2026-11-18): reopening a file Specify wrote, the PMI is the truth (ADR P9 §3)
+
+Stored answers resume only where the file's PMI agrees; the file's additions are `existing`,
+and a stored answer the file changed or removed is `resume.conflicts: [{id, stored, file}]`
+(`file: null` when removed), with an analysis warning each. Built as described in
+[answers](answers.md#reopening-a-file-specify-wrote-the-pmi-is-the-truth). Decisions made in
+building it:
+
+- **Shape of the question.** `review` (and WASM `review`, MCP `open`/`questions`) adds
+  `conflicts`, only when there are undecided ones: each `{id, kind: "conflict", text, stored,
+  file, choices: [{choice: "keep", label}, {choice: "restore", label, answer}]}`. They are not
+  in `questions` or `open`, so they never block a write; the question they stand for is not
+  asked until decided.
+- **How a decision is recorded.** Restore = answer the question (with `stored`); keep = list
+  the id in the answers' `_specify.keep`. Either decides it. `_specify.keep` is transport
+  metadata and is not stored in the STEP; after the write the file and its answers agree.
+- **What is compared.** The stored answers' preview and, when that disagrees, their plan with
+  every default taken (files written with defaults merge requirements, e.g. one location
+  dimension to a hole and a pattern): an answer resumes when either plan states its
+  requirements as the file does.
+- **Defaults written but not stored** (every file written with accepted defaults before P9's
+  approved defaults) read back as present in `existing`, not open questions and not conflicts.
+
 
 ## Decision (2026-11-02): limit dimensions and combined ISO 2768 classes
 

@@ -653,21 +653,99 @@ fn write_verified(
     let bytes: &[u8] = &first.bytes;
     let original = Source::of(bytes)?;
     let mut scoped = Vec::new();
-    for (loaded, _, _) in jobs {
-        if resume::scoped(&original.doc, loaded.binding.part)
-            && resume::has_answers(loaded).map_err(|e| WriteError::Failed(e.to_string()))?
-        {
-            scoped.push(loaded.binding.part);
+    // ADR P9: a resumed part keeps the file's PMI its stored answers do not explain (what
+    // reopening shows in `existing`), unless the answers now restore a conflict's answer, or
+    // the rewrite states it again. A part with nothing to keep is rewritten as before; one with
+    // something to keep, written before by replace, is rewritten as a scoped Add (its PMI all
+    // Specify's).
+    let mut every = BTreeSet::new();
+    let mut keep = std::collections::BTreeMap::new();
+    let mut reconciled = std::collections::BTreeMap::new();
+    let empty = Map::new();
+    for (loaded, _, answers) in jobs {
+        let part = loaded.binding.part;
+        let resumed =
+            resume::has_answers(loaded).map_err(|e| WriteError::Failed(e.to_string()))?;
+        let kept = if resumed {
+            match crate::api::reconciled(loaded).map_err(|e| WriteError::Failed(e.to_string()))? {
+                Some(r) => {
+                    let kept = r.kept_items(
+                        &original.read.parts[part],
+                        answers.unwrap_or(&empty),
+                        &BTreeSet::new(),
+                    );
+                    reconciled.insert(part, r);
+                    kept
+                }
+                None => BTreeSet::new(),
+            }
+        } else {
+            BTreeSet::new()
+        };
+        if resume::scoped(&original.doc, part) && resumed {
+            scoped.push(part);
+        } else if !kept.is_empty() {
+            scoped.push(part);
+            every.insert(part);
+        }
+        if !kept.is_empty() {
+            keep.insert(part, kept);
         }
     }
-    let cleaned = if scoped.is_empty() {
+    let clean = |scoped: &[usize],
+                 every: &BTreeSet<usize>,
+                 keep: &std::collections::BTreeMap<usize, BTreeSet<(String, usize)>>| {
+        provenance::without_owned_except(&original.doc, &original.read, scoped, every, keep)
+            .map_err(WriteError::Refused)
+            .and_then(|bytes| Source::of(&bytes))
+    };
+    let mut cleaned = if scoped.is_empty() {
         None
     } else {
-        Some(Source::of(
-            &provenance::without_owned(&original.doc, &original.read, &scoped)
-                .map_err(WriteError::Refused)?,
-        )?)
+        Some(clean(&scoped, &every, &keep)?)
     };
+    // What the rewrite states again is not kept beside it: the file's copy gives way.
+    if let Some(first_clean) = &cleaned
+        && !keep.is_empty()
+    {
+        let mut narrowed = keep.clone();
+        for &(loaded, intent, answers) in jobs {
+            let part = loaded.binding.part;
+            let (Some(kept), Some(r)) = (narrowed.get_mut(&part), reconciled.get(&part)) else {
+                continue;
+            };
+            let (planned, _) =
+                part_pmi(loaded, intent, &first_clean.read.parts[part], Mode::Add)?;
+            let restated = resume::truth::restated(&original.read.parts[part], &planned);
+            *kept = r.kept_items(
+                &original.read.parts[part],
+                answers.unwrap_or(&empty),
+                &restated,
+            );
+        }
+        narrowed.retain(|_, kept| !kept.is_empty());
+        if narrowed != keep {
+            keep = narrowed;
+            // A replace-written part left with nothing to keep is rewritten by replace again.
+            let dropped: Vec<usize> = every
+                .iter()
+                .copied()
+                .filter(|part| !keep.contains_key(part))
+                .collect();
+            for part in dropped {
+                every.remove(&part);
+                scoped.retain(|p| *p != part);
+            }
+            cleaned = if scoped.is_empty() {
+                None
+            } else {
+                Some(clean(&scoped, &every, &keep)?)
+            };
+        }
+    }
+    if std::env::var_os("P9_DEBUG").is_some() {
+        eprintln!("P9 keep {keep:?} scoped {scoped:?} every {every:?}");
+    }
     let source = cleaned.as_ref().unwrap_or(&original);
     let failed = |e: crate::features::FeatureError| WriteError::Failed(e.to_string());
 

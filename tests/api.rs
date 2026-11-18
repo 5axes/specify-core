@@ -278,8 +278,18 @@ fn an_assembly_is_written_together_and_again_through_the_service() {
     for k in [PLATE, PIN] {
         let back = api::analyse_file(&out, Some(k)).unwrap();
         assert_eq!(back["resume"], json!({"answers": assembly_answers(k)}));
-        assert_eq!(back["existing"], json!([]));
-        assert_eq!(back["part"], json!({}));
+        // ADR P9: the file's PMI is read on reopening; what the answers explain is not
+        // repeated, the defaults written without being stored are `existing`, never a
+        // requirement the answers state.
+        assert!(
+            back["existing"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|e| e.get("question").is_none()),
+            "{}",
+            back["existing"]
+        );
     }
     // test_written_again_through_the_service_its_pmi_is_replaced
     let again = dir.join("again.step");

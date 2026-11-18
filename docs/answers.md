@@ -132,6 +132,54 @@ are not refused on reopening: the unknown ID is left out of the resumed answers,
 `resume.unresolved` with its value, and named in an analysis warning
 (`saved answer bogus.question: unknown answer ID: …`), so `questions` and `diff` still work.
 
+## Reopening a file Specify wrote: the PMI is the truth
+
+Specify stores the answers it wrote with in the STEP, but they are only a private helper for
+resuming the questions ([ADR P9](https://github.com/pzfreo/draftwright-project/blob/main/adr/P9-pmi-is-the-truth.md)):
+the file's PMI is what any tool reads, and it may have been edited since. On reopening,
+`analyse` reads the file's PMI and part settings first, as for any file, and compares them
+item by item with what the stored answers would write: their preview (defaults left as
+suggestions) and, where defaults merged requirements, their plan with every default taken.
+The comparison is the revision diff's PMI item matching (`revision::against_plan`), every
+face corresponding to itself.
+
+- **Same in both:** the answer resumes (`resume.answers`) and its items are not repeated in
+  `existing`.
+- **Only in the file** (added elsewhere, or a default written without being stored as an
+  answer): in `existing`, present and kept, never a conflict. Its question is not asked
+  where the file's PMI already states it.
+- **Different, or only in the answers (removed in the file):** a conflict,
+  `resume.conflicts: [{id, stored, file}]` (`file` is the file's notation, `null` when the
+  file has none), with an analysis warning each. Until it is decided the file's state is
+  what is shown and what would be written: the file's items stay in `existing`, tagged
+  `question: <id>`; the stored answer is not resumed and the question is not asked.
+
+Part settings (material, general tolerance, finish, coating, heat treatment, edges, notes)
+follow the same rule; a setting in conflict keeps the file's value in `part`.
+
+A conflict is **decided** when the current answers answer its question, or list it in
+`_specify.keep`:
+
+- **Restore:** answer the question with the stored value (`resume.conflicts[].stored`). The
+  file's tagged items give way (they leave `existing` for the rules, and the writer removes
+  them), so the written file has the restored value, not both.
+- **Keep the file's:** add the id to `_specify.keep` (`{"_specify": {"keep": ["hole.position:holes:12"]}}`).
+  Nothing else changes; the file's PMI is written as it is. `_specify.keep` is transport
+  metadata like `_specify.unresolved` and is not stored in the STEP: once written, the file's
+  PMI and its stored answers agree again.
+
+`review` lists the undecided conflicts as questions (`conflicts`, only when there are some),
+each `{id, kind: "conflict", text, stored, file, choices}`, `text` reading "Saved answer H7,
+file says ⌀10 H8. Keep the file's ⌀10 H8, or restore H7?" or "Saved answer 0.05: removed in
+the file. Restore it, or leave it removed?", and `choices` `[{choice: "keep", label},
+{choice: "restore", label, answer}]`. A front end or agent puts them to the person and never
+decides them itself. Conflicts are not `open` questions: they do not block a write.
+
+When the writer rewrites a reopened part, it keeps every item the resumed answers do not
+explain (what `existing` shows) and removes the rest, except a conflict's items when the
+answers restore it. A part written before by replace that has something to keep is
+rewritten as a scoped Add (`pmi_scope`); with nothing to keep the write is as before.
+
 ## Specify metadata
 
 Specify's complete exports and diff answer maps (`answers.json`, `report.answers`, and

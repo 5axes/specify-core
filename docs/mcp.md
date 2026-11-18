@@ -68,9 +68,9 @@ JSON-RPC errors.
 | Tool | Arguments | Result |
 | --- | --- | --- |
 | `list_parts` | `path` | `parts`: `[{part, name, product_id, faces, instances, ...}]`, as `serve`'s `parts` |
-| `open` | `path`, `part?`, `answers_file?`, `overwrite?` | `doc`, `open_questions`, `features` (counts by family), `faces`, `existing_pmi`, `resumed`, `warnings?`. For an assembly opened without `part`, the result is `needs_part: true` with its `parts` |
+| `open` | `path`, `part?`, `answers_file?`, `overwrite?` | `doc`, `open_questions`, `features` (counts by family), `faces`, `existing_pmi`, `resumed`, `conflicts?`, `warnings?`. For an assembly opened without `part`, the result is `needs_part: true` with its `parts` |
 | `questions` | `doc`, `state?` (`open` by default, `answered`, `all`) | each question as review presents it, with its `state` (`open`, `answered`, `optional`) and its `answer`; a default's `source` names the rule behind it ([rule-sources.md](rule-sources.md#rule-ids)) |
-| `answer` | `doc`, `set?: {id: value or text}`, `clear?: [id]`, `answers_file?`, `overwrite?` | each answer as stored, with `interpreted_from` when it was typed, and its `state`; the `open` ids |
+| `answer` | `doc`, `set?: {id: value or text}`, `clear?: [id]`, `keep?: [conflict id]`, `answers_file?`, `overwrite?` | each answer as stored, with `interpreted_from` when it was typed, and its `state`; `kept`; the `open` ids |
 | `review` | `doc` | `open`, `problems`, `writable`/`missing` as answered, `writable_with_defaults`/`missing_with_defaults` |
 | `characteristics` | `doc` | `intent`: the preview, as `serve`'s `preview`; `sources` (question ID to the rule behind each answer that is its question's default) |
 | `read_pmi` | `doc` | `existing` (the file's PMI by face), `part_settings`, `resumed`, `saved_answers?` |
@@ -107,7 +107,12 @@ held **in the server's memory, by handle**, and nothing is written unless you as
   The file is the same answer map `write`, `diff` and the editor read. An existing file that is
   not such a map (any other text or JSON) is refused, and left as it is, unless the call passes
   `overwrite: true`.
-- **Resumed answers.** A file Specify wrote stores its answers, and `open` resumes them.
+- **Resumed answers.** A file Specify wrote stores its answers, and `open` resumes those its
+  PMI agrees with: the PMI is the truth (ADR P9). Where the file's PMI changed or removed what
+  a saved answer states, `open` and `questions` list `conflicts` (`{id, kind: "conflict", text,
+  stored, file, choices}`). The tool descriptions tell an agent to put each to the person and
+  never decide it: restore with `answer` `set: {id: stored}`, keep the file's with `answer`
+  `keep: [id]` (recorded in `_specify.keep`). See [answers](answers.md#reopening-a-file-specify-wrote-the-pmi-is-the-truth).
 - **Stale files.** If the file at the recorded path changes after `open`, every call on the
   document is refused as `stale`. Open the file again, or use `diff` to carry the answers.
 

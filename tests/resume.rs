@@ -507,7 +507,9 @@ fn each_schema_is_checked_against_its_own_fingerprint() {
         fingerprint(&loaded).unwrap(),
     );
     let mut payload = Value::Object(stored(text.as_bytes()).remove(&0).unwrap());
-    payload["answers"]["datum.A"] = json!([0]);
+    // The datum the file's PMI states (its default, written): ADR P9 resumes an answer only
+    // where the PMI agrees, and a datum on another face would be a conflict.
+    payload["answers"]["datum.A"] = json!([2]);
     for (schema, faces, resumes, verified) in [
         (1, &v1, true, true),
         (1, &v2, true, false),
@@ -528,7 +530,7 @@ fn each_schema_is_checked_against_its_own_fingerprint() {
         assert_eq!(resume.is_object(), resumes, "schema {schema}: {resume}");
         if resumes {
             // Verified or matched by ID, the datum is applied.
-            assert_eq!(resume["answers"]["datum.A"], json!([0]));
+            assert_eq!(resume["answers"]["datum.A"], json!([2]));
             assert!(resume["unresolved"].is_null(), "schema {schema}: {resume}");
             assert_eq!(resume["answers"]["part.material"], "steel");
         }

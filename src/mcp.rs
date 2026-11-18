@@ -746,6 +746,10 @@ impl Server {
         );
         out.insert("answered".into(), json!(doc.answers.len()));
         out.insert("open_questions".into(), json!(open));
+        let conflicts = conflict_questions(&doc.analysis, &doc.answers);
+        if !conflicts.is_empty() {
+            out.insert("conflicts".into(), json!(conflicts));
+        }
         if let Some(f) = &doc.answers_file {
             out.insert("answers_file".into(), json!(f));
         }
@@ -798,13 +802,18 @@ impl Server {
             }
             shown.push(value);
         }
-        Ok(json!({
+        let mut out = json!({
             "doc": handle,
             "state": wanted,
             "questions": shown,
             "open": open,
             "counts": counts,
-        }))
+        });
+        let conflicts = conflict_questions(&doc.analysis, &doc.answers);
+        if !conflicts.is_empty() {
+            out["conflicts"] = json!(conflicts);
+        }
+        Ok(out)
     }
 
     fn answer(&mut self, args: &Map<String, Value>) -> ToolResult {
@@ -838,9 +847,49 @@ impl Server {
             ),
             None => None,
         };
+        let keep: Vec<String> = match args.get("keep") {
+            None | Some(Value::Null) => Vec::new(),
+            Some(Value::Array(items)) => items
+                .iter()
+                .map(|v| {
+                    v.as_str()
+                        .map(str::to_string)
+                        .ok_or_else(|| ToolError::invalid("keep is a list of conflict ids"))
+                })
+                .collect::<Result<_, _>>()?,
+            Some(_) => return Err(ToolError::invalid("keep is a list of conflict ids")),
+        };
         let mut trial = doc.answers.clone();
         for id in &clear {
             trial.remove(id);
+        }
+        // ADR P9: keeping the file's PMI over a saved answer is recorded in `_specify.keep`.
+        if !keep.is_empty() {
+            let conflicts = crate::resume::truth::conflict_ids(&doc.analysis);
+            if let Some(id) = keep.iter().find(|id| !conflicts.contains(id.as_str())) {
+                return Err(ToolError::invalid(format!("{id} is not a conflict of this document"))
+                    .with("question", json!(id)));
+            }
+            let meta = trial
+                .entry(crate::answer_file::META)
+                .or_insert_with(|| json!({}));
+            if !meta.is_object() {
+                return Err(ToolError::invalid("_specify must be an object"));
+            }
+            let list = meta
+                .as_object_mut()
+                .expect("checked")
+                .entry(crate::resume::truth::KEEP)
+                .or_insert_with(|| json!([]));
+            let Some(list) = list.as_array_mut() else {
+                return Err(ToolError::invalid("_specify.keep must list question IDs"));
+            };
+            for id in &keep {
+                if !list.iter().any(|k| k == id) {
+                    list.push(json!(id));
+                }
+            }
+            api::review(&doc.analysis, &trial)?;
         }
         let mut changed = Vec::new();
         for (id, given) in &set {
@@ -905,6 +954,9 @@ impl Server {
         out.insert("doc".into(), json!(handle));
         out.insert("set".into(), json!(changed));
         out.insert("cleared".into(), json!(clear));
+        if !keep.is_empty() {
+            out.insert("kept".into(), json!(keep));
+        }
         out.insert("open".into(), json!(open));
         if let Some(f) = &doc.answers_file {
             out.insert("answers_file".into(), json!(f));
@@ -1363,6 +1415,21 @@ const TOOL_NAMES: [&str; 10] = [
     "diff",
 ];
 
+/// ADR P9: the reopened file's undecided conflicts with its stored answers, as questions.
+fn conflict_questions(analysis: &Value, answers: &Map<String, Value>) -> Vec<Value> {
+    crate::resume::truth::open_conflicts(analysis, answers)
+        .iter()
+        .map(crate::resume::truth::question)
+        .collect()
+}
+
+/// How an agent treats conflicts, in the tool descriptions.
+const CONFLICT_RULE: &str = "A file Specify wrote may have been edited since: where its PMI \
+     contradicts a saved answer, the PMI stands and the conflict is listed in conflicts (id, \
+     text, stored, file, choices keep/restore). An agent must put each conflict to the person \
+     and never decide it itself: restore = answer the question id with the stored value; \
+     keep = add the id to the answers' _specify.keep list.";
+
 const MEMORY_RULE: &str = "Documents and their answers are held in this server's memory and \
 are lost when the server restarts, unless an answers_file was given; an unknown doc means open \
 the file again.";
@@ -1440,7 +1507,7 @@ pub fn tools() -> Vec<Value> {
         json!({
             "name": "open",
             "title": "Open a part to specify",
-            "description": format!("Analyse one part of a STEP file (recognise its features, read its existing PMI) and return a document handle `doc` for the other tools, with the open questions. An assembly opened without `part` returns its parts and needs_part: true; call again with `part`. A file Specify wrote resumes its stored answers. {MEMORY_RULE} With answers_file, answers are read from that JSON file if it exists and every change is saved to it."),
+            "description": format!("Analyse one part of a STEP file (recognise its features, read its existing PMI) and return a document handle `doc` for the other tools, with the open questions. An assembly opened without `part` returns its parts and needs_part: true; call again with `part`. A file Specify wrote resumes its stored answers where its PMI agrees. {CONFLICT_RULE} {MEMORY_RULE} With answers_file, answers are read from that JSON file if it exists and every change is saved to it."),
             "inputSchema": input(json!({
                 "path": {"type": "string", "description": "A .step/.stp file (or gzipped) inside the server's allowed directories."},
                 "part": {"type": "integer", "minimum": 0, "description": "Which part of an assembly (see list_parts)."},
@@ -1458,6 +1525,7 @@ pub fn tools() -> Vec<Value> {
                 "resumed": {"type": "boolean"},
                 "answered": {"type": "integer"},
                 "open_questions": strings(),
+                "conflicts": {"type": "array", "items": {"type": "object"}, "description": "Saved answers the file's PMI contradicts, undecided: ask the person."},
                 "answers_file": {"type": "string"},
                 "warnings": strings(),
                 "resources": strings(),
@@ -1470,7 +1538,7 @@ pub fn tools() -> Vec<Value> {
         json!({
             "name": "questions",
             "title": "List the questions",
-            "description": format!("The questions Specify asks about the open document, given the answers so far: id, kind (choice, text, text_list, faces), prompt, default, why, options/choices, faces, attention, reason, basis and source (the rule behind the default: rule id, kind standard/convention/vendor/assumption, and the standards it cites), and state (open, answered, or optional: a suggestion never required). state selects which (default open). {MEMORY_RULE}"),
+            "description": format!("The questions Specify asks about the open document, given the answers so far: id, kind (choice, text, text_list, faces), prompt, default, why, options/choices, faces, attention, reason, basis and source (the rule behind the default: rule id, kind standard/convention/vendor/assumption, and the standards it cites), and state (open, answered, or optional: a suggestion never required). state selects which (default open). {CONFLICT_RULE} {MEMORY_RULE}"),
             "inputSchema": input(json!({
                 "doc": doc(),
                 "state": {"type": "string", "enum": ["open", "answered", "all"], "description": "Which questions (default open)."}
@@ -1480,18 +1548,20 @@ pub fn tools() -> Vec<Value> {
                 "state": {"type": "string"},
                 "questions": {"type": "array", "items": {"type": "object", "properties": {"source": source_schema()}}},
                 "open": strings(),
-                "counts": {"type": "object"}
+                "counts": {"type": "object"},
+                "conflicts": {"type": "array", "items": {"type": "object"}, "description": "Saved answers the file's PMI contradicts, undecided: ask the person."}
             }), &["doc", "questions", "open"]),
             "annotations": {"readOnlyHint": true, "openWorldHint": false},
         }),
         json!({
             "name": "answer",
             "title": "Answer questions",
-            "description": format!("Set or clear answers on the open document. set maps question id to answer: a choice question takes one of its options or free text Specify interprets (\"M6\" for a hole, \"H7\" for a bore, \"6061-T6\" for material); a faces question takes a list of face indices; text questions take text. Answers are applied in order and all-or-nothing: a refused answer is an error naming the question and nothing changes. {MEMORY_RULE} answers_file also saves them to that JSON file from now on."),
+            "description": format!("Set or clear answers on the open document. set maps question id to answer: a choice question takes one of its options or free text Specify interprets (\"M6\" for a hole, \"H7\" for a bore, \"6061-T6\" for material); a faces question takes a list of face indices; text questions take text. Answers are applied in order and all-or-nothing: a refused answer is an error naming the question and nothing changes. A conflict (see questions) is decided only as the person says: restore by setting its id to its stored value, keep the file's PMI by listing its id in keep. {MEMORY_RULE} answers_file also saves them to that JSON file from now on."),
             "inputSchema": input(json!({
                 "doc": doc(),
                 "set": {"type": "object", "description": "Question id to answer.", "additionalProperties": true},
                 "clear": {"type": "array", "items": {"type": "string"}, "description": "Question ids whose answers to remove."},
+                "keep": {"type": "array", "items": {"type": "string"}, "description": "Conflict ids the person decided to keep the file's PMI for (recorded in _specify.keep)."},
                 "answers_file": {"type": "string", "description": "Optional .json file to keep the answers in. An existing file that is not an answers map is refused unless overwrite is true."},
                 "overwrite": {"type": "boolean", "description": "Replace an existing answers_file that is not an answers map."}
             }), &["doc"]),
@@ -1499,6 +1569,7 @@ pub fn tools() -> Vec<Value> {
                 "doc": {"type": "string"},
                 "set": {"type": "array", "items": {"type": "object"}},
                 "cleared": strings(),
+                "kept": strings(),
                 "open": strings(),
                 "answers_file": {"type": "string"}
             }), &["doc", "set", "open"]),

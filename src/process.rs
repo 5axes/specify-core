@@ -424,6 +424,7 @@ pub fn of(
     analysis: &Value,
     answers: &Map<String, Value>,
 ) -> Result<Option<Field>, crate::rules::Error> {
+    let analysis = &*crate::resume::truth::restored(analysis, answers);
     let ctx = Ctx::new(analysis)?;
     if !applies(&ctx, answers) {
         return Ok(None);

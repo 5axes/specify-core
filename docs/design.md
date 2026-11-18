@@ -165,7 +165,7 @@ except where a hash is taken (resume fingerprint, `pyjson.rs`).
 - `Binding { source_sha256, face_count, loader_version: 2, part }`.
 - Analysis (`schema` 1): `{schema, binding, faces: [Face], features: [Feature], dimensioning, mates?,
   existing: [ExistingPmi], part: {material?, general_tolerance?, surface_finish?, coating?,
-  heat_treatment?, edges?}, resume?: {answers}}`. `Face { id, kind: plane|cylinder|cone|torus|
+  heat_treatment?, edges?}, resume?: {answers, conflicts?}}` (ExistingPmi `question?` on a conflict's items). `Face { id, kind: plane|cylinder|cone|torus|
   other, area, centroid, direction?, origin?, radius?, contact? }`. `Feature { id, family, record
   (JSON object), faces, members?, notes?, description? }`. Analysis snapshots add plain
   `description` text for turned bodies, face grooves, cylindrical profiles and concave
@@ -425,7 +425,10 @@ usual questions, and retains every entity byte. A mixed rewrite still uses Add: 
 only marked Specify requirements through the kernel removal planner, then append the edited
 intent and saved answers. Foreign dependencies, including shared features and datums, are
 protected. Specify's numbers survive value edits; foreign numbers reserve their values.
-Legacy resumed payloads without `pmi_scope` still use Replace. Old Add-mode files without
+Legacy resumed payloads without `pmi_scope` still use Replace when the file's PMI is all
+their answers'; reopening compares the PMI with the answers (ADR P9, [answers](answers.md#reopening-a-file-specify-wrote-the-pmi-is-the-truth)),
+and a part whose PMI holds items the answers do not explain is rewritten as a scoped Add
+that keeps them. Old Add-mode files without
 stored answers still open as existing PMI. A marker alone grants no deletion permission.
 One assembly part may be written alone, leaving the others byte for byte (D3); parts in a
 combined write may use different modes. Assemblies with foreign PMI are supported (Q6).

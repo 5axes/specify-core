@@ -536,6 +536,46 @@ fn compare(
     new_features: &[Feature],
     carried_numbers: bool,
 ) -> Vec<PmiItemChange> {
+    let pairs = pair(old, new, faces, carried_numbers);
+    let used: BTreeSet<usize> = pairs.values().copied().collect();
+    compare_paired(
+        old,
+        new,
+        faces,
+        (old_features, new_features),
+        carried_numbers,
+        (&pairs, &used),
+    )
+}
+
+// Whether a paired requirement is unchanged: the same notation, cells, semantic fields and
+// (mapped) support.
+fn same(was: &Item, now: &Item, faces: &BTreeMap<usize, Bind>) -> bool {
+    was.text == now.text && was.cells == now.cells && was.semantic == now.semantic && !support_changed(was, now, faces)
+}
+
+fn support_changed(was: &Item, now: &Item, faces: &BTreeMap<usize, Bind>) -> bool {
+    was.faces
+        .iter()
+        .map(|face| match faces.get(face) {
+            Some(Bind::To(face)) => Some(*face),
+            _ => None,
+        })
+        .collect::<Option<Vec<_>>>()
+        .is_some_and(|mut mapped| {
+            mapped.sort_unstable();
+            mapped.dedup();
+            mapped != now.faces
+        })
+}
+
+// Old requirement index → new requirement index, strongest evidence first.
+fn pair(
+    old: &[Item],
+    new: &[Item],
+    faces: &BTreeMap<usize, Bind>,
+    carried_numbers: bool,
+) -> BTreeMap<usize, usize> {
     let mut pairs = BTreeMap::new();
     let mut used = BTreeSet::new();
     // Complete each stronger pass before any weaker match can consume its candidate.
@@ -642,6 +682,17 @@ fn compare(
             }
         }
     }
+    pairs
+}
+
+fn compare_paired(
+    old: &[Item],
+    new: &[Item],
+    faces: &BTreeMap<usize, Bind>,
+    (old_features, new_features): (&[Feature], &[Feature]),
+    carried_numbers: bool,
+    (pairs, used): (&BTreeMap<usize, usize>, &BTreeSet<usize>),
+) -> Vec<PmiItemChange> {
     let change = |class: &str, was: Option<&Item>, now: Option<&Item>, reason: Option<String>| {
         let Some(item) = now.or(was) else {
             unreachable!("a change has an item")
@@ -686,24 +737,8 @@ fn compare(
     for (i, was) in old.iter().enumerate() {
         if let Some(&j) = pairs.get(&i) {
             let now = &new[j];
-            let support_changed = was
-                .faces
-                .iter()
-                .map(|face| match faces.get(face) {
-                    Some(Bind::To(face)) => Some(*face),
-                    _ => None,
-                })
-                .collect::<Option<Vec<_>>>()
-                .is_some_and(|mut mapped| {
-                    mapped.sort_unstable();
-                    mapped.dedup();
-                    mapped != now.faces
-                });
-            if was.text != now.text
-                || was.cells != now.cells
-                || was.semantic != now.semantic
-                || support_changed
-            {
+            let support_changed = support_changed(was, now, faces);
+            if !same(was, now, faces) {
                 let reason = (was.text == now.text).then(|| {
                     if support_changed {
                         "support changed".into()
@@ -750,6 +785,85 @@ fn compare(
         ))
     });
     result
+}
+
+/// A reopened file's requirements against what its stored answers would write (ADR P9): the
+/// same item comparison as a revision, with every face corresponding to itself.
+#[derive(Debug, Default)]
+pub(crate) struct PlanTruth {
+    /// File scene ids the stored answers explain: an answered (or general-tolerance)
+    /// requirement of the plan, unchanged in the file.
+    pub explained: BTreeSet<String>,
+    /// Answered questions whose requirement the file changed or removed: the file's
+    /// requirements for it (scene id, notation), none when it was removed in the file.
+    pub conflicts: BTreeMap<String, Vec<(String, String)>>,
+}
+
+/// Compare the plan of the stored answers (`plan`, a comparison scene) with the file's own
+/// comparison scene (`file`) of a part with `face_count` faces.
+/// A requirement is the answers' only when its question is answered in `stored`: a plan made
+/// with defaults taken marks their requirements answered too.
+pub(crate) fn against_plan(
+    plan: &Value,
+    file: &Value,
+    face_count: usize,
+    stored: &Map<String, Value>,
+) -> PlanTruth {
+    let faces: BTreeMap<usize, Bind> = (0..face_count).map(|i| (i, Bind::To(i))).collect();
+    let planned = items(plan);
+    let actual = items(file);
+    let pairs = pair(&planned, &actual, &faces, false);
+    let mut truth = PlanTruth::default();
+    let mut differs = BTreeSet::new();
+    for (i, was) in planned.iter().enumerate() {
+        let meta = &plan["specify"][&was.id];
+        let paired = pairs.get(&i).map(|&j| &actual[j]);
+        // The plan's `existing` rows echo the file; a default contributes no PMI to a plan.
+        let answered = was.status == "answered"
+            && meta["question"]
+                .as_str()
+                .is_some_and(|q| stored.contains_key(q));
+        match (was.status.as_str(), answered) {
+            ("answered", true) | ("general", _) => {
+                let question = meta["question"].as_str().filter(|_| answered);
+                match (paired, question) {
+                    (Some(now), _) if same(was, now, &faces) => {
+                        truth.explained.insert(now.id.clone());
+                    }
+                    (now, Some(question)) => {
+                        differs.insert(question.to_string());
+                        let file = truth.conflicts.entry(question.to_string()).or_default();
+                        if let Some(now) = now {
+                            file.push((now.id.clone(), now.text.clone()));
+                        }
+                    }
+                    // A general-tolerance dimension the file changed is the file's.
+                    (_, None) => {}
+                }
+            }
+            _ => {}
+        }
+    }
+    // A question with any requirement changed is decided whole: its unchanged requirements
+    // are the file's too until then.
+    for (i, was) in planned.iter().enumerate() {
+        let Some(question) = plan["specify"][&was.id]["question"].as_str() else {
+            continue;
+        };
+        if was.status == "answered"
+            && stored.contains_key(question)
+            && differs.contains(question)
+            && let Some(&j) = pairs.get(&i)
+            && truth.explained.remove(&actual[j].id)
+        {
+            truth
+                .conflicts
+                .entry(question.to_string())
+                .or_default()
+                .push((actual[j].id.clone(), actual[j].text.clone()));
+        }
+    }
+    truth
 }
 
 /// The plans' changes that the files' comparison lacks (by id or number), each saying it comes

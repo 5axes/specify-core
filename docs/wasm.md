@@ -116,7 +116,7 @@ All structured inputs and outputs are **JSON strings**, except the constructor's
 | `IntentEngine.openPart(name, bytes, part)` | Opens part `part` (an index from `parts`) of any file: an assembly's part, or a part placed more than once. See "Assemblies" below. Part 0 of a file of one part used once opens exactly as the constructor opens it. |
 | `IntentEngine.bom(bytes)` | The file's BOM rows as JSON, one per distinct part, as `specify-core bom` gives them: each field `{value, source}`. Reading never accepts suggestions or allocates numbers. See [BOM](bom.md). |
 | `engine.snapshot(max_deviation_mm?)` | `{analysis, mesh, provenance: {source_sha256, face_entities, part}}`; `part` is the part opened (0 from the constructor). |
-| `engine.review(answersJson)` | `{questions, open, intent, sources, problems}`; adds geometry anchors to `intent.anchors`. |
+| `engine.review(answersJson)` | `{questions, open, intent, sources, problems, conflicts?}`; adds geometry anchors to `intent.anchors`. `conflicts` (only when there are some) are a reopened file's undecided conflicts with its stored answers, each `{id, kind: "conflict", text, stored, file, choices}`; see "Reopening a file Specify wrote" below. |
 | `engine.exportAnswers(answersJson)` | Complete answer map as a JSON string: every accepted PMI default explicit, plus `_specify.evidence`, empty `_specify.unresolved` and `_specify.sources` (each answered default's rule source; see [rule sources](rule-sources.md)). Refuses unanswered required questions, carry blocks and stale evidence. Recursively sorts object keys; preserves array order. Does not write or mutate the session. Save with `JSON.stringify(JSON.parse(result), null, 2) + "\n"`. Accepted directly by review, writePmi and diff. See [answer files](answers.md). |
 | `engine.acceptDefaults(answersJson)` | Answers object with every unanswered default filled to a fixed point, using the same rules as CLI/serve `accept_defaults`. Preserves supplied answers; questions without defaults stay unanswered. |
 | `engine.writePmi(answersJson, projectBase64?, payloadJson?, bom?)` | `{bytes, source_sha256, report}`; `bytes` is an array of byte values. Writes and verifies answered PMI and stored answers in memory. Unanswered defaults remain suggestions. `report` is the upstream writer's report; its `output` is the constructor's name. `payloadJson` is `{name, value}`: any JSON value carried in the STEP under `name` (give the project or a payload, not both; see below). |
@@ -692,3 +692,21 @@ Specify passes the field through but does not yet accept a source-presentation c
 Add preserves original entities in the kernel. It can add a separate datum feature
 on a kept carrier; an upgrade requiring original-entity repairs instead fails with
 ids and repair details. Specify never automatically retries a refused Add with Replace.
+
+## Reopening a file Specify wrote
+
+On reopening, the PMI is the truth (ADR P9; [answers](answers.md#reopening-a-file-specify-wrote-the-pmi-is-the-truth)).
+`snapshot().analysis` reads the file's PMI first: `resume.answers` holds only the stored
+answers the file agrees with, `existing` the file's PMI they do not explain, and
+`resume.conflicts: [{id, stored, file}]` the stored answers the file changed (`file`, its
+notation) or removed (`file: null`). `review` presents the undecided ones as `conflicts`,
+`{id, kind: "conflict", text, stored, file, choices: [{choice: "keep", label}, {choice:
+"restore", label, answer}]}`. The page asks the person; it never decides for them:
+
+- **Restore:** set `answers[id] = conflict.stored` (the choice's `answer`). `writePmi` then
+  writes the stored value and not the file's.
+- **Keep the file's:** add `id` to `answers._specify.keep` (a list of ids). `writePmi`
+  writes the file's PMI as it is.
+
+The conflict's question is not in `questions` or `open` until decided, and an undecided
+conflict never blocks `writePmi`: the file's state is what is written.

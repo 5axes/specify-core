@@ -26,6 +26,7 @@
 //! Specify provenance without saved answers and still open as existing PMI.
 
 pub(crate) mod names;
+pub mod truth;
 
 use std::collections::{BTreeMap, BTreeSet};
 

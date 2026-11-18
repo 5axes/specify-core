@@ -1,7 +1,7 @@
 //! Specify's STEP-only authorship contract; see docs/pmi-provenance.md.
 use haecceity::p21::{Attribute, Document, Edit, RawEntity};
 use haecceity::pmi::{PartPmi, PartProvenance};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 pub const MARKER: &str = "specify-core:written:v1";
 
@@ -210,11 +210,29 @@ pub(crate) fn without_owned(
     read: &haecceity::pmi::PmiRead,
     parts: &[usize],
 ) -> Result<Vec<u8>, String> {
+    without_owned_except(doc, read, parts, &BTreeSet::new(), &BTreeMap::new())
+}
+
+/// [`without_owned`], keeping the items `keep` names for each part (by haecceity collection
+/// and index: a reopened file's PMI its answers do not explain, ADR P9), and treating every
+/// requirement of the parts in `all` as owned, marked or not (a file Specify wrote before it
+/// marked its requirements, whose PMI is all its answers').
+pub(crate) fn without_owned_except(
+    doc: &Document,
+    read: &haecceity::pmi::PmiRead,
+    parts: &[usize],
+    all: &BTreeSet<usize>,
+    keep: &BTreeMap<usize, BTreeSet<(String, usize)>>,
+) -> Result<Vec<u8>, String> {
     let mut seeds = BTreeSet::new();
     let mut protected = BTreeSet::new();
+    let none = BTreeSet::new();
     for &part in parts {
         let p = &read.parts[part];
         let prov = &read.provenance.parts[part];
+        let kept = keep.get(&part).unwrap_or(&none);
+        let every = all.contains(&part);
+        let kept_at = |collection: &str, i: usize| kept.contains(&(collection.to_string(), i));
         let mut classified = BTreeSet::<u64>::new();
         let mut classify = |ids: &[u64], owned: bool| {
             classified.extend(ids);
@@ -224,26 +242,49 @@ pub(crate) fn without_owned(
                 protected.extend(ids);
             }
         };
-        for ids in &prov.dimensions {
-            classify(ids, dimension(doc, ids));
+        for (i, ids) in prov.dimensions.iter().enumerate() {
+            classify(
+                ids,
+                !kept_at("dimensions", i) && (every || dimension(doc, ids)),
+            );
         }
         for (i, ids) in prov.tolerances.iter().enumerate() {
-            classify(ids, p.tolerances[i].description.as_deref() == Some(MARKER));
+            classify(
+                ids,
+                !kept_at("tolerances", i)
+                    && (every || p.tolerances[i].description.as_deref() == Some(MARKER)),
+            );
         }
-        for (items, kind) in [
-            (&prov.features, "feature"),
-            (&prov.datums, "datum"),
-            (&prov.general, "general"),
-            (&prov.threads, "thread"),
-            (&prov.knurls, "knurl"),
-            (&prov.surface_textures, "surface texture"),
-            (&prov.attributes, "attribute"),
+        for (items, kind, collection) in [
+            (&prov.features, "feature", "features"),
+            (&prov.datums, "datum", "datums"),
+            (&prov.general, "general", "general"),
+            (&prov.threads, "thread", "threads"),
+            (&prov.knurls, "knurl", "knurls"),
+            (&prov.surface_textures, "surface texture", "surface_textures"),
+            (&prov.attributes, "attribute", "attributes"),
         ] {
-            for ids in items {
-                classify(ids, marked(doc, ids, kind));
+            for (i, ids) in items.iter().enumerate() {
+                classify(
+                    ids,
+                    !kept_at(collection, i) && (every || marked(doc, ids, kind)),
+                );
             }
         }
-        classify(&prov.material, marked(doc, &prov.material, "material"));
+        if every {
+            for (items, collection) in [
+                (&prov.notes, "notes"),
+                (&prov.datum_targets, "datum_targets"),
+            ] {
+                for (i, ids) in items.iter().enumerate() {
+                    classify(ids, !kept_at(collection, i));
+                }
+            }
+        }
+        classify(
+            &prov.material,
+            !kept_at("material", 0) && (every || marked(doc, &prov.material, "material")),
+        );
         protected.extend(prov.all().into_iter().filter(|id| !classified.contains(id)));
         protected.extend(prov.geometry.iter().flatten());
     }
