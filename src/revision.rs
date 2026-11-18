@@ -1700,6 +1700,158 @@ fn refuse_unfit(
     }
 }
 
+/// What `specify-core diff OLD NEW [--part K]` compares, with the parts it loaded (for its
+/// picture): one part of each file, or, with no part chosen and a file of several parts (or of a
+/// part placed other than once), the two assemblies part by part. The command line's `diff`,
+/// MCP's `diff` and `open` and the page's diff session all compare through [`compare`], so they
+/// cannot disagree.
+pub enum Comparison {
+    Part {
+        before: Box<LoadedPart>,
+        after: Box<LoadedPart>,
+        revised: Box<Revised>,
+    },
+    Assembly {
+        before: Vec<LoadedPart>,
+        after: Vec<LoadedPart>,
+        compared: assembly::Assembly,
+    },
+}
+
+impl Comparison {
+    pub fn verdict(&self) -> &str {
+        match self {
+            Comparison::Part { revised, .. } => &revised.verdict,
+            Comparison::Assembly { compared, .. } => &compared.verdict,
+        }
+    }
+
+    pub fn summary(&self) -> &str {
+        match self {
+            Comparison::Part { revised, .. } => &revised.summary,
+            Comparison::Assembly { compared, .. } => &compared.summary,
+        }
+    }
+
+    /// `diff`'s `report.json`.
+    pub fn report(&self) -> Value {
+        match self {
+            Comparison::Part { revised, .. } => serde_json::to_value(revised),
+            Comparison::Assembly { compared, .. } => serde_json::to_value(compared),
+        }
+        .expect("a revision report serialises")
+    }
+
+    /// `diff`'s `answers.json`: a part's answers, or an assembly's by part name.
+    pub fn answers(&self) -> Map<String, Value> {
+        match self {
+            Comparison::Part { revised, .. } => revised.answers.clone(),
+            Comparison::Assembly { compared, .. } => compared.answers(),
+        }
+    }
+
+    /// What a viewer needs to show the comparison without comparing again, as WASM `diff()`
+    /// returns it: [`part_diff`] or [`assembly_diff`], the Markdown headed `title`.
+    pub fn diff_json(&self, title: &str) -> Value {
+        match self {
+            Comparison::Part {
+                before,
+                after,
+                revised,
+            } => part_diff(before, after, revised, title),
+            Comparison::Assembly {
+                before,
+                after,
+                compared,
+            } => assembly_diff(before, after, compared, title),
+        }
+    }
+
+    /// The carried answers by the new file's part index.
+    pub fn answers_by_part(&self) -> BTreeMap<usize, Map<String, Value>> {
+        match self {
+            Comparison::Part { after, revised, .. } => {
+                BTreeMap::from([(after.binding.part, revised.answers.clone())])
+            }
+            Comparison::Assembly { compared, .. } => compared.answers_by_part(),
+        }
+    }
+}
+
+/// Two revisions of a part compared, for a viewer: `{report, markdown, view}`, the report as
+/// `report.json` holds it, as Markdown headed `title` (with no picture), and what a viewer
+/// needs to draw the change ([`view`]). WASM `diff()` and the page's `GET diff` give it.
+pub fn part_diff(before: &LoadedPart, after: &LoadedPart, revised: &Revised, title: &str) -> Value {
+    serde_json::json!({
+        "report": serde_json::to_value(revised).expect("a revision report serialises"),
+        "markdown": revised.markdown(title, None),
+        "view": view(before, after, revised),
+    })
+}
+
+/// Two revisions of an assembly compared part by part, for a viewer: `{report, markdown,
+/// parts}`, the assembly's report and Markdown, and each part's `{name, status, old, new}`
+/// with its `report` when it is in both files, and its `markdown` (headed `#### name`) and
+/// `view` when it changed, shaped as [`part_diff`]'s.
+pub fn assembly_diff(
+    before: &[LoadedPart],
+    after: &[LoadedPart],
+    compared: &assembly::Assembly,
+    title: &str,
+) -> Value {
+    let parts: Vec<Value> = compared
+        .parts
+        .iter()
+        .map(|p| {
+            let mut row =
+                serde_json::json!({"name": p.name, "status": p.status, "old": p.old, "new": p.new});
+            if let Some(r) = &p.revised {
+                row["report"] = serde_json::to_value(r).expect("a revision report serialises");
+                if let ("changed", Some(o), Some(n)) = (p.status, &p.old, &p.new) {
+                    row["markdown"] = r
+                        .markdown_headed(&format!("#### {}", p.name), None, None)
+                        .into();
+                    row["view"] = view(&before[o.part], &after[n.part], r);
+                }
+            }
+            row
+        })
+        .collect();
+    serde_json::json!({
+        "report": serde_json::to_value(compared).expect("an assembly report serialises"),
+        "markdown": compared.markdown(title, None, None),
+        "parts": parts,
+    })
+}
+
+/// `diff OLD NEW`: part `part` of each file, or with none, the files' only parts, or their
+/// assemblies part by part (see [`Comparison`]). The old answers are `given`, or else those
+/// stored in OLD. The caller checks that both files have part `part`.
+pub fn compare(
+    old: &crate::part::File,
+    new: &crate::part::File,
+    part: Option<usize>,
+    given: &Map<String, Value>,
+    options: DiffOptions,
+) -> Result<Comparison> {
+    if part.is_none() && (assembly::is_assembly(old) || assembly::is_assembly(new)) {
+        let (before, after) = (old.load_all()?, new.load_all()?);
+        let compared = assembly::diff_with_options(&before, &after, given, options)?;
+        return Ok(Comparison::Assembly {
+            before,
+            after,
+            compared,
+        });
+    }
+    let (before, after) = (old.load(part)?, new.load(part)?);
+    let revised = diff_with_options(&before, &after, given, options)?;
+    Ok(Comparison::Part {
+        before: Box::new(before),
+        after: Box::new(after),
+        revised: Box::new(revised),
+    })
+}
+
 /// Carry *answers* (and *automatic*, the IDs the default path answered) from *old* to *new*.
 pub fn diff(old: &LoadedPart, new: &LoadedPart, given: &Map<String, Value>) -> Result<Revised> {
     diff_with_options(old, new, given, DiffOptions::default())

@@ -19,6 +19,27 @@ All notable changes to specify-core-rust. The format follows
   `characteristics` give `sources` beside the preview intent, and answer exports `_specify.sources`.
   Additive: `Question::to_dict`, intents written and the STEP are unchanged. Rule ids are
   listed in docs/rule-sources.md (for #196).
+- Agent-first Specify sessions (docs/session.md): `specify-core mcp` holds each opened file's
+  answers as a session with a `rev` and its last 256 changes, and its new `show` tool serves the
+  Specify page (docs/open.md) for that session on 127.0.0.1 and opens the browser, so the agent
+  and the person edit one set of answers. New MCP tools `changes` (what changed since a `rev`),
+  `show` and `save` (the specified STEP written beside the file, or over it when opened
+  `in_place`; `accept_defaults` required, the defaults the person approved with the values they saw). `open` takes `old`, `old_answers` and `in_place`,
+  and with `old` compares the revisions as `diff` does and starts from the carried answers;
+  every tool that reads the answers returns `rev`. `answer` takes `partial: true` (every valid
+  answer applied in one rev, each id's outcome or refusal given) and `questions` `compact: true`
+  (the open questions as `{id, prompt, choices or hint, suggested?, rule?}`); the server's
+  instructions give the two agent patterns (intent known: answer in one call, ask the gaps;
+  no context: `show`) and ADR P9 (never a default as intent). Set up with
+  `claude mcp add specify -- specify-core mcp`.
+- `specify-core open --diff OLD NEW [--answers FILE]`: the page shows what changed (`GET diff`,
+  what WASM `diff()` returns, `{report, markdown, view}` or for an assembly
+  `{report, markdown, parts}`, built by the same code, now `revision::part_diff` and
+  `revision::assembly_diff`; `GET file?rev=old`) and starts from the answers `specify-core diff`
+  carries to NEW; Save writes NEW.
+- The page server holds the session: `GET`/`PUT answers` (a stale `rev` is refused with the
+  current answers) and `GET events` (server-sent events: the state, then every change and save,
+  at most 4 streams); `config` gains `mode`, `path`, `part`, `oldName` and `oldPath`.
 
 ### Changed
 
@@ -34,6 +55,20 @@ All notable changes to specify-core-rust. The format follows
   Until the app is bundled, `--app DIR` (or `SPECIFY_APP_DIR`) names the built app and
   `--wasm DIR` (or `SPECIFY_WASM_DIR`) the engine's wasm-pack `pkg/`. The contract for the
   app's authors is docs/open.md.
+- Save from the page sends `{rev, acceptDefaults}` (JSON; `acceptDefaults` required, by part
+  `{"<part>": {"<id>": <value>}}`, exactly the defaults the person approved with the values
+  they saw, checked against the current defaults and applied together on that part only, ADR P9), not the STEP bytes. A save writes only parts with answers, and a part
+  joining the session is a change (`joined`): the command writes the session's answers with `specify-core write`'s writer, so a
+  save from the page and one from the agent write the same file. An incomplete save is written
+  (what is answered, the answers stored so reopening resumes them) and answers `complete` and
+  `missing`; an in-place save always writes from the file as opened, and refuses (409) a file
+  changed on disk by another program. `--read-only` also refuses answer changes.
+- MCP `write_pmi` and `export_answers` no longer take every default (ADR P9): they write or
+  export what is answered plus exactly the `accept_defaults` given (`{"<id>": <value>}`, the
+  values the person saw, checked against the current defaults), incomplete allowed, with
+  `complete` and `missing`; `write_pmi`'s boolean `accept_defaults` is refused.
+- `specify-core diff`, MCP's `diff` and the sessions compare through one function
+  (`revision::compare`).
 
 ### Removed
 

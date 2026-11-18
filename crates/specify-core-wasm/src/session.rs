@@ -67,11 +67,7 @@ pub fn diff_with_options(
     let (before, after) = (load(&old_file, old.0)?, load(&new_file, new.0)?);
     let revised = revision::diff_with_options(&before, &after, answers, options)
         .map_err(|error| error.to_string())?;
-    Ok(json!({
-        "report": serde_json::to_value(&revised).map_err(|error| error.to_string())?,
-        "markdown": revised.markdown(title, None),
-        "view": revision::view(&before, &after, &revised),
-    }))
+    Ok(revision::part_diff(&before, &after, &revised, title))
 }
 
 fn diff_assembly(
@@ -85,28 +81,7 @@ fn diff_assembly(
     let (before, after) = (load(old)?, load(new)?);
     let compared = assembly::diff_with_options(&before, &after, answers, options)
         .map_err(|error| error.to_string())?;
-    let parts = compared
-        .parts
-        .iter()
-        .map(|p| {
-            let mut row = json!({"name": p.name, "status": p.status, "old": p.old, "new": p.new});
-            if let Some(r) = &p.revised {
-                row["report"] = serde_json::to_value(r).map_err(|error| error.to_string())?;
-                if let ("changed", Some(o), Some(n)) = (p.status, &p.old, &p.new) {
-                    row["markdown"] = r
-                        .markdown_headed(&format!("#### {}", p.name), None, None)
-                        .into();
-                    row["view"] = revision::view(&before[o.part], &after[n.part], r);
-                }
-            }
-            Ok(row)
-        })
-        .collect::<Result<Vec<Value>, String>>()?;
-    Ok(json!({
-        "report": serde_json::to_value(&compared).map_err(|error| error.to_string())?,
-        "markdown": compared.markdown(title, None, None),
-        "parts": parts,
-    }))
+    Ok(revision::assembly_diff(&before, &after, &compared, title))
 }
 
 pub struct Session {
