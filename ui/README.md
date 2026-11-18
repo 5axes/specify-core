@@ -126,7 +126,7 @@ new.step`) serves the same page. The answers live in the command's session: the 
 page with "Updated by your agent", its question opened and its faces lit. Save asks the command to write the
 specified STEP (beside it as `part.specified.step`), the same file the agent's `save` writes. Save never refuses for
 questions still open (many AP242 files have no complete answer to everything): it writes the answers given and says
-which questions are still open. Specify's defaults are written only when the person chooses Save with defaults.
+which questions are still open. Specify's defaults are written only when approved (ADR P9): Save with defaults first lists every default it would write, by question and value, and saves only once the person confirms that list; Keep all likewise lists what it will keep first.
 
 Read only (`--read-only`) shows the part's PMI. In diff mode the page shows what changed (StepDiff), lists what the
 command's comparison leaves to decide (requirements not carried, carried ones to check, new questions), each
@@ -137,14 +137,16 @@ but its own origin; IBM Plex Mono is bundled.
 
 `npm run build:app` builds it into `dist-app/` (relative URLs, no inline scripts; the engine is not included: the
 command serves its own at `config.wasmUrl`). Each release attaches it as `specify-ui-app-<version>.tgz` (the app's
-files at the archive's root) with a `.sha256`. To try it: `specify-core open --app dist-app --wasm public/wasm/intent part.step`.
+files at the archive's root) with a `.sha256` and a build provenance attestation (`gh attestation verify
+specify-ui-app-<version>.tgz --repo pzfreo/specify-ui`). To try it: `specify-core open --app dist-app --wasm public/wasm/intent part.step`.
 
 `npm run test:app` builds it and drives it in Chromium under the real command (`SPECIFY_CORE`, default
 `specify-core` on `PATH`; it needs the session contract): `test/app-browser.mjs` by hand (answer, save, read the PMI
-back with `specify-core analyse`, resume, read only, diff with `DIFF_OLD`/`DIFF_NEW` or the enclosure pair in
-`~/Downloads/enclosure-demo`, else the spindle fixtures) and `test/app-agent.mjs` as an agent (`specify-core mcp`
-over stdio: open, answer, `show`, the page's edit seen by `changes`, both saves, an assembly, a symbolic link).
-Both check that no request leaves 127.0.0.1. It takes about three minutes (it waits for the heartbeat and for the
+back with `specify-core analyse`, resume, read only, diff on the enclosure fixtures, an `--in-place` save over a
+file changed on disk, the event stream refused and regained) and `test/app-agent.mjs` as an agent (`specify-core
+mcp` over stdio: open, answer, `show`, the page's edit seen by `changes`, both saves, an assembly, a symbolic link,
+a diff). Both check that no request leaves 127.0.0.1. The release workflow runs it against the Linux binary of the
+specify-core release `engines.lock.json` pins before it attaches the app. It takes about three minutes (it waits for the heartbeat and for the
 command to stop after `closed`).
 
 ## Development

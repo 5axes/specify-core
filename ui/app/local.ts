@@ -82,12 +82,31 @@ export const save = (rev: number, acceptDefaults: boolean) => json<Saved>(fetch(
 export const getDiff = () => json<unknown>(fetch('diff', { cache: 'no-store' }));
 
 /** The session's changes as they happen (the start state first, again on each reconnect), and
- * each save, whoever asked for it. */
-export function listen(onAnswers: (event: AnswersEvent) => void, onSaved: (event: SavedEvent) => void): () => void {
-  const source = new EventSource('events');
-  source.addEventListener('answers', (event) => onAnswers(JSON.parse((event as MessageEvent<string>).data) as AnswersEvent));
-  source.addEventListener('saved', (event) => onSaved(JSON.parse((event as MessageEvent<string>).data) as SavedEvent));
-  return () => source.close();
+ * each save, whoever asked for it. ``onLive(false)`` when the stream is lost or refused (a 503:
+ * the command serves at most 4 streams), ``onLive(true)`` when it is back: it is reopened, waiting
+ * 1 s, 2 s, 4 s … up to 30 s between tries. */
+export function listen(onAnswers: (event: AnswersEvent) => void, onSaved: (event: SavedEvent) => void, onLive: (live: boolean) => void = () => {}): () => void {
+  let source: EventSource | null = null;
+  let timer = 0;
+  let wait = 1000;
+  let stopped = false;
+  const connect = () => {
+    const stream = new EventSource('events');
+    source = stream;
+    stream.addEventListener('open', () => { wait = 1000; onLive(true); });
+    stream.addEventListener('answers', (event) => onAnswers(JSON.parse((event as MessageEvent<string>).data) as AnswersEvent));
+    stream.addEventListener('saved', (event) => onSaved(JSON.parse((event as MessageEvent<string>).data) as SavedEvent));
+    stream.addEventListener('error', () => {
+      onLive(false);
+      // The browser retries a dropped stream itself; a refused one (an HTTP error) it gives up on.
+      if (stream.readyState !== EventSource.CLOSED || stopped) return;
+      stream.close();
+      timer = window.setTimeout(connect, wait);
+      wait = Math.min(wait * 2, 30_000);
+    });
+  };
+  connect();
+  return () => { stopped = true; window.clearTimeout(timer); source?.close(); };
 }
 
 /** The heartbeat (`GET config` every 30 s while the page is open) and `closed` when it goes away

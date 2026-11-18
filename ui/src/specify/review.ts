@@ -121,3 +121,11 @@ export function confirmRow(group: QuestionGroup, answers: PmiAnswers): PmiAnswer
   for (const q of group.questions) if (needs(q, answers) === 'check') next[q.id] = q.default;
   return next;
 }
+
+/** What a save "with defaults" writes (docs: ADR P9, written only when approved): each question not
+ * answered that has a default, as its prompt and the value written, for the person to confirm. */
+export function defaultsToWrite(questions: readonly PmiQuestion[], answers: PmiAnswers): { id: string; prompt: string; value: string }[] {
+  return questions
+    .filter((q) => !(q.id in answers) && q.default !== undefined && q.default !== null)
+    .map((q) => ({ id: q.id, prompt: q.prompt, value: display(q, q.default) || (typeof q.default === 'string' ? q.default : JSON.stringify(q.default)) }));
+}

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn, execFileSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
-import { homedir, tmpdir } from 'node:os';
+import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { gunzipSync } from 'node:zlib';
 import { chromium, expect } from '@playwright/test';
@@ -11,13 +11,13 @@ import { chromium, expect } from '@playwright/test';
 // analyse` reads back) even with questions open, saying which, saves with the defaults when asked,
 // resumes from that file with the open questions still open, and has no Save when read-only. With
 // `open --diff OLD NEW` it shows what changed, lists what needs a decision, opens NEW's
-// requirements in Graphical, and Save writes NEW with the carried answers. Nothing is requested
-// from anywhere but 127.0.0.1. `npm run test:app`.
+// requirements in Graphical, and Save writes NEW with the carried answers. With `--in-place`, a
+// save over a file another program changed is refused as that, not as answers that moved on. With
+// the command's event streams all taken, the page says it gets no live updates, and catches up
+// when it gets one. Nothing is requested from anywhere but 127.0.0.1. `npm run test:app`.
 //
 //   SPECIFY_CORE  the specify-core binary (default: specify-core on PATH); it needs the session
 //                 contract (`GET answers`, `POST save {rev, acceptDefaults}`, `open --diff`).
-//   DIFF_OLD, DIFF_NEW  the revisions for diff mode (default: the electronics enclosure pair in
-//                 ~/Downloads/enclosure-demo, else the spindle fixtures).
 //   SPECIFY_WASM_DIR  the engine's pkg/ (default: public/wasm/intent, from `npm run fetch:wasm`).
 //   SHOTS         a directory to save screenshots in (optional).
 const check = expect.configure({ timeout: 90000 });
@@ -94,17 +94,33 @@ try {
     await page.getByRole('button', { name: 'Save', exact: true }).click();
     await check(page.locator('.app-saved')).toContainText(specified);
     await check(page.locator('.app-saved')).toContainText('still open');
-    await check(page.locator('.app-saved')).toContainText('part.material');
+    // Open questions by what they ask, not their ids.
+    await check(page.locator('.app-saved')).toContainText('What material is the part made from?');
+    await check(page.locator('.app-saved')).not.toContainText('part.material');
     await check(page.getByRole('alert')).toHaveCount(0);
     assert.ok(existsSync(specified), 'part.specified.step written with a required question open');
     assert.deepEqual(given(analyse(specified).resume?.answers), {}, 'a plain Save with nothing answered stores no answers');
     if (shots) await page.screenshot({ path: join(shots, 'save-partial.png') });
-    // The person chooses the defaults, which is its own button, always there: Save writes beside the file and says where.
+    // The person chooses the defaults, which is its own button, always there. It first lists every
+    // default it would write (ADR P9: written only when approved): cancelled, nothing is written.
     await page.getByRole('button', { name: 'Save with defaults' }).click();
+    const list = page.getByRole('dialog', { name: 'Save with defaults' });
+    await check(list).toContainText('Which general tolerance applies');
+    await check(list).toContainText('2768-m');
+    await check(list.locator('[data-default="part.material"]')).toHaveCount(0);
+    assert.ok(await list.locator('li').count() > 3, 'the full list of defaults');
+    await list.getByRole('button', { name: 'Cancel' }).click();
+    await check(list).toHaveCount(0);
+    await page.waitForTimeout(500);
+    assert.ok(!existsSync(withDefaults), 'nothing written when the list is cancelled');
+    // Confirmed: Save writes beside the file and says where.
+    await page.getByRole('button', { name: 'Save with defaults' }).click();
+    await list.getByRole('button', { name: /^Save with these \d+ defaults$/ }).click();
     await check(page.locator('.app-saved')).toContainText(withDefaults);
     await check(page.getByRole('alert')).toHaveCount(0);
     assert.ok(existsSync(withDefaults), 'the defaults save written');
-    assert.match(server.output(), /Saved .*part\.specified-2\.step/);
+    // The command prints it once it has answered: it may come just after the page shows the save.
+    await check.poll(() => server.output()).toMatch(/Saved .*part\.specified-2\.step/);
     // The next save takes the next free name, and the header says so.
     await check(page.locator('.app-target')).toHaveText(second);
     // An answer: the material. Unsaved until Save.
@@ -194,20 +210,18 @@ try {
   }
   // Diff: what changed from OLD to NEW, what needs a decision, and Save writes NEW with the carried answers.
   {
-    const demo = join(homedir(), 'Downloads', 'enclosure-demo');
-    const [oldSource, newSource] = process.env.DIFF_OLD && process.env.DIFF_NEW ? [process.env.DIFF_OLD, process.env.DIFF_NEW]
-      : existsSync(join(demo, 'electronics-enclosure-base-rev2-pmi.step'))
-        ? [join(demo, 'electronics-enclosure-base-pmi.step'), join(demo, 'electronics-enclosure-base-rev2-pmi.step')]
-        : ['test/fixtures/spindle_pmi_before.step.gz', 'test/fixtures/spindle_pmi_after.step.gz'];
-    const oldFile = join(dir, basename(oldSource));
-    const newFile = join(dir, basename(newSource));
-    copyFileSync(oldSource, oldFile); copyFileSync(newSource, newFile);
+    // The enclosure: one new requirement to specify, two carried ones to check (test/fixtures/README.md).
+    const oldFile = join(dir, 'enclosure.step');
+    const newFile = join(dir, 'enclosure-rev2.step');
+    writeFileSync(oldFile, gunzipSync(readFileSync('test/fixtures/enclosure_base_pmi_before.step.gz')));
+    writeFileSync(newFile, gunzipSync(readFileSync('test/fixtures/enclosure_base_pmi_after.step.gz')));
     const server = await open([oldFile, newFile], '--diff');
     const config = await (await fetch(`${server.url}config`)).json();
     assert.equal(config.mode, 'diff');
     const report = await (await fetch(`${server.url}diff`)).json();
     const { parts } = await (await fetch(`${server.url}answers`)).json();
     const carried = given(parts['0']);
+    assert.ok(Object.keys(carried).length > 5, `the old revision's answers are carried: ${Object.keys(carried)}`);
     // It opens on what changed; the requirements are behind their tab.
     const { context, page, requests } = await load(server, '.diff-summary');
     await check(page.locator('.pmi-lab-panel')).toBeAttached();
@@ -218,23 +232,77 @@ try {
     await check(page.locator('.diff-summary').first()).toBeVisible();
     // What needs a decision, from the command's report: each one a button that opens its question.
     const decide = [...report.unresolved ?? [], ...report.check ?? [], ...report.questions ?? []];
-    await check(page.locator('.app-decision')).toHaveCount(decide.length);
+    assert.deepEqual([(report.unresolved ?? []).length, (report.check ?? []).length, (report.questions ?? []).length], [0, 2, 1], 'two to check, one new');
+    await check(page.locator('.app-decision')).toHaveCount(3);
     if (shots) await page.screenshot({ path: join(shots, 'diff.png') });
-    if (decide.length) {
-      await page.locator('.app-decision').last().click();
-      await check(page.getByRole('tab', { name: /^Requirements for/ })).toHaveAttribute('aria-selected', 'true');
-      await check(page.locator(`[data-question="${decide.at(-1).id}"]`).first()).toBeVisible();
-    } else await page.getByRole('tab', { name: /^Requirements for/ }).click();
+    await page.locator('.app-decision').last().click();
+    await check(page.getByRole('tab', { name: /^Requirements for/ })).toHaveAttribute('aria-selected', 'true');
+    await check(page.locator(`[data-question="${decide.at(-1).id}"]`).first()).toBeVisible();
     // NEW carries PMI (its own, or Specify's): View PMI opens in Graphical.
     await check(page.getByRole('radio', { name: 'Graphical' })).toBeChecked();
     if (shots) await page.screenshot({ path: join(shots, 'diff-decide.png') });
     // NEW is not specified yet: the carried answers are unsaved until Save.
-    if (Object.keys(carried).length) await check(page.locator('.app-dirty')).toBeVisible();
+    await check(page.locator('.app-dirty')).toBeVisible();
     await page.getByRole('button', { name: 'Save', exact: true }).click();
     const target = join(dir, `${basename(newFile).replace(/\.gz$/, '').replace(/\.(step|stp)$/, '')}.specified.step`);
     await check(page.locator('.app-saved')).toContainText(target);
     await check(page.locator('.app-dirty')).toHaveCount(0);
     assert.deepEqual(given(analyse(target).resume?.answers), carried, 'Save writes NEW with the session\'s (carried) answers');
+    onlyLocal(requests, server.origin);
+    await context.close();
+    server.stop();
+  }
+  // --in-place: another program changes the file after it was opened. Save is refused as that,
+  // its own error, with no "Save again" (it cannot succeed), and nothing is written over the file.
+  {
+    const file = join(dir, 'in-place.step');
+    writeFileSync(file, gunzipSync(readFileSync('test/fixtures/gramil_shaft_before.step.gz')));
+    const server = await open(file, '--in-place');
+    const { context, page, requests } = await load(server);
+    const box = material(page).locator('input');
+    await box.fill('Aluminium 6082-T6');
+    await box.press('Enter');
+    await check(page.locator('.app-dirty')).toBeVisible();
+    appendFileSync(file, '/* written by another program */\n');
+    const changed = readFileSync(file);
+    const before = problems.length;
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    await check(page.getByRole('alert')).toContainText('the file changed on disk since it was opened');
+    await check(page.getByRole('alert')).not.toContainText('Save again');
+    await check(page.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
+    assert.deepEqual(readFileSync(file), changed, 'nothing written over the changed file');
+    assert.ok(!existsSync(`${file}.bak`), 'no backup made for a save that did not happen');
+    // The refused save's 409 is the browser's console error, expected here.
+    problems.splice(before, problems.length - before, ...problems.slice(before).filter(p => !/409/.test(p)));
+    onlyLocal(requests, server.origin);
+    await context.close();
+    server.stop();
+  }
+  // The event stream refused (the command serves at most 4 at once: here all taken): the page says
+  // it gets no live updates and keeps trying; once it gets a stream it shows what changed meanwhile.
+  {
+    const server = await open(part);
+    const taken = [];
+    for (let n = 0; n < 4; n++) {
+      const stop = new AbortController();
+      const response = await fetch(`${server.url}events`, { signal: stop.signal });
+      assert.equal(response.status, 200);
+      // Read (and so held) until aborted: an unread response the collector frees closes its stream.
+      response.body.pipeTo(new WritableStream()).catch(() => {});
+      taken.push({ stop, response });
+    }
+    const before = problems.length;
+    const { context, page, requests } = await load(server);
+    await check(page.locator('.app-offline')).toContainText('Not receiving live updates');
+    // Another tab answers meanwhile: this page cannot hear it yet.
+    const { rev } = await (await fetch(`${server.url}answers`)).json();
+    const put = await fetch(`${server.url}answers`, { method: 'PUT', headers: { 'Content-Type': 'application/json', Origin: server.origin }, body: JSON.stringify({ rev, part: 0, answers: { 'part.material': 'Brass CW614N' } }) });
+    assert.equal(put.status, 200);
+    for (const { stop } of taken) stop.abort();
+    await check(page.locator('.app-offline')).toHaveCount(0);
+    await check(page.locator('.pmi-lab-panel')).toContainText('CW614N');
+    // The refused stream's 503s are the browser's console errors, expected here.
+    problems.splice(before, problems.length - before, ...problems.slice(before).filter(p => !/503|EventSource|events/.test(p)));
     onlyLocal(requests, server.origin);
     await context.close();
     server.stop();

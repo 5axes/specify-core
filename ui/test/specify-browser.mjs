@@ -10,10 +10,10 @@ const server = process.env.BASE_URL ? null : spawn(process.execPath, ['node_modu
 for (let n = 0; n < 100; n++) { try { if ((await fetch(base)).ok) break; } catch {} await new Promise(resolve => setTimeout(resolve, 200)); }
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined, args: ['--no-sandbox', '--use-gl=angle', '--use-angle=swiftshader'] });
 const problems = [];
-async function openPage(readOnly, file = 'test/fixtures/spindle_pmi_before.step.gz', ready = '#specify-panel .pmi-lab-row-head') {
+async function openPage(readOnly, file = 'test/fixtures/spindle_pmi_before.step.gz', ready = '#specify-panel .pmi-lab-row-head', query = '') {
   const page = await browser.newPage({ viewport: { width: 1300, height: 1100 } });
   page.on('pageerror', error => problems.push(String(error)));
-  await page.goto(`${base}/?specify=1${readOnly ? '&readOnly=1' : ''}`);
+  await page.goto(`${base}/?specify=1${readOnly ? '&readOnly=1' : ''}${query}`);
   await page.locator('#specify-file').setInputFiles(file);
   await check(page.locator(ready).first()).toBeVisible();
   // The start effect's preview has been asked for.
@@ -72,6 +72,44 @@ try {
     // Only the one kept has a tick: the suggestions left still have none.
     await check(cards.locator('text=✓')).toHaveCount(0);
     await check(rows.locator('.pmi-lab-tick')).toHaveCount(1);
+    await page.close();
+  }
+  // Keep all lists what it will keep first (ADR P9): cancelled, nothing is kept; confirmed, all are.
+  {
+    const page = await openPage(false, 'test/fixtures/gramil_shaft_before.step.gz');
+    const count = async () => Number((await panel(page).getByText(/^\d+ suggestions?$/).innerText()).split(' ')[0]);
+    const before = await count();
+    assert.ok(before > 1, 'more than one suggestion, so Keep all is offered');
+    const asked = (await calls(page)).filter(c => c === 'questions').length;
+    await panel(page).getByRole('button', { name: 'Keep all', exact: true }).click();
+    const list = panel(page).getByRole('group', { name: 'Keep all suggestions' });
+    await check(list.locator('li')).toHaveCount(before);
+    await check(list).toContainText('ISO 2768-m');
+    await list.getByRole('button', { name: 'Cancel' }).click();
+    await check(list).toHaveCount(0);
+    assert.equal(await count(), before, 'cancelled: nothing kept');
+    assert.equal((await calls(page)).filter(c => c === 'questions').length, asked, 'cancelled: nothing committed');
+    await panel(page).getByRole('button', { name: 'Keep all', exact: true }).click();
+    await list.getByRole('button', { name: `Keep these ${before}` }).click();
+    await check(panel(page).getByText(/^\d+ suggestions?$/)).toHaveCount(0);
+    await check(panel(page).locator('.pmi-lab-suggestion')).toHaveCount(0);
+    await page.close();
+  }
+  // A host that keeps suggestions itself (the editor: onKeep, and kept for the ticks): Keep goes to
+  // the host and nothing is answered; the question the host lists as kept is ticked in its row.
+  {
+    const page = await openPage(false, 'test/fixtures/gramil_shaft_before.step.gz', '#specify-panel .pmi-lab-row-head', '&keep=host');
+    const id = 'hole.function:holes:13';
+    const card = panel(page).locator(`.pmi-lab-suggestion:has([data-suggestion="${id}"])`);
+    const before = (await calls(page)).length;
+    await card.getByRole('button', { name: 'Keep', exact: true }).click();
+    await check.poll(async () => (await calls(page)).slice(before)).toEqual([`onKeep:${id}`]);
+    await check(panel(page).locator('.pmi-lab-tick')).toHaveCount(0);
+    await panel(page).locator('.pmi-lab-row-head', { hasText: 'Ø3.3' }).click();
+    await check(panel(page).locator('.pmi-lab-tick')).toHaveCount(1);
+    // On the question kept: what the Ø3.3 hole is for.
+    assert.match(await panel(page).locator('.pmi-lab-tick').evaluate(el => el.closest('.pmi-lab-item')?.textContent ?? ''), /What is the Ø3\.3 hole for\?/);
+    assert.ok(!(await calls(page)).slice(before).includes('questions'), 'the host keeps it: no answer is committed');
     await page.close();
   }
   // Read only: a PMI viewer. The spindle Specify wrote (semantic PMI linked to graphical PMI) shows what is

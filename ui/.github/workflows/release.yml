@@ -2,7 +2,9 @@ name: Release
 
 # Runs only when a GitHub release is published (created by Paul). The build job checks the
 # tag against package.json and the WASM pin, then runs the CI suites and packs the tarball and
-# the local app (specify-ui-app-<version>.tgz, which the app-assets job attaches to the release).
+# the local app (specify-ui-app-<version>.tgz), after running the app's tests against the
+# specify-core release engines.lock.json pins. The app-assets job attests the app archive's build
+# provenance and attaches it to the release.
 # The publish job then waits for approval in the `npm` environment and publishes that tarball
 # with npm trusted publishing (OIDC): configured on npmjs.com for this repo, release.yml and
 # environment `npm`. The workflow passes no npm token, so every publish goes through the
@@ -21,7 +23,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     permissions:
       contents: read
     steps:
@@ -130,12 +132,35 @@ jobs:
           name: npm-tarball
           path: "*.tgz"
           if-no-files-found: error
-      # The local app `specify-core open` serves (app/), from the same commit: its files at the
-      # archive's root (index.html first level), with its sha256, attached to the release below.
-      - name: Build and pack the local app
+      # The app's tests (test/app-browser.mjs, test/app-agent.mjs) need the specify-core command
+      # that serves it: the Linux binary of the specify-core release engines.lock.json pins (the
+      # release whose WASM the app runs), checked against that release's sha256 file. A pin
+      # without the session contract (`open`, `GET answers`, `POST save {rev}`) fails here, so an
+      # app is never released for a specify-core that cannot serve it.
+      - name: Fetch the pinned specify-core command
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -eu
-          npm run build:app
+          repo=$(node -p "require('./engines.lock.json').intent.repository")
+          tag=$(node -p "require('./engines.lock.json').intent.tag")
+          asset="specify-core-$tag-x86_64-unknown-linux-gnu.tar.gz"
+          mkdir -p .cache/specify-core
+          cd .cache/specify-core
+          gh release download "$tag" --repo "$repo" --pattern "$asset" --pattern "$asset.sha256"
+          sha256sum -c "$asset.sha256"
+          tar -xzf "$asset"
+          bin=$(find "$PWD" -type f -name specify-core -perm -u+x | head -1)
+          [ -n "$bin" ] || { echo "::error::$asset has no specify-core binary."; exit 1; }
+          "$bin" --version
+          echo "SPECIFY_CORE=$bin" >> "$GITHUB_ENV"
+      # build:app, then the app against `specify-core open` and `mcp`; the archive below is that build.
+      - run: npm run test:app
+      # The local app `specify-core open` serves (app/), from the same commit and the build just
+      # tested: its files at the archive's root (index.html first level), with its sha256.
+      - name: Pack the local app
+        run: |
+          set -eu
           version=$(node -p "require('./package.json').version")
           mkdir app-release
           tar -czf "app-release/specify-ui-app-$version.tgz" -C dist-app .
@@ -146,18 +171,26 @@ jobs:
           path: app-release/*
           if-no-files-found: error
 
-  # Attaches the local app to the GitHub release. Only this job can write to the repository
-  # (contents: write, for the release's assets); it checks out nothing and runs no package code.
+  # Attests the local app's build provenance and attaches it to the GitHub release. Only this job
+  # can write to the repository (contents: write, for the release's assets) or sign (id-token and
+  # attestations, for the attestation); it checks out nothing and runs no package code.
   app-assets:
     needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      id-token: write # the attestation's signing certificate
+      attestations: write
     steps:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: app-release
           path: app-release
+      # `gh attestation verify specify-ui-app-<version>.tgz --repo pzfreo/specify-ui` checks it.
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: app-release/*.tgz
+      # An asset already on the release is never replaced: the upload fails instead.
       - name: Attach to the release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -167,7 +200,7 @@ jobs:
           set -eu
           cd app-release
           sha256sum -c ./*.sha256
-          gh release upload "$TAG" ./*.tgz ./*.sha256 --repo "$REPO" --clobber
+          gh release upload "$TAG" ./*.tgz ./*.sha256 --repo "$REPO"
 
   publish:
     needs: build

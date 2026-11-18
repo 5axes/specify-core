@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
-import { homedir, tmpdir } from 'node:os';
-import { basename, join, resolve } from 'node:path';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { gunzipSync } from 'node:zlib';
 import { chromium, expect } from '@playwright/test';
 import { mcp } from './mcp-client.mjs';
@@ -73,14 +73,18 @@ try {
     await check(page.locator('.pmi-lab-panel')).toContainText('6082');
     await check(page.locator('.app-dirty')).toBeVisible();
     await check(page.locator('.pmi-lab-resumed')).toHaveCount(0);
-    // An answer the agent gives now lands in the open page: said, its question opened and lit.
+    // An answer the agent gives now lands in the open page: said (by the question it asks), its
+    // question opened and lit. The note and the light stay until dismissed or the next change.
     await agent.call('answer', { doc, set: { 'part.general_tolerance': 'ISO 2768-f' } });
     await check(page.locator('.app-agent')).toContainText('Updated by your agent');
-    await check(page.locator('.app-agent')).toContainText('part.general_tolerance');
+    await check(page.locator('.app-agent')).toContainText('Which general tolerance applies');
     await check(question(page, 'part.general_tolerance')).toBeVisible();
     await check(question(page, 'part.general_tolerance')).toHaveClass(/app-agent-lit/);
     await check(question(page, 'part.general_tolerance')).toContainText('2768-f');
     if (shots) await page.screenshot({ path: join(shots, 'agent-update.png') });
+    await page.locator('.app-agent').getByRole('button', { name: 'Dismiss' }).click();
+    await check(page.locator('.app-agent')).toHaveCount(0);
+    await check(page.locator('.app-agent-lit')).toHaveCount(0);
     // The person changes the material in the page: the agent's `changes` returns it, as the page's.
     const { rev } = await agent.call('changes', { doc, since: 0 });
     // An answered part setting is a one-line row: open it to change it.
@@ -98,16 +102,18 @@ try {
     assert.equal(byAgent.complete, false);
     assert.ok(byAgent.missing.includes('part.surface_finish'), `missing: ${byAgent.missing}`);
     assert.ok(!byAgent.missing.includes('part.material'));
-    // The page hears of it, whoever saved.
+    // The page hears of it, whoever saved, and says what is still unanswered.
     await check(page.locator('.app-saved')).toContainText('Your agent saved');
     await check(page.locator('.app-saved')).toContainText(byAgent.path);
+    await check(page.locator('.app-saved')).toContainText('still unanswered');
+    await check(page.locator('.app-saved')).toContainText('What surface finish applies');
     await check(page.locator('.app-dirty')).toHaveCount(0);
     await check(page.locator('.app-target')).toHaveText(join(dir, 'part.specified-2.step'));
     // The page's Save writes the next name, from the same answers, and says what is still open.
     await page.getByRole('button', { name: 'Save', exact: true }).click();
     await check(page.locator('.app-saved')).toContainText(join(dir, 'part.specified-2.step'));
     await check(page.locator('.app-saved')).toContainText('still open');
-    await check(page.locator('.app-saved')).toContainText('part.surface_finish');
+    await check(page.locator('.app-saved')).toContainText('What surface finish applies');
     if (shots) await page.screenshot({ path: join(shots, 'save-partial.png') });
     const want = { 'part.material': 'Aluminium 6061-T6', 'part.general_tolerance': 'ISO 2768-f' };
     assert.deepEqual(given(stored(byAgent.path)), want, 'the agent\'s save stores the session\'s answers');
@@ -157,9 +163,20 @@ try {
     await second.call('answer', { doc: hidden.doc, set: { 'part.general_tolerance': 'ISO 2768-f' } });
     const name = listed.parts.find(p => p.part === showing).name;
     await check(page.locator('.app-agent')).toContainText(`Updated by your agent: ${name}`);
+    // Unsaved is the file's, not the part shown's: the agent's answer to the other part counts.
+    await check(page.locator('.app-dirty')).toBeVisible();
     await page.getByRole('button', { name: 'Show it' }).click();
     await check(page.locator('.app-part select')).toHaveValue(String(showing));
     await check(page.locator('.pmi-lab-panel')).toContainText('2768-f');
+    // Saved: and still saved, back and forth between the parts (not judged against the file as opened).
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    await check(page.locator('.app-saved')).toContainText('asm.specified');
+    await check(page.locator('.app-dirty')).toHaveCount(0);
+    await page.locator('.app-part select').selectOption(String(other));
+    await check(page.locator('.pmi-lab-panel')).toContainText(other === a ? '1.4301' : 'CW614N');
+    await page.locator('.app-part select').selectOption(String(showing));
+    await check(page.locator('.pmi-lab-panel')).toContainText('2768-f');
+    await check(page.locator('.app-dirty')).toHaveCount(0);
     onlyLocal(requests, shown.url);
     await context.close();
     second.stop();
@@ -188,14 +205,10 @@ try {
   }
   // A diff the agent opened (`open` with `old`): `show` serves diff mode, from the carried answers.
   {
-    const demo = join(homedir(), 'Downloads', 'enclosure-demo');
-    const [oldSource, newSource] = process.env.DIFF_OLD && process.env.DIFF_NEW ? [process.env.DIFF_OLD, process.env.DIFF_NEW]
-      : existsSync(join(demo, 'electronics-enclosure-base-rev2-pmi.step'))
-        ? [join(demo, 'electronics-enclosure-base-pmi.step'), join(demo, 'electronics-enclosure-base-rev2-pmi.step')]
-        : ['test/fixtures/spindle_pmi_before.step.gz', 'test/fixtures/spindle_pmi_after.step.gz'];
-    const oldFile = join(dir, `old-${basename(oldSource)}`);
-    const newFile = join(dir, `new-${basename(newSource)}`);
-    copyFileSync(oldSource, oldFile); copyFileSync(newSource, newFile);
+    const oldFile = join(dir, 'enclosure.step');
+    const newFile = join(dir, 'enclosure-rev2.step');
+    writeFileSync(oldFile, gunzipSync(readFileSync('test/fixtures/enclosure_base_pmi_before.step.gz')));
+    writeFileSync(newFile, gunzipSync(readFileSync('test/fixtures/enclosure_base_pmi_after.step.gz')));
     const agent = await mcp(cli, { cwd: dir, env }); agents.push(agent);
     const opened = await agent.call('open', { path: newFile, old: oldFile });
     assert.ok(opened.verdict, 'open with old compares');
@@ -204,6 +217,7 @@ try {
     const { context, page, requests } = await load(shown.url, '.diff-summary');
     await check(page.getByRole('tab', { name: 'What changed' })).toHaveAttribute('aria-selected', 'true');
     await check(page.locator('.app-path')).toHaveText(`${oldFile} → ${newFile}`);
+    await check(page.locator('.app-decision')).toHaveCount(3);
     onlyLocal(requests, shown.url);
     await context.close();
     agent.stop();

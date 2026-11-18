@@ -47,3 +47,12 @@ with `hole.position:holes:14` 0.2 (was 0.3), `hole.position:holes:15` none (was 
 reports six PMI changes: #12 ⌖ ⌀0.2 A removed, #13 ⌖ ⌀0.3Ⓜ A → ⌖ ⌀0.2Ⓜ A, #16 and #17 (the
 tapped hole's location dimensions) and #18 ⟂ 0.05 A added, and the edges note reworded.
 `test/step-diff-browser.mjs` compares them with their PMI drawn.
+
+`enclosure_base_pmi_before.step.gz` and `enclosure_base_pmi_after.step.gz` are two revisions of
+the electronics enclosure base from text-to-cad's examples (MIT, Copyright (c) 2026 Thompson Labs
+LLC; the licence is in `LICENSE-text-to-cad`), each with PMI Specify wrote, gzipped (the
+2026-11-18 diff demo's `electronics-enclosure-base-pmi.step` and
+`electronics-enclosure-base-rev2-pmi.step`). After changes the four Ø3 × 8 blind holes to Ø3.4
+and adds an Ø8 × 3 through hole on the +X side. `specify-core diff` of them leaves one new
+requirement to specify and two carried ones to check, and carries the rest of the answers:
+`test/app-browser.mjs` and `test/app-agent.mjs` use them for diff mode.

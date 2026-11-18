@@ -10,7 +10,8 @@ import { stepBytes } from '../../src/model/diff';
 declare global {
   interface Window {
     __events: string[];
-    /** The Specify host's calls from SpecifyReview ('questions' | 'interpret' | 'preview'), when ?specify=1. */
+    /** The Specify host's calls from SpecifyReview ('questions' | 'interpret' | 'preview', and
+     * 'onKeep:<ids>' with &keep=host), when ?specify=1. */
     __calls: string[];
     __parts: (string | null)[];
     __setAnswers(answers: unknown): void;
@@ -64,6 +65,9 @@ function Harness() {
 // records each call the component makes of it on window.__calls.
 const query = new URLSearchParams(location.search);
 const readOnly = query.get('readOnly') === '1';
+// &keep=host: the host keeps suggestions itself, as the editor does (onKeep, and kept for the ticks);
+// otherwise SpecifyReview keeps one by answering it with its default, as the local app does.
+const hostKeeps = query.get('keep') === 'host';
 
 const noAnswers = {};
 
@@ -76,6 +80,8 @@ function SpecifyHost() {
   const exports = useRef<HTMLDivElement>(null);
   const [slots, setSlots] = useState<{ view: HTMLElement; panel: HTMLElement; exports: HTMLElement } | null>(null);
   useEffect(() => setSlots({ view: view.current!, panel: panel.current!, exports: exports.current! }), []);
+  const [kept, setKept] = useState<readonly string[]>([]);
+  const onKeep = (ids: readonly string[]) => { window.__calls.push(`onKeep:${ids.join(',')}`); setKept((was) => [...was, ...ids]); };
   const pick = async (file: File) => {
     const name = file.name.replace(/\.gz$/, '');
     const bytes = await stepBytes(file);
@@ -108,7 +114,7 @@ function SpecifyHost() {
         <SpecifyReview
           engine={open.engine} session={open.session} slots={slots} readOnly={readOnly} drawn={open.drawn}
           externalAnswers={noAnswers} externalReview={open.review} disabled={false}
-          onExport={action => action()}
+          onExport={action => action()} {...(hostKeeps ? { onKeep, kept } : {})}
         />
       )}
     </main>

@@ -47,3 +47,8 @@ body { background: #fff; color: #1a1d21; font: 13px/1.45 ui-sans-serif, -apple-s
 .app-slot.app-under, .app-slot.app-under * { visibility: hidden !important; }
 .app-part { font-size: 12px; color: #3a4450; } .app-part select { font: inherit; max-width: 240px; }
 .app-agent-lit { outline: 2px solid #3d9a6e; outline-offset: 2px; border-radius: 4px; background: #e8f3ee; animation: app-agent-in 1.2s ease-out; }
+.app-offline { margin: 0; padding: 6px 14px; background: #fff4e0; color: #8a5300; }
+.app .app-dismiss { margin-left: 8px; padding: 1px 8px; font-size: 12px; }
+.app-defaults { margin: 0; padding: 8px 14px; background: #fff8ea; border-bottom: 1px solid #e0b56a; }
+.app-defaults p { margin: 0 0 4px; }
+.app-defaults ul { margin: 0 0 8px; padding-left: 20px; max-height: 240px; overflow: auto; }

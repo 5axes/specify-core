@@ -529,6 +529,8 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   const chosen = toReview ? chosenForYou(questions, answers, session.analysis, toReview).filter((c) => toReview.includes(c.id))
     : chosenForYou(questions, answers, session.analysis);
   const chosenById = new Map(chosen.map((c) => [c.id, c]));
+  // Keep all asked for: its list is shown until it is confirmed or cancelled.
+  const [keepingAll, setKeepingAll] = useState(false);
   const applied = appliedByRule(preview);
   const card = (c: Chosen) => (
     <SuggestionCard
@@ -967,8 +969,8 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
               {chosen.length > 0 && !readOnly && (
                 <span>{chosen.length} suggestion{chosen.length === 1 ? '' : 's'}</span>
               )}
-              {chosen.length > 1 && !readOnly && (
-                <button type="button" className="ok" onClick={() => keepChosen(chosen.map((c) => c.id))}>
+              {chosen.length > 1 && !readOnly && !keepingAll && (
+                <button type="button" className="ok" onClick={() => setKeepingAll(true)}>
                   Keep all
                 </button>
               )}
@@ -984,6 +986,17 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
                 <input type="checkbox" checked={onlySuggestions} onChange={(e) => setOnlySuggestions(e.target.checked)} />
                 {' '}only these
               </label>
+            </div>
+          )}
+          {/* Keep all keeps only what the person has seen: the whole list first, then a confirmation (ADR P9). */}
+          {view === 'review' && keepingAll && chosen.length > 1 && !readOnly && (
+            <div className="pmi-lab-keep-all" role="group" aria-label="Keep all suggestions">
+              <p>Keep these {chosen.length} suggestions? Each is written as a requirement.</p>
+              <ul>{chosen.map((c) => <li key={c.id} data-keep={c.id}>{c.what}</li>)}</ul>
+              <button type="button" className="ok" onClick={() => { setKeepingAll(false); keepChosen(chosen.map((c) => c.id)); }}>
+                Keep these {chosen.length}
+              </button>{' '}
+              <button type="button" onClick={() => setKeepingAll(false)}>Cancel</button>
             </div>
           )}
         </header>
