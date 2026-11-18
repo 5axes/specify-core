@@ -1672,7 +1672,7 @@ fn a_diff_session_is_shown_in_diff_mode_and_saves_new() {
         &url,
         "POST",
         "save",
-        Some(&json!({"rev": 0, "acceptDefaults": []})),
+        Some(&json!({"rev": 0, "acceptDefaults": {}})),
     );
     assert_eq!(status, 200, "{saved}");
     let written = dir.join("plate.new.specified.step");
@@ -1730,7 +1730,7 @@ fn nothing_is_saved_outside_the_allowed_directories() {
         held.set_allowed(vec![allowed.clone()]);
         let shared = std::sync::Arc::new(std::sync::Mutex::new(held));
         // The agent's save.
-        let refused = specify_core::session::save(&shared, None, &[], "mcp");
+        let refused = specify_core::session::save(&shared, None, &Default::default(), "mcp");
         assert!(
             matches!(refused, Err(specify_core::session::SaveError::Outside(_))),
             "{refused:?}"
@@ -1751,7 +1751,7 @@ fn nothing_is_saved_outside_the_allowed_directories() {
             &url,
             "POST",
             "save",
-            Some(&json!({"rev": 0, "acceptDefaults": []})),
+            Some(&json!({"rev": 0, "acceptDefaults": {}})),
         );
         assert_eq!(status, 403, "{body}");
         assert!(body["error"].is_string());
@@ -1796,6 +1796,7 @@ fn save_writes_only_the_defaults_named() {
     );
     assert_eq!(refused["code"], json!("invalid"));
     assert_eq!(refused["question"], json!("no.such.question"));
+    assert_eq!(refused["part"], json!(0));
     assert!(!dir.join("plate.specified.step").exists());
 
     let open = call(&mut server, "questions", json!({"doc": doc}));
@@ -1970,4 +1971,134 @@ fn the_instructions_say_the_two_patterns_and_never_to_take_a_default() {
             assert!(text.contains(needed), "{needed}: {text}");
         }
     }
+}
+
+/// Approvals name their part: a default approved for part 0 of an assembly is not written into
+/// part 1, where the same question is open with a default too; part 1, with no answers, is
+/// left as it was.
+#[test]
+fn an_approved_default_goes_only_to_its_part() {
+    let dir = scratch("approved-by-part");
+    let two = dir.join("two.step");
+    std::fs::copy(part("a_file_with_two_parts_must_say_which"), &two).unwrap();
+    let mut server = Server::new(std::slice::from_ref(&dir)).unwrap();
+    let docs: Vec<Value> = (0..2)
+        .map(|k| {
+            call(&mut server, "open", json!({"path": two, "part": k}))["structuredContent"]["doc"]
+                .clone()
+        })
+        .collect();
+    let offered = |server: &mut Server, doc: &Value| -> Vec<String> {
+        call(server, "questions", json!({"doc": doc}))["structuredContent"]["questions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|q| !q["default"].is_null())
+            .map(|q| q["id"].as_str().unwrap().to_string())
+            .collect()
+    };
+    let (first, second) = (
+        offered(&mut server, &docs[0]),
+        offered(&mut server, &docs[1]),
+    );
+    let id = first
+        .iter()
+        .find(|id| second.contains(id))
+        .expect("a question open with a default on both parts")
+        .clone();
+    let saved = call(
+        &mut server,
+        "save",
+        json!({"doc": docs[0], "accept_defaults": {"0": [id]}}),
+    );
+    assert_eq!(saved["isError"], json!(false), "{saved}");
+    let written = dir.join("two.specified.step");
+    let file = specify_core::part::File::read(&written).unwrap();
+    let analysed = |k: usize| {
+        specify_core::api::analyse_reporting_in(&file, &file.load(Some(k)).unwrap())
+            .unwrap()
+            .0
+    };
+    assert!(analysed(0)["resume"]["answers"].get(&id).is_some());
+    let other = analysed(1);
+    assert!(
+        other.get("resume").is_none(),
+        "part 1 not written: {}",
+        other["resume"]
+    );
+    let qs = specify_core::api::questions(&other, &Map::new()).unwrap();
+    assert!(
+        specify_core::rules::open_questions(&qs, &Map::new())
+            .iter()
+            .any(|q| q.id == id),
+        "still open on part 1"
+    );
+    drop(server);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A part joining the session while the page is open is a change: the page's save at its old
+/// rev is refused; re-read, the part is there with no answers, and the save leaves it as it was.
+#[test]
+fn a_part_joining_the_session_moves_the_rev_and_is_not_written_empty() {
+    let dir = scratch("joined");
+    let two = dir.join("two.step");
+    std::fs::copy(part("a_file_with_two_parts_must_say_which"), &two).unwrap();
+    let mut server = Server::new(std::slice::from_ref(&dir)).unwrap();
+    server.set_app(stub_app(&dir));
+    let first = call(&mut server, "open", json!({"path": two, "part": 0}));
+    let doc = first["structuredContent"]["doc"].clone();
+    call(
+        &mut server,
+        "answer",
+        json!({"doc": doc, "set": {"part.material": "6061-T6"}}),
+    );
+    let shown = call(&mut server, "show", json!({"doc": doc, "browser": false}));
+    let url = shown["structuredContent"]["url"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let (_, seen) = page(&url, "GET", "answers", None);
+    let rev = seen["rev"].as_u64().unwrap();
+    assert!(seen["parts"].get("1").is_none());
+    let mut events = Events::open(&url);
+    events.next();
+
+    // The agent opens part 1.
+    let joined = call(&mut server, "open", json!({"path": two, "part": 1}));
+    assert_eq!(joined["structuredContent"]["rev"], json!(rev + 1));
+    let (name, change) = events.next();
+    assert_eq!(name, "answers");
+    assert_eq!(
+        change,
+        json!({"rev": rev + 1, "part": 1, "answers": {}, "source": "mcp", "joined": true})
+    );
+    let body = json!({"rev": rev, "acceptDefaults": {}});
+    let (status, refused) = page(&url, "POST", "save", Some(&body));
+    assert_eq!(status, 409, "{refused}");
+    let (_, again) = page(&url, "GET", "answers", None);
+    assert_eq!(again["parts"]["1"], json!({}));
+    let body = json!({"rev": again["rev"], "acceptDefaults": {}});
+    let (status, saved) = page(&url, "POST", "save", Some(&body));
+    assert_eq!(status, 200, "{saved}");
+
+    // Part 1 is left as it was: its PMI and (no) stored answers.
+    let analysed = |path: &Path, k: usize| {
+        let file = specify_core::part::File::read(path).unwrap();
+        specify_core::api::analyse_reporting_in(&file, &file.load(Some(k)).unwrap())
+            .unwrap()
+            .0
+    };
+    let written = dir.join("two.specified.step");
+    let (before, after) = (analysed(&two, 1), analysed(&written, 1));
+    for key in ["existing", "part", "resume"] {
+        assert_eq!(after.get(key), before.get(key), "{key}");
+    }
+    assert_eq!(
+        analysed(&written, 0)["resume"]["answers"],
+        json!({"part.material": "6061-T6"})
+    );
+    drop(events);
+    drop(server);
+    let _ = std::fs::remove_dir_all(&dir);
 }

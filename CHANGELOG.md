@@ -55,9 +55,10 @@ All notable changes to specify-core-rust. The format follows
   Until the app is bundled, `--app DIR` (or `SPECIFY_APP_DIR`) names the built app and
   `--wasm DIR` (or `SPECIFY_WASM_DIR`) the engine's wasm-pack `pkg/`. The contract for the
   app's authors is docs/open.md.
-- Save from the page sends `{rev, acceptDefaults}` (JSON; `acceptDefaults` required, the ids
-  of exactly the defaults the person approved, which become answers first, ADR P9), not the
-  STEP bytes: the command writes the session's answers with `specify-core write`'s writer, so a
+- Save from the page sends `{rev, acceptDefaults}` (JSON; `acceptDefaults` required, by part
+  `{"<part>": [ids]}`, exactly the defaults the person approved, which become answers on that
+  part only, ADR P9), not the STEP bytes. A save writes only parts with answers, and a part
+  joining the session is a change (`joined`): the command writes the session's answers with `specify-core write`'s writer, so a
   save from the page and one from the agent write the same file. An incomplete save is written
   (what is answered, the answers stored so reopening resumes them) and answers `complete` and
   `missing`; an in-place save always writes from the file as opened, and refuses (409) a file

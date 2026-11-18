@@ -286,7 +286,11 @@ impl Page {
         self.send(
             "POST",
             "save",
-            &json!({"rev": rev, "acceptDefaults": approved}),
+            &json!({"rev": rev, "acceptDefaults": if approved.is_empty() {
+                json!({})
+            } else {
+                json!({"0": approved})
+            }}),
         )
     }
 
@@ -976,7 +980,7 @@ fn a_save_from_elsewhere_of_another_type_without_defaults_said_or_too_large_is_r
     let localhost_origin = format!("http://localhost:{}", opened.port);
     let target = page.path("save");
     let json_type = ("Content-Type", "application/json");
-    let body = br#"{"rev": 0, "acceptDefaults": []}"#.to_vec();
+    let body = br#"{"rev": 0, "acceptDefaults": {}}"#.to_vec();
     let over = (64 * 1024 + 1).to_string();
     let cases: Vec<RefusedSave> = vec![
         (
@@ -1053,7 +1057,13 @@ fn a_save_from_elsewhere_of_another_type_without_defaults_said_or_too_large_is_r
             400,
         ),
         (
-            "acceptDefaults not a list",
+            "acceptDefaults a list, not by part",
+            vec![("Host", &host), ("Origin", &origin), json_type],
+            br#"{"rev": 0, "acceptDefaults": []}"#.to_vec(),
+            400,
+        ),
+        (
+            "acceptDefaults not by part",
             vec![("Host", &host), ("Origin", &origin), json_type],
             br#"{"rev": 0, "acceptDefaults": "yes"}"#.to_vec(),
             400,
@@ -1061,7 +1071,7 @@ fn a_save_from_elsewhere_of_another_type_without_defaults_said_or_too_large_is_r
         (
             "rev absent",
             vec![("Host", &host), ("Origin", &origin), json_type],
-            br#"{"acceptDefaults": []}"#.to_vec(),
+            br#"{"acceptDefaults": {}}"#.to_vec(),
             400,
         ),
         (
@@ -1085,6 +1095,7 @@ fn a_save_from_elsewhere_of_another_type_without_defaults_said_or_too_large_is_r
     let unknown = page.save(0, &["no.such.question"]);
     assert_eq!(unknown.status, 400);
     assert_eq!(unknown.json()["question"], "no.such.question");
+    assert_eq!(unknown.json()["part"], 0);
     assert!(unknown.json()["error"].is_string());
     assert_eq!(page.answers()["rev"], 0, "nothing approved");
     // A rev the session has moved on from.
@@ -1983,7 +1994,8 @@ fn only_the_approved_defaults_are_written() {
     assert_eq!(name, "answers");
     assert_eq!(
         change,
-        json!({"rev": 2, "part": 0, "answers": answered, "source": "page", "defaults": [approved]})
+        json!({"rev": 2, "part": 0, "answers": answered, "source": "page",
+               "defaults": {"0": [approved]}})
     );
     assert_eq!(events.next().0, "saved");
     drop(opened);

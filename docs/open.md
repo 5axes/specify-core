@@ -115,25 +115,29 @@ The page sends no STEP bytes.
 `POST <token>/save` with a JSON body:
 
 ```json
-{"rev": 7, "acceptDefaults": ["part.general_tolerance"]}
+{"rev": 7, "acceptDefaults": {"0": ["part.general_tolerance"]}}
 ```
 
 - `rev`: the session revision the page last saw (from `answers` or `events`). If the session
   has moved on since, the save is refused (409, with the current `rev`) so the page never
   saves answers it has not shown; the page refreshes and the person saves again.
-- `acceptDefaults` (required; 400 when absent or not a list of strings): the question ids of
-  exactly the defaults the person approved, `[]` for none. A default is written only when the
-  person approves it, per id (ADR P9: "we shouldn't create the default, which then becomes
-  gospel"). Each id must be an open question that has a default at `rev` (or one an earlier id
-  in the list asks); otherwise `400 {"error": "…", "question": "<id>"}` naming it, and nothing
-  is changed or written. The command first sets those answers to their defaults in the session:
-  a new `rev`, and an `answers` event that also carries `"defaults": [ids]`, with `source` as
-  for the save (`"page"`, or `"mcp"` for the agent's `save`). Then it writes from that rev: the
+- `acceptDefaults` (required; 400 when absent or of another shape): an object keyed by part
+  index, as `GET answers`' `parts`, of the question ids of exactly the defaults the person
+  approved on that part: `{"0": ["id", …], "2": […]}`, `{}` for none. A default is written only
+  when the person approves it, per id and per part (ADR P9: "we shouldn't create the default,
+  which then becomes gospel"). Each id must be an open question that has a default on that part
+  at `rev` (or one an earlier id in its list asks); otherwise
+  `400 {"error": "…", "part": <k>, "question": "<id>"}` naming it, and nothing is changed or
+  written. Only the part named gets that default. The command first sets those answers to their
+  defaults in the session: a new `rev`, and for each part an `answers` event that also carries
+  `"defaults": {"<k>": [ids]}`, with `source` as for the save (`"page"`, or `"mcp"` for the
+  agent's `save`). Then it writes from that rev: the
   approved defaults are ordinary answers, so the file stores them and reopening resumes them
   with its PMI. Questions with a default that are not listed stay open and are never written.
   The 200 reply's `rev` is that new rev (the one asked for when nothing is listed).
   (Contract change, 2026-11-18: `acceptDefaults` was `true` or `false`, `true` filling every
-  open default; it is now the list of approved question ids, and a bool gets 400.)
+  open default; it is now the approved question ids by part, `{"<part>": [ids]}`, and a bool
+  or a list gets 400.)
 
 **An incomplete save is written** (Paul, 2026-11-18: "The user might want to save something
 with incomplete PMI. What's wrong with that? Lots of step files with ap242 don't have a complete
@@ -144,8 +148,10 @@ questions open. The answer says what is still open (`complete`, `missing`).
   `Transfer-Encoding` (411), at most 64 KB (413), the whole body within 30 s (408).
 - `Origin: http://127.0.0.1:<port>` exactly (403 otherwise, and when `Origin` is absent).
 
-Every part that has answers in the session (or is open in it, and a file's only part) is
-written in one edit (an assembly's other parts are left as they are). The file is written to a temporary file next to the input and renamed
+Every part that has at least one answer in the session (approved defaults count), and a file's
+only part, is written in one edit; a part with no answers has nothing to write, and it and an
+assembly's other parts are left as they are (their PMI and stored answers untouched). A part
+never gets a default not approved for it. The file is written to a temporary file next to the input and renamed
 into place:
 
 - by default in the directory of `FILE` as given (beside a link, not in its target's
@@ -222,7 +228,11 @@ id: 8
 data: {"rev": 8, "part": 0, "answers": {…}, "source": "page"}
 ```
 
-(A change a `save` makes by approving defaults adds `"defaults": ["<id>", …]`.)
+(A change a `save` makes by approving defaults adds `"defaults": {"<part>": ["<id>", …]}`. A
+part joining the session, when the agent opens another part of the file or the page's first
+`PUT answers` for it, is a change too: a new `rev` and an event with `"joined": true`, its
+`answers` possibly `{}`, `source` `"mcp"` or `"page"`; a page holding an older `rev` then
+fails its next check and re-reads.)
 
 `source` is `"page"` (a `PUT answers`), `"mcp"` (the agent's tools, docs/session.md) or
 `"start"` (the first event).
