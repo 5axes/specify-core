@@ -18,9 +18,10 @@
 //! specify-core serve                             JSON-line requests on stdin (serve.rs)
 //! specify-core mcp [--http [--port N]] [--allow DIR]...
 //!                    a Model Context Protocol server on stdio or local HTTP (mcp.rs)
-//! specify-core open STEP [--editor] [--site ORIGIN] [--no-browser]
-//!                    the file opened in draftwright.io/specify, served once on 127.0.0.1
-//!                    (open.rs)
+//! specify-core open STEP [--read-only | --in-place] [--port N] [--no-browser]
+//!                    [--app DIR] [--wasm DIR]
+//!                    the file opened in the Specify app, served on 127.0.0.1 and saved
+//!                    back to disk (open.rs)
 //! specify-core completions SHELL                 a shell completion script (clap_complete)
 //! ```
 //!
@@ -196,27 +197,37 @@ when the server stops, unless a call names an answers_file. See docs/mcp.md.")]
         #[arg(long)]
         pmi_scenes: bool,
     },
-    /// open a STEP file in draftwright.io/specify in your browser, without uploading it
+    /// open a STEP file in Specify in your browser, served from this computer
     #[command(long_about = "\
-Open a STEP file in draftwright.io/specify in your browser, without uploading it: the
-file is served once on 127.0.0.1 and the page fetches it from there. Stops once it is
-fetched, or after 10 minutes. The first time, Chrome asks whether draftwright.io
-may \"access other apps and services on this device\": Allow lets the page fetch the file.
-If it did not open while the prompt was up, stop this (Ctrl-C) and run it again; if you
-chose Block, allow it again in draftwright.io's site settings.")]
+Open a STEP file in Specify in your browser, served by this command on 127.0.0.1: nothing
+is uploaded. Specify's Save writes the specified file next to the input as
+<name>.specified.step (then -2, -3, ...; nothing is overwritten), or with --in-place over the
+input (through a link, to its target), the original kept once as .bak. Stops 90 seconds after
+the last page is closed, or after 30 minutes without a request.
+
+The app is not bundled yet: pass --app DIR (or set SPECIFY_APP_DIR) to the built app and
+--wasm DIR (or SPECIFY_WASM_DIR) to the engine's wasm-pack pkg/ directory.")]
     Open {
         /// a .step or .stp file, or either gzipped
         step: PathBuf,
-        /// open the full editor (/editor) instead of /specify
+        /// refuse saves
+        #[arg(long, conflicts_with = "in_place")]
+        read_only: bool,
+        /// save over the input, keeping the original once as .bak
         #[arg(long)]
-        editor: bool,
-        /// another deployment's origin, such as http://localhost:5173, opened and answered as
-        /// well as draftwright.io
+        in_place: bool,
+        /// the port on 127.0.0.1 (default: any free port)
         #[arg(long)]
-        site: Option<String>,
+        port: Option<u16>,
         /// print the address to open instead of opening a browser
         #[arg(long)]
         no_browser: bool,
+        /// the built Specify app (index.html at its root); default $SPECIFY_APP_DIR
+        #[arg(long, value_name = "DIR")]
+        app: Option<PathBuf>,
+        /// the engine's wasm-pack pkg/ directory, served at wasm/; default $SPECIFY_WASM_DIR
+        #[arg(long, value_name = "DIR")]
+        wasm: Option<PathBuf>,
     },
     /// print the assembly BOM as JSON
     Bom { step: PathBuf },
@@ -472,10 +483,27 @@ fn run(cmd: Cmd, out: &mut impl Write) -> Result<(), Exit> {
         ),
         Cmd::Open {
             step,
-            editor,
-            site,
+            read_only,
+            in_place,
+            port,
             no_browser,
-        } => open(&step, site.as_deref(), editor, no_browser, out),
+            app,
+            wasm,
+        } => {
+            let options = crate::open::Options {
+                read_only,
+                in_place,
+                port: port.unwrap_or(0),
+            };
+            open(
+                &step,
+                &options,
+                app.as_deref(),
+                wasm.as_deref(),
+                no_browser,
+                out,
+            )
+        }
     }
 }
 
@@ -587,31 +615,39 @@ fn part_arg(step: &Path, part: Option<i64>) -> Result<Option<usize>, Exit> {
     }
 }
 
-/// `open`: the file served once on 127.0.0.1 and the browser opened at the editor's page for
-/// it (or, with `--no-browser`, only the page's address printed). Exit 2 for a name the
-/// editor does not open or a bad `--site`; exit 1 when nothing fetched it in 10 minutes.
+/// `open`: the Specify app served on 127.0.0.1 for the file and the browser opened at it
+/// (or, with `--no-browser`, only its address printed); then each save's notice and the stop's.
+/// Exit 2 for a name Specify does not open, no app, or `--read-only` with `--in-place`.
 fn open(
     step: &Path,
-    site: Option<&str>,
-    editor: bool,
+    options: &crate::open::Options,
+    app: Option<&Path>,
+    wasm: Option<&Path>,
     no_browser: bool,
     out: &mut impl Write,
 ) -> Result<(), Exit> {
-    use crate::open::{Error as OpenError, Handoff, TIMEOUT, launch_browser};
+    use crate::open::{App, CLOSE_DELAY, Error as OpenError, IDLE, assets, launch_browser};
     let failed = |e: OpenError| match e {
         OpenError::Refused(m) => Exit::new(2, format!("cannot open: {m}")),
         other => Exit::error(other),
     };
-    let handoff = Handoff::new(step, site, editor).map_err(failed)?;
-    let page = handoff.page().to_string();
-    print(out, &format!("Open {}: {page}", handoff.name()))?;
+    let found = assets(app, wasm).map_err(failed)?;
+    let served = App::new(step, found, options).map_err(failed)?;
+    let url = served.url();
+    print(out, &format!("Open {}: {url}", served.name()))?;
     out.flush().map_err(Exit::error)?;
-    if !no_browser && let Err(e) = launch_browser(&page) {
+    if !no_browser && let Err(e) = launch_browser(&url) {
         eprintln!("warning: cannot open a browser ({e}); open the address above");
     }
-    handoff.serve(TIMEOUT).map_err(failed)?;
-    let target = page.split('?').next().unwrap_or(&page);
-    print(out, &format!("Opened in {target}."))
+    let mut written = Ok(());
+    served
+        .serve(CLOSE_DELAY, IDLE, |notice| {
+            if written.is_ok() {
+                written = writeln!(out, "{notice}").and_then(|_| out.flush());
+            }
+        })
+        .map_err(failed)?;
+    written.map_err(Exit::error)
 }
 
 /// `mcp`: the MCP server on stdio, or on HTTP with its address and token printed first.
