@@ -115,15 +115,23 @@ pub(crate) fn reconcile(
     // the file when either plan states its requirements as the file does.
     // Answers matched to features recognised differently since they were stored (migrated,
     // or matched by ID without face evidence): only their requirements may sit on other faces.
-    let drift: BTreeSet<String> = if analysis["resume"]["unverified"].is_string() {
-        stored.keys().cloned().collect()
-    } else {
-        analysis["resume"]["migrated"]
+    let drift = crate::revision::Drift {
+        questions: if analysis["resume"]["unverified"].is_string() {
+            stored.keys().cloned().collect()
+        } else {
+            analysis["resume"]["migrated"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|pair| pair[1].as_str().map(str::to_owned))
+                .collect()
+        },
+        kinds: analysis["faces"]
             .as_array()
             .into_iter()
             .flatten()
-            .filter_map(|pair| pair[1].as_str().map(str::to_owned))
-            .collect()
+            .map(|f| f["kind"].as_str().unwrap_or_default().to_owned())
+            .collect(),
     };
     let plan = scene.comparison(loaded, analysis, Some(&stored))?;
     let mut truth = crate::revision::against_plan(&plan, &file, faces, &stored, &drift);

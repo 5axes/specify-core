@@ -36,7 +36,7 @@ use haecceity::Part;
 
 pub mod assembly;
 mod pmi;
-pub(crate) use pmi::against_plan;
+pub(crate) use pmi::{Drift, against_plan};
 mod pmi_picture;
 mod treatments;
 

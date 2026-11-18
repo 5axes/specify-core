@@ -354,7 +354,9 @@ fn a_default_another_tool_changed_is_the_files_and_its_keep_lasts() {
     };
     assert_eq!(positions(&loaded), [(0.3, true)]);
     let analysis = api::analyse(&loaded).unwrap();
-    let conflicts = analysis["resume"]["conflicts"].as_array().unwrap();
+    let conflicts = analysis["resume"]["conflicts"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{}", analysis["resume"]));
     assert_eq!(conflicts.len(), 1, "{conflicts:?}");
     assert_eq!(conflicts[0]["id"], pattern);
     assert_eq!(conflicts[0]["stored"], "0.6");
