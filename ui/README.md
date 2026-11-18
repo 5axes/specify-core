@@ -16,7 +16,7 @@ npm install @draftwright/specify-ui
 ```
 
 Peer dependencies, which the host provides (the package bundles none of them): `react` and `react-dom` ^19,
-`three` 0.184 to 0.186 and `three-cad-viewer` ~5.1.3. `three-cad-viewer` 5.1.3 depends on `three` 0.184.0 exactly, so
+`three` 0.184 to 0.187 and `three-cad-viewer` ~5.1.3. `three-cad-viewer` 5.1.3 depends on `three` 0.184.0 exactly, so
 install `three@0.184.0` to have one copy of three; with any other version the host bundles two (this package's
 tests run on 0.184.0).
 
