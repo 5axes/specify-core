@@ -79,7 +79,9 @@ as the last `--in-place` save left it. Outside `diff` mode `?rev=old` is 404, an
 {
   "mode": "specify",
   "name": "part.step",
+  "path": "/home/me/parts/part.step",
   "oldName": null,
+  "oldPath": null,
   "readOnly": false,
   "wasmUrl": "wasm/specify_core_wasm.js",
   "saveTarget": "/home/me/parts/part.specified.step",
@@ -89,7 +91,9 @@ as the last `--in-place` save left it. Outside `diff` mode `?rev=old` is 404, an
 
 - `mode`: `"specify"`, `"read-only"` or `"diff"` (above).
 - `name`: the file's name (`NEW`'s in `diff` mode).
-- `oldName`: `OLD`'s name in `diff` mode, otherwise `null`.
+- `path`: the opened file's absolute path (`NEW`'s in `diff` mode), as given, not resolved
+  (above).
+- `oldName`, `oldPath`: `OLD`'s name and absolute path in `diff` mode, otherwise `null`.
 - `readOnly`: saves and answer changes are refused (`--read-only`); hide or disable Save.
   `true` exactly when `mode` is `"read-only"`.
 - `wasmUrl`: the engine's entry module, relative to the app.
