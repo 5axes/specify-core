@@ -4,6 +4,14 @@ All notable changes to specify-core-rust. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### Fixed
+
+- The release's npm job failed for 0.1.18: `npm pack` read the relative `release/pkg` as a
+  GitHub repository. `tools/npm_package.py` passes an absolute path; a test packs a relative
+  directory with npm.
+
 ## 0.1.18 (2026-11-17)
 
 ### Added
