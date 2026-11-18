@@ -158,10 +158,37 @@ pub(crate) fn reconcile(
         }
         // A default the file states as the defaults would write it is present: the file
         // answers its question (`resume.present`), which stays answerable, not a suggestion.
+        // Only Specify's own (marked) requirements are its defaults: one written unmarked is
+        // another tool's, or one the person kept, and is simply the file's (`existing`).
+        let unmarked: BTreeSet<(String, usize)> = {
+            let doc = haecceity::p21::Document::parse(loaded.bytes.to_vec())
+                .map_err(|e| e.to_string())?;
+            let defs =
+                haecceity::step::read_part_definitions(&loaded.bytes).map_err(|e| e.to_string())?;
+            let read = haecceity::pmi::read(&doc, &defs).map_err(|e| e.to_string())?;
+            let part = loaded.binding.part;
+            let mut unmarked: BTreeSet<(String, usize)> =
+                crate::provenance::unmarked(&doc, &read, part)
+                    .into_iter()
+                    .collect();
+            // Part notes and other attributes another tool stated.
+            for (i, ids) in read.provenance.parts[part].attributes.iter().enumerate() {
+                if !super::is_answers(&read.parts[part].attributes[i])
+                    && !crate::provenance::marked(&doc, ids, "attribute")
+                {
+                    unmarked.insert(("attributes".to_string(), i));
+                }
+            }
+            unmarked
+        };
         for (question, (unchanged, ids)) in other.defaults {
             // The process is read from the file with its own source (an accepted suggestion
             // stays one, `process::read`), so it is not taken as an answer here.
+            let own = ids
+                .iter()
+                .all(|id| index.get(id).is_none_or(|at| !unmarked.contains(at)));
             if unchanged
+                && own
                 && !ids.is_empty()
                 && question != crate::process::QUESTION
                 && let Some(value) = all.get(&question)
@@ -173,18 +200,6 @@ pub(crate) fn reconcile(
         // A default the file states otherwise (another tool changed it, keeping Specify's
         // marker): the file's requirement stands, and the default is offered against it as a
         // conflict the person decides, as a stored answer's would be.
-        // Only Specify's own (marked) requirement: one written unmarked is another tool's, or
-        // one the person kept, and is simply the file's.
-        let unmarked: BTreeSet<(String, usize)> = {
-            let doc = haecceity::p21::Document::parse(loaded.bytes.to_vec())
-                .map_err(|e| e.to_string())?;
-            let defs =
-                haecceity::step::read_part_definitions(&loaded.bytes).map_err(|e| e.to_string())?;
-            let read = haecceity::pmi::read(&doc, &defs).map_err(|e| e.to_string())?;
-            crate::provenance::unmarked(&doc, &read, loaded.binding.part)
-                .into_iter()
-                .collect()
-        };
         for (question, items) in other.changed_defaults {
             let marked = items
                 .iter()

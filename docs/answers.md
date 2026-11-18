@@ -141,7 +141,11 @@ the file's PMI is what any tool reads, and it may have been edited since. On reo
 item by item with what the stored answers would write: their preview (defaults left as
 suggestions) and, where defaults merged requirements, their plan with every default taken.
 The comparison is the revision diff's PMI item matching (`revision::against_plan`), every
-face corresponding to itself.
+face corresponding to itself, an exact match always taken first. A requirement on a face set
+the file states otherwise is a conflict (an edit), except for recognition drift: an answer
+matched to a feature recognised anew (`resume.migrated`, or matched by ID), or one face set
+holding the other with every face only one has of a kind the other has none of (a hole's tip
+cone or floor claimed since).
 
 - **Same in both:** the answer resumes (`resume.answers`) and its items are not repeated in
   `existing`.
