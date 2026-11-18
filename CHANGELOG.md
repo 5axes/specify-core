@@ -10,7 +10,7 @@ All notable changes to specify-core-rust. The format follows
 
 - docs/rule-sources.md: where each of Specify's defaults and tables comes from (standard,
   edition where recorded, convention, vendor figure or assumption) and where it is in the code,
-  with the review still open (#196).
+  with the review still open (for #196).
 - Every default carries a structured `source` beside its `basis`: `{rule, kind, refs}`, the
   rule's stable id, `standard`/`convention`/`vendor`/`assumption`, and the standards it cites
   (edition and clause where recorded). In `api::review` and WASM `review`, the MCP `questions`
@@ -18,7 +18,18 @@ All notable changes to specify-core-rust. The format follows
   `"sources": true` (without them the Python-compatible document is unchanged); `review` and MCP
   `characteristics` give `sources` beside the preview intent, and answer exports `_specify.sources`.
   Additive: `Question::to_dict`, intents written and the STEP are unchanged. Rule ids are
-  listed in docs/rule-sources.md (#196).
+  listed in docs/rule-sources.md (for #196).
+
+### Fixed
+
+- The release's npm job failed for 0.1.18: `npm pack` read the relative `release/pkg` as a
+  GitHub repository. `tools/npm_package.py` passes an absolute path; a test packs a relative
+  directory with npm.
+
+## 0.1.18 (2026-11-17)
+
+### Added
+
 - `specify-core mcp`: a Model Context Protocol server, so an LLM client (Claude Code, Claude
   Desktop) can specify a part. It speaks revision 2026-07-28 (`server/discover`, per-request
   `_meta`) and the legacy 2025-11-25 (`initialize`), over stdio or, with `--http`, Streamable
@@ -42,6 +53,7 @@ All notable changes to specify-core-rust. The format follows
 - The WASM release archive and npm package carry NOTICE beside LICENSE (Apache-2.0 4(d)), from
   0.1.18. CI and the npm job refuse a packed tarball without both. The `.wasm` and `.js` are
   unchanged.
+- The npm job passes no `NPM_TOKEN`: it publishes through npm trusted publishing (OIDC) only.
 
 ## 0.1.17 (2026-11-16)
 
