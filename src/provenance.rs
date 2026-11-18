@@ -473,9 +473,14 @@ pub(crate) fn unmark(bytes: &[u8], ids: &BTreeSet<u64>) -> Result<Vec<u8>, Strin
         let mut record = entity.clone();
         let changed = match &mut record {
             RawEntity::Simple { attributes, .. } => clear(attributes),
-            RawEntity::Complex { parts, .. } => parts
-                .iter_mut()
-                .fold(false, |any, p| clear(&mut p.attributes) || any),
+            RawEntity::Complex { parts, .. } => {
+                // Every part of the record, not just the first that holds the marker.
+                let mut any = false;
+                for p in parts.iter_mut() {
+                    any |= clear(&mut p.attributes);
+                }
+                any
+            }
         };
         if changed {
             edit.replace(id, record);
