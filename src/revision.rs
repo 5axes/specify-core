@@ -1685,9 +1685,9 @@ fn refuse_unfit(
 /// cannot disagree.
 pub enum Comparison {
     Part {
-        before: LoadedPart,
-        after: LoadedPart,
-        revised: Revised,
+        before: Box<LoadedPart>,
+        after: Box<LoadedPart>,
+        revised: Box<Revised>,
     },
     Assembly {
         before: Vec<LoadedPart>,
@@ -1761,9 +1761,9 @@ pub fn compare(
     let (before, after) = (old.load(part)?, new.load(part)?);
     let revised = diff_with_options(&before, &after, given, options)?;
     Ok(Comparison::Part {
-        before,
-        after,
-        revised,
+        before: Box::new(before),
+        after: Box::new(after),
+        revised: Box::new(revised),
     })
 }
 
