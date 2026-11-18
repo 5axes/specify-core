@@ -311,6 +311,15 @@ fn a_part_turned_round_in_its_own_frame_is_moved_not_unchanged() {
     let a = compared(&fixture("old"), &fixture("new"));
     assert_eq!(statuses(&a), [("plate", "moved"), ("block", "unchanged")]);
     assert_eq!(a.summary, "1 part moved (plate), 1 unchanged.");
+    // The square block fits turned 90° as well as it lies: its tie is said, though it has no
+    // section of its own.
+    let md = a.markdown("plate_turned.step", None, None);
+    assert!(
+        md.contains(
+            "**block** (unchanged): Matched in the file's frame; a 90° turn about Z fits equally."
+        ),
+        "{md}"
+    );
 }
 
 #[test]

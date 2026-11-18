@@ -149,42 +149,81 @@ pub(super) fn check_lines(
         return Vec::new();
     }
     let requirements = items(scene);
-    checks
-        .iter()
-        .map(|c| {
-            let feature = features
-                .iter()
-                .find(|f| f.id == c.feature)
-                .map(|f| super::describe(f).0)
-                .unwrap_or_else(|| c.feature.clone());
-            let notation = requirements
-                .iter()
-                .filter(|r| scene["specify"][&r.id]["question"] == c.id)
-                .map(|r| r.text.as_str())
-                .filter(|t| !t.is_empty())
-                .collect::<Vec<_>>()
-                .join("; ");
-            let notation = if notation.is_empty() {
-                super::fmt(&c.answer)
+    // One line per feature and change: `… diameter 3 → 3.4, so its ⌀3.4 H11 and ⌖ ⌀0.2Ⓜ A B C
+    // requirements may no longer fit`.
+    let mut lines: Vec<(String, String, Vec<String>)> = Vec::new();
+    for c in checks {
+        let feature = features
+            .iter()
+            .find(|f| f.id == c.feature)
+            .map(|f| super::describe(f).0)
+            .unwrap_or_else(|| c.feature.clone());
+        let asked: Vec<&Item> = requirements
+            .iter()
+            .filter(|r| scene["specify"][&r.id]["question"] == c.id)
+            .filter(|r| !r.text.is_empty())
+            .collect();
+        // The requirement itself, not the planned dimensions that locate it: a position
+        // tolerance is named by its frame, as the PMI list names it.
+        let own: Vec<&&Item> = asked
+            .iter()
+            .filter(|r| !r.id.starts_with("planner:"))
+            .collect();
+        let notation = if own.is_empty() {
+            asked.iter().map(|r| r.text.as_str()).collect::<Vec<_>>()
+        } else {
+            own.iter().map(|r| r.text.as_str()).collect()
+        }
+        .join("; ");
+        let notation = if notation.is_empty() {
+            super::fmt(&c.answer)
+        } else {
+            notation
+        };
+        let changes = [
+            super::sizes(&c.changes),
+            super::moved(&c.changes, c.axis)
+                .map(|m| format!("moved {m}"))
+                .unwrap_or_default(),
+        ]
+        .into_iter()
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join("; ");
+        let changes = if changes.is_empty() {
+            "changed".to_string()
+        } else {
+            changes
+        };
+        match lines
+            .iter_mut()
+            .find(|(f, ch, _)| *f == feature && *ch == changes)
+        {
+            Some((_, _, notations)) => {
+                if !notations.contains(&notation) {
+                    notations.push(notation);
+                }
+            }
+            None => lines.push((feature, changes, vec![notation])),
+        }
+    }
+    lines
+        .into_iter()
+        .map(|(feature, changes, notations)| {
+            let (last, rest) = notations.split_last().expect("one at least");
+            let (named, requirement) = if rest.is_empty() {
+                (last.clone(), "requirement")
             } else {
-                notation
+                (format!("{} and {last}", rest.join(", ")), "requirements")
             };
-            let changes = [
-                super::sizes(&c.changes),
-                super::moved(&c.changes, c.axis)
-                    .map(|m| format!("moved {m}"))
-                    .unwrap_or_default(),
-            ]
-            .into_iter()
-            .filter(|s| !s.is_empty())
-            .collect::<Vec<_>>()
-            .join("; ");
-            let changes = if changes.is_empty() {
-                "changed"
+            // A size change follows a colon; a move or a bare change reads on: `… blind holes:
+            // diameter 3 → 3.4`, `… through hole moved X −15`.
+            let sep = if changes == "changed" || changes.starts_with("moved") {
+                " "
             } else {
-                &changes
+                ": "
             };
-            format!("{feature} {changes}, so its {notation} requirement may no longer fit")
+            format!("{feature}{sep}{changes}, so its {named} {requirement} may no longer fit")
         })
         .collect()
 }
@@ -410,6 +449,23 @@ fn mapped(support: &[usize], faces: &BTreeMap<usize, Bind>) -> Option<Vec<usize>
     Some(result)
 }
 
+// Whether a same-id pairing of items whose support did not map whole contradicts the known
+// face correspondence: a surviving face mapped outside the new support, or a new face that is
+// another old face's image (recognition reused a face-derived id for another feature).
+fn contradicts(was: &Item, now: &Item, faces: &BTreeMap<usize, Bind>) -> bool {
+    was.faces.iter().any(|face| match faces.get(face) {
+        Some(Bind::To(to)) => !now.faces.contains(to),
+        _ => false,
+    }) || now.faces.iter().any(|to| {
+        let mut from = faces
+            .iter()
+            .filter(|(_, bind)| **bind == Bind::To(*to))
+            .map(|(old, _)| old)
+            .peekable();
+        from.peek().is_some() && !from.any(|old| was.faces.contains(old))
+    })
+}
+
 // Missing provenance in a CAD requirement is not evidence of a different role.
 // When both roles are stated, even numbers and ids must respect them.
 fn compatible(was: &Item, now: &Item) -> bool {
@@ -503,7 +559,10 @@ fn compare(
                                     && ((carried_numbers
                                         && was.number.is_some()
                                         && now.number.is_some())
-                                        || mapped.as_ref().is_none_or(|f| *f == now.faces))
+                                        || match &mapped {
+                                            Some(f) => *f == now.faces,
+                                            None => !contradicts(was, now, faces),
+                                        })
                             }
                             2 => {
                                 mapped.as_ref().is_some_and(|f| *f == now.faces)
@@ -620,6 +679,7 @@ fn compare(
             old: was.map(|p| p.text.clone()),
             new: now.map(|p| p.text.clone()),
             reason,
+            detail: None,
         }
     };
     let mut result = Vec::new();
@@ -666,11 +726,15 @@ fn compare(
                 ));
             }
         } else {
+            // Only a carried history retires a number. Fresh plan numbers are reserved by
+            // nothing: the new plan may give the removed item's number to another item.
             result.push(change(
                 "removed",
                 Some(was),
                 None,
-                was.number.map(|_| "retired".into()),
+                was.number
+                    .filter(|_| carried_numbers)
+                    .map(|_| "retired".into()),
             ));
         }
     }
@@ -686,6 +750,24 @@ fn compare(
         ))
     });
     result
+}
+
+/// The plans' changes that the files' comparison lacks (by id or number), each saying it comes
+/// from the plans: a `retired` item keeps its reason, a code, with the words in `detail`.
+fn add_planned(changes: &mut Vec<PmiItemChange>, planned: Vec<PmiItemChange>) {
+    for mut change in planned {
+        if !changes.iter().any(|actual| {
+            actual.id == change.id || (actual.number.is_some() && actual.number == change.number)
+        }) {
+            let differs = "carried requirement differs from the new file";
+            if change.reason.as_deref() == Some("retired") {
+                change.detail = Some(differs.into());
+            } else {
+                change.reason = Some(differs.into());
+            }
+            changes.push(change);
+        }
+    }
 }
 
 pub(super) fn diff(
@@ -738,22 +820,15 @@ pub(super) fn diff(
         let source = given.or_else(|| old_analysis["resume"]["answers"].as_object());
         if let Some(source) = source {
             let old_plan = scene(old, old_analysis, Some(source))?;
-            for mut change in compare(
+            let planned = compare(
                 &old_items(&old_plan),
                 &items(&projected),
                 faces,
                 features.0,
                 features.1,
                 carried_numbers,
-            ) {
-                if !changes.iter().any(|actual| {
-                    actual.id == change.id
-                        || (actual.number.is_some() && actual.number == change.number)
-                }) {
-                    change.reason = Some("carried requirement differs from the new file".into());
-                    changes.push(change);
-                }
-            }
+            );
+            add_planned(&mut changes, planned);
         }
         (changes, actual)
     } else {
@@ -962,6 +1037,44 @@ mod tests {
         item.on_faces = target;
         item.reference_faces = reference;
         item
+    }
+
+    #[test]
+    fn a_planned_retirement_keeps_its_reason_and_says_why_in_detail() {
+        // With a carried history, an item only the plans remove is retired: its reason stays
+        // the code, and the plans' origin goes in `detail`. Other planned items keep the
+        // explanation as their reason, as before.
+        let mut old = [
+            control("gone", vec![0], "⌖ ⌀0.2 A"),
+            control("edited", vec![1], "⏥ 0.05"),
+        ];
+        old[0].number = Some(7);
+        old[1].number = Some(8);
+        let mut new = [control("edited", vec![11], "⏥ 0.02")];
+        new[0].number = Some(8);
+        let faces = BTreeMap::from([(0, Bind::Orphaned), (1, Bind::To(11))]);
+        let planned = compare(&old, &new, &faces, &[], &[], true);
+        let mut changes = Vec::new();
+        add_planned(&mut changes, planned);
+        let retired = changes.iter().find(|c| c.id == "gone").unwrap();
+        assert_eq!(retired.class, "removed");
+        assert_eq!(retired.reason.as_deref(), Some("retired"));
+        assert_eq!(
+            retired.detail.as_deref(),
+            Some("carried requirement differs from the new file")
+        );
+        let json = serde_json::to_value(retired).unwrap();
+        assert_eq!(json["reason"], "retired");
+        assert_eq!(
+            json["detail"],
+            "carried requirement differs from the new file"
+        );
+        let edited = changes.iter().find(|c| c.id == "edited").unwrap();
+        assert_eq!(
+            edited.reason.as_deref(),
+            Some("carried requirement differs from the new file")
+        );
+        assert_eq!(edited.detail, None);
     }
 
     #[test]

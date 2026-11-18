@@ -42,6 +42,28 @@ All notable changes to specify-core-rust. The format follows
 
 ### Fixed
 
+- `diff` on a symmetric part, where the old part fits the new one turned (180° say) as well as
+  it lies, broke the tie by the file's frame without saying so. It still matches in the file's
+  frame, now a stated rule in docs/diff.md, and says so: report.md's "Matched in the file's
+  frame; a 180° turn about Z fits equally." and report.json's `frame_tie`. The verdict and
+  carried answers are unchanged.
+- `diff`'s PMI change list paired a removed hole's requirement with the one on the hole that
+  took its face numbers ("80 → 30") through their shared face-numbered id. A same-id pair now
+  must agree with the face correspondence, so the removed hole's requirements are removed and
+  the surviving holes' unchanged. A removal is `retired` only from a carried number history:
+  with fresh numbers it is `removed`, so a number is no longer listed as retired and given to
+  another item. Carried answers and written PMI are unchanged.
+- `diff` reported a body or a hole pattern as moved when a hole was cut into it or its holes
+  were resized ("thin wall body: moved X −0.1", "1 hole pattern moved"): its centroid moved,
+  its faces did not. A feature now moves only when its faces do. A pocket or slot moved on a
+  part too sparse to align (only face lines before) is now reported moved.
+- `diff` named a thin wall body a "thin wall bodie"; families ending in `-ies` now read `-y`.
+- `diff`'s requirements to check repeated a feature's change for each of its requirements and
+  named a position tolerance by its planned locations ("70; 50; 50; 35; ⌖ ⌀0.2Ⓜ A B C"). One
+  line now names the change once, with each requirement as the PMI list names it.
+- `diff` counted a requirement that was only numbered differently as a change to the PMI. It is
+  counted apart in the summary ("N characteristic numbers changed (requirements unchanged)"),
+  and Markdown lists it after the changes as unchanged.
 - The release's npm job failed for 0.1.18: `npm pack` read the relative `release/pkg` as a
   GitHub repository. `tools/npm_package.py` passes an absolute path; a test packs a relative
   directory with npm.
@@ -50,6 +72,8 @@ All notable changes to specify-core-rust. The format follows
 
 - WASM `writePmi`'s report says whether the answers were complete: `complete` and `missing` (the
   required questions still open). An incomplete set is still written, as before.
+- `diff()`'s PMI items gain an optional `detail`: the explanation that used to be appended to a
+  retired item's `reason`, which is now always the plain code.
 
 ## 0.1.18 (2026-11-17)
 
