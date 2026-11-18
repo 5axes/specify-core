@@ -83,6 +83,9 @@ remain alike after the motion is chosen are still `ambiguous`, as above.
   part's axes ("moved Z +2"), "reshaped" for a freeform surface, or "removed". A move along a
   feature's own axis isn't reported when its depth or height changed, since that move is the
   change in length. A move component of a tenth of the largest one or less is left out.
+  A feature has moved only when its faces have: a hole cut into a wall, or a pattern's holes
+  resized, shifts the centroid of the body or pattern, but its faces stay where they were, so
+  it is not reported (the cut hole and the resized holes are).
 - **Other faces** lists the changes to faces that no feature above explains: a block face or
   a sharp-cornered pocket wall pushed 5 mm, say, which no hole, fillet or other recognised
   feature holds. Each is a face the matching found changed (`adapted`), gone (`orphaned`),
@@ -120,7 +123,9 @@ remain alike after the motion is chosen are still `ambiguous`, as above.
     answers stay carried, the report adds a `carry_refused` problem with the new part's
     refusal, and write refuses the answers until they are reviewed.
 - **Requirements to check** belong to a feature that changed. They're applied, but a fit or a
-  clearance chosen for the old size may be wrong for the new one.
+  clearance chosen for the old size may be wrong for the new one. One line names a feature's
+  change once, with each of its requirements as the PMI list names it (a position tolerance by
+  its frame, not the planned dimensions that locate it).
 - **Requirements to specify** are decisions needed for new features.
 - **PMI** compares requirements from both revisions as `haecceity.pmi/1`, using
   the same ids, characteristic numbers and `answered` / `default` / `general` /
@@ -204,7 +209,10 @@ independent histories) reserve nothing: a removal there is `removed` with its ol
 `retired` reason, since the new plan may give that number to another item. A retired item found
 only by comparing the two plans keeps `reason: "retired"` and says why in `detail`
 (`carried requirement differs from the new file`). Renumbering is reported if detected, though ordinary editing preserves
-numbers. Value and material-modifier edits keep the number and produce one `changed`
+numbers. A renumbering alone is not a change to the requirement: the summary does not count
+it, and Markdown lists it after the changes as `#25 ⏥ 0.05: unchanged; characteristic number
+#22 → #25`. A new file written from `diff`'s `answers.json` keeps the old file's numbers; one
+written without it numbers afresh, and its renumberings show here. Value and material-modifier edits keep the number and produce one `changed`
 item per edited requirement, including direct STEP edits (For #95). Changes sort by
 characteristic number, then unnumbered id. Markdown prints one line per change, for example:
 

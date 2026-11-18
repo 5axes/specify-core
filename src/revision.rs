@@ -753,14 +753,15 @@ fn plural_of(n: usize, one: &str) -> String {
     }
 }
 
-/// One of a family, in words: `holes` → `hole`, `hole_patterns` → `hole pattern`.
+/// One of a family, in words: `holes` → `hole`, `hole_patterns` → `hole pattern`,
+/// `thin_wall_bodies` → `thin wall body`.
 fn singular(family: &str) -> String {
-    let one = if family == "turned_bodies" {
-        "turned_body"
+    let one = if let Some(stem) = family.strip_suffix("ies") {
+        format!("{stem}y")
     } else if family.ends_with("sses") {
-        &family[..family.len() - 2]
+        family[..family.len() - 2].to_string()
     } else {
-        family.strip_suffix('s').unwrap_or(family)
+        family.strip_suffix('s').unwrap_or(family).to_string()
     };
     one.replace('_', " ")
 }
@@ -1801,17 +1802,32 @@ pub fn diff_with_options(
         if let Some(n) = &new_id {
             reached.insert(n.clone());
         }
+        // A feature's centroid moves when material is cut from it or its holes are resized; it
+        // has moved only when its faces have (see `in_place`).
+        let mut changes = e.changes.clone();
+        if e.class == Class::Adapted
+            && changes.contains_key("position")
+            && corr.alignment.found
+            && old_features
+                .iter()
+                .find(|f| &f.id == old_id)
+                .is_some_and(|f| {
+                    in_place(&f.faces, &corr, [&old_q.fingerprints, &new_q.fingerprints])
+                })
+        {
+            changes.remove("position");
+        }
         let class = match e.class {
             Class::Carried => continue,
             // What a feature borders is context, not a change to it: a chamfer whose corners
             // are rounded is the same chamfer.
-            Class::Adapted if e.changes.keys().all(|k| CONTEXT.contains(&k.as_str())) => continue,
+            Class::Adapted if changes.keys().all(|k| CONTEXT.contains(&k.as_str())) => continue,
             Class::Adapted => "adapted",
             Class::Ambiguous => "ambiguous",
             _ => "orphaned",
         };
         if let Some(n) = &new_id {
-            changed.insert(n.clone(), e.changes.clone());
+            changed.insert(n.clone(), changes.clone());
         }
         let candidates: Vec<String> = e
             .candidates
@@ -1831,7 +1847,7 @@ pub fn diff_with_options(
             old: Some(old_id.clone()),
             new: new_id,
             candidates,
-            changes: e.changes.clone(),
+            changes,
             what,
             became: String::new(),
             at,
@@ -2364,7 +2380,8 @@ pub fn diff_with_options(
             )
         });
     }
-    let pmi_changes = pmi.items.len();
+    // Renumbering alone is not a change to a requirement (it is listed after the changes).
+    let pmi_changes = pmi.items.iter().filter(|c| c.class != "renumbered").count();
     if pmi_changes > 0 {
         part.push(format!(
             "{} to the PMI",
@@ -2812,6 +2829,91 @@ fn turn(r: &[[f64; 3]; 3]) -> Option<(f64, String)> {
     Some((degrees, about))
 }
 
+/// Whether the old *faces* of a feature are where they were, after the parts' alignment: at least
+/// one is matched, and none matched has moved. A plane has moved when it is offset along its
+/// normal or tilted; a cylinder, cone, sphere or torus when its axis tilted or its placing point
+/// moved off the old axis (a sphere's: at all); any face when its centroid moved and its area did
+/// not (it slid within its surface). Trimming a face (a hole cut into it) or resizing
+/// a hole moves its centroid but not the face. A face of another surface moves with its
+/// centroid. Removed faces are material cut away, not a move.
+fn in_place(faces: &[usize], corr: &Correspondence, prints: [&qc::Fingerprints; 2]) -> bool {
+    let a = &corr.alignment;
+    let tol = prints[0].scale.max(prints[1].scale) * 1e-3;
+    let turn = |v: [f64; 3]| {
+        [0, 1, 2]
+            .map(|i| a.rotation[i][0] * v[0] + a.rotation[i][1] * v[1] + a.rotation[i][2] * v[2])
+    };
+    let place = |p: [f64; 3]| {
+        let q = turn(p);
+        [0, 1, 2].map(|i| q[i] + a.translation[i])
+    };
+    let sub = |p: [f64; 3], q: [f64; 3]| [0, 1, 2].map(|i| p[i] - q[i]);
+    let dot = |p: [f64; 3], q: [f64; 3]| (0..3).map(|i| p[i] * q[i]).sum::<f64>();
+    let norm = |p: [f64; 3]| dot(p, p).sqrt();
+    fn face(prints: &qc::Fingerprints, i: usize) -> Option<&qc::FaceFingerprint> {
+        prints.faces.iter().find(|f| f.index == i)
+    }
+    let mut matched = 0;
+    for &old in faces {
+        let Some(e) = corr.faces.iter().find(|e| e.old == old) else {
+            continue;
+        };
+        if !matches!(e.class, Class::Carried | Class::Adapted) {
+            continue;
+        }
+        let (Some(was), Some(now)) = (face(prints[0], old), e.new.and_then(|n| face(prints[1], n)))
+        else {
+            return false;
+        };
+        matched += 1;
+        if was.surface != now.surface {
+            return false;
+        }
+        let moved = match (
+            was.surface.as_str(),
+            was.axis,
+            now.axis,
+            was.support,
+            now.support,
+        ) {
+            (_, Some(d0), Some(d1), _, _) if was.surface != "sphere" => {
+                let d0 = turn(d0);
+                let parallel = if was.surface == "plane" {
+                    dot(d0, d1)
+                } else {
+                    dot(d0, d1).abs()
+                };
+                let off = if was.surface == "plane" {
+                    dot(d1, sub(now.centroid, place(was.centroid))).abs()
+                } else {
+                    match (was.support, now.support) {
+                        (Some(o0), Some(o1)) => {
+                            let d = sub(o1, place(o0));
+                            let along = dot(d, d1);
+                            norm([0, 1, 2].map(|i| d[i] - along * d1[i]))
+                        }
+                        _ => f64::INFINITY,
+                    }
+                };
+                parallel < 1.0 - 1e-6 || off > tol
+            }
+            ("sphere", _, _, Some(o0), Some(o1)) => norm(sub(o1, place(o0))) > tol,
+            _ => norm(sub(now.centroid, place(was.centroid))) > tol,
+        };
+        // A face of the same area whose centroid moved slid in its own surface: a flat moved
+        // along its plane. A trimmed face changes area too.
+        let same_area = match (was.area, now.area) {
+            (Some(x), Some(y)) => (x - y).abs() <= 1e-3 * x.abs().max(y.abs()),
+            _ => true,
+        };
+        let slid = same_area && norm(sub(now.centroid, place(was.centroid))) > tol;
+        if moved || slid {
+            return false;
+        }
+    }
+    matched > 0
+}
+
 /// Whether *a* takes a part onto itself: each face, moved, has a face of the same surface and
 /// area where it now is.
 fn onto_itself(prints: &qc::Fingerprints, a: &qc::Alignment) -> bool {
@@ -3206,7 +3308,10 @@ impl Revised {
                         .into(),
                 );
             }
-            for c in &p.items {
+            // A requirement only numbered differently has not changed: it follows the changes.
+            let (renumbered, edits): (Vec<_>, Vec<_>) =
+                p.items.iter().partition(|c| c.class == "renumbered");
+            for c in edits.into_iter().chain(renumbered) {
                 let prefix = c.number.map_or(String::new(), |n| format!("#{n} "));
                 let was = c.old.as_deref().unwrap_or_default();
                 let now = c.new.as_deref().unwrap_or_default();
@@ -3218,7 +3323,10 @@ impl Revised {
                     }
                     "removed" => format!("removed: {was}"),
                     "renumbered" => {
-                        format!("{now}: {}", c.reason.as_deref().unwrap_or("renumbered"))
+                        format!(
+                            "{now}: unchanged; {}",
+                            c.reason.as_deref().unwrap_or("renumbered")
+                        )
                     }
                     _ => format!("added: {now}"),
                 };

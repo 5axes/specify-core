@@ -149,42 +149,74 @@ pub(super) fn check_lines(
         return Vec::new();
     }
     let requirements = items(scene);
-    checks
-        .iter()
-        .map(|c| {
-            let feature = features
-                .iter()
-                .find(|f| f.id == c.feature)
-                .map(|f| super::describe(f).0)
-                .unwrap_or_else(|| c.feature.clone());
-            let notation = requirements
-                .iter()
-                .filter(|r| scene["specify"][&r.id]["question"] == c.id)
-                .map(|r| r.text.as_str())
-                .filter(|t| !t.is_empty())
-                .collect::<Vec<_>>()
-                .join("; ");
-            let notation = if notation.is_empty() {
-                super::fmt(&c.answer)
+    // One line per feature and change: `… diameter 3 → 3.4, so its ⌀3.4 H11 and ⌖ ⌀0.2Ⓜ A B C
+    // requirements may no longer fit`.
+    let mut lines: Vec<(String, String, Vec<String>)> = Vec::new();
+    for c in checks {
+        let feature = features
+            .iter()
+            .find(|f| f.id == c.feature)
+            .map(|f| super::describe(f).0)
+            .unwrap_or_else(|| c.feature.clone());
+        let asked: Vec<&Item> = requirements
+            .iter()
+            .filter(|r| scene["specify"][&r.id]["question"] == c.id)
+            .filter(|r| !r.text.is_empty())
+            .collect();
+        // The requirement itself, not the planned dimensions that locate it: a position
+        // tolerance is named by its frame, as the PMI list names it.
+        let own: Vec<&&Item> = asked
+            .iter()
+            .filter(|r| !r.id.starts_with("planner:"))
+            .collect();
+        let notation = if own.is_empty() {
+            asked.iter().map(|r| r.text.as_str()).collect::<Vec<_>>()
+        } else {
+            own.iter().map(|r| r.text.as_str()).collect()
+        }
+        .join("; ");
+        let notation = if notation.is_empty() {
+            super::fmt(&c.answer)
+        } else {
+            notation
+        };
+        let changes = [
+            super::sizes(&c.changes),
+            super::moved(&c.changes, c.axis)
+                .map(|m| format!("moved {m}"))
+                .unwrap_or_default(),
+        ]
+        .into_iter()
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join("; ");
+        let changes = if changes.is_empty() {
+            "changed".to_string()
+        } else {
+            changes
+        };
+        match lines
+            .iter_mut()
+            .find(|(f, ch, _)| *f == feature && *ch == changes)
+        {
+            Some((_, _, notations)) => {
+                if !notations.contains(&notation) {
+                    notations.push(notation);
+                }
+            }
+            None => lines.push((feature, changes, vec![notation])),
+        }
+    }
+    lines
+        .into_iter()
+        .map(|(feature, changes, notations)| {
+            let (last, rest) = notations.split_last().expect("one at least");
+            let (named, requirement) = if rest.is_empty() {
+                (last.clone(), "requirement")
             } else {
-                notation
+                (format!("{} and {last}", rest.join(", ")), "requirements")
             };
-            let changes = [
-                super::sizes(&c.changes),
-                super::moved(&c.changes, c.axis)
-                    .map(|m| format!("moved {m}"))
-                    .unwrap_or_default(),
-            ]
-            .into_iter()
-            .filter(|s| !s.is_empty())
-            .collect::<Vec<_>>()
-            .join("; ");
-            let changes = if changes.is_empty() {
-                "changed"
-            } else {
-                &changes
-            };
-            format!("{feature} {changes}, so its {notation} requirement may no longer fit")
+            format!("{feature} {changes}, so its {named} {requirement} may no longer fit")
         })
         .collect()
 }

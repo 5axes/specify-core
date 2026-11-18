@@ -1265,3 +1265,69 @@ fn a_removed_hole_s_requirements_are_not_paired_with_the_hole_taking_its_faces()
     let md = r.markdown("Plate", None);
     assert!(!md.contains("80 → 30") && !md.contains(" retired:"), "{md}");
 }
+
+#[test]
+fn a_cut_or_a_resize_is_not_a_move() {
+    // The four mounting holes Ø3 → Ø3.4 and a Ø8 entry cut into the +X wall. The body, its
+    // section recess and the holes' pattern keep their faces where they were.
+    let (old, new) = pair("enclosure_pmi");
+    let r = diff(&old, &new, &Map::new()).unwrap();
+    let families: Vec<&str> = r.features.iter().map(|f| f.family.as_str()).collect();
+    for family in ["thin_wall_bodies", "section_recesses", "hole_patterns"] {
+        assert!(!families.contains(&family), "{family}: {:?}", r.features);
+    }
+    assert!(
+        r.features
+            .iter()
+            .all(|f| !f.changes.contains_key("position")),
+        "{:?}",
+        r.features
+    );
+    assert_eq!(
+        r.features.iter().filter(|f| f.class == "new").count(),
+        1,
+        "{:?}",
+        r.features
+    );
+    assert!(
+        !r.summary.contains("moved") && !r.summary.contains("bodie"),
+        "{}",
+        r.summary
+    );
+    // The pattern's two requirements to check read as one line, naming the position frame
+    // as the PMI list does, not its planned locations.
+    assert_eq!(r.check.len(), 2);
+    assert_eq!(
+        r.summary.matches("pattern of 4").count(),
+        1,
+        "{}",
+        r.summary
+    );
+    assert!(
+        r.summary.contains("⌖ ⌀0.2Ⓜ A B C requirements"),
+        "{}",
+        r.summary
+    );
+    assert!(!r.summary.contains("70; 50"), "{}", r.summary);
+    // The new file numbers its flatness and finish afresh: listed after the changes as
+    // unchanged, and not counted as changes.
+    let renumbered: Vec<_> = r
+        .pmi
+        .items
+        .iter()
+        .filter(|i| i.class == "renumbered")
+        .collect();
+    assert_eq!(renumbered.len(), 2, "{:?}", r.pmi.items);
+    assert!(renumbered.iter().all(|i| i.old == i.new));
+    let changes = r.pmi.items.len() - renumbered.len();
+    assert!(
+        r.summary.contains(&format!("{changes} changes to the PMI")),
+        "{}",
+        r.summary
+    );
+    let md = r.markdown("Enclosure", None);
+    assert!(
+        md.contains(": unchanged; characteristic number #22 → #25"),
+        "{md}"
+    );
+}

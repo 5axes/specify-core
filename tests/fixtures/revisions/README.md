@@ -156,3 +156,9 @@ or mtime). `symmetric_tie`: a 100 × 60 × 10 plate with Ø6 holes at (30, 30), 
 and (70, 30), which moves to (75, 30); the old plate fits the new one turned 180° about Z as
 well as it lies. `pair_after_removal`: the Ø8 hole at (80, 15) is removed, so the Ø5 pair's
 faces 8, 9 become 7, 8.
+
+`enclosure_pmi` is the maintainer's electronics enclosure base, each revision written with
+Specify PMI (the old file carries its answers and number history): rev2 opens the four
+mounting holes from Ø3 to Ø3.4 and adds a Ø8 cable entry in the +X wall. The new file was
+written without the old file's number history, so its flatness and finish are numbered #25 and
+#26 where the old file had #22 and #23.

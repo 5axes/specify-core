@@ -416,6 +416,12 @@ fn schema6_additions_and_inside_rounds_have_plain_report_descriptions() {
         assert!(md.contains(expected), "{md}");
     }
     assert_eq!(plural_of(2, &singular("turned_bodies")), "2 turned bodies");
+    assert_eq!(singular("thin_wall_bodies"), "thin wall body");
+    assert_eq!(
+        plural_of(1, &singular("sheet_metal_bodies")),
+        "1 sheet metal body"
+    );
+    assert_eq!(singular("bosses"), "boss");
 }
 
 #[test]
