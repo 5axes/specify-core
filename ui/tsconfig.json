@@ -11,5 +11,5 @@
     "allowImportingTsExtensions": true,
     "types": ["vite/client", "node"]
   },
-  "include": ["src", "test/harness", "vite.config.ts", "vite.harness.config.ts"]
+  "include": ["src", "app", "test/harness", "vite.config.ts", "vite.harness.config.ts", "vite.app.config.ts"]
 }

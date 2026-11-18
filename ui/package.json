@@ -55,7 +55,9 @@
     "test:browser": "vite build --config vite.harness.config.ts && node test/step-diff-browser.mjs && WASM_URL=/wasm/intent/specify_core_wasm.js node test/step-diff-browser.mjs && node test/specify-browser.mjs",
     "fetch:wasm": "node scripts/fetch-wasm.mjs",
     "prepack": "npm run build",
-    "test:package": "node scripts/test-package.mjs"
+    "test:package": "node scripts/test-package.mjs",
+    "build:app": "tsc --noEmit -p tsconfig.json && vite build --config vite.app.config.ts",
+    "test:app": "npm run build:app && node test/app-browser.mjs"
   },
   "peerDependencies": {
     "react": "^19",
@@ -67,6 +69,7 @@
     "@draftwright/specify-core-wasm": "0.1.18"
   },
   "devDependencies": {
+    "@fontsource/ibm-plex-mono": "5.2.7",
     "@playwright/test": "1.64.0",
     "@types/node": "^26.5.1",
     "@types/react": "^19.3.0",
