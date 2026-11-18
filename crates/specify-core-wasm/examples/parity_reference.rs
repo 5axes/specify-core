@@ -45,7 +45,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         writer::write_bytes(&loaded, &applied, Some(&accepted))?;
     let accepted_write = session.write_pmi(&accepted, None, None)?;
     assert_eq!(accepted_write["bytes"], json!(accepted_bytes));
-    assert_eq!(accepted_write["report"], accepted_report.to_dict());
+    assert_eq!(
+        accepted_write["report"],
+        completed(accepted_report.to_dict(), &analysis, &accepted)
+    );
     println!(
         "{}",
         json!({
@@ -64,10 +67,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "interpret": interpret(&analysis, &answers,
                 request["question_id"].as_str().ok_or("missing question_id")?,
                 request["text"].as_str().ok_or("missing text")?)?,
-            "bare": {"bytes": bare_bytes, "report": report.to_dict(),
+            "bare": {"bytes": bare_bytes, "report": completed(report.to_dict(), &analysis, &answers),
                 "source_sha256": loaded.binding.source_sha256},
             "project": session.write_pmi(&answers, request["project"].as_str(), None)?,
         })
     );
     Ok(())
+}
+
+/// The core writer's report as the session gives it: plus whether `answers` were complete,
+/// computed here as `write` would refuse them.
+fn completed(mut report: Value, analysis: &Value, answers: &Map<String, Value>) -> Value {
+    let missing = match api::apply(analysis, answers, false) {
+        Err(api::Error::Rules(specify_core::rules::Error::Incomplete(e))) => e.missing,
+        _ => Vec::new(),
+    };
+    let object = report.as_object_mut().expect("a report is an object");
+    object.insert("complete".into(), json!(missing.is_empty()));
+    object.insert("missing".into(), json!(missing));
+    report
 }

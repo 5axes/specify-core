@@ -119,6 +119,7 @@ export interface InitOutput {
 
 export interface PmiItemChange {
   class: "added" | "removed" | "changed" | "renumbered";
+  detail?: string;
   faces: { old: { face: number }[]; new: { face: number }[] };
   id: string;
   kind: string;
@@ -128,7 +129,6 @@ export interface PmiItemChange {
   old_id?: string;
   on: string;
   reason?: string;
-  detail?: string;
   status: "answered" | "default" | "general" | "existing";
 }
 
@@ -232,7 +232,9 @@ export interface SavedViewFinding {
 }
 
 export interface WriteReport {
+  complete: boolean;
   geometry_carrier_exemptions?: GeometryCarrierExemption[];
+  missing: string[];
   not_written: string[];
   output: string;
   presentation_warnings?: string[];
