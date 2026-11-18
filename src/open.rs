@@ -703,9 +703,20 @@ fn exchange(stream: &mut TcpStream, ctx: &Ctx) {
 fn json_body(
     stream: &mut TcpStream,
     request: &Request,
-    mut body: Vec<u8>,
+    body: Vec<u8>,
     max: u64,
 ) -> Result<serde_json::Value, (&'static str, String)> {
+    let body = json_bytes(stream, request, body, max)?;
+    serde_json::from_slice(&body).map_err(|e| ("400 Bad Request", format!("not JSON: {e}")))
+}
+
+/// [`json_body`]'s checks, the body's bytes as sent (to read it again keeping duplicate keys).
+fn json_bytes(
+    stream: &mut TcpStream,
+    request: &Request,
+    mut body: Vec<u8>,
+    max: u64,
+) -> Result<Vec<u8>, (&'static str, String)> {
     let is_json = request
         .header("content-type")
         .and_then(|t| t.split(';').next())
@@ -754,7 +765,9 @@ fn json_body(
             Ok(n) => body.extend_from_slice(&chunk[..n]),
         }
     }
-    serde_json::from_slice(&body).map_err(|e| ("400 Bad Request", format!("not JSON: {e}")))
+    serde_json::from_slice::<serde_json::Value>(&body)
+        .map_err(|e| ("400 Bad Request", format!("not JSON: {e}")))?;
+    Ok(body)
 }
 
 /// The longest a body may take to arrive: 30 s, and 1 s more per MiB (a trickling client
@@ -912,17 +925,39 @@ fn save(stream: &mut TcpStream, ctx: &Ctx, request: &Request, body: Vec<u8>) {
     if shared.read_only {
         return refuse(stream, "409 Conflict", "opened read-only: nothing is saved");
     }
-    let value = match json_body(stream, request, body, MAX_SAVE_BODY) {
-        Ok(v) => v,
+    let raw = match json_bytes(stream, request, body, MAX_SAVE_BODY) {
+        Ok(raw) => raw,
         Err((status, why)) => return refuse(stream, status, &why),
     };
-    let Some(approved) = value.get("acceptDefaults").and_then(session::approvals) else {
-        return refuse(
-            stream,
-            "400 Bad Request",
-            "acceptDefaults is required: by part index, each approved question id with the \
-             default the person saw ({\"0\": {\"id\": value}}; {} for none)",
-        );
+    let value: serde_json::Value = serde_json::from_slice(&raw).unwrap_or_default();
+    /// `acceptDefaults` as sent, duplicate keys kept.
+    #[derive(serde::Deserialize)]
+    struct Body {
+        #[serde(rename = "acceptDefaults")]
+        accept_defaults: Option<session::Entries<session::Entries<serde_json::Value>>>,
+    }
+    let sent = serde_json::from_slice::<Body>(&raw)
+        .ok()
+        .and_then(|b| b.accept_defaults)
+        .map(session::approvals_from);
+    let approved = match sent {
+        Some(Ok(approved)) => approved,
+        Some(Err(Some((part, question)))) => {
+            return reply_json(
+                stream,
+                "400 Bad Request",
+                &json!({"error": format!("part {part}: {question} is approved twice with different values"),
+                        "part": part, "question": question}),
+            );
+        }
+        _ => {
+            return refuse(
+                stream,
+                "400 Bad Request",
+                "acceptDefaults is required: by part index, each approved question id with the \
+                 default the person saw ({\"0\": {\"id\": value}}; {} for none)",
+            );
+        }
     };
     let Some(rev) = value.get("rev").and_then(|v| v.as_u64()) else {
         return refuse(

@@ -84,8 +84,8 @@ JSON-RPC errors.
 | `review` | `doc` | `open`, `problems`, `writable`/`missing` as answered, `writable_with_defaults`/`missing_with_defaults`; `rev` |
 | `characteristics` | `doc` | `intent`: the preview, as `serve`'s `preview`; `sources` (question ID to the rule behind each answer that is its question's default); `rev` |
 | `read_pmi` | `doc` | `existing` (the file's PMI by face), `part_settings`, `resumed`, `saved_answers?`; `rev` |
-| `write_pmi` | `doc`, `output`, `accept_defaults?`, `overwrite?` | `report`, as `serve`'s `write` |
-| `export_answers` | `doc`, `output?`, `overwrite?` | `answers`: the complete sidecar (docs/answers.md); `rev` |
+| `write_pmi` | `doc`, `output`, `accept_defaults?` (`{"<id>": <value>}`, the defaults the person approved for the doc's part), `overwrite?` | `report`, as `serve`'s `write`; `complete`, `missing`, `rev`. What is answered plus only the defaults approved; open questions never refuse it |
+| `export_answers` | `doc`, `accept_defaults?` (as `write_pmi`), `output?`, `overwrite?` | `answers`: the answer map (docs/answers.md) of what is answered plus only the defaults approved, with face evidence; `complete`, `missing`, `rev` |
 | `diff` | `old`, `new`, `part?`, `doc?` | `verdict`, `summary`, carried `answers`, `report`, `markdown`, as `specify-core diff` (nothing is written) |
 | `changes` | `doc`, `since` (a `rev`) | `rev`, and `changes`: `[{rev, part, source, set, cleared}]` after `since`, oldest first (`source` `page` or `mcp`); if `since` is older than the 256 changes kept, `full: true` and `answers`, every part's answers by part index |
 | `show` | `doc`, `browser?` (default `true`), `read_only?` | `url`, `mode`: the Specify page for the document's session on 127.0.0.1 (docs/open.md), started or, if it is running, its address; the browser opened unless `browser: false`. `read_only` makes that page view-only (not for a session opened with `old` or `in_place`). A running page in the other mode is refused (`invalid`, with its `url` and `mode`), never replaced |

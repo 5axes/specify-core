@@ -130,8 +130,11 @@ The page sends no STEP bytes.
   open question that has a default on that part, else `400 {"error": "…", "part": <k>,
   "question": "<id>"}`; and its value must be that default, else `400 {"error": "…", "part":
   <k>, "question": "<id>", "expected": <the value sent>, "current": <the default now>}`. Either
-  way the whole save is refused and nothing is changed or written. The approvals are then
-  applied together, so none changes another's value, and only the part named gets them. The command first sets those answers to their
+  way the whole save is refused and nothing is changed or written. An id given twice on a part
+  with the same value counts once; with different values the save is refused (400, naming
+  `part` and `question`). The approvals are then applied together, in one new `rev` however
+  many parts they name, so none changes another's value, and only the part named gets them. If
+  the write then fails, they are rolled back (a further `rev`) unless the session has moved on. The command first sets those answers to their
   defaults in the session: a new `rev`, and for each part an `answers` event that also carries
   `"defaults": {"<k>": [ids]}`, with `source` as for the save (`"page"`, or `"mcp"` for the
   agent's `save`). Then it writes from that rev: the
@@ -152,9 +155,11 @@ questions open. The answer says what is still open (`complete`, `missing`).
 - `Origin: http://127.0.0.1:<port>` exactly (403 otherwise, and when `Origin` is absent).
 
 Every part that has at least one answer in the session (approved defaults count; keys starting
-with `_`, such as `_specify`, do not) is written in one edit; a part with no answers has nothing
-to write, and it and an assembly's other parts are left as they are (their PMI and stored
-answers untouched). With nothing to write, the file is saved as it was opened. A part
+with `_`, such as `_specify`, do not), and every part the session changed since it joined (a
+`PUT answers`, an agent's change, an approval: so clearing every answer reaches the file), is
+written in one edit. A part the session did not change and that has no answers has nothing to
+write: it and an assembly's other parts are left as they are (their PMI and stored answers
+untouched). With nothing to write, the file is saved as it was opened. A part
 never gets a default not approved for it. The file is written to a temporary file next to the input and renamed
 into place:
 

@@ -64,8 +64,12 @@ when the value differs; nothing written). They are applied together, and only th
 them. They become answers (a
 new `rev`, an `answers` event with `"defaults": {"<part>": [ids]}`), are stored in the file, and
 the rest stay open, unwritten. A save writes only the parts that have at least one answer (keys
-starting with `_` not counting); a part with no answers is left as it is, and with nothing to
-write the file is saved as it was opened. A part joining the session
+starting with `_` not counting) or that the session changed since they joined (so a clear
+reaches the file); any other part is left as it is, and with nothing to write the file is saved
+as it was opened. MCP's `write_pmi` and `export_answers` follow the same rule for defaults:
+they write or export what is answered plus exactly the `accept_defaults` given, with the values
+the person saw, checked against the current defaults; without them, no default, and open
+questions are reported (`complete`, `missing`), never filled. A part joining the session
 (opened by the agent, or first changed by the page) is a change: a new `rev` and an event with
 `"joined": true`. The page's Save sends the same object as `acceptDefaults`
 (docs/open.md). (Contract change, 2026-11-18: `accept_defaults` was `true` or `false`, then

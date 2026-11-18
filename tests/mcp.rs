@@ -398,18 +398,30 @@ fn conversation(era: &'static str) {
     assert_eq!(pmi["part_settings"], analysis["part"]);
     assert_eq!(pmi["resumed"], json!(false));
 
-    // write_pmi == serve's write.
+    // write_pmi with the open defaults approved (ADR P9: never taken unasked) == serve's write
+    // of the same answers given.
+    let offered: Map<String, Value> = client.call("questions", json!({"doc": doc}))["questions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|q| !q["default"].is_null())
+        .map(|q| (q["id"].as_str().unwrap().to_string(), q["default"].clone()))
+        .collect();
+    assert!(!offered.is_empty());
+    let mut approved = answers.as_object().unwrap().clone();
+    approved.extend(offered.clone());
     let out = dir.join("plate-pmi.step");
     let written = client.call(
         "write_pmi",
-        json!({"doc": doc, "output": out, "accept_defaults": true}),
+        json!({"doc": doc, "output": out, "accept_defaults": offered}),
     );
+    assert_eq!(written["complete"], json!(true), "{written}");
     let served_out = dir.join("plate-serve.step");
     let served = serve_ok(
         &mut serve,
         json!({
-            "op": "write", "step": plate, "analysis": analysis, "answers": answers,
-            "output": served_out, "accept_defaults": true,
+            "op": "write", "step": plate, "analysis": analysis, "answers": approved,
+            "output": served_out,
         }),
     );
     assert_eq!(
@@ -428,18 +440,38 @@ fn conversation(era: &'static str) {
     );
     assert_eq!(refused["code"], json!("refused"));
 
-    // export_answers == serve's export, and saved where asked.
+    // export_answers: the answers and the defaults approved, with serve's face evidence, and
+    // saved where asked.
     let sidecar = dir.join("plate.answers.json");
-    let exported = client.call("export_answers", json!({"doc": doc, "output": sidecar}));
+    let exported = client.call(
+        "export_answers",
+        json!({"doc": doc, "output": sidecar, "accept_defaults": offered}),
+    );
     let served = serve_ok(
         &mut serve,
         json!({
-            "op": "export_answers", "step": plate, "analysis": analysis, "answers": answers,
+            "op": "export_answers", "step": plate, "analysis": analysis, "answers": approved,
         }),
     );
-    assert_eq!(exported["answers"], served["answers"]);
+    let mut given: Vec<&String> = exported["answers"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .filter(|k| !k.starts_with('_'))
+        .collect();
+    given.sort();
+    let mut expected: Vec<&String> = approved.keys().collect();
+    expected.sort();
+    assert_eq!(given, expected);
+    for (id, value) in &approved {
+        assert_eq!(&exported["answers"][id], value, "{id}");
+    }
+    assert_eq!(
+        exported["answers"]["_specify"]["evidence"],
+        served["answers"]["_specify"]["evidence"]
+    );
     let saved: Value = serde_json::from_str(&std::fs::read_to_string(&sidecar).unwrap()).unwrap();
-    assert_eq!(saved, served["answers"]);
+    assert_eq!(saved, exported["answers"]);
 
     // diff of two revisions == the revision report the API gives.
     let (old, new) = (
@@ -2115,6 +2147,96 @@ fn a_part_joining_the_session_moves_the_rev_and_is_not_written_empty() {
         json!({"part.material": "6061-T6"})
     );
     drop(events);
+    drop(server);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// ADR P9 for write_pmi and export_answers: without approvals only answers are written or
+/// exported (incomplete allowed); approvals carry the value seen, checked against the default.
+#[test]
+fn write_pmi_and_export_answers_take_only_approved_defaults() {
+    let dir = scratch("p9-write-export");
+    let copy = dir.join("plate.step");
+    std::fs::copy(part("plate"), &copy).unwrap();
+    let mut server = Server::new(std::slice::from_ref(&dir)).unwrap();
+    let opened = call(&mut server, "open", json!({"path": copy}));
+    let doc = opened["structuredContent"]["doc"].clone();
+    call(
+        &mut server,
+        "answer",
+        json!({"doc": doc, "set": {"part.material": "6061-T6"}}),
+    );
+    let open = call(&mut server, "questions", json!({"doc": doc}));
+    let (id, default) = open["structuredContent"]["questions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|q| !q["default"].is_null())
+        .map(|q| (q["id"].as_str().unwrap().to_string(), q["default"].clone()))
+        .unwrap();
+
+    // No approvals: only the answer, incomplete, no default anywhere.
+    let out = dir.join("answered.step");
+    let written = call(&mut server, "write_pmi", json!({"doc": doc, "output": out}));
+    let written = &written["structuredContent"];
+    assert_eq!(written["complete"], json!(false), "{written}");
+    assert!(written["missing"].as_array().unwrap().contains(&json!(id)));
+    let stored = specify_core::api::analyse_file(&out, None).unwrap()["resume"]["answers"].clone();
+    assert_eq!(stored, json!({"part.material": "6061-T6"}));
+    let exported = call(&mut server, "export_answers", json!({"doc": doc}));
+    let exported = &exported["structuredContent"];
+    assert!(exported["answers"].get(&id).is_none());
+    assert_eq!(exported["complete"], json!(false));
+    assert!(exported["missing"].as_array().unwrap().contains(&json!(id)));
+
+    // A bool, or a value that is not the default, is refused; nothing is written.
+    for tool in ["write_pmi", "export_answers"] {
+        let bad = error_of(
+            &mut server,
+            tool,
+            json!({"doc": doc, "output": dir.join(format!("{tool}.out")), "accept_defaults": true}),
+        );
+        assert_eq!(bad["code"], json!("invalid"), "{tool}");
+        let stale = error_of(
+            &mut server,
+            tool,
+            json!({"doc": doc, "output": dir.join(format!("{tool}.out")),
+                   "accept_defaults": {&id: "not the default"}}),
+        );
+        assert_eq!(stale["question"], json!(id), "{tool}");
+        assert_eq!(stale["expected"], json!("not the default"));
+        assert_eq!(stale["current"], default);
+        assert!(!dir.join(format!("{tool}.out")).exists());
+    }
+
+    // Approved with the value seen: written and exported with it.
+    let out = dir.join("approved.step");
+    call(
+        &mut server,
+        "write_pmi",
+        json!({"doc": doc, "output": out, "accept_defaults": {&id: default}}),
+    );
+    let stored = specify_core::api::analyse_file(&out, None).unwrap()["resume"]["answers"].clone();
+    assert_eq!(stored[&id], default);
+    let exported = call(
+        &mut server,
+        "export_answers",
+        json!({"doc": doc, "accept_defaults": {&id: default}}),
+    );
+    assert_eq!(exported["structuredContent"]["answers"][&id], default);
+    // The session's answers are unchanged by either.
+    let answered = call(
+        &mut server,
+        "questions",
+        json!({"doc": doc, "state": "answered"}),
+    );
+    assert_eq!(
+        answered["structuredContent"]["questions"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
     drop(server);
     let _ = std::fs::remove_dir_all(&dir);
 }

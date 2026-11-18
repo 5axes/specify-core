@@ -2114,3 +2114,136 @@ fn approvals_are_applied_together_with_the_values_approved() {
         assert_eq!(&stored["resume"]["answers"][id], value, "{id}");
     }
 }
+
+/// Clearing every answer of a part reaches the file: the session changed it, so it is written,
+/// and reopening does not bring the answers back.
+#[test]
+fn clearing_every_answer_reaches_the_file() {
+    let scratch = Scratch::new("cleared");
+    let opened = Opened::start(&scratch.input(), &scratch, &[]);
+    let page = opened.page();
+    let resumed = page.answers()["parts"]["0"].clone();
+    assert!(resumed.as_object().is_some_and(|a| !a.is_empty()));
+    assert_eq!(page.put(0, 0, json!({})).status, 200);
+    let saved = page.save(1, json!({}));
+    assert_eq!(
+        saved.status,
+        200,
+        "{}",
+        String::from_utf8_lossy(&saved.body)
+    );
+    let written = PathBuf::from(saved.json()["path"].as_str().unwrap());
+    drop(opened);
+    let reopened = Opened::start(&written, &scratch, &[]);
+    let parts = reopened.page().answers()["parts"].clone();
+    assert!(
+        parts
+            .get("0")
+            .is_none_or(|a| a.as_object().unwrap().keys().all(|k| k.starts_with('_'))),
+        "{parts}"
+    );
+}
+
+/// Sets part 1's answers, as a page's first change to it would, between a save's two holds of
+/// the session's lock.
+fn part_one_answered_meanwhile(shared: &specify_core::session::Shared) {
+    let answers: Map<String, Value> =
+        serde_json::from_value(json!({"part.material": "6061-T6"})).unwrap();
+    specify_core::session::lock(shared).set(1, answers, "page");
+}
+
+/// A part joining while an agent's save (no rev) is under way: refused as stale, not a panic.
+#[test]
+fn a_part_joining_during_a_save_without_a_rev_is_refused_not_a_crash() {
+    let scratch = Scratch::new("joined-meanwhile");
+    let two = scratch.path("work/two.step");
+    std::fs::copy(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/parts/a_file_with_two_parts_must_say_which.step"),
+        &two,
+    )
+    .unwrap();
+    let shared = session_of(&two);
+    {
+        let mut s = specify_core::session::lock(&shared);
+        let answers: Map<String, Value> =
+            serde_json::from_value(json!({"part.material": "6082-T6"})).unwrap();
+        s.set(0, answers, "mcp");
+        s.between_locks = Some(part_one_answered_meanwhile);
+    }
+    let refused = specify_core::session::save(&shared, None, &Default::default(), "mcp");
+    assert!(
+        matches!(refused, Err(specify_core::session::SaveError::Stale(_))),
+        "{refused:?}"
+    );
+    assert_eq!(scratch.work(), ["part.step", "two.step"], "nothing written");
+    specify_core::session::lock(&shared).between_locks = None;
+    let saved = specify_core::session::save(&shared, None, &Default::default(), "mcp");
+    assert!(saved.is_ok(), "{saved:?}");
+}
+
+/// Approvals on several parts make one rev; an id given twice with the same value is taken
+/// once, and with different values refused.
+#[test]
+fn approvals_on_several_parts_make_one_rev_and_duplicates_are_checked() {
+    let scratch = Scratch::new("one-rev");
+    let two = scratch.path("work/two.step");
+    std::fs::copy(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/parts/a_file_with_two_parts_must_say_which.step"),
+        &two,
+    )
+    .unwrap();
+    let shared = session_of(&two);
+    let mut approved = specify_core::session::Approved::new();
+    for k in 0..2 {
+        let analysis = specify_core::session::analysis(&shared, k).unwrap();
+        let offered = open_defaults(&analysis, &Map::new());
+        let (id, value) = offered.into_iter().next().unwrap();
+        approved.insert(k, Map::from_iter([(id, value)]));
+    }
+    let before = specify_core::session::lock(&shared).rev();
+    let saved = specify_core::session::save(&shared, None, &approved, "page").unwrap();
+    assert_eq!(saved.rev, before + 1);
+    let s = specify_core::session::lock(&shared);
+    for (k, ids) in &approved {
+        for (id, value) in ids {
+            assert_eq!(&s.answers(*k).unwrap()[id], value);
+        }
+    }
+    drop(s);
+
+    // Through the page: a duplicate id with the same value is one approval; with another, 400.
+    let opened = Opened::start(&scratch.input(), &scratch, &[]);
+    let page = opened.page();
+    let answers: Map<String, Value> =
+        serde_json::from_value(page.answers()["parts"]["0"].clone()).unwrap();
+    let (id, value) = open_defaults(&analysis_of(&scratch.input()), &answers)
+        .into_iter()
+        .next()
+        .unwrap();
+    let send = |body: String| {
+        request(
+            page.port,
+            "POST",
+            &page.path("save"),
+            &[
+                ("Host", &page.host()),
+                ("Origin", &page.origin()),
+                ("Content-Type", "application/json"),
+            ],
+            body.as_bytes(),
+        )
+    };
+    let conflict = send(format!(
+        r#"{{"rev": 0, "acceptDefaults": {{"0": {{"{id}": {value}, "{id}": "other"}}}}}}"#
+    ));
+    assert_eq!(conflict.status, 400);
+    assert_eq!(conflict.json()["question"], json!(id));
+    assert_eq!(conflict.json()["part"], 0);
+    let same = send(format!(
+        r#"{{"rev": 0, "acceptDefaults": {{"0": {{"{id}": {value}, "{id}": {value}}}}}}}"#
+    ));
+    assert_eq!(same.status, 200, "{}", String::from_utf8_lossy(&same.body));
+    assert_eq!(page.answers()["parts"]["0"][&id], value);
+}

@@ -182,6 +182,12 @@ pub struct Session {
     subscribers: Vec<mpsc::SyncSender<String>>,
     /// One save at a time (held while writing, without the session's lock).
     save_lock: Arc<Mutex<()>>,
+    /// The parts this session changed (a set, a clear, a page's change or an approval) since
+    /// they joined: written even with no answers, so a clear reaches the file.
+    touched: BTreeSet<usize>,
+    /// Tests only: called by a save between its two holds of the session's lock.
+    #[doc(hidden)]
+    pub between_locks: Option<fn(&Shared)>,
     /// The page server serving this session, if one was started.
     pub page: Option<crate::open::Page>,
 }
@@ -222,6 +228,8 @@ impl Session {
             dropped: 0,
             subscribers: Vec::new(),
             save_lock: Arc::new(Mutex::new(())),
+            touched: BTreeSet::new(),
+            between_locks: None,
             page: None,
         }
     }
@@ -383,16 +391,18 @@ impl Session {
         answers: Map<String, Value>,
         source: &'static str,
     ) -> Option<u64> {
-        self.change(part, answers, source, None)
+        self.change(part, answers, source, None, None)
     }
 
-    /// [`Session::set`], the event also naming the `defaults` the person approved (a save's).
+    /// [`Session::set`], the event also naming the `defaults` the person approved (a save's),
+    /// at `rev` when several parts change together (else the next rev).
     fn change(
         &mut self,
         part: usize,
         answers: Map<String, Value>,
         source: &'static str,
         defaults: Option<&[String]>,
+        at: Option<u64>,
     ) -> Option<u64> {
         let before = self.answers.get(&part);
         // A part joining the session is a change even with no answers: a page holding an older
@@ -413,8 +423,11 @@ impl Session {
             .filter(|id| !answers.contains_key(*id))
             .cloned()
             .collect();
-        self.rev += 1;
+        self.rev = at.unwrap_or(self.rev + 1);
         let rev = self.rev;
+        if !joined {
+            self.touched.insert(part);
+        }
         self.changes.push_back(Change {
             rev,
             part,
@@ -476,13 +489,14 @@ impl Session {
             .find(|p| fs::symlink_metadata(p).is_err())
     }
 
-    /// The parts a save writes: every part with at least one answer, keys starting with `_`
-    /// (metadata such as `_specify`) not counting. A part with no answers has nothing to write
-    /// and is left as it is, with the PMI and stored answers it has.
+    /// The parts a save writes: every part with at least one answer (keys starting with `_`,
+    /// metadata such as `_specify`, not counting), and every part this session changed since it
+    /// joined, so a clear reaches the file. A part the session did not change and that has no
+    /// answers is left as it is, with the PMI and stored answers it has.
     fn parts_to_write(&self) -> Vec<usize> {
         self.answers
             .iter()
-            .filter(|(_, a)| a.keys().any(|id| !id.starts_with('_')))
+            .filter(|(k, a)| self.touched.contains(k) || a.keys().any(|id| !id.starts_with('_')))
             .map(|(k, _)| *k)
             .collect()
     }
@@ -604,9 +618,21 @@ pub fn save(
     for &k in &parts {
         analyses.insert(k, analysis(shared, k).map_err(refused)?);
     }
-    let (parts, rev, answers, step, file, in_place, gz, mut backup) = {
+    let hook = lock(shared).between_locks;
+    if let Some(hook) = hook {
+        hook(shared);
+    }
+    let (reported, parts, rev, answers, step, file, in_place, gz, mut backup, before) = {
         let mut s = lock(shared);
         if rev.is_some_and(|r| r != s.rev) {
+            return Err(SaveError::Stale(s.rev));
+        }
+        // The parts may have changed while the analyses were made (a page's first change to
+        // another part, which an agent's save has no rev to notice): refused, not guessed.
+        if s.parts_to_report()
+            .iter()
+            .any(|k| !analyses.contains_key(k))
+        {
             return Err(SaveError::Stale(s.rev));
         }
         s.check_allowed()?;
@@ -622,13 +648,25 @@ pub fn save(
             }
         }
         // The defaults the person approved become answers (ADR P9: a default is written only
-        // when approved): a new rev, whose answers the save writes.
-        for (k, (answers, ids)) in approve(&s, &analyses, approved)? {
-            s.change(k, answers, source, Some(&ids));
+        // when approved), checked and applied under this one hold of the lock: one new rev,
+        // whose answers the save writes.
+        let approvals = approve(&s, &analyses, approved)?;
+        let before: Vec<(usize, Map<String, Value>, bool)> = approvals
+            .keys()
+            .map(|k| {
+                let answers = s.answers.get(k).cloned().unwrap_or_default();
+                (*k, answers, s.touched.contains(k))
+            })
+            .collect();
+        if !approvals.is_empty() {
+            let at = s.rev + 1;
+            for (k, (answers, ids)) in approvals {
+                s.change(k, answers, source, Some(&ids), Some(at));
+            }
         }
-        let parts = (s.parts_to_report(), s.parts_to_write());
         (
-            parts,
+            s.parts_to_report(),
+            s.parts_to_write(),
             s.rev,
             s.answers.clone(),
             Arc::clone(&s.step),
@@ -636,52 +674,75 @@ pub fn save(
             s.in_place,
             s.gz,
             s.backup.clone(),
+            before,
         )
     };
-    let (reported, parts) = parts;
-    let mut loaded = Vec::with_capacity(parts.len());
-    let mut intents = Vec::with_capacity(parts.len());
-    let mut missing = Vec::new();
-    let empty = Map::new();
-    for &k in &reported {
-        let analysis = &analyses[&k];
-        let given = answers.get(&k).unwrap_or(&empty);
-        let part = step.load(Some(k)).map_err(|e| refused(e.into()))?;
-        let (intent, open) = intent_for(&part, analysis, given).map_err(|e| {
-            match (refused(e), parts.len() > 1) {
-                (SaveError::Refused(m), true) => SaveError::Refused(format!("part {k}: {m}")),
-                (e, _) => e,
+    let written = (|| {
+        let mut loaded = Vec::with_capacity(parts.len());
+        let mut intents = Vec::with_capacity(parts.len());
+        let mut missing = Vec::new();
+        let empty = Map::new();
+        for &k in &reported {
+            let analysis = analyses.get(&k).ok_or(SaveError::Stale(rev))?;
+            let given = answers.get(&k).unwrap_or(&empty);
+            let part = step.load(Some(k)).map_err(|e| refused(e.into()))?;
+            let (intent, open) = intent_for(&part, analysis, given).map_err(|e| {
+                match (refused(e), parts.len() > 1) {
+                    (SaveError::Refused(m), true) => SaveError::Refused(format!("part {k}: {m}")),
+                    (e, _) => e,
+                }
+            })?;
+            missing.extend(open);
+            if parts.contains(&k) {
+                loaded.push(part);
+                intents.push(intent);
             }
-        })?;
-        missing.extend(open);
-        if parts.contains(&k) {
-            loaded.push(part);
-            intents.push(intent);
         }
-    }
-    let jobs: Vec<crate::writer::Job<'_>> = parts
-        .iter()
-        .zip(&loaded)
-        .zip(&intents)
-        .map(|((k, l), i)| (l, i, Some(answers.get(k).unwrap_or(&empty))))
-        .collect();
-    // With nothing to write, the file is saved as it was opened: its PMI and stored answers
-    // are never rewritten from no answers.
-    let (text, mut report) = if jobs.is_empty() {
-        let report = json!({"output": "", "written": [], "not_written": [], "warnings": []});
-        (step.bytes().to_vec(), report)
-    } else {
-        let (text, report) =
-            crate::writer::write_parts_bytes(&jobs).map_err(|e| refused(Error::Write(e)))?;
-        (text, report.to_dict())
-    };
-    let cannot = |e: io::Error| SaveError::Failed(format!("cannot save: {e}"));
-    let (path, bytes, stored) = if in_place {
-        let stored = replace_input(shared, &file.path, gz, &mut backup, text).map_err(cannot)?;
-        (file.path.clone(), stored.len(), Some(stored))
-    } else {
-        let bytes = text.len();
-        (write_new(&file, &text).map_err(cannot)?, bytes, None)
+        let jobs: Vec<crate::writer::Job<'_>> = parts
+            .iter()
+            .zip(&loaded)
+            .zip(&intents)
+            .map(|((k, l), i)| (l, i, Some(answers.get(k).unwrap_or(&empty))))
+            .collect();
+        // With nothing to write, the file is saved as it was opened: its PMI and stored
+        // answers are never rewritten from no answers.
+        let (text, report) = if jobs.is_empty() {
+            let report = json!({"output": "", "written": [], "not_written": [], "warnings": []});
+            (step.bytes().to_vec(), report)
+        } else {
+            let (text, report) =
+                crate::writer::write_parts_bytes(&jobs).map_err(|e| refused(Error::Write(e)))?;
+            (text, report.to_dict())
+        };
+        let cannot = |e: io::Error| SaveError::Failed(format!("cannot save: {e}"));
+        let (path, bytes, stored) = if in_place {
+            let stored =
+                replace_input(shared, &file.path, gz, &mut backup, text).map_err(cannot)?;
+            (file.path.clone(), stored.len(), Some(stored))
+        } else {
+            let bytes = text.len();
+            (write_new(&file, &text).map_err(cannot)?, bytes, None)
+        };
+        Ok((path, bytes, stored, report, missing))
+    })();
+    let (path, bytes, stored, mut report, missing) = match written {
+        Ok(w) => w,
+        Err(e) => {
+            // Nothing was written: the approvals are rolled back (a further rev), unless the
+            // session has moved on since.
+            let mut s = lock(shared);
+            if !before.is_empty() && s.rev == rev {
+                let at = rev + 1;
+                for (k, answers, touched) in before {
+                    s.change(k, answers, source, None, Some(at));
+                    if !touched {
+                        // As it was: a part the session had not changed is still not written.
+                        s.touched.remove(&k);
+                    }
+                }
+            }
+            return Err(e);
+        }
     };
     let shown = path.display().to_string();
     report["output"] = json!(shown);
@@ -796,7 +857,7 @@ fn replace_input(
 /// none is open it is exactly `write`'s (`api::apply`). Otherwise what is answered (never a
 /// default not approved): the preview, with what `apply` reports as not written, as the editor
 /// writes an incomplete part.
-fn intent_for(
+pub fn intent_for(
     loaded: &part::LoadedPart,
     analysis: &Value,
     answers: &Map<String, Value>,
@@ -831,6 +892,53 @@ pub fn approvals(value: &Value) -> Option<Approved> {
         .collect()
 }
 
+/// A JSON object's entries in order, duplicate keys kept (a `Map` keeps only the last).
+pub struct Entries<T>(pub Vec<(String, T)>);
+
+impl<'de, T: serde::Deserialize<'de>> serde::Deserialize<'de> for Entries<T> {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        struct Visit<T>(std::marker::PhantomData<T>);
+        impl<'de, T: serde::Deserialize<'de>> serde::de::Visitor<'de> for Visit<T> {
+            type Value = Entries<T>;
+            fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("an object")
+            }
+            fn visit_map<A: serde::de::MapAccess<'de>>(
+                self,
+                mut map: A,
+            ) -> Result<Entries<T>, A::Error> {
+                let mut out = Vec::new();
+                while let Some(entry) = map.next_entry::<String, T>()? {
+                    out.push(entry);
+                }
+                Ok(Entries(out))
+            }
+        }
+        d.deserialize_map(Visit(std::marker::PhantomData))
+    }
+}
+
+/// Approvals as sent, `{"<part>": {"<id>": <value>}}` with its duplicate keys: an id given
+/// twice with the same value is taken once; with different values, `Err(Some((part, id)))`. A
+/// part that is not an index: `Err(None)`.
+pub fn approvals_from(sent: Entries<Entries<Value>>) -> Result<Approved, Option<(usize, String)>> {
+    let mut out = Approved::new();
+    for (part, ids) in sent.0 {
+        let part: usize = part.parse().map_err(|_| None)?;
+        let taken = out.entry(part).or_default();
+        for (id, value) in ids.0 {
+            match taken.get(&id) {
+                Some(seen) if *seen != value => return Err(Some((part, id))),
+                Some(_) => {}
+                None => {
+                    taken.insert(id, value);
+                }
+            }
+        }
+    }
+    Ok(out)
+}
+
 /// Each part's answers with the approved defaults taken, and the ids taken in it.
 type Approvals = BTreeMap<usize, (Map<String, Value>, Vec<String>)>;
 
@@ -847,47 +955,64 @@ fn approve(
 ) -> Result<Approvals, SaveError> {
     let mut out = Approvals::new();
     for (&k, wanted) in approved.iter().filter(|(_, ids)| !ids.is_empty()) {
-        let analysis = &analyses[&k];
+        let analysis = analyses.get(&k).ok_or(SaveError::Stale(s.rev))?;
         let answers = s.answers.get(&k).cloned().unwrap_or_default();
-        let qs =
-            api::questions(analysis, &answers).map_err(|e| SaveError::Refused(e.to_string()))?;
-        let open = rules::open_questions(&qs, &answers);
-        for (id, value) in wanted {
-            let current = open
-                .iter()
-                .find(|q| q.id == *id)
-                .and_then(|q| q.default.clone());
-            match current {
-                None => {
-                    return Err(SaveError::Question {
-                        message: format!(
-                            "part {k}: {id} is not an open question with a default: approve \
-                             only the defaults offered"
-                        ),
-                        part: k,
-                        question: id.clone(),
-                        values: None,
-                    });
-                }
-                Some(current) if current != *value => {
-                    return Err(SaveError::Question {
-                        message: format!(
-                            "part {k}: {id}'s default is now {current}, not the {value} \
-                             approved: show it and approve again"
-                        ),
-                        part: k,
-                        question: id.clone(),
-                        values: Some(Box::new((value.clone(), current))),
-                    });
-                }
-                Some(_) => {}
-            }
-        }
-        let mut taken = answers;
-        taken.extend(wanted.clone());
+        let taken = with_approved(analysis, &answers, k, wanted)?;
         out.insert(k, (taken, wanted.keys().cloned().collect()));
     }
     Ok(out)
+}
+
+/// Part `part`'s `answers` with the defaults `approved` for it taken, all checked first
+/// against the defaults as they stand with `answers` (ADR P9): each id must be an open
+/// question with a default, and its value that default (the one the person saw), else refused
+/// naming it. Taken together, so no approval changes another's value. `save`, and MCP's
+/// `write_pmi` and `export_answers`.
+pub fn with_approved(
+    analysis: &Value,
+    answers: &Map<String, Value>,
+    part: usize,
+    approved: &Map<String, Value>,
+) -> Result<Map<String, Value>, SaveError> {
+    if approved.is_empty() {
+        return Ok(answers.clone());
+    }
+    let qs = api::questions(analysis, answers).map_err(|e| SaveError::Refused(e.to_string()))?;
+    let open = rules::open_questions(&qs, answers);
+    for (id, value) in approved {
+        let current = open
+            .iter()
+            .find(|q| q.id == *id)
+            .and_then(|q| q.default.clone());
+        match current {
+            None => {
+                return Err(SaveError::Question {
+                    message: format!(
+                        "part {part}: {id} is not an open question with a default: approve \
+                         only the defaults offered"
+                    ),
+                    part,
+                    question: id.clone(),
+                    values: None,
+                });
+            }
+            Some(current) if current != *value => {
+                return Err(SaveError::Question {
+                    message: format!(
+                        "part {part}: {id}'s default is now {current}, not the {value} \
+                         approved: show it and approve again"
+                    ),
+                    part,
+                    question: id.clone(),
+                    values: Some(Box::new((value.clone(), current))),
+                });
+            }
+            Some(_) => {}
+        }
+    }
+    let mut taken = answers.clone();
+    taken.extend(approved.clone());
+    Ok(taken)
 }
 
 /// A report without its PMI scenes (`report.pmi.scenes`, and each part's in an assembly).

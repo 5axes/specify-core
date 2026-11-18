@@ -79,9 +79,9 @@ Intent known (you designed the part or were told the intent): answer everything 
 No context (an incoming STEP): answer only what you can infer, then offer `show`, which opens the \
 Specify page on the same answers, instead of a long chat Q&A; read the person's answers with \
 `changes` (every result carries `rev`).\n\
-Never take a default as intent: a suggested value is the person's to approve. `save` writes what \
-is answered plus exactly the defaults listed in accept_defaults, so list only those the person \
-approved. Where Specify reports that the file and its stored answers disagree, bring it to the \
+Never take a default as intent: a suggested value is the person's to approve. `save`, \
+`write_pmi` and `export_answers` write what is answered plus exactly the defaults listed in their \
+accept_defaults, each with the value the person saw, so list only those the person approved. Where Specify reports that the file and its stored answers disagree, bring it to the \
 person; never decide it yourself.\n\
 The answers are held in this server's memory and lost when it restarts unless saved or kept in \
 an answers_file. Paths must lie inside the directories the server was started with (--allow). \
@@ -1179,11 +1179,33 @@ impl Server {
         let (handle, doc) = self.doc(args)?;
         let overwrite = flag(args, "overwrite")?;
         let output = self.output_path(string(args, "output")?, overwrite)?;
-        let defaults = flag(args, "accept_defaults")?;
-        let answers = doc.answers();
-        let intent = api::apply(&doc.analysis, &answers, defaults)?;
-        let report = api::write(&doc.loaded()?, &intent, &output, Some(&answers))?;
-        Ok(json!({"doc": handle, "output": output, "report": report.to_dict()}))
+        let (answers, rev) = (self.approved_answers(doc, args)?, doc.rev());
+        let loaded = doc.loaded()?;
+        // What is answered, and only the defaults approved (ADR P9): incomplete is written.
+        let (intent, missing) = session::intent_for(&loaded, &doc.analysis, &answers)?;
+        let report = api::write(&loaded, &intent, &output, Some(&answers))?;
+        Ok(
+            json!({"doc": handle, "output": output, "report": report.to_dict(),
+                  "complete": missing.is_empty(), "missing": missing, "rev": rev}),
+        )
+    }
+
+    /// The doc's answers with the defaults approved in `accept_defaults` (optional; for this
+    /// doc's part only), checked against the defaults as they stand.
+    fn approved_answers(
+        &self,
+        doc: &Doc,
+        args: &Map<String, Value>,
+    ) -> Result<Map<String, Value>, ToolError> {
+        let approved = approvals_arg(args, doc.part, false)?;
+        if let Some(other) = approved.keys().find(|k| **k != doc.part) {
+            return Err(ToolError::invalid(format!(
+                "accept_defaults names part {other}: this tool writes this doc's part {} only",
+                doc.part
+            )));
+        }
+        let wanted = approved.get(&doc.part).cloned().unwrap_or_default();
+        session::with_approved(&doc.analysis, &doc.answers(), doc.part, &wanted).map_err(save_error)
     }
 
     fn export_answers(&self, args: &Map<String, Value>) -> ToolResult {
@@ -1192,11 +1214,29 @@ impl Server {
             Some(raw) => Some(self.output_path(raw, flag(args, "overwrite")?)?),
             None => None,
         };
-        let (answers, rev) = (doc.answers(), doc.rev());
-        let complete = api::export_answers(&doc.loaded()?, &doc.analysis, &answers)?;
+        let (answers, rev) = (self.approved_answers(doc, args)?, doc.rev());
+        // What is answered and the defaults approved, never every default (ADR P9), with the
+        // face evidence and the rule behind each approved default.
+        let loaded = doc.loaded()?;
+        crate::answer_file::check(&loaded, &answers).map_err(ToolError::invalid)?;
+        let mut complete = answers.clone();
+        crate::answer_file::attach(&loaded, &mut complete, &answers, std::iter::empty())
+            .map_err(ToolError::invalid)?;
+        let qs = api::questions(&doc.analysis, &answers)?;
+        complete[crate::answer_file::META]["sources"] =
+            Value::Object(rules::answered_sources(&qs, &answers));
+        let missing: Vec<String> = rules::open_questions(&qs, &answers)
+            .iter()
+            .map(|q| q.id.clone())
+            .collect();
+        let mut sorted = Value::Object(complete);
+        sorted.sort_all_objects();
+        let complete = sorted.as_object().cloned().unwrap_or_default();
         let mut out = Map::new();
         out.insert("doc".into(), json!(handle));
         out.insert("rev".into(), json!(rev));
+        out.insert("complete".into(), json!(missing.is_empty()));
+        out.insert("missing".into(), json!(missing));
         if let Some(target) = output {
             save_answers(&target, &complete)?;
             out.insert("output".into(), json!(target));
@@ -1357,43 +1397,8 @@ impl Server {
 
     fn save(&self, args: &Map<String, Value>) -> ToolResult {
         let (handle, doc) = self.doc(args)?;
-        // By part, as the page sends them, or {id: value} for the doc's own part.
-        let approved = match args.get("accept_defaults") {
-            Some(Value::Object(m)) if m.is_empty() => Some(session::Approved::new()),
-            Some(v @ Value::Object(m)) => session::approvals(v).or_else(|| {
-                (!m.keys().any(|k| k.parse::<usize>().is_ok()))
-                    .then(|| session::Approved::from([(doc.part, m.clone())]))
-            }),
-            _ => None,
-        };
-        let Some(approved) = approved else {
-            return Err(ToolError::invalid(
-                "accept_defaults is required: exactly the defaults the person approved, each id \
-                 with the default value the person saw: {\"<id>\": value} for this doc's part, \
-                 or {\"<part>\": {\"<id>\": value}} by part ({} for none)",
-            ));
-        };
-        let saved = session::save(&doc.session, None, &approved, "mcp").map_err(|e| match e {
-            session::SaveError::Question {
-                message,
-                part,
-                question,
-                values,
-            } => {
-                let mut e = ToolError::invalid(message)
-                    .with("question", json!(question))
-                    .with("part", json!(part));
-                if let Some(values) = values {
-                    let (expected, current) = *values;
-                    e = e.with("expected", expected).with("current", current);
-                }
-                e
-            }
-            session::SaveError::Refused(m) => ToolError::invalid(m),
-            session::SaveError::Changed(m) => ToolError::new("stale", m),
-            session::SaveError::Outside(m) => ToolError::refused(m),
-            other => ToolError::new("failed", other.to_string()),
-        })?;
+        let approved = approvals_arg(args, doc.part, true)?;
+        let saved = session::save(&doc.session, None, &approved, "mcp").map_err(save_error)?;
         eprintln!("Saved {} ({} bytes).", saved.path, saved.bytes);
         let mut out = saved.to_json();
         out["doc"] = json!(handle);
@@ -1604,6 +1609,64 @@ fn sha256(bytes: &[u8]) -> String {
         .iter()
         .map(|b| format!("{b:02x}"))
         .collect()
+}
+
+/// `accept_defaults` (`save`, `write_pmi`, `export_answers`): by part, `{"<part>": {"<id>":
+/// <value>}}`, or `{"<id>": <value>}` for the doc's own part; `{}` (or, when not `required`,
+/// absent) for none.
+fn approvals_arg(
+    args: &Map<String, Value>,
+    part: usize,
+    required: bool,
+) -> Result<session::Approved, ToolError> {
+    let approved = match args.get("accept_defaults") {
+        None | Some(Value::Null) if !required => Some(session::Approved::new()),
+        Some(Value::Object(m)) if m.is_empty() => Some(session::Approved::new()),
+        Some(v @ Value::Object(m)) => session::approvals(v).or_else(|| {
+            (!m.keys().any(|k| k.parse::<usize>().is_ok()))
+                .then(|| session::Approved::from([(part, m.clone())]))
+        }),
+        _ => None,
+    };
+    approved.ok_or_else(|| {
+        ToolError::invalid(
+            "accept_defaults: exactly the defaults the person approved, each id with the default \
+             value the person saw: {\"<id>\": value} for this doc's part, or {\"<part>\": \
+             {\"<id>\": value}} by part ({} for none)",
+        )
+    })
+}
+
+/// A save's refusal as a tool error: an approval named by part and question (with the value
+/// approved and the default now when they differ), stale, outside `--allow`, refused.
+fn save_error(e: session::SaveError) -> ToolError {
+    match e {
+        session::SaveError::Question {
+            message,
+            part,
+            question,
+            values,
+        } => {
+            let mut e = ToolError::invalid(message)
+                .with("question", json!(question))
+                .with("part", json!(part));
+            if let Some(values) = values {
+                let (expected, current) = *values;
+                e = e.with("expected", expected).with("current", current);
+            }
+            e
+        }
+        session::SaveError::Refused(m) => ToolError::invalid(m),
+        session::SaveError::Changed(m) => ToolError::new("stale", m),
+        session::SaveError::Stale(rev) => ToolError::new(
+            "stale",
+            format!(
+                "the session changed while saving (now rev {rev}): read it again and save again"
+            ),
+        ),
+        session::SaveError::Outside(m) => ToolError::refused(m),
+        session::SaveError::Failed(m) => ToolError::new("failed", m),
+    }
 }
 
 /// One answer of `answer`'s `set`, read against the answers before it (an earlier answer can
@@ -1979,26 +2042,30 @@ pub fn tools() -> Vec<Value> {
         json!({
             "name": "write_pmi",
             "title": "Write the PMI",
-            "description": format!("Write the open document's part with its PMI as AP242 to output (inside the allowed directories), verified by reading back; the answers are stored in the file so opening it again resumes them. accept_defaults takes the suggested default for every unanswered question; without it, unanswered required questions refuse the write (error incomplete with missing). An existing output is replaced only with overwrite: true. To write the specified file beside the opened one (or over it, if opened in_place), as the Specify page's Save does, use save instead. {MEMORY_RULE}"),
+            "description": format!("Write the open document's part with its PMI as AP242 to output (inside the allowed directories), verified by reading back; the answers are stored in the file so opening it again resumes them. What is answered is written, plus exactly the defaults listed in accept_defaults ({{\"<id>\": value}} with the values the person saw and approved, for this doc's part; never every default unless the person saw the list and confirmed it); open questions never refuse it, and complete/missing say what is still open. An existing output is replaced only with overwrite: true. To write the specified file beside the opened one (or over it, if opened in_place), as the Specify page's Save does, use save instead. {MEMORY_RULE}"),
             "inputSchema": input(json!({
                 "doc": doc(),
                 "output": {"type": "string", "description": "The STEP file to write."},
-                "accept_defaults": {"type": "boolean", "description": "Take the default for every unanswered question."},
+                "accept_defaults": {"type": "object", "description": "Exactly the defaults the person approved, {\"<id>\": value} with the values they saw (default {}: none)."},
                 "overwrite": {"type": "boolean", "description": "Replace output if it exists."}
             }), &["doc", "output"]),
             "outputSchema": output(json!({
                 "doc": {"type": "string"},
                 "output": {"type": "string"},
-                "report": {"type": "object", "description": "What was written and what was not, and why."}
+                "report": {"type": "object", "description": "What was written and what was not, and why."},
+                "complete": {"type": "boolean"},
+                "missing": strings(),
+                "rev": rev()
             }), &["doc", "output", "report"]),
             "annotations": {"readOnlyHint": false, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false},
         }),
         json!({
             "name": "export_answers",
-            "title": "Export a complete answers file",
-            "description": format!("A complete, editable answer map for the open document, defaults accepted, with face evidence (_specify) and the rule behind each accepted default (_specify.sources), without writing STEP; refused (incomplete) if a required question has no answer or default. Optionally saved to output (.json; overwrite: true to replace). {MEMORY_RULE}"),
+            "title": "Export an answers file",
+            "description": format!("An editable answer map for the open document: what is answered, plus exactly the defaults listed in accept_defaults ({{\"<id>\": value}} with the values the person saw and approved; never every default unless the person saw the list and confirmed it), with face evidence (_specify) and the rule behind each approved default (_specify.sources), without writing STEP. Open questions stay open (complete, missing). Optionally saved to output (.json; overwrite: true to replace). {MEMORY_RULE}"),
             "inputSchema": input(json!({
                 "doc": doc(),
+                "accept_defaults": {"type": "object", "description": "Exactly the defaults the person approved, {\"<id>\": value} with the values they saw (default {}: none)."},
                 "output": {"type": "string", "description": "Optional .json file to save the map to."},
                 "overwrite": {"type": "boolean", "description": "Replace output if it exists."}
             }), &["doc"]),
@@ -2006,6 +2073,8 @@ pub fn tools() -> Vec<Value> {
                 "doc": {"type": "string"},
                 "answers": {"type": "object"},
                 "output": {"type": "string"},
+                "complete": {"type": "boolean"},
+                "missing": strings(),
                 "rev": rev()
             }), &["doc", "answers"]),
             "annotations": {"readOnlyHint": false, "destructiveHint": false, "openWorldHint": false},

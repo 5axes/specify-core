@@ -63,6 +63,10 @@ All notable changes to specify-core-rust. The format follows
   (what is answered, the answers stored so reopening resumes them) and answers `complete` and
   `missing`; an in-place save always writes from the file as opened, and refuses (409) a file
   changed on disk by another program. `--read-only` also refuses answer changes.
+- MCP `write_pmi` and `export_answers` no longer take every default (ADR P9): they write or
+  export what is answered plus exactly the `accept_defaults` given (`{"<id>": <value>}`, the
+  values the person saw, checked against the current defaults), incomplete allowed, with
+  `complete` and `missing`; `write_pmi`'s boolean `accept_defaults` is refused.
 - `specify-core diff`, MCP's `diff` and the sessions compare through one function
   (`revision::compare`).
 
