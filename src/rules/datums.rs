@@ -9,6 +9,7 @@ use serde_json::{Map, Value};
 use super::py::{self, dot};
 use super::records::{Ctx, Datum, DatumKind, Datums, DefaultDatums, Face, Faces};
 use super::{Characteristic, EXTRA_DATUMS, Error, NONE, Question, Result, invalid};
+use crate::rule_sources::{self as sources, Rule};
 
 /// The letters A to C, then the extra datums.
 pub(crate) const LETTERS: [char; 8] = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
@@ -592,6 +593,11 @@ pub(crate) fn datum_questions(
         "The largest flat face square to A."
     };
     let basis_c = "The largest flat face square to A and B.";
+    let (mut source_a, source_b): (&'static Rule, &'static Rule) = if turned {
+        (&sources::DATUM_A_TURNED, &sources::DATUM_B_TURNED)
+    } else {
+        (&sources::DATUM_A_PRISMATIC, &sources::DATUM_B_PRISMATIC)
+    };
     // Which letters have a default, and what it is.
     let mut defaults: Vec<(char, Vec<i64>)> = Vec::new();
     let mut resting = String::new();
@@ -619,6 +625,7 @@ pub(crate) fn datum_questions(
                 py::str_of(part)
             );
             basis_a = py::sentence(&resting);
+            source_a = &sources::DATUM_A_CONTACT;
         }
         for x in propose.chars() {
             if !"ABC".contains(x) && !defaults.iter().any(|(y, _)| *y == x) {
@@ -645,12 +652,12 @@ pub(crate) fn datum_questions(
         } else {
             format!("Which face(s), hole or boss is datum {letter}? (empty for none)")
         };
-        let basis = match letter {
-            _ if default.is_empty() => String::new(),
-            'A' => basis_a.clone(),
-            'B' => basis_b.to_string(),
-            'C' => basis_c.to_string(),
-            _ => String::new(),
+        let (basis, source) = match letter {
+            _ if default.is_empty() => (String::new(), &sources::DATUM_NONE),
+            'A' => (basis_a.clone(), source_a),
+            'B' => (basis_b.to_string(), source_b),
+            'C' => (basis_c.to_string(), &sources::DATUM_C_PRISMATIC),
+            _ => (String::new(), &sources::DATUM_NONE),
         };
         out.push(Question {
             default: Some(Value::from(default.clone())),
@@ -660,6 +667,7 @@ pub(crate) fn datum_questions(
                 "An extra datum, for features located from something other than A.".to_string()
             },
             basis,
+            source: Some(source),
             mate: if letter == 'A' {
                 resting.clone()
             } else {
@@ -842,6 +850,7 @@ pub(crate) fn datum_control_questions(ctx: &Ctx<'_>, datums: &Datums) -> Result<
             default: Some(Value::from(NONE)),
             options: zones(),
             characteristic: Some(Characteristic::Flatness),
+            source: Some(&sources::DATUM_CONTROL_NONE),
             why: "Datum A is usually the face the part is clamped or mounted on.".to_string(),
             ..Question::new(
                 "datum.A.flatness".to_string(),
@@ -874,6 +883,7 @@ pub(crate) fn datum_control_questions(ctx: &Ctx<'_>, datums: &Datums) -> Result<
             } else {
                 Characteristic::Perpendicularity
             }),
+            source: Some(&sources::DATUM_CONTROL_NONE),
             why: "Orients (and for a tertiary hole, locates) the datum feature, so the frame it \
                   builds is repeatable."
                 .to_string(),

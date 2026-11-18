@@ -261,12 +261,15 @@ impl Server {
         match op.as_str() {
             Some("questions") => {
                 let qs = api::questions(analysis, &answers)?;
+                // Each default's rule (docs/rule-sources.md), when asked for: the reply
+                // otherwise stays the Python implementation's.
+                let traced = request.get("sources").is_some_and(truthy);
                 let open: Vec<&str> = rules::open_questions(&qs, &answers)
                     .iter()
                     .map(|q| q.id.as_str())
                     .collect();
                 Ok(json!({
-                    "questions": qs.iter().map(|q| q.to_dict()).collect::<Vec<_>>(),
+                    "questions": qs.iter().map(|q| q.to_dict_with(traced)).collect::<Vec<_>>(),
                     "open": open,
                     "problems": problems(analysis, &answers)?,
                 }))

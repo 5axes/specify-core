@@ -139,6 +139,78 @@ These are not question defaults but values the rules or the writer derive from a
 | General dimensions | every undimensioned length and diameter, baseline from the datum planes, toleranced by the ISO 2768-1 linear table | ISO 2768-1 table; the scheme is Specify's | `convention` | `src/general.rs`, `src/dimensioning.rs` |
 | Printed ± general tolerance | the greater of the millimetres and the percentage of the nominal; written as a note | vendor figures | `vendor` | `src/general.rs` `plus_minus`, `deviation`; `src/writer.rs` |
 
+## Rule ids
+
+Every default Specify proposes carries a structured `source` beside its free-text `basis`:
+
+```json
+"source": {"rule": "holes.position.tapped", "kind": "convention",
+           "refs": [{"standard": "ISO 273", "clause": "medium series"}]}
+```
+
+`rule` is a stable id from the table below; `refs` may be empty; `edition` and `clause` appear
+only where recorded. The ids are defined once, in `src/rule_sources.rs`; a test
+(`tests/rule_sources.rs`) checks that this table and the code list the same ids, and that every
+default on the corpus and fixture analyses has one. Where it appears:
+
+- **Questions:** `source` on each question with a default (and on a BOM `make_buy` suggestion),
+  in `api::review` (both WASM `review`s), the MCP `questions` tool, the Python
+  `Question.source` and `Question.to_dict()`, and, when asked for, CLI
+  `questions --sources` and serve `{"op": "questions", "sources": true}`. Without the option
+  the CLI and serve keep the Python implementation's document (`Question::to_dict`, which the
+  oracle compares); `to_traced_dict` and `to_presented_dict` carry the source.
+- **Preview intent:** `sources` beside `intent` in `api::review` (WASM `review`) and the MCP
+  `characteristics` tool (`api::preview_sources`): question ID to source, for each answer that equals its question's
+  default (an accepted default; an answer typed equal to the default is traced too).
+- **Answers export:** `_specify.sources` in `questions --resolve-defaults`, serve
+  `export_answers`, `api::export_answers`, WASM `exportAnswers`, Python and the MCP
+  `export_answers` tool, on the same terms. It is output only: ignored when the map is read
+  back and recomputed on each export. `diff` does not carry it.
+- **Not in the STEP.** The source is not written into the file.
+
+| Rule id | Kind | Refs | Default |
+| --- | --- | --- | --- |
+| `part.general_tolerance.machined` | convention | ISO 2768-1 | `ISO 2768-m` |
+| `part.general_tolerance.printed` | vendor | — | the process's ± figure |
+| `part.surface_finish.machined` | convention | — | `Ra 3.2` |
+| `part.edges.machined` | convention | — | `Break sharp edges 0.2 max` |
+| `part.edges.sheet_metal` | convention | — | `Deburr only` |
+| `part.coating.none` | assumption | — | no coating |
+| `part.heat_treatment.none` | assumption | — | no heat treatment |
+| `part.notes.none` | assumption | — | no notes |
+| `part.locating.position` | convention | — | `position tolerances` |
+| `part.locating.dimensions` | convention | — | `± dimensions` (printed, sheet metal) |
+| `process.material_class` | convention | — | the process the material's class suggests, else machined |
+| `process.accepted` | convention | — | the suggestion accepted when the file was last written |
+| `datums.prismatic.a` | convention | — | largest flat face |
+| `datums.prismatic.a.contact` | convention | — | the face where the part meets another |
+| `datums.prismatic.b` | convention | — | largest flat face square to A |
+| `datums.prismatic.c` | convention | — | largest flat face square to A and B |
+| `datums.turned.a` | convention | — | axis of the largest plain turned seat |
+| `datums.turned.b` | convention | — | locating face perpendicular to A |
+| `datums.none` | convention | — | no face proposed (empty) |
+| `datums.control.none` | convention | — | no flatness or datum control |
+| `holes.function.clearance` | standard | ISO 273 | `clearance:<bolt>` |
+| `holes.function.tapped` | standard | ISO 261:1998 (coarse pitch) | `tapped:<size>` |
+| `holes.function.general` | convention | — | `general` |
+| `holes.function.printed` | convention | ISO 273 | clearance hole on a printed or sheet metal part |
+| `holes.frame.primary` | convention | — | the whole frame, A then B then C |
+| `holes.position.fitted` | convention | — | Ø0.05 |
+| `holes.position.tapped` | convention | ISO 273 (medium series) | Ø(H − F)/2 |
+| `holes.position.floating` | convention | ISO 273 | ØH − F |
+| `holes.position.no_bolt` | convention | — | Ø0.1 |
+| `holes.location.general` | convention | — | `general` |
+| `holes.full_thread` | convention | ISO 261:1998 (coarse pitch) | drill depth − 3P, down to 0.5 mm, ≥ P |
+| `holes.full_thread.given` | convention | — | the depth the tapped answer states |
+| `turned.fit.general` | convention | — | `general` |
+| `turned.runout.none` | convention | — | no runout |
+| `mates.tapped` | convention | ISO 273 | `tapped:<size>` from a mate |
+| `mates.clearance` | convention | ISO 273 | `clearance:<bolt>` from a mate |
+| `mates.fit` | assumption | ISO 286-1:2010 | `fit:H7` / `h6` from a mate |
+| `mates.thread` | convention | ISO 261:1998 | `thread:<size>` from a mate |
+| `bom.make_buy.guess` | convention | — | made or bought, from the name |
+| `bom.make_buy.recorded` | convention | — | the answer or file value, proposed back |
+
 ## Open review
 
 Not done yet; each item is to be resolved with its source, and any change to a default made

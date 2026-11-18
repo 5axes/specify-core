@@ -59,6 +59,9 @@ class Question:
     #: Why the default is what it is, in a sentence: shown as a choice made for
     #: the person, to keep or change.
     basis: str = ""
+    #: Which rule proposed the default and what it rests on: ``{"rule", "kind", "refs"}``
+    #: (see the engine's ``docs/rule-sources.md``); None where there is no default.
+    source: dict[str, Any] | None = None
     #: When the default comes from how the part fits another in its assembly: why.
     mate: str = ""
     optional: bool = False
@@ -91,6 +94,8 @@ class Question:
             out["choices"] = list(self.choices)
         if self.basis:
             out["basis"] = self.basis
+        if self.source:
+            out["source"] = self.source
         return out
 
     @classmethod
@@ -116,6 +121,7 @@ class Question:
             diameter=record["diameter"],
             depth=record["depth"],
             basis=record["basis"],
+            source=record.get("source"),
             mate=record["mate"],
             optional=record.get("optional", False),
         )

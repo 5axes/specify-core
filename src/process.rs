@@ -348,12 +348,13 @@ pub(crate) fn question(ctx: &Ctx<'_>, answers: &Map<String, Value>) -> Option<Qu
     // The stored suggestion stands only while the current material still suggests it: a
     // changed material makes its own suggestion.
     let (guessed, why) = guess(material(ctx, answers));
-    let (default, basis) = match stored {
+    let (default, basis, source) = match stored {
         Some(p) if p == guessed => (
             p,
             format!("{p} was suggested and accepted when the file was last written."),
+            &crate::rule_sources::PROCESS_ACCEPTED,
         ),
-        _ => (guessed, why),
+        _ => (guessed, why, &crate::rule_sources::PROCESS_MATERIAL_CLASS),
     };
     // A printed (or stored) suggestion needs a person; machined is what no answer means.
     let (attention, reason) = if default == MACHINED {
@@ -371,6 +372,7 @@ pub(crate) fn question(ctx: &Ctx<'_>, answers: &Map<String, Value>) -> Option<Qu
         attention,
         reason,
         basis,
+        source: Some(source),
         ..Question::new(
             QUESTION.into(),
             "choice",

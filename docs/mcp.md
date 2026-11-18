@@ -69,10 +69,10 @@ JSON-RPC errors.
 | --- | --- | --- |
 | `list_parts` | `path` | `parts`: `[{part, name, product_id, faces, instances, ...}]`, as `serve`'s `parts` |
 | `open` | `path`, `part?`, `answers_file?`, `overwrite?` | `doc`, `open_questions`, `features` (counts by family), `faces`, `existing_pmi`, `resumed`, `warnings?`. For an assembly opened without `part`, the result is `needs_part: true` with its `parts` |
-| `questions` | `doc`, `state?` (`open` by default, `answered`, `all`) | each question as review presents it, with its `state` (`open`, `answered`, `optional`) and its `answer` |
+| `questions` | `doc`, `state?` (`open` by default, `answered`, `all`) | each question as review presents it, with its `state` (`open`, `answered`, `optional`) and its `answer`; a default's `source` names the rule behind it ([rule-sources.md](rule-sources.md#rule-ids)) |
 | `answer` | `doc`, `set?: {id: value or text}`, `clear?: [id]`, `answers_file?`, `overwrite?` | each answer as stored, with `interpreted_from` when it was typed, and its `state`; the `open` ids |
 | `review` | `doc` | `open`, `problems`, `writable`/`missing` as answered, `writable_with_defaults`/`missing_with_defaults` |
-| `characteristics` | `doc` | `intent`: the preview, as `serve`'s `preview` |
+| `characteristics` | `doc` | `intent`: the preview, as `serve`'s `preview`; `sources` (question ID to the rule behind each answer that is its question's default) |
 | `read_pmi` | `doc` | `existing` (the file's PMI by face), `part_settings`, `resumed`, `saved_answers?` |
 | `write_pmi` | `doc`, `output`, `accept_defaults?`, `overwrite?` | `report`, as `serve`'s `write` |
 | `export_answers` | `doc`, `output?`, `overwrite?` | `answers`: the complete sidecar (docs/answers.md) |

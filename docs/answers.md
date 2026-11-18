@@ -42,7 +42,9 @@ assembly and must match that STEP. `--open` cannot be combined with export.
 The map contains every supplied answer (including any whose question is not asked; see
 below) and each accepted PMI default, including defaults
 of questions revealed by earlier answers, plus `_specify.evidence` for this part and
-`_specify.unresolved: {}`. Optional BOM suggestions remain opt-in; supplied BOM answers
+`_specify.unresolved: {}`, and `_specify.sources`: for each answer equal to its question's
+default, the rule behind it ([rule-sources.md](rule-sources.md#rule-ids)); it is output only,
+ignored when the map is read and recomputed on export. Optional BOM suggestions remain opt-in; supplied BOM answers
 are preserved. Output recursively sorts object keys, uses two-space indentation and a
 final newline, and preserves array order. Identical inputs export identical bytes,
 independent of input key order. Re-exporting the complete map is idempotent.
