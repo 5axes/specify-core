@@ -10,6 +10,7 @@ use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread;
+use std::time::{Duration, Instant};
 
 use serde_json::{Map, Value, json};
 use specify_core::mcp::{self, Server};
@@ -84,11 +85,21 @@ struct Stdio {
 
 impl Stdio {
     fn start(allow: &[PathBuf], era: &'static str) -> Self {
+        Stdio::start_with(allow, era, |_| {})
+    }
+
+    /// [`Stdio::start`] with the server configured first (the app `show` serves, say).
+    fn start_with(
+        allow: &[PathBuf],
+        era: &'static str,
+        configure: impl FnOnce(&mut Server) + Send + 'static,
+    ) -> Self {
         let (to_server, lines) = channel::<String>();
         let (out, from_server) = channel::<Vec<u8>>();
         let allow = allow.to_vec();
         let server = thread::spawn(move || {
             let mut server = Server::new(&allow).unwrap();
+            configure(&mut server);
             let input = BufReader::new(PipeIn {
                 lines,
                 pending: Vec::new(),
@@ -272,7 +283,10 @@ fn conversation(era: &'static str) {
             "read_pmi",
             "write_pmi",
             "export_answers",
-            "diff"
+            "diff",
+            "changes",
+            "show",
+            "save"
         ]
     );
 
@@ -964,7 +978,7 @@ fn http_needs_the_token_the_host_and_no_origin() {
             .as_array()
             .unwrap()
             .len(),
-        10
+        13
     );
     // A legacy-era JSON-RPC error is a 200 body (2025-11-25 Streamable HTTP); an
     // unsupported header version is still 400.
@@ -1130,5 +1144,262 @@ fn the_binary_speaks_only_protocol_on_stdout() {
     assert_eq!(lines[0]["result"]["resultType"], json!("complete"));
     assert_eq!(lines[1]["error"]["code"], json!(-32700));
     assert_eq!(lines[2]["result"]["isError"], json!(true));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// ----- the session, shared with the page -----
+
+/// A request to a page server `show` started, from the app's own page.
+fn page(url: &str, method: &str, rel: &str, body: Option<&Value>) -> (u16, Value) {
+    let rest = url.strip_prefix("http://127.0.0.1:").unwrap();
+    let (port, prefix) = rest.split_once('/').unwrap();
+    let port: u16 = port.parse().unwrap();
+    let mut stream = TcpStream::connect(("127.0.0.1", port)).unwrap();
+    let body = body.map(Value::to_string).unwrap_or_default();
+    write!(
+        stream,
+        "{method} /{prefix}{rel} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\
+         Origin: http://127.0.0.1:{port}\r\nContent-Type: application/json\r\n\
+         Content-Length: {}\r\n\r\n{body}",
+        body.len()
+    )
+    .unwrap();
+    let mut response = String::new();
+    BufReader::new(stream)
+        .read_to_string(&mut response)
+        .unwrap();
+    let status = response.split(' ').nth(1).unwrap().parse().unwrap();
+    let body = response.split("\r\n\r\n").nth(1).unwrap_or_default();
+    (status, serde_json::from_str(body).unwrap_or(Value::Null))
+}
+
+/// An open `events` stream of a page server.
+struct Events(BufReader<TcpStream>);
+
+impl Events {
+    fn open(url: &str) -> Events {
+        let rest = url.strip_prefix("http://127.0.0.1:").unwrap();
+        let (port, prefix) = rest.split_once('/').unwrap();
+        let mut stream = TcpStream::connect(("127.0.0.1", port.parse::<u16>().unwrap())).unwrap();
+        write!(
+            stream,
+            "GET /{prefix}events HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\r\n"
+        )
+        .unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(20)))
+            .unwrap();
+        let mut events = Events(BufReader::new(stream));
+        let head = events.block();
+        assert!(head[0].starts_with("HTTP/1.1 200"), "{head:?}");
+        events
+    }
+
+    /// The lines up to the next blank one.
+    fn block(&mut self) -> Vec<String> {
+        let mut lines = Vec::new();
+        loop {
+            let mut line = String::new();
+            assert!(self.0.read_line(&mut line).unwrap() > 0, "the stream ended");
+            let line = line.trim_end_matches(['\r', '\n']).to_string();
+            if line.is_empty() {
+                return lines;
+            }
+            lines.push(line);
+        }
+    }
+
+    /// The next event (comments skipped): its name and data.
+    fn next(&mut self) -> (String, Value) {
+        loop {
+            let block = self.block();
+            let name = block.iter().find_map(|l| l.strip_prefix("event: "));
+            let data = block.iter().find_map(|l| l.strip_prefix("data: "));
+            if let (Some(name), Some(data)) = (name, data) {
+                return (name.to_string(), serde_json::from_str(data).unwrap());
+            }
+        }
+    }
+}
+
+/// A stub app for `show` to serve, in `dir`.
+fn stub_app(dir: &Path) -> specify_core::open::Assets {
+    let app = dir.join("app");
+    std::fs::create_dir_all(&app).unwrap();
+    std::fs::write(
+        app.join("index.html"),
+        b"<!doctype html><title>stub</title>",
+    )
+    .unwrap();
+    specify_core::open::assets(Some(&app), None).unwrap()
+}
+
+/// The agent and the person's page edit one session: the page's change is what the agent
+/// reads next, the agent's reaches the page as an event, and both save the same way.
+#[test]
+fn the_agent_and_the_page_share_one_session() {
+    let dir = scratch("session");
+    let copy = dir.join("plate.step");
+    std::fs::copy(part("plate"), &copy).unwrap();
+    let assets = stub_app(&dir);
+    let mut client = Stdio::start_with(std::slice::from_ref(&dir), mcp::MODERN, move |server| {
+        server.set_app(assets);
+        server.set_page_timing(Duration::from_millis(500), Duration::from_secs(600));
+    });
+
+    let opened = client.call("open", json!({"path": copy}));
+    let doc = opened["doc"].as_str().unwrap().to_string();
+    assert_eq!(opened["rev"], json!(0));
+    let shown = client.call("show", json!({"doc": doc, "browser": false}));
+    assert_eq!(shown["mode"], json!("specify"));
+    let url = shown["url"].as_str().unwrap().to_string();
+    assert!(url.starts_with("http://127.0.0.1:"), "{url}");
+    // Shown again while it runs: the same page.
+    let again = client.call("show", json!({"doc": doc, "browser": false}));
+    assert_eq!(again["url"], json!(url));
+    let (status, config) = page(&url, "GET", "config", None);
+    assert_eq!(status, 200);
+    assert_eq!(config["path"], json!(copy));
+
+    // The person answers in the page: the agent's next calls see it.
+    let (status, put) = page(
+        &url,
+        "PUT",
+        "answers",
+        Some(&json!({"rev": 0, "part": 0, "answers": {"part.material": "6061-T6"}})),
+    );
+    assert_eq!(status, 200, "{put}");
+    assert_eq!(put, json!({"rev": 1}));
+    let changes = client.call("changes", json!({"doc": doc, "since": 0}));
+    assert_eq!(
+        changes,
+        json!({"doc": doc, "rev": 1, "changes": [{"rev": 1, "part": 0, "source": "page",
+               "set": {"part.material": "6061-T6"}, "cleared": []}]})
+    );
+    let answered = client.call("questions", json!({"doc": doc, "state": "answered"}));
+    assert_eq!(answered["rev"], json!(1));
+    let material = answered["questions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|q| q["id"] == "part.material")
+        .expect("answered in the page");
+    assert_eq!(material["answer"], json!("6061-T6"));
+
+    // The agent answers: the page hears it.
+    let mut events = Events::open(&url);
+    let (_, start) = events.next();
+    assert_eq!(start["source"], json!("start"));
+    assert_eq!(start["rev"], json!(1));
+    let set = client.call(
+        "answer",
+        json!({"doc": doc, "set": {"part.material": "6082-T6"}}),
+    );
+    assert_eq!(set["rev"], json!(2));
+    let (name, change) = events.next();
+    assert_eq!(name, "answers");
+    assert_eq!(
+        change,
+        json!({"rev": 2, "part": 0, "answers": {"part.material": "6082-T6"}, "source": "mcp"})
+    );
+
+    // Save says whether to take the defaults, always; an incomplete save is written.
+    let refused = client.refusal("save", json!({"doc": doc}));
+    assert_eq!(refused["code"], json!("invalid"), "{refused}");
+    assert!(!dir.join("plate.specified.step").exists());
+    let saved = client.call("save", json!({"doc": doc, "accept_defaults": false}));
+    assert_eq!(saved["complete"], json!(false), "{saved}");
+    assert!(!saved["missing"].as_array().unwrap().is_empty());
+    assert_eq!(saved["rev"], json!(2));
+    assert_eq!(saved["path"], json!(dir.join("plate.specified.step")));
+    assert!(
+        std::fs::read(dir.join("plate.specified.step"))
+            .unwrap()
+            .starts_with(b"ISO-10303-21;")
+    );
+    let (name, told) = events.next();
+    assert_eq!(name, "saved");
+    assert_eq!(told["source"], json!("mcp"));
+    assert_eq!(told["path"], saved["path"]);
+    let changes = client.call("changes", json!({"doc": doc, "since": 1}));
+    assert_eq!(changes["changes"][0]["source"], json!("mcp"));
+    assert_eq!(changes["changes"].as_array().unwrap().len(), 1);
+
+    // The page closed: its server stops, and show starts a new one at a new address.
+    drop(events);
+    let (status, _) = page(&url, "POST", "closed", None);
+    assert_eq!(status, 204);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let renewed = loop {
+        assert!(Instant::now() < deadline, "the page server did not stop");
+        thread::sleep(Duration::from_millis(100));
+        let shown = client.call("show", json!({"doc": doc, "browser": false}));
+        if shown["url"] != json!(url) {
+            break shown["url"].as_str().unwrap().to_string();
+        }
+    };
+    let (status, answers) = page(&renewed, "GET", "answers", None);
+    assert_eq!(status, 200);
+    assert_eq!(
+        answers,
+        json!({"rev": 2, "parts": {"0": {"part.material": "6082-T6"}}})
+    );
+    client.finish();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// `open` with `old`: the revisions compared as `diff` compares them, and the session starting
+/// from the answers carried to the new one.
+#[test]
+fn a_diff_session_starts_from_the_carried_answers() {
+    let dir = scratch("diff-session");
+    let (old, new) = (dir.join("plate.old.step.gz"), dir.join("plate.new.step.gz"));
+    std::fs::copy(revision("hole_moved.old.step.gz"), &old).unwrap();
+    std::fs::copy(revision("hole_moved.new.step.gz"), &new).unwrap();
+    let old_answers = dir.join("old.answers.json");
+    std::fs::write(&old_answers, r#"{"part.material": "6061-T6"}"#).unwrap();
+    let mut server = Server::new(std::slice::from_ref(&dir)).unwrap();
+
+    let opened = call(
+        &mut server,
+        "open",
+        json!({"path": new, "old": old, "old_answers": old_answers}),
+    );
+    let out = &opened["structuredContent"];
+    assert_eq!(opened["isError"], json!(false), "{opened}");
+    let given: Map<String, Value> =
+        serde_json::from_str(r#"{"part.material": "6061-T6"}"#).unwrap();
+    let expected = specify_core::revision::diff(
+        &specify_core::part::load(&old, None).unwrap(),
+        &specify_core::part::load(&new, None).unwrap(),
+        &given,
+    )
+    .unwrap();
+    assert_eq!(out["verdict"], json!(expected.verdict));
+    assert_eq!(out["summary"], json!(expected.summary));
+    assert_eq!(out["report"], serde_json::to_value(&expected).unwrap());
+    assert_eq!(out["rev"], json!(0));
+    assert_eq!(out["answered"], json!(expected.answers.len()));
+    let doc = out["doc"].as_str().unwrap().to_string();
+    let answered = call(
+        &mut server,
+        "questions",
+        json!({"doc": doc, "state": "answered"}),
+    );
+    let material = answered["structuredContent"]["questions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|q| q["id"] == "part.material")
+        .cloned()
+        .expect("carried");
+    assert_eq!(material["answer"], json!("6061-T6"));
+    // old_answers belong to old.
+    let refused = error_of(
+        &mut server,
+        "open",
+        json!({"path": new, "old_answers": old_answers}),
+    );
+    assert_eq!(refused["code"], json!("invalid"));
     let _ = std::fs::remove_dir_all(&dir);
 }

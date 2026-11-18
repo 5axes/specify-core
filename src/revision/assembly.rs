@@ -6,6 +6,7 @@
 //! part), and not by its geometry: a renamed part is one removed and another added. Parts of the
 //! same name pair in file order.
 
+use std::collections::BTreeMap;
 use std::fmt::Write;
 
 use serde::Serialize;
@@ -360,6 +361,20 @@ impl Assembly {
     /// The answers carried to the new revision, by part: `{part name: answers}` for each part
     /// that has some.
     pub fn answers(&self) -> Map<String, Value> {
+        self.carried()
+            .map(|(p, a)| (p.name.clone(), Value::Object(a)))
+            .collect()
+    }
+
+    /// [`Assembly::answers`] by the new file's part index instead of the part's name.
+    pub fn answers_by_part(&self) -> BTreeMap<usize, Map<String, Value>> {
+        self.carried()
+            .filter_map(|(p, a)| p.new.as_ref().map(|n| (n.part, a)))
+            .collect()
+    }
+
+    /// Each part of the new revision that has answers carried to it, with them.
+    fn carried(&self) -> impl Iterator<Item = (&PartChange, Map<String, Value>)> {
         self.parts
             .iter()
             .filter(|p| p.new.is_some())
@@ -371,9 +386,8 @@ impl Assembly {
                 if let Some(history) = &self.bom_history {
                     a.insert(crate::bom::CARRY.into(), history.clone());
                 }
-                (!a.is_empty()).then(|| (p.name.clone(), Value::Object(a)))
+                (!a.is_empty()).then_some((p, a))
             })
-            .collect()
     }
 
     /// The report as Markdown, for a pull request comment: the summary, *image* (the picture's

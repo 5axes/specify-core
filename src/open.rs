@@ -1,35 +1,40 @@
-//! `specify-core open`: a STEP file opened in the Specify app, served by this command on
-//! 127.0.0.1 to the person's own browser, never uploaded, and saved back to disk.
+//! The Specify page server (`specify-core open`, and MCP's `show`): one session's STEP file
+//! opened in the Specify app, served on 127.0.0.1 to the person's own browser, never uploaded,
+//! and saved back to disk by this process from the session's answers (src/session.rs).
 //!
 //! Everything is under `http://127.0.0.1:<port>/<token>/` (the token 32 lowercase hex from the
 //! operating system's random source), see docs/open.md:
 //!
 //! - `GET <token>/…` the static app (`index.html` at `<token>/`), `GET <token>/wasm/…` the
-//!   engine, `GET <token>/file` the STEP bytes, `GET <token>/config` the app's settings;
-//! - `POST <token>/save` the specified STEP, written next to the input (never over a file,
-//!   unless `--in-place`, which keeps the original once as `.bak`);
+//!   engine, `GET <token>/file` the STEP bytes (`?rev=old` OLD's in a diff), `GET
+//!   <token>/config` the app's settings, `GET <token>/diff` a diff's report;
+//! - `GET`/`PUT <token>/answers` the session's answers, `GET <token>/events` their changes as
+//!   server-sent events;
+//! - `POST <token>/save` the specified STEP written from the session's answers, next to the
+//!   input (never over a file, unless in place, which keeps the original once as `.bak`);
 //! - `POST <token>/closed` the page went away: the server stops [`CLOSE_DELAY`] after the last
 //!   request unless another arrives (a reload, or another open page's heartbeat).
 //!
-//! An open page sends `GET <token>/config` every [`HEARTBEAT`] (the engine runs in the page,
-//! so editing alone makes no requests); any request resets the idle time and cancels a pending
-//! close.
+//! An open page sends `GET <token>/config` every [`HEARTBEAT`]; any request resets the idle
+//! time and cancels a pending close, and an open event stream keeps the server running.
 //!
 //! A request whose `Host` is not exactly `127.0.0.1:<port>` is refused (a page that finds the
-//! port through DNS rebinding), as is any other token, without saying why. `save` and `closed`
-//! must carry `Origin: http://127.0.0.1:<port>`; a `GET` with any other `Origin` is refused. A
-//! forgotten server stops after [`IDLE`] without a request.
+//! port through DNS rebinding), as is any other token, without saying why. `save`, `PUT
+//! answers` and `closed` must carry `Origin: http://127.0.0.1:<port>`; a `GET` with any other
+//! `Origin` is refused. A forgotten server stops after [`IDLE`] without a request.
 
-use std::fs::{self, File, OpenOptions};
+use std::fs;
 use std::io::{self, Read, Write};
 use std::net::{Ipv4Addr, Shutdown, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use serde_json::json;
+
+use crate::session;
 
 /// How often an open page asks for `config` (the contract's heartbeat; the server does not
 /// use it, it sizes [`CLOSE_DELAY`]).
@@ -43,8 +48,17 @@ pub const CLOSE_DELAY: Duration = Duration::from_secs(90);
 /// page's heartbeat keeps it).
 pub const IDLE: Duration = Duration::from_secs(30 * 60);
 
-/// The largest save accepted, whatever the input's size.
-pub const MAX_SAVE: u64 = 512 * 1024 * 1024;
+/// The largest `save` body accepted.
+pub const MAX_SAVE_BODY: u64 = 64 * 1024;
+
+/// The largest `PUT answers` body accepted.
+pub const MAX_ANSWERS: u64 = 16 * 1024 * 1024;
+
+/// The most event streams open at once; another is answered 503.
+pub const MAX_STREAMS: usize = 4;
+
+/// How often an event stream with nothing to say sends a comment.
+pub const KEEP_ALIVE: Duration = Duration::from_secs(15);
 
 /// The most connections answered at once; another is answered 503 and closed.
 pub const MAX_CONNECTIONS: usize = 16;
@@ -105,7 +119,7 @@ pub(crate) fn token() -> Result<String, Error> {
 
 #[cfg(unix)]
 fn random(buf: &mut [u8]) -> io::Result<()> {
-    File::open("/dev/urandom")?.read_exact(buf)
+    fs::File::open("/dev/urandom")?.read_exact(buf)
 }
 
 #[cfg(windows)]
@@ -185,18 +199,16 @@ pub fn assets(app: Option<&Path>, wasm: Option<&Path>) -> Result<Assets, Error> 
     Ok(Assets { app, wasm })
 }
 
-/// How the file is opened.
+/// How the page is served.
 #[derive(Debug, Clone, Default)]
 pub struct Options {
-    /// Saves are refused (409).
+    /// No answer changes and no saves from the page (409).
     pub read_only: bool,
-    /// A save replaces the input, which is kept as `.bak`.
-    pub in_place: bool,
     /// The port on 127.0.0.1 (0: any free port).
     pub port: u16,
 }
 
-/// The input, its port open and its app found, ready to serve.
+/// The page server for one session, its port open and its app found, ready to serve.
 pub struct App {
     listener: TcpListener,
     port: u16,
@@ -204,41 +216,85 @@ pub struct App {
     shared: Shared,
 }
 
+/// A page server started in the background (MCP's `show`): its address and mode, whether it
+/// is still running, and how to stop it.
+pub struct Page {
+    pub url: String,
+    pub mode: &'static str,
+    running: Arc<AtomicBool>,
+    stop: Arc<AtomicBool>,
+}
+
+impl Page {
+    pub fn is_running(&self) -> bool {
+        self.running.load(Ordering::SeqCst)
+    }
+
+    /// Stops the page server (its event streams end).
+    pub fn stop(&self) {
+        self.stop.store(true, Ordering::SeqCst);
+    }
+}
+
+impl Drop for Page {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
+/// Starts a page server for `session` on a thread of its own (MCP's `show`): it stops as
+/// [`App::serve`] does, or when the returned [`Page`] is stopped or dropped. Its notices go to
+/// stderr (stdout may carry a protocol).
+pub fn start(
+    session: session::Shared,
+    assets: Assets,
+    options: &Options,
+    close_delay: Duration,
+    idle: Duration,
+) -> Result<Page, Error> {
+    let app = App::new(session, assets, options)?;
+    let url = app.url();
+    let mode = app.shared.mode;
+    let stop = Arc::clone(&app.shared.stop);
+    let running = Arc::new(AtomicBool::new(true));
+    let flag = Arc::clone(&running);
+    thread::Builder::new()
+        .spawn(move || {
+            let _ = app.serve(close_delay, idle, |n| eprintln!("{n}"));
+            flag.store(false, Ordering::SeqCst);
+        })
+        .map_err(|e| Error::Io(format!("cannot start the page server: {e}")))?;
+    Ok(Page {
+        url,
+        mode,
+        running,
+        stop,
+    })
+}
+
 impl App {
-    /// Reads `step` (a `.step` or `.stp` name, or either gzipped) and opens its port on
-    /// 127.0.0.1.
-    pub fn new(step: &Path, assets: Assets, options: &Options) -> Result<App, Error> {
-        if options.read_only && options.in_place {
+    /// Opens a port on 127.0.0.1 for `session`'s page.
+    pub fn new(session: session::Shared, assets: Assets, options: &Options) -> Result<App, Error> {
+        let (diff, in_place, name) = {
+            let s = session::lock(&session);
+            (s.old().is_some(), s.in_place(), s.file().name.clone())
+        };
+        if options.read_only && in_place {
             return Err(Error::Refused(
                 "--read-only and --in-place cannot be combined".to_string(),
             ));
         }
-        let name = step
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_default();
-        if !is_step_name(&name) {
-            return Err(Error::Refused(format!(
-                "{} is not a STEP file: Specify opens .step or .stp, or either gzipped",
-                step.display()
-            )));
+        if options.read_only && diff {
+            return Err(Error::Refused(
+                "--read-only and --diff cannot be combined".to_string(),
+            ));
         }
-        let read = |e: io::Error| Error::Io(format!("{}: {e}", step.display()));
-        // The path as given, made absolute but not resolved: saves go next to it (beside a
-        // link, not its target) and every path shown is this one, never a canonical form
-        // (`\\?\C:\…` on Windows).
-        let step = std::path::absolute(step).map_err(read)?;
-        let bytes = fs::read(&step).map_err(read)?;
-        let gz = name.to_ascii_lowercase().ends_with(".gz");
-        // The cap counts the STEP text, so a gzipped input is measured unzipped (every member).
-        let text_len = if gz {
-            io::copy(
-                &mut flate2::read::MultiGzDecoder::new(&bytes[..]),
-                &mut io::sink(),
-            )
-            .map_err(read)?
+        let mode = if options.read_only {
+            "read-only"
+        } else if diff {
+            "diff"
         } else {
-            bytes.len() as u64
+            "specify"
         };
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, options.port)).map_err(|e| {
             Error::Io(format!(
@@ -256,15 +312,12 @@ impl App {
             origin: format!("http://127.0.0.1:{port}"),
             prefix: format!("/{token}/"),
             name,
-            step,
-            gz,
-            bytes: Mutex::new(Arc::new(bytes)),
-            cap: text_len.saturating_mul(4).min(MAX_SAVE),
+            mode,
+            session,
             assets,
             read_only: options.read_only,
-            in_place: options.in_place,
-            backup: Mutex::new(None),
-            save_lock: Mutex::new(()),
+            streams: AtomicUsize::new(0),
+            stop: Arc::new(AtomicBool::new(false)),
             activity: Mutex::new(Activity {
                 last: Instant::now(),
                 accepted: 0,
@@ -284,7 +337,7 @@ impl App {
         format!("http://127.0.0.1:{}/{}/", self.port, self.token)
     }
 
-    /// The file's name.
+    /// The file's name (`NEW`'s in a diff).
     pub fn name(&self) -> &str {
         &self.shared.name
     }
@@ -295,8 +348,9 @@ impl App {
     }
 
     /// Answers requests, each connection on its own thread (at most [`MAX_CONNECTIONS`] at
-    /// once), until `close_delay` after `closed` with no request since, or `idle` without a
-    /// request. `notice` gets each save's and the stop's one-line notice.
+    /// once), until `close_delay` after `closed` with no request and no event stream since, or
+    /// `idle` without a request (an open event stream keeps it running). `notice` gets each
+    /// save's and the stop's one-line notice.
     pub fn serve(
         self,
         close_delay: Duration,
@@ -312,6 +366,9 @@ impl App {
         loop {
             while let Ok(n) = notices.try_recv() {
                 notice(&n);
+            }
+            if shared.stop.load(Ordering::SeqCst) {
+                return Ok(());
             }
             if active.load(Ordering::SeqCst) == 0 {
                 let now = Instant::now();
@@ -382,21 +439,15 @@ struct Shared {
     /// `/<token>/`.
     prefix: String,
     name: String,
-    /// The input as given, made absolute (not resolved: a link stays the link).
-    step: PathBuf,
-    gz: bool,
-    /// What `file` serves: the input, or the last in-place save.
-    bytes: Mutex<Arc<Vec<u8>>>,
-    /// The largest save accepted.
-    cap: u64,
+    /// `config.mode`: `specify`, `read-only` or `diff`.
+    mode: &'static str,
+    session: session::Shared,
     assets: Assets,
     read_only: bool,
-    in_place: bool,
-    /// `--in-place`: where this session's first save kept the original; later saves keep no
-    /// other copy.
-    backup: Mutex<Option<PathBuf>>,
-    /// One save at a time, so `saveTarget` and the name a save takes agree.
-    save_lock: Mutex<()>,
+    /// Event streams open now.
+    streams: AtomicUsize,
+    /// Set to stop the server (and end its event streams).
+    stop: Arc<AtomicBool>,
     activity: Mutex<Activity>,
 }
 
@@ -478,8 +529,17 @@ fn reply_json(stream: &mut TcpStream, status: &str, value: &serde_json::Value) {
     );
 }
 
-fn refuse_save(stream: &mut TcpStream, status: &str, error: &str) {
+fn refuse(stream: &mut TcpStream, status: &str, error: &str) {
     reply_json(stream, status, &json!({ "error": error }));
+}
+
+/// The value of `name` in a request target's query, if it has one.
+fn query<'a>(target: &'a str, name: &str) -> Option<&'a str> {
+    target
+        .split_once('?')?
+        .1
+        .split('&')
+        .find_map(|pair| pair.strip_prefix(name)?.strip_prefix('='))
 }
 
 /// Answers one request.
@@ -522,16 +582,27 @@ fn exchange(stream: &mut TcpStream, ctx: &Ctx) {
     };
     let origin = request.header("origin");
     let same_origin = origin == Some(shared.origin.as_str());
+    let diff = shared.mode == "diff";
     match (request.method.as_str(), rest) {
         ("POST", "save") => {
             if !same_origin {
-                return refuse_save(stream, "403 Forbidden", "save only from the app's own page");
+                return refuse(stream, "403 Forbidden", "save only from the app's own page");
             }
             save(stream, ctx, &request, body);
         }
+        ("PUT", "answers") => {
+            if !same_origin {
+                return refuse(
+                    stream,
+                    "403 Forbidden",
+                    "answers change only from the app's own page",
+                );
+            }
+            put_answers(stream, ctx, &request, body);
+        }
         ("POST", "closed") => {
             if !same_origin {
-                return refuse_save(stream, "403 Forbidden", "only from the app's own page");
+                return refuse(stream, "403 Forbidden", "only from the app's own page");
             }
             {
                 let mut a = lock(&shared.activity);
@@ -547,24 +618,59 @@ fn exchange(stream: &mut TcpStream, ctx: &Ctx) {
         ("GET", _) if origin.is_some() && !same_origin => {
             let _ = respond(stream, "403 Forbidden", &[], b"");
         }
+        ("GET", "answers") => {
+            let s = session::lock(&shared.session);
+            let answers = json!({"rev": s.rev(), "parts": s.parts()});
+            drop(s);
+            reply_json(stream, "200 OK", &answers);
+        }
+        (_, "answers") => {
+            let _ = respond(
+                stream,
+                "405 Method Not Allowed",
+                &[("Allow", "GET, PUT")],
+                b"",
+            );
+        }
         ("GET", "file") => {
-            let bytes = lock(&shared.bytes).clone();
+            let bytes = match query(&request.target, "rev") {
+                None | Some("new") => session::lock(&shared.session).current(),
+                Some("old") if diff => {
+                    let s = session::lock(&shared.session);
+                    Arc::clone(&s.old().expect("diff mode has OLD").bytes)
+                }
+                Some(_) => return reply(stream, "404 Not Found", None, b""),
+            };
             reply(stream, "200 OK", Some("application/octet-stream"), &bytes);
         }
+        ("GET", "diff") => {
+            let report = session::lock(&shared.session).report().cloned();
+            match report {
+                Some(report) if diff => reply_json(stream, "200 OK", &report),
+                _ => reply(stream, "404 Not Found", None, b""),
+            }
+        }
+        ("GET", "events") => events(stream, ctx),
         ("GET", "config") => {
+            let s = session::lock(&shared.session);
             let target = if shared.read_only {
                 None
             } else {
-                let _guard = lock(&shared.save_lock);
-                save_target(shared).map(|p| p.display().to_string())
+                s.save_target().map(|p| p.display().to_string())
             };
+            let old = s.old();
             let config = json!({
-                "name": shared.name,
+                "mode": shared.mode,
+                "name": s.file().name,
+                "path": s.file().path.display().to_string(),
+                "oldName": old.map(|o| o.name.clone()),
+                "oldPath": old.map(|o| o.path.display().to_string()),
                 "readOnly": shared.read_only,
                 "wasmUrl": WASM_URL,
                 "saveTarget": target,
                 "specifyCore": env!("CARGO_PKG_VERSION"),
             });
+            drop(s);
             reply_json(stream, "200 OK", &config);
         }
         ("GET", rest) => {
@@ -581,6 +687,257 @@ fn exchange(stream: &mut TcpStream, ctx: &Ctx) {
         _ => {
             let _ = respond(stream, "405 Method Not Allowed", &[("Allow", "GET")], b"");
         }
+    }
+}
+
+/// A JSON request body: `Content-Type: application/json` (415), a `Content-Length` and no
+/// `Transfer-Encoding` (411), at most `max` bytes (413), all of it within 30 s and 1 s more per
+/// MiB (408), parsed (400). The refusal's status and message otherwise.
+fn json_body(
+    stream: &mut TcpStream,
+    request: &Request,
+    mut body: Vec<u8>,
+    max: u64,
+) -> Result<serde_json::Value, (&'static str, String)> {
+    let is_json = request
+        .header("content-type")
+        .and_then(|t| t.split(';').next())
+        .is_some_and(|t| t.trim().eq_ignore_ascii_case("application/json"));
+    if !is_json {
+        return Err((
+            "415 Unsupported Media Type",
+            "send the body as application/json".into(),
+        ));
+    }
+    // The body is read by its Content-Length only: a chunked (or otherwise encoded) body is
+    // refused rather than misread.
+    let length = request
+        .header("content-length")
+        .and_then(|l| l.trim().parse::<u64>().ok());
+    let (Some(length), None) = (length, request.header("transfer-encoding")) else {
+        return Err((
+            "411 Length Required",
+            "Content-Length is required (no Transfer-Encoding)".into(),
+        ));
+    };
+    if length > max {
+        return Err(("413 Content Too Large", format!("larger than {max} bytes")));
+    }
+    let deadline = Instant::now() + body_time(length);
+    let length = length as usize;
+    body.truncate(length);
+    let mut chunk = vec![0u8; 64 * 1024];
+    while body.len() < length {
+        let Some(left) = deadline
+            .checked_duration_since(Instant::now())
+            .filter(|d| !d.is_zero())
+        else {
+            return Err(("408 Request Timeout", "the body came too slowly".into()));
+        };
+        if stream
+            .set_read_timeout(Some(left.min(Duration::from_secs(30))))
+            .is_err()
+        {
+            return Err(("400 Bad Request", "the body cannot be read".into()));
+        }
+        match stream.read(&mut chunk[..(length - body.len()).min(64 * 1024)]) {
+            Ok(0) | Err(_) => {
+                return Err(("400 Bad Request", "the body ended early".into()));
+            }
+            Ok(n) => body.extend_from_slice(&chunk[..n]),
+        }
+    }
+    serde_json::from_slice(&body).map_err(|e| ("400 Bad Request", format!("not JSON: {e}")))
+}
+
+/// The longest a body may take to arrive: 30 s, and 1 s more per MiB (a trickling client
+/// cannot hold a connection indefinitely).
+fn body_time(length: u64) -> Duration {
+    Duration::from_secs(30 + length / (1024 * 1024))
+}
+
+/// `PUT <token>/answers`, from the app's own origin: part `part`'s answers replaced when `rev`
+/// is current.
+fn put_answers(stream: &mut TcpStream, ctx: &Ctx, request: &Request, body: Vec<u8>) {
+    let shared = ctx.shared;
+    if shared.read_only {
+        return refuse(
+            stream,
+            "409 Conflict",
+            "opened read-only: no answer changes",
+        );
+    }
+    let value = match json_body(stream, request, body, MAX_ANSWERS) {
+        Ok(v) => v,
+        Err((status, why)) => return refuse(stream, status, &why),
+    };
+    let (Some(rev), Some(part), Some(answers)) = (
+        value["rev"].as_u64(),
+        value["part"].as_u64(),
+        value["answers"].as_object(),
+    ) else {
+        return refuse(
+            stream,
+            "400 Bad Request",
+            "send {\"rev\": n, \"part\": k, \"answers\": {question id: answer}}",
+        );
+    };
+    let part = part as usize;
+    let mut s = session::lock(&shared.session);
+    if rev != s.rev() {
+        let current = json!({"error": "the answers have changed since that rev: apply the change to these and try again",
+                             "rev": s.rev(), "parts": s.parts()});
+        drop(s);
+        return reply_json(stream, "409 Conflict", &current);
+    }
+    if part >= s.part_count() {
+        let count = s.part_count();
+        drop(s);
+        return refuse(
+            stream,
+            "400 Bad Request",
+            &format!("the file has {count} part(s): there is no part {part}"),
+        );
+    }
+    // A part the agent has not opened is opened in the session on its first change.
+    if let Err(e) = s.analysis(part) {
+        drop(s);
+        return refuse(stream, "400 Bad Request", &format!("part {part}: {e}"));
+    }
+    s.set(part, answers.clone(), "page");
+    let rev = s.rev();
+    drop(s);
+    reply_json(stream, "200 OK", &json!({ "rev": rev }));
+}
+
+/// `GET <token>/events`: the session's changes as server-sent events, the current state first;
+/// a comment every [`KEEP_ALIVE`]. At most [`MAX_STREAMS`] at once.
+fn events(stream: &mut TcpStream, ctx: &Ctx) {
+    let shared = ctx.shared;
+    if shared.streams.fetch_add(1, Ordering::SeqCst) >= MAX_STREAMS {
+        shared.streams.fetch_sub(1, Ordering::SeqCst);
+        let mut headers: Vec<(&str, &str)> = COMMON.to_vec();
+        headers.push(("Content-Type", "application/json"));
+        headers.push(("Retry-After", "1"));
+        let body = json!({"error": format!("at most {MAX_STREAMS} event streams at once")});
+        let _ = respond(
+            stream,
+            "503 Service Unavailable",
+            &headers,
+            body.to_string().as_bytes(),
+        );
+        return;
+    }
+    let received = session::lock(&shared.session).subscribe();
+    let mut head = String::from("HTTP/1.1 200 OK\r\n");
+    for (name, value) in COMMON {
+        head.push_str(&format!("{name}: {value}\r\n"));
+    }
+    head.push_str("Content-Type: text/event-stream\r\nConnection: close\r\n\r\n");
+    let mut sent = stream
+        .write_all(head.as_bytes())
+        .and_then(|_| stream.flush());
+    let mut quiet_since = Instant::now();
+    while sent.is_ok() && !shared.stop.load(Ordering::SeqCst) && !hung_up(stream) {
+        match received.recv_timeout(Duration::from_millis(250)) {
+            Ok(text) => {
+                sent = stream
+                    .write_all(text.as_bytes())
+                    .and_then(|_| stream.flush());
+                quiet_since = Instant::now();
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                if quiet_since.elapsed() >= KEEP_ALIVE {
+                    sent = stream
+                        .write_all(b": keep-alive\n\n")
+                        .and_then(|_| stream.flush());
+                    quiet_since = Instant::now();
+                }
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+        }
+    }
+    let _ = stream.shutdown(Shutdown::Both);
+    shared.streams.fetch_sub(1, Ordering::SeqCst);
+    // An open stream kept the server; its end counts as the last request.
+    let mut a = lock(&shared.activity);
+    a.last = Instant::now();
+    if a.close_at.is_some() {
+        a.close_at = Some(Instant::now() + ctx.close_delay);
+    }
+}
+
+/// Whether the client has closed its side of an event stream (it sends nothing else).
+fn hung_up(stream: &mut TcpStream) -> bool {
+    if stream
+        .set_read_timeout(Some(Duration::from_millis(1)))
+        .is_err()
+    {
+        return true;
+    }
+    let mut byte = [0u8; 64];
+    match stream.read(&mut byte) {
+        Ok(0) => true,
+        Ok(_) => false,
+        Err(e) => !matches!(
+            e.kind(),
+            io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut | io::ErrorKind::Interrupted
+        ),
+    }
+}
+
+/// `POST <token>/save`, from the app's own origin: the session's answers written by the
+/// command (docs/open.md, `save`).
+fn save(stream: &mut TcpStream, ctx: &Ctx, request: &Request, body: Vec<u8>) {
+    let shared = ctx.shared;
+    if shared.read_only {
+        return refuse(stream, "409 Conflict", "opened read-only: nothing is saved");
+    }
+    let value = match json_body(stream, request, body, MAX_SAVE_BODY) {
+        Ok(v) => v,
+        Err((status, why)) => return refuse(stream, status, &why),
+    };
+    let Some(accept_defaults) = value.get("acceptDefaults").and_then(|v| v.as_bool()) else {
+        return refuse(
+            stream,
+            "400 Bad Request",
+            "acceptDefaults is required: true only when the person chose to take the defaults",
+        );
+    };
+    let Some(rev) = value.get("rev").and_then(|v| v.as_u64()) else {
+        return refuse(
+            stream,
+            "400 Bad Request",
+            "rev is required: the session revision the page last saw",
+        );
+    };
+    let mut s = session::lock(&shared.session);
+    if rev != s.rev() {
+        let current = s.rev();
+        drop(s);
+        return reply_json(
+            stream,
+            "409 Conflict",
+            &json!({"error": "the answers have changed since that rev: show them and save again", "rev": current}),
+        );
+    }
+    let saved = s.save(accept_defaults, "page");
+    let current = s.rev();
+    drop(s);
+    match saved {
+        Ok(saved) => {
+            let _ = ctx
+                .tell
+                .send(format!("Saved {} ({} bytes).", saved.path, saved.bytes));
+            reply_json(stream, "200 OK", &saved.to_json());
+        }
+        Err(session::SaveError::Changed(why)) => reply_json(
+            stream,
+            "409 Conflict",
+            &json!({"error": why, "rev": current}),
+        ),
+        Err(session::SaveError::Refused(why)) => refuse(stream, "422 Unprocessable Content", &why),
+        Err(session::SaveError::Failed(why)) => refuse(stream, "500 Internal Server Error", &why),
     }
 }
 
@@ -648,268 +1005,6 @@ pub fn content_type(path: &Path) -> &'static str {
         "txt" => "text/plain; charset=utf-8",
         _ => "application/octet-stream",
     }
-}
-
-/// The input's name without `.gz` and `.step`/`.stp`.
-fn stem(name: &str) -> &str {
-    let lower = name.to_ascii_lowercase();
-    let mut end = name.len();
-    if lower.ends_with(".gz") {
-        end -= 3;
-    }
-    let base = &lower[..end];
-    if base.ends_with(".step") {
-        end -= 5;
-    } else if base.ends_with(".stp") {
-        end -= 4;
-    }
-    &name[..end]
-}
-
-/// The `n`th name a save may take: `<stem>.specified.step`, then `<stem>.specified-2.step`, …
-fn candidate(dir: &Path, stem: &str, n: u32) -> PathBuf {
-    if n == 1 {
-        dir.join(format!("{stem}.specified.step"))
-    } else {
-        dir.join(format!("{stem}.specified-{n}.step"))
-    }
-}
-
-/// The highest suffix tried before a save gives up.
-const MAX_CANDIDATES: u32 = 10_000;
-
-/// Where the next save goes: the input (`--in-place`), or the first free candidate.
-fn save_target(shared: &Shared) -> Option<PathBuf> {
-    if shared.in_place {
-        return Some(shared.step.clone());
-    }
-    let dir = shared.step.parent()?;
-    let stem = stem(&shared.name);
-    (1..=MAX_CANDIDATES)
-        .map(|n| candidate(dir, stem, n))
-        .find(|p| fs::symlink_metadata(p).is_err())
-}
-
-/// Whether `body` reads as a STEP Part 21 file: `ISO-10303-21;` after an optional BOM and
-/// whitespace.
-fn looks_like_step(body: &[u8]) -> bool {
-    let body = body.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(body);
-    let start = body
-        .iter()
-        .position(|b| !b.is_ascii_whitespace())
-        .unwrap_or(body.len());
-    body[start..].starts_with(b"ISO-10303-21;")
-}
-
-/// `POST <token>/save`, from the app's own origin.
-fn save(stream: &mut TcpStream, ctx: &Ctx, request: &Request, mut body: Vec<u8>) {
-    let shared = ctx.shared;
-    if shared.read_only {
-        return refuse_save(stream, "409 Conflict", "opened read-only: nothing is saved");
-    }
-    let octets = request
-        .header("content-type")
-        .and_then(|t| t.split(';').next())
-        .is_some_and(|t| t.trim().eq_ignore_ascii_case("application/octet-stream"));
-    if !octets {
-        return refuse_save(
-            stream,
-            "415 Unsupported Media Type",
-            "send the STEP file as application/octet-stream",
-        );
-    }
-    // The body is read by its Content-Length only: a chunked (or otherwise encoded) body is
-    // refused rather than misread.
-    let length = request
-        .header("content-length")
-        .and_then(|l| l.trim().parse::<u64>().ok());
-    let (Some(length), None) = (length, request.header("transfer-encoding")) else {
-        return refuse_save(
-            stream,
-            "411 Length Required",
-            "Content-Length is required (no Transfer-Encoding)",
-        );
-    };
-    if length > shared.cap {
-        return refuse_save(
-            stream,
-            "413 Content Too Large",
-            &format!("larger than {} bytes", shared.cap),
-        );
-    }
-    let deadline = Instant::now() + body_time(length);
-    let length = length as usize;
-    body.truncate(length);
-    let mut chunk = vec![0u8; 64 * 1024];
-    while body.len() < length {
-        let Some(left) = deadline
-            .checked_duration_since(Instant::now())
-            .filter(|d| !d.is_zero())
-        else {
-            return refuse_save(stream, "408 Request Timeout", "the body came too slowly");
-        };
-        if stream
-            .set_read_timeout(Some(left.min(Duration::from_secs(30))))
-            .is_err()
-        {
-            return;
-        }
-        match stream.read(&mut chunk[..(length - body.len()).min(64 * 1024)]) {
-            Ok(0) | Err(_) => {
-                return refuse_save(stream, "400 Bad Request", "the body ended early");
-            }
-            Ok(n) => body.extend_from_slice(&chunk[..n]),
-        }
-    }
-    if !looks_like_step(&body) {
-        return refuse_save(
-            stream,
-            "400 Bad Request",
-            "not a STEP file: it must start with ISO-10303-21;",
-        );
-    }
-    let _guard = lock(&shared.save_lock);
-    let bytes = body.len();
-    let written = if shared.in_place {
-        replace_input(shared, body)
-    } else {
-        write_new(shared, &body)
-    };
-    match written {
-        Ok(path) => {
-            let shown = path.display().to_string();
-            let _ = ctx.tell.send(format!("Saved {shown} ({bytes} bytes)."));
-            reply_json(stream, "200 OK", &json!({ "path": shown, "bytes": bytes }));
-        }
-        Err(e) => refuse_save(
-            stream,
-            "500 Internal Server Error",
-            &format!("cannot save: {e}"),
-        ),
-    }
-}
-
-/// The longest a save's body may take to arrive: 30 s, and 1 s more per MiB (a trickling
-/// client cannot hold a connection indefinitely).
-fn body_time(length: u64) -> Duration {
-    Duration::from_secs(30 + length / (1024 * 1024))
-}
-
-/// `body` written to a new temporary file in `dir`, synced.
-fn temp_file(dir: &Path, body: &[u8]) -> io::Result<PathBuf> {
-    let tag = token().map_err(|e| io::Error::other(e.to_string()))?;
-    let path = dir.join(format!(".specify-save-{}.tmp", &tag[..12]));
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&path)?;
-    let written = file.write_all(body).and_then(|_| file.sync_all());
-    if let Err(e) = written {
-        let _ = fs::remove_file(&path);
-        return Err(e);
-    }
-    Ok(path)
-}
-
-/// A save next to the input under the first free candidate name. The name is taken with
-/// `create_new` (so nothing is overwritten, even in a race), and then the written temporary
-/// file renamed onto it.
-fn write_new(shared: &Shared, body: &[u8]) -> io::Result<PathBuf> {
-    let dir = shared
-        .step
-        .parent()
-        .ok_or_else(|| io::Error::other("the input has no directory"))?;
-    let stem = stem(&shared.name);
-    let temp = temp_file(dir, body)?;
-    for n in 1..=MAX_CANDIDATES {
-        let target = candidate(dir, stem, n);
-        match OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&target)
-        {
-            Ok(_) => {
-                if let Err(e) = fs::rename(&temp, &target) {
-                    let _ = fs::remove_file(&temp);
-                    let _ = fs::remove_file(&target);
-                    return Err(e);
-                }
-                return Ok(target);
-            }
-            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
-            Err(e) => {
-                let _ = fs::remove_file(&temp);
-                return Err(e);
-            }
-        }
-    }
-    let _ = fs::remove_file(&temp);
-    Err(io::Error::other("every candidate name is taken"))
-}
-
-/// `--in-place`: the input replaced by renaming a written temporary file onto it. The first
-/// save of the session first copies the original to the first free `.bak` (`<file>.bak`, then
-/// `<file>.bak-2`, …) beside the path as given; later saves keep no other copy. A link is
-/// followed (its target is replaced, the link kept). The replacement keeps the original's
-/// permissions, and a gzipped input is written gzipped, so the file stays what its name says.
-fn replace_input(shared: &Shared, body: Vec<u8>) -> io::Result<PathBuf> {
-    let step = &shared.step;
-    // The file itself, through any link; renaming onto the link would replace the link.
-    let real = fs::canonicalize(step)?;
-    let dir = real
-        .parent()
-        .ok_or_else(|| io::Error::other("the input has no directory"))?;
-    let stored = if shared.gz {
-        let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
-        gz.write_all(&body)?;
-        gz.finish()?
-    } else {
-        body
-    };
-    let temp = temp_file(dir, &stored)?;
-    let replaced = (|| {
-        fs::set_permissions(&temp, fs::metadata(&real)?.permissions())?;
-        let mut backup = lock(&shared.backup);
-        if backup.is_none() {
-            *backup = Some(back_up(step, &real)?);
-        }
-        fs::rename(&temp, &real)
-    })();
-    if let Err(e) = replaced {
-        let _ = fs::remove_file(&temp);
-        return Err(e);
-    }
-    *lock(&shared.bytes) = Arc::new(stored);
-    Ok(step.clone())
-}
-
-/// `real` (the input's file) copied to the first free name of `<step>.bak`, `<step>.bak-2`, …
-/// (never over a file); the name taken.
-fn back_up(step: &Path, real: &Path) -> io::Result<PathBuf> {
-    for n in 1..=MAX_CANDIDATES {
-        let mut name = step.as_os_str().to_os_string();
-        if n == 1 {
-            name.push(".bak");
-        } else {
-            name.push(format!(".bak-{n}"));
-        }
-        let bak = PathBuf::from(name);
-        match OpenOptions::new().write(true).create_new(true).open(&bak) {
-            Ok(mut out) => {
-                let copied = File::open(real)
-                    .and_then(|mut input| io::copy(&mut input, &mut out))
-                    .and_then(|_| out.sync_all());
-                if let Err(e) = copied {
-                    let _ = fs::remove_file(&bak);
-                    return Err(e);
-                }
-                return Ok(bak);
-            }
-            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
-            Err(e) => return Err(e),
-        }
-    }
-    Err(io::Error::other("every .bak name is taken"))
 }
 
 /// A request's method, target and headers, as far as they are read.

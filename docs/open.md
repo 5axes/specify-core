@@ -61,7 +61,7 @@ at `/`.
 | `GET <token>/<path>` | the static app: the file at `<path>` in the app directory |
 | `GET <token>/wasm/<path>` | the engine: the file at `<path>` in the wasm-pack `pkg/` directory |
 | `GET <token>/file` | the STEP file's bytes, as on disk (gzipped if the file is), `application/octet-stream` |
-| `GET <token>/file?rev=old` | `diff` mode: `OLD`'s bytes; `?rev=new` (or no query) is `NEW` |
+| `GET <token>/file?rev=old` | `diff` mode: `OLD`'s bytes; `?rev=new` (or no query) is `NEW`; any other `rev` is 404 |
 | `GET <token>/config` | the app's settings, below; also the page's heartbeat |
 | `GET <token>/answers` | the session's answers, below |
 | `PUT <token>/answers` | replace one part's answers in the session, below |
@@ -131,8 +131,8 @@ questions open. The answer says what is still open (`complete`, `missing`).
   `Transfer-Encoding` (411), at most 64 KB (413), the whole body within 30 s (408).
 - `Origin: http://127.0.0.1:<port>` exactly (403 otherwise, and when `Origin` is absent).
 
-Every part that has answers in the session is written in one edit (an assembly's other parts
-are left as they are). The file is written to a temporary file next to the input and renamed
+Every part that has answers in the session (or is open in it, and a file's only part) is
+written in one edit (an assembly's other parts are left as they are). The file is written to a temporary file next to the input and renamed
 into place:
 
 - by default in the directory of `FILE` as given (beside a link, not in its target's
@@ -154,8 +154,9 @@ Answers:
 - `200 {"path": "<absolute path written>", "bytes": <length written>, "rev": <n>, "report": {…},
   "complete": <bool>, "missing": ["<question id>", …]}`, `report` being `write`'s report (as
   `serve`'s `write`), `missing` the required questions still open after this save (empty, and
-  `complete` true, when none are);
-- `409 {"error": "…", "rev": <current>}`: the session moved on, or read-only (nothing written);
+  `complete` true, when none are; in an assembly, those of every part written, in part order);
+- `409 {"error": "…", "rev": <current>}`: the session moved on, or read-only, or (`--in-place`)
+  the file was changed on disk by another program since it was opened (nothing written);
 - `422 {"error": "…"}`: an answer the writer refuses (the message names the question); nothing
   written.
 
@@ -192,10 +193,13 @@ replaces part `part`'s map with `answers` when `rev` is the session's current re
 `200 {"rev": 8}`. Otherwise `409 {"error": "…", "rev": <current>, "parts": {…}}`, and the page
 reapplies its change to the current answers and tries again. Read-only: `409 {"error": "…"}`.
 The body must be an object of question ids to answers (400 otherwise); the answers themselves
-are checked when they are used (by the page's engine, `save`, and MCP's tools), not here.
+are checked when they are used (by the page's engine, `save`, and MCP's tools), not here. A
+`part` the file does not have is refused (400).
 
 `GET <token>/events` is a stream of server-sent events (`text/event-stream`, for
-`EventSource`). On connecting it sends the current state, then one event per change:
+`EventSource`). On connecting it sends the current state (an `answers` event whose data is
+`answers`' body with `"source": "start"`: `{"rev": 7, "parts": {…}, "source": "start"}`), then
+one event per change:
 
 ```text
 event: answers

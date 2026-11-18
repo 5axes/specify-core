@@ -1678,6 +1678,95 @@ fn refuse_unfit(
     }
 }
 
+/// What `specify-core diff OLD NEW [--part K]` compares, with the parts it loaded (for its
+/// picture): one part of each file, or, with no part chosen and a file of several parts (or of a
+/// part placed other than once), the two assemblies part by part. The command line's `diff`,
+/// MCP's `diff` and `open` and the page's diff session all compare through [`compare`], so they
+/// cannot disagree.
+pub enum Comparison {
+    Part {
+        before: LoadedPart,
+        after: LoadedPart,
+        revised: Revised,
+    },
+    Assembly {
+        before: Vec<LoadedPart>,
+        after: Vec<LoadedPart>,
+        compared: assembly::Assembly,
+    },
+}
+
+impl Comparison {
+    pub fn verdict(&self) -> &str {
+        match self {
+            Comparison::Part { revised, .. } => &revised.verdict,
+            Comparison::Assembly { compared, .. } => &compared.verdict,
+        }
+    }
+
+    pub fn summary(&self) -> &str {
+        match self {
+            Comparison::Part { revised, .. } => &revised.summary,
+            Comparison::Assembly { compared, .. } => &compared.summary,
+        }
+    }
+
+    /// `diff`'s `report.json`.
+    pub fn report(&self) -> Value {
+        match self {
+            Comparison::Part { revised, .. } => serde_json::to_value(revised),
+            Comparison::Assembly { compared, .. } => serde_json::to_value(compared),
+        }
+        .expect("a revision report serialises")
+    }
+
+    /// `diff`'s `answers.json`: a part's answers, or an assembly's by part name.
+    pub fn answers(&self) -> Map<String, Value> {
+        match self {
+            Comparison::Part { revised, .. } => revised.answers.clone(),
+            Comparison::Assembly { compared, .. } => compared.answers(),
+        }
+    }
+
+    /// The carried answers by the new file's part index.
+    pub fn answers_by_part(&self) -> BTreeMap<usize, Map<String, Value>> {
+        match self {
+            Comparison::Part { after, revised, .. } => {
+                BTreeMap::from([(after.binding.part, revised.answers.clone())])
+            }
+            Comparison::Assembly { compared, .. } => compared.answers_by_part(),
+        }
+    }
+}
+
+/// `diff OLD NEW`: part `part` of each file, or with none, the files' only parts, or their
+/// assemblies part by part (see [`Comparison`]). The old answers are `given`, or else those
+/// stored in OLD. The caller checks that both files have part `part`.
+pub fn compare(
+    old: &crate::part::File,
+    new: &crate::part::File,
+    part: Option<usize>,
+    given: &Map<String, Value>,
+    options: DiffOptions,
+) -> Result<Comparison> {
+    if part.is_none() && (assembly::is_assembly(old) || assembly::is_assembly(new)) {
+        let (before, after) = (old.load_all()?, new.load_all()?);
+        let compared = assembly::diff_with_options(&before, &after, given, options)?;
+        return Ok(Comparison::Assembly {
+            before,
+            after,
+            compared,
+        });
+    }
+    let (before, after) = (old.load(part)?, new.load(part)?);
+    let revised = diff_with_options(&before, &after, given, options)?;
+    Ok(Comparison::Part {
+        before,
+        after,
+        revised,
+    })
+}
+
 /// Carry *answers* (and *automatic*, the IDs the default path answered) from *old* to *new*.
 pub fn diff(old: &LoadedPart, new: &LoadedPart, given: &Map<String, Value>) -> Result<Revised> {
     diff_with_options(old, new, given, DiffOptions::default())

@@ -19,6 +19,21 @@ All notable changes to specify-core-rust. The format follows
   `characteristics` give `sources` beside the preview intent, and answer exports `_specify.sources`.
   Additive: `Question::to_dict`, intents written and the STEP are unchanged. Rule ids are
   listed in docs/rule-sources.md (for #196).
+- Agent-first Specify sessions (docs/session.md): `specify-core mcp` holds each opened file's
+  answers as a session with a `rev` and its last 256 changes, and its new `show` tool serves the
+  Specify page (docs/open.md) for that session on 127.0.0.1 and opens the browser, so the agent
+  and the person edit one set of answers. New MCP tools `changes` (what changed since a `rev`),
+  `show` and `save` (the specified STEP written beside the file, or over it when opened
+  `in_place`; `accept_defaults` required). `open` takes `old`, `old_answers` and `in_place`,
+  and with `old` compares the revisions as `diff` does and starts from the carried answers;
+  every tool that reads the answers returns `rev`. Set up with
+  `claude mcp add specify -- specify-core mcp`.
+- `specify-core open --diff OLD NEW [--answers FILE]`: the page shows what changed (`GET diff`,
+  `diff`'s report.json; `GET file?rev=old`) and starts from the answers `specify-core diff`
+  carries to NEW; Save writes NEW.
+- The page server holds the session: `GET`/`PUT answers` (a stale `rev` is refused with the
+  current answers) and `GET events` (server-sent events: the state, then every change and save,
+  at most 4 streams); `config` gains `mode`, `path`, `oldName` and `oldPath`.
 
 ### Changed
 
@@ -34,6 +49,14 @@ All notable changes to specify-core-rust. The format follows
   Until the app is bundled, `--app DIR` (or `SPECIFY_APP_DIR`) names the built app and
   `--wasm DIR` (or `SPECIFY_WASM_DIR`) the engine's wasm-pack `pkg/`. The contract for the
   app's authors is docs/open.md.
+- Save from the page sends `{rev, acceptDefaults}` (JSON, `acceptDefaults` required), not the
+  STEP bytes: the command writes the session's answers with `specify-core write`'s writer, so a
+  save from the page and one from the agent write the same file. An incomplete save is written
+  (what is answered, the answers stored so reopening resumes them) and answers `complete` and
+  `missing`; an in-place save always writes from the file as opened, and refuses (409) a file
+  changed on disk by another program. `--read-only` also refuses answer changes.
+- `specify-core diff`, MCP's `diff` and the sessions compare through one function
+  (`revision::compare`).
 
 ### Removed
 
