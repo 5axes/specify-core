@@ -257,7 +257,7 @@ export function createDrawnLayer(
       if (setting) {
         // As a semantic label is set (PmiLab.css's .pmi); clicked and pointed at through the
         // canvas (``hit``), so a drag that starts on it still turns the view.
-        inner.style.fontFamily = "'IBM Plex Mono', ui-monospace, monospace";
+        inner.style.fontFamily = "var(--specify-mono-font, 'IBM Plex Mono', ui-monospace, monospace)";
         inner.style.fontWeight = '600';
         inner.style.fontVariantNumeric = 'tabular-nums';
         set.push(inner);

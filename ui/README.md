@@ -28,8 +28,9 @@ beside it, so a host passes nothing. Two things the host's build must allow:
   `optimizeDeps: { exclude: ['@draftwright/specify-ui'] }`. Production builds need nothing.
 - **Content Security Policy**: the engine needs `'wasm-unsafe-eval'` in `script-src`, and `worker-src 'self'`.
 
-The pages also load **the font** `/fonts/IBMPlexMono-Regular.ttf` (IBM Plex Mono, SIL OFL; `src/specify/PmiLab.css`),
-which the host serves at that path.
+**The font**: the package loads none. The notes and drawn PMI use the CSS variable `--specify-mono-font`, else
+`'IBM Plex Mono'` if the host has loaded it (Draftwright drawings' lettering, SIL OFL), else the system monospace.
+A host sets its own with, for example, `:root { --specify-mono-font: 'JetBrains Mono', monospace; }`.
 
 ### Serving the engine yourself (`wasmUrl`)
 
