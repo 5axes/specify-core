@@ -4,9 +4,8 @@ name: Release
 # tag against package.json and the WASM pin, then runs the CI suites and packs the tarball.
 # The publish job then waits for approval in the `npm` environment and publishes that tarball
 # with npm trusted publishing (OIDC): configured on npmjs.com for this repo, release.yml and
-# environment `npm`. No npm token is stored once that is set up: the only secret that may ever
-# exist is NPM_TOKEN, a short-lived `npm` environment secret for the package's very first
-# publish, deleted afterwards (see README, Releasing).
+# environment `npm`. The workflow passes no npm token, so every publish goes through the
+# trusted publisher (the token-based first publish, v0.1.0, is done).
 on:
   release:
     types: [published]
@@ -149,12 +148,8 @@ jobs:
           registry-url: https://registry.npmjs.org
       # Trusted publishing needs npm >= 11.5.1; Node 22 ships npm 10.
       - run: npm install -g npm@11.20.0
-      # With trusted publishing configured, npm exchanges the job's OIDC token and needs no
-      # secret. NPM_TOKEN (an `npm` environment secret) is only for the package's very first
-      # publish, before npm lets a trusted publisher be added; delete it afterwards.
+      # npm exchanges the job's OIDC token with the trusted publisher; no secret is used.
       - name: Publish
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           set -eu
           set -- ./tarball/*.tgz

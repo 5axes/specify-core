@@ -16,9 +16,9 @@ npm install @draftwright/specify-ui
 ```
 
 Peer dependencies, which the host provides (the package bundles none of them): `react` and `react-dom` ^19,
-`three` 0.184 to 0.187 and `three-cad-viewer` ~5.1.3. `three-cad-viewer` 5.1.3 depends on `three` 0.184.0 exactly, so
-install `three@0.184.0` to have one copy of three; with any other version the host bundles two (this package's
-tests run on 0.184.0).
+`three` 0.184 to 0.187 and `three-cad-viewer` ~5.1.3 (this package's tests run on three 0.184.0; its package test also installs it on 0.186.1 and 0.187.0). `three-cad-viewer`
+5.1.3's build contains its own copy of three (r184), so a host that uses this package ships that copy as well as its
+own, whatever its three version (asked upstream: bernhard-42/three-cad-viewer#52).
 
 The Specify engine comes in as a dependency, `@draftwright/specify-core-wasm` (pinned to the release in
 `engines.lock.json`). It runs in a worker; the host's bundler builds that worker and copies the engine's `.wasm`
@@ -144,18 +144,11 @@ publishing (OIDC, with provenance). The guard also refuses a release whose tag i
 engine on npm is not the pinned release's. The `npm` environment must have a required reviewer and be restricted to
 `v*` tags.
 
-npm adds a trusted publisher only from an existing package's settings, so the very first publish
-(v0.1.0) uses a short-lived token:
-
-1. Create a short-lived granular npm token with publish rights to `@draftwright`. If the npm account requires two-factor authentication for writes, enable
-   "Bypass two-factor authentication" on the token, otherwise the publish fails with EOTP.
-2. Add it as secret `NPM_TOKEN` in the `npm` environment (maintainer as required reviewer, `v*` tags allowed).
-3. Publish the GitHub release `v0.1.0` and approve the `npm` environment.
-4. Delete the `NPM_TOKEN` secret and revoke the token.
-5. Within 2 days before the next release (a new trusted publisher expires unless it publishes), add the trusted
-   publisher on npmjs.com: organization `pzfreo`, repository `specify-ui`, workflow `release.yml`, environment `npm`,
-   with `npm publish` ticked.
-6. After it has published once, set "Require two-factor authentication and disallow tokens" on the package.
+The trusted publisher on npmjs.com is organization `pzfreo`, repository `specify-ui`, workflow `release.yml`,
+environment `npm`. The workflow passes no npm token. (The very first publish, v0.1.0, used a short-lived token
+because npm adds a trusted publisher only to an existing package; delete any `NPM_TOKEN` secret left in the `npm`
+environment and revoke its token. Once a release has published through the trusted publisher, set "Require
+two-factor authentication and disallow tokens" on the package.)
 
 ## Licence
 
