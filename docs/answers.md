@@ -154,16 +154,14 @@ cone or floor claimed since).
   `resume.present: {id: value}`: the file answers the question with its default, so it is
   neither open nor a conflict, it is not repeated in `existing`, and it can still be answered
   otherwise (the answer then replaces it). `resume.answers` stays the stored answers.
-- **A default the file states differently** (another tool changed it, keeping Specify's
-  marker): the file's requirement stands, and the default is offered against it as a
-  conflict, `{id, stored: <default>, file, suggested: true}` ("Suggested 0.6, file says
-  ⌖ ⌀0.3Ⓜ A B C. Keep the file's …, or use 0.6?"), decided as any conflict below.
 - **Only in the file**, added by another tool (no Specify provenance marker): in
   `existing`, present and kept, never a conflict. Its question is not asked where the file's
-  PMI already states it. Specify's own (marked) requirements that neither the answers nor
-  their defaults account for at all (no requirement of any question pairs with them, such
-  as one an older version wrote that the planner no longer writes) are Specify's to state:
-  they are not repeated in `existing`, and the rewrite states the part from the answers.
+  PMI already states it. Specify's own (marked) requirements that the answers do not explain
+  and that are not present defaults (written by an older version, a default written
+  differently, or a requirement Specify wrote from an intent rather than from answers) are
+  Specify's to state: they are not repeated in `existing`, their questions are asked again,
+  and the rewrite states the part from the answers. (Known limit: a default another tool
+  changed while keeping Specify's marker is therefore restated, see the release notes.)
 - **Different, or only in the answers (removed in the file):** a conflict,
   `resume.conflicts: [{id, stored, file}]` (`file` is the file's notation, `null` when the
   file has none), with an analysis warning each. Until it is decided the file's state is

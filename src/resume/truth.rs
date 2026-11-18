@@ -136,7 +136,7 @@ pub(crate) fn reconcile(
     let plan = scene.comparison(loaded, analysis, Some(&stored))?;
     let mut truth = crate::revision::against_plan(&plan, &file, faces, &stored, &drift);
     let mut present = Map::new();
-    let mut suggested: BTreeMap<String, (Value, Vec<(String, String)>)> = BTreeMap::new();
+    let suggested: BTreeMap<String, (Value, Vec<(String, String)>)> = BTreeMap::new();
     if let Ok(all) = crate::rules::with_all_defaults(analysis, &stored)
         && all.len() > stored.len()
     {
@@ -197,21 +197,10 @@ pub(crate) fn reconcile(
                 present.insert(question, value.clone());
             }
         }
-        // A default the file states otherwise (another tool changed it, keeping Specify's
-        // marker): the file's requirement stands, and the default is offered against it as a
-        // conflict the person decides, as a stored answer's would be.
-        for (question, items) in other.changed_defaults {
-            let marked = items
-                .iter()
-                .any(|(id, _)| index.get(id).is_some_and(|at| !unmarked.contains(at)));
-            if marked
-                && question != crate::process::QUESTION
-                && !present.contains_key(&question)
-                && let Some(value) = all.get(&question)
-            {
-                suggested.insert(question, (value.clone(), items));
-            }
-        }
+        // A default the file states otherwise (changed elsewhere, keeping Specify's marker) is
+        // not raised here (see docs/answers.md): Specify's own requirements the answers do not
+        // explain stay Specify's to state.
+        let _ = other.changed_defaults;
         let contested: BTreeSet<&String> = truth
             .conflicts
             .values()
