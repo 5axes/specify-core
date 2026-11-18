@@ -241,6 +241,10 @@ fn analyse_with(
 /// How the stored answers of `loaded`, a part of a file Specify wrote, stand against the
 /// file's PMI (ADR P9), for the writer: `None` when no answers are resumed.
 pub(crate) fn reconciled(loaded: &LoadedPart) -> Result<Option<resume::truth::Reconciled>> {
+    // The caller's analysis of the same bytes made it already (a page, a session, MCP).
+    if let Some(r) = resume::truth::recall(loaded) {
+        return Ok(r);
+    }
     let assembly = if loaded.part_count > 1 {
         let file = part::File::of_shared(&loaded.path, std::sync::Arc::clone(&loaded.bytes))?;
         Some(file.load_all()?)
@@ -484,6 +488,11 @@ fn analyse_reconciling(
                 }
                 for conflict in &r.conflicts {
                     warnings.push(match &conflict.file {
+                        Some(file) if conflict.suggested => format!(
+                            "default {} ({}) differs from the file's PMI ({file}); the file's \
+                             is kept until decided",
+                            conflict.id, conflict.stored
+                        ),
                         Some(file) => format!(
                             "saved answer {} ({}) differs from the file's PMI ({file}); the \
                              file's is kept until decided",
@@ -503,6 +512,9 @@ fn analyse_reconciling(
                  resumed as stored"
             )),
         }
+    }
+    if analysis.contains_key("resume") {
+        resume::truth::remember(loaded, reconciled.as_ref());
     }
     let numbers = crate::characteristics::read(loaded).map_err(Error::Analysis)?;
     if !numbers.is_empty() {

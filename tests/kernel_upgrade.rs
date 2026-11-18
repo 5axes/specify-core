@@ -512,7 +512,7 @@ fn named_parts_keep_questions_defaults_locations_and_written_pmi_under_rigid_mot
 }
 
 #[test]
-fn unresolved_saved_answers_reach_review_and_leave_questions_open() {
+fn unresolved_saved_answers_reach_review_and_the_file_answers_the_current_question() {
     let loaded = part::load(&fixture("resume-alpha6/pin.step.gz"), None).unwrap();
     let mut payload = json!(resume::stored(&loaded.bytes)[&0]);
     let key = payload["answers"]

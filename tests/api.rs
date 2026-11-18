@@ -284,18 +284,10 @@ fn an_assembly_is_written_together_and_again_through_the_service() {
             assert_eq!(resumed.get(id), Some(value), "{id}");
         }
         assert!(back["resume"].get("conflicts").is_none());
-        // ADR P9: the file's PMI is read on reopening; what the answers explain is not
-        // repeated, the defaults written without being stored are `existing`, never a
-        // requirement the answers state.
-        assert!(
-            back["existing"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .all(|e| e.get("question").is_none()),
-            "{}",
-            back["existing"]
-        );
+        // The file's PMI is the answers' and the defaults they were written with (in
+        // `present`): nothing of its own to keep.
+        assert_eq!(back["existing"], json!([]));
+        assert_eq!(back["part"], json!({}));
     }
     // test_written_again_through_the_service_its_pmi_is_replaced
     let again = dir.join("again.step");

@@ -4,6 +4,7 @@ use crate::{api, part::LoadedPart, pmi_scene::Scene};
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 
+#[derive(Clone)]
 struct Item {
     id: String,
     number: Option<u64>,
@@ -803,17 +804,23 @@ pub(crate) struct PlanTruth {
     /// Questions not answered in `stored` whose requirements in the plan (a plan with
     /// defaults taken) the file states: whether every one is unchanged, and the file's ids.
     pub defaults: BTreeMap<String, (bool, Vec<String>)>,
+    /// Of those, the questions whose requirement the file states otherwise than the default
+    /// would: the file's requirements for it (scene id, notation).
+    pub changed_defaults: BTreeMap<String, Vec<(String, String)>>,
 }
 
 /// Compare the plan of the stored answers (`plan`, a comparison scene) with the file's own
 /// comparison scene (`file`) of a part with `face_count` faces.
 /// A requirement is the answers' only when its question is answered in `stored`: a plan made
-/// with defaults taken marks their requirements answered too.
+/// with defaults taken marks their requirements answered too. `drift` names the questions
+/// whose answers were matched to features recognised differently since they were stored
+/// (`resume.migrated`): only their requirements may match the file's on other faces.
 pub(crate) fn against_plan(
     plan: &Value,
     file: &Value,
     face_count: usize,
     stored: &Map<String, Value>,
+    drift: &BTreeSet<String>,
 ) -> PlanTruth {
     let faces: BTreeMap<usize, Bind> = (0..face_count).map(|i| (i, Bind::To(i))).collect();
     // The plan's `existing` rows echo the file's own requirements (a replace plan retains
@@ -824,22 +831,61 @@ pub(crate) fn against_plan(
         .filter(|item| item.status != "existing")
         .collect();
     let actual = items(file);
-    let mut pairs = pair(&planned, &actual, &faces, false);
-    // Recognition can grow or shrink a feature's faces between the write and now (a hole's
-    // tip cone claimed later): the same requirement, stated alike on overlapping support, is
-    // the same requirement, not a removal and an addition.
-    let alike = |was: &Item, now: &Item| {
-        was.kind == now.kind
-            && was.match_kind == now.match_kind
-            && was.text == now.text
-            && was.cells == now.cells
-            && was.semantic == now.semantic
-            && (was.faces.iter().any(|f| now.faces.contains(f))
-                || (was.faces.is_empty() && now.faces.is_empty()))
-    };
-    let mut used: BTreeSet<usize> = pairs.values().copied().collect();
+    let question = |item: &Item| plan["specify"][&item.id]["question"].as_str();
+    let pairs = plan_pairs(&planned, &actual, &faces, |i| {
+        question(&planned[i]).is_some_and(|q| drift.contains(q))
+    });
+    classify(
+        &planned,
+        &actual,
+        &pairs,
+        &faces,
+        stored,
+        |item| question(item).map(str::to_owned),
+        drift,
+    )
+}
+
+// Pair the plan's requirements with the file's: an exact match first (the same requirement
+// on the same faces, so a different one of the same kind never takes its place), then the
+// revision's pairing for the rest, then, for questions recognised anew (`drifted`), the same
+// requirement on overlapping faces.
+fn plan_pairs(
+    planned: &[Item],
+    actual: &[Item],
+    faces: &BTreeMap<usize, Bind>,
+    drifted: impl Fn(usize) -> bool,
+) -> BTreeMap<usize, usize> {
+    let mut pairs = BTreeMap::new();
+    let mut used = BTreeSet::new();
     for (i, was) in planned.iter().enumerate() {
-        if pairs.contains_key(&i) {
+        let exact: Vec<usize> = (0..actual.len())
+            .filter(|j| !used.contains(j) && same(was, &actual[*j], faces))
+            .collect();
+        if let [j] = exact.as_slice()
+            && planned
+                .iter()
+                .enumerate()
+                .filter(|(k, other)| !pairs.contains_key(k) && same(other, &actual[*j], faces))
+                .count()
+                == 1
+        {
+            pairs.insert(i, *j);
+            used.insert(*j);
+        }
+    }
+    let rest_planned: Vec<usize> = (0..planned.len())
+        .filter(|i| !pairs.contains_key(i))
+        .collect();
+    let rest_actual: Vec<usize> = (0..actual.len()).filter(|j| !used.contains(j)).collect();
+    let sub_planned: Vec<Item> = rest_planned.iter().map(|&i| planned[i].clone()).collect();
+    let sub_actual: Vec<Item> = rest_actual.iter().map(|&j| actual[j].clone()).collect();
+    for (i, j) in pair(&sub_planned, &sub_actual, faces, false) {
+        pairs.insert(rest_planned[i], rest_actual[j]);
+        used.insert(rest_actual[j]);
+    }
+    for (i, was) in planned.iter().enumerate() {
+        if pairs.contains_key(&i) || !drifted(i) {
             continue;
         }
         let candidates: Vec<usize> = (0..actual.len())
@@ -850,46 +896,79 @@ pub(crate) fn against_plan(
             used.insert(*j);
         }
     }
-    let same = |was: &Item, now: &Item, faces: &BTreeMap<usize, Bind>| {
-        same(was, now, faces) || alike(was, now)
+    pairs
+}
+
+// The same requirement stated alike on overlapping faces: what recognition drift leaves of an
+// unchanged requirement (a hole's tip cone claimed later). Only for questions recognised anew.
+fn alike(was: &Item, now: &Item) -> bool {
+    was.kind == now.kind
+        && was.match_kind == now.match_kind
+        && was.text == now.text
+        && was.cells == now.cells
+        && was.semantic == now.semantic
+        && (was.faces.iter().any(|f| now.faces.contains(f))
+            || (was.faces.is_empty() && now.faces.is_empty()))
+}
+
+fn classify(
+    planned: &[Item],
+    actual: &[Item],
+    pairs: &BTreeMap<usize, usize>,
+    faces: &BTreeMap<usize, Bind>,
+    stored: &Map<String, Value>,
+    question_of: impl Fn(&Item) -> Option<String>,
+    drift: &BTreeSet<String>,
+) -> PlanTruth {
+    let equal = |was: &Item, now: &Item, question: Option<&String>| {
+        same(was, now, faces) || (question.is_some_and(|q| drift.contains(q)) && alike(was, now))
     };
     let mut truth = PlanTruth::default();
     let mut differs = BTreeSet::new();
+    let mut defaults_differ = BTreeSet::new();
     for (i, was) in planned.iter().enumerate() {
-        let meta = &plan["specify"][&was.id];
+        let question = question_of(was);
         let paired = pairs.get(&i).map(|&j| &actual[j]);
         // A basic location the dimension planner derives from the geometry states nothing the
         // answer chose: how the plan merges such locations varies with the other answers and
         // the planner's version, so it explains the file's equal one but never contradicts it.
         let derived = was.id.starts_with("planner:") && was.semantic["tolerance"] == "basic";
-        let stated = was.status == "answered"
-            && meta["question"]
-                .as_str()
-                .is_some_and(|q| stored.contains_key(q));
+        let stated =
+            was.status == "answered" && question.as_ref().is_some_and(|q| stored.contains_key(q));
         let answered = stated && !derived;
         if was.status == "answered"
             && !stated
-            && let Some(question) = meta["question"].as_str()
+            && let Some(question) = &question
         {
             let entry = truth
                 .defaults
-                .entry(question.to_string())
+                .entry(question.clone())
                 .or_insert((true, Vec::new()));
             match paired {
-                Some(now) if same(was, now, &faces) => entry.1.push(now.id.clone()),
+                Some(now) if equal(was, now, Some(question)) => entry.1.push(now.id.clone()),
                 _ if derived => {}
-                _ => entry.0 = false,
+                Some(now) => {
+                    // The file states the default's requirement otherwise.
+                    entry.0 = false;
+                    defaults_differ.insert(question.clone());
+                    truth
+                        .changed_defaults
+                        .entry(question.clone())
+                        .or_default()
+                        .push((now.id.clone(), now.text.clone()));
+                }
+                None => entry.0 = false,
             }
         }
         if stated || was.status == "general" {
-            let question = meta["question"].as_str().filter(|_| answered);
+            let question = question.as_ref().filter(|_| answered);
             match (paired, question) {
-                (Some(now), _) if same(was, now, &faces) => {
+                (Some(now), q) if equal(was, now, q) => {
                     truth.explained.insert(now.id.clone());
                 }
                 (now, Some(question)) => {
-                    differs.insert(question.to_string());
-                    let file = truth.conflicts.entry(question.to_string()).or_default();
+                    differs.insert(question.clone());
+                    let file = truth.conflicts.entry(question.clone()).or_default();
                     if let Some(now) = now {
                         file.push((now.id.clone(), now.text.clone()));
                     }
@@ -901,19 +980,33 @@ pub(crate) fn against_plan(
     }
     // A question with any requirement changed is decided whole: its unchanged requirements
     // are the file's too until then.
+    for (question, (_, ids)) in &truth.defaults {
+        if defaults_differ.contains(question) {
+            let texts: Vec<(String, String)> = ids
+                .iter()
+                .filter_map(|id| actual.iter().find(|a| &a.id == id))
+                .map(|a| (a.id.clone(), a.text.clone()))
+                .collect();
+            truth
+                .changed_defaults
+                .entry(question.clone())
+                .or_default()
+                .extend(texts);
+        }
+    }
     for (i, was) in planned.iter().enumerate() {
-        let Some(question) = plan["specify"][&was.id]["question"].as_str() else {
+        let Some(question) = question_of(was) else {
             continue;
         };
         if was.status == "answered"
-            && stored.contains_key(question)
-            && differs.contains(question)
+            && stored.contains_key(&question)
+            && differs.contains(&question)
             && let Some(&j) = pairs.get(&i)
             && truth.explained.remove(&actual[j].id)
         {
             truth
                 .conflicts
-                .entry(question.to_string())
+                .entry(question.clone())
                 .or_default()
                 .push((actual[j].id.clone(), actual[j].text.clone()));
         }
@@ -1163,6 +1256,71 @@ mod tests {
                 assert!(changes.iter().any(|i| i.kind == "thread"));
                 assert!(!changes.iter().any(|i| i.id == own_note));
             }
+        }
+    }
+
+    // ADR P9 reopening: `plan` against `file`, every face its own, the question `q` stored.
+    fn reopened(plan: &[Item], file: &[Item], drift: bool) -> PlanTruth {
+        let faces: BTreeMap<usize, Bind> = (0..10).map(|i| (i, Bind::To(i))).collect();
+        let q = "datum.A.flatness".to_string();
+        let drifted: BTreeSet<String> = if drift {
+            BTreeSet::from([q.clone()])
+        } else {
+            BTreeSet::new()
+        };
+        let pairs = plan_pairs(plan, file, &faces, |_| drift);
+        let stored = Map::from_iter([(q.clone(), json!("0.03"))]);
+        classify(
+            plan,
+            file,
+            &pairs,
+            &faces,
+            &stored,
+            |_| Some(q.clone()),
+            &drifted,
+        )
+    }
+
+    fn answered(mut item: Item) -> Item {
+        item.status = "answered".into();
+        item
+    }
+
+    #[test]
+    fn an_exact_match_is_preferred_to_a_same_id_one() {
+        // The plan's flatness 0.03 on face 2 is in the file, beside another flatness that
+        // carries its id: no conflict ("Saved answer 0.03, file says ⏥ 0.03").
+        let plan = [answered(control("a", vec![2], "⏥ 0.03"))];
+        let file = [
+            control("a", vec![3], "⏥ 0.05"),
+            control("x", vec![2], "⏥ 0.03"),
+        ];
+        let truth = reopened(&plan, &file, false);
+        assert!(truth.conflicts.is_empty(), "{:?}", truth.conflicts);
+        assert_eq!(truth.explained, BTreeSet::from(["x".to_string()]));
+    }
+
+    #[test]
+    fn a_face_set_edit_is_a_conflict_unless_recognition_moved_the_answer() {
+        for (plan_faces, file_faces) in [(vec![2, 3], vec![2]), (vec![2], vec![2, 3])] {
+            let plan = [answered(control("a", plan_faces.clone(), "⏥ 0.03"))];
+            let file = [control("b", file_faces.clone(), "⏥ 0.03")];
+            // Edited elsewhere: the faces changed, the same notation.
+            let truth = reopened(&plan, &file, false);
+            assert_eq!(
+                truth.conflicts.keys().collect::<Vec<_>>(),
+                ["datum.A.flatness"],
+                "{plan_faces:?} → {file_faces:?}"
+            );
+            assert!(truth.explained.is_empty());
+            // Recognition drift (the answer was matched to a feature recognised anew): the
+            // same requirement.
+            let truth = reopened(&plan, &file, true);
+            assert!(
+                truth.conflicts.is_empty(),
+                "{plan_faces:?} → {file_faces:?}"
+            );
+            assert_eq!(truth.explained, BTreeSet::from(["b".to_string()]));
         }
     }
 

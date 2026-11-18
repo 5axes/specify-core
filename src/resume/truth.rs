@@ -37,6 +37,10 @@ pub struct Conflict {
     /// What the file states for it (its requirements' notation), `None` when the file has
     /// none: removed in the file.
     pub file: Option<String>,
+    /// `stored` is not a saved answer but the question's default, which the file (written
+    /// with it, not storing it) states otherwise: another tool changed it.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub suggested: bool,
 }
 
 /// The stored answers reconciled with the file's PMI.
@@ -109,14 +113,27 @@ pub(crate) fn reconcile(
     // writes it; and with every default taken, as `apply` with defaults writes it. Defaults
     // can merge requirements (one location to a hole and a pattern), so an answer agrees with
     // the file when either plan states its requirements as the file does.
+    // Answers matched to features recognised differently since they were stored (migrated,
+    // or matched by ID without face evidence): only their requirements may sit on other faces.
+    let drift: BTreeSet<String> = if analysis["resume"]["unverified"].is_string() {
+        stored.keys().cloned().collect()
+    } else {
+        analysis["resume"]["migrated"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|pair| pair[1].as_str().map(str::to_owned))
+            .collect()
+    };
     let plan = scene.comparison(loaded, analysis, Some(&stored))?;
-    let mut truth = crate::revision::against_plan(&plan, &file, faces, &stored);
+    let mut truth = crate::revision::against_plan(&plan, &file, faces, &stored, &drift);
     let mut present = Map::new();
+    let mut suggested: BTreeMap<String, (Value, Vec<(String, String)>)> = BTreeMap::new();
     if let Ok(all) = crate::rules::with_all_defaults(analysis, &stored)
         && all.len() > stored.len()
     {
         let planned = scene.comparison(loaded, analysis, Some(&all))?;
-        let other = crate::revision::against_plan(&planned, &file, faces, &stored);
+        let other = crate::revision::against_plan(&planned, &file, faces, &stored, &drift);
         truth
             .conflicts
             .retain(|question, _| other.conflicts.contains_key(question));
@@ -145,9 +162,37 @@ pub(crate) fn reconcile(
                 present.insert(question, value.clone());
             }
         }
+        // A default the file states otherwise (another tool changed it, keeping Specify's
+        // marker): the file's requirement stands, and the default is offered against it as a
+        // conflict the person decides, as a stored answer's would be.
+        // Only Specify's own (marked) requirement: one written unmarked is another tool's, or
+        // one the person kept, and is simply the file's.
+        let unmarked: BTreeSet<(String, usize)> = {
+            let doc = haecceity::p21::Document::parse(loaded.bytes.to_vec())
+                .map_err(|e| e.to_string())?;
+            let defs =
+                haecceity::step::read_part_definitions(&loaded.bytes).map_err(|e| e.to_string())?;
+            let read = haecceity::pmi::read(&doc, &defs).map_err(|e| e.to_string())?;
+            crate::provenance::unmarked(&doc, &read, loaded.binding.part)
+                .into_iter()
+                .collect()
+        };
+        for (question, items) in other.changed_defaults {
+            let marked = items
+                .iter()
+                .any(|(id, _)| index.get(id).is_some_and(|at| !unmarked.contains(at)));
+            if marked
+                && question != crate::process::QUESTION
+                && !present.contains_key(&question)
+                && let Some(value) = all.get(&question)
+            {
+                suggested.insert(question, (value.clone(), items));
+            }
+        }
         let contested: BTreeSet<&String> = truth
             .conflicts
             .values()
+            .chain(suggested.values().map(|(_, items)| items))
             .flatten()
             .map(|(id, _)| id)
             .collect();
@@ -213,11 +258,29 @@ pub(crate) fn reconcile(
                 id: id.clone(),
                 stored: answer.clone(),
                 file: file.as_ref().map(|texts| texts.join("; ")),
+                suggested: false,
             }),
             None => {
                 out.answers.insert(id.clone(), answer.clone());
             }
         }
+    }
+    for (question, (value, items)) in suggested {
+        let mut texts = Vec::new();
+        for (id, text) in &items {
+            if let Some(at) = item(id) {
+                out.contested.insert(at, question.clone());
+            }
+            if !text.is_empty() && !texts.contains(text) {
+                texts.push(text.clone());
+            }
+        }
+        out.conflicts.push(Conflict {
+            id: question,
+            stored: value,
+            file: Some(texts.join("; ")),
+            suggested: true,
+        });
     }
     out.present = present;
     Ok(out)
@@ -227,6 +290,12 @@ pub(crate) fn reconcile(
 pub fn question(conflict: &Conflict) -> Value {
     let stored = short(&conflict.stored);
     let (text, keep) = match &conflict.file {
+        Some(file) if conflict.suggested => (
+            format!(
+                "Suggested {stored}, file says {file}. Keep the file's {file}, or use {stored}?"
+            ),
+            format!("Keep the file's {file}"),
+        ),
         Some(file) => (
             format!(
                 "Saved answer {stored}, file says {file}. Keep the file's {file}, or restore {stored}?"
@@ -238,7 +307,12 @@ pub fn question(conflict: &Conflict) -> Value {
             "Leave it removed".to_string(),
         ),
     };
-    serde_json::json!({
+    let restore = if conflict.suggested {
+        format!("Use {stored}")
+    } else {
+        format!("Restore {stored}")
+    };
+    let mut out = serde_json::json!({
         "id": conflict.id,
         "kind": "conflict",
         "text": text,
@@ -246,9 +320,13 @@ pub fn question(conflict: &Conflict) -> Value {
         "file": conflict.file,
         "choices": [
             {"choice": "keep", "label": keep},
-            {"choice": "restore", "label": format!("Restore {stored}"), "answer": conflict.stored},
+            {"choice": "restore", "label": restore, "answer": conflict.stored},
         ],
-    })
+    });
+    if conflict.suggested {
+        out["suggested"] = Value::Bool(true);
+    }
+    out
 }
 
 /// The conflicts of `analysis` not decided under `answers`.
@@ -263,6 +341,7 @@ pub fn open_conflicts(analysis: &Value, answers: &Map<String, Value>) -> Vec<Con
             id: c.id,
             stored: c.stored,
             file: c.file,
+            suggested: c.suggested,
         })
         .collect()
 }
@@ -272,6 +351,8 @@ struct ConflictIn {
     id: String,
     stored: Value,
     file: Option<String>,
+    #[serde(default)]
+    suggested: bool,
 }
 
 /// Every conflict question of `analysis`, decided or not.
@@ -645,4 +726,35 @@ pub(crate) fn datum_support(
         }
     }
     out
+}
+
+/// The reconciliations made most recently, by file (`source_sha256`) and part: a write reuses
+/// the one the caller's analysis made of the same bytes instead of analysing the part again.
+type Recent = Vec<((String, usize), Option<Reconciled>)>;
+
+static RECENT: std::sync::Mutex<Recent> = std::sync::Mutex::new(Vec::new());
+
+/// How many reconciliations [`RECENT`] holds.
+const RECENT_LEN: usize = 8;
+
+pub(crate) fn remember(loaded: &LoadedPart, reconciled: Option<&Reconciled>) {
+    let key = (loaded.binding.source_sha256.clone(), loaded.binding.part);
+    let mut recent = RECENT
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    recent.retain(|(k, _)| *k != key);
+    recent.push((key, reconciled.cloned()));
+    if recent.len() > RECENT_LEN {
+        recent.remove(0);
+    }
+}
+
+pub(crate) fn recall(loaded: &LoadedPart) -> Option<Option<Reconciled>> {
+    let key = (loaded.binding.source_sha256.clone(), loaded.binding.part);
+    RECENT
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .iter()
+        .find(|(k, _)| *k == key)
+        .map(|(_, r)| r.clone())
 }

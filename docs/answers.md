@@ -149,14 +149,17 @@ face corresponding to itself.
   answer): present. When the file states it exactly as the default would be written, it is
   `resume.present: {id: value}`: the file answers the question with its default, so it is
   neither open nor a conflict, it is not repeated in `existing`, and it can still be answered
-  otherwise (the answer then replaces it). `resume.answers` stays the stored answers. A
-  default the file states differently is the file's own PMI, below.
+  otherwise (the answer then replaces it). `resume.answers` stays the stored answers.
+- **A default the file states differently** (another tool changed it, keeping Specify's
+  marker): the file's requirement stands, and the default is offered against it as a
+  conflict, `{id, stored: <default>, file, suggested: true}` ("Suggested 0.6, file says
+  ⌖ ⌀0.3Ⓜ A B C. Keep the file's …, or use 0.6?"), decided as any conflict below.
 - **Only in the file**, added by another tool (no Specify provenance marker): in
   `existing`, present and kept, never a conflict. Its question is not asked where the file's
-  PMI already states it. Specify's own (marked) requirements that the answers no longer
-  explain, and that no conflict stands for (written by an older version, or a default
-  written differently), are not repeated in `existing`: they are Specify's to state, so their
-  questions are asked again and the rewrite states them from the answers.
+  PMI already states it. Specify's own (marked) requirements that neither the answers nor
+  their defaults account for at all (no requirement of any question pairs with them, such
+  as one an older version wrote that the planner no longer writes) are Specify's to state:
+  they are not repeated in `existing`, and the rewrite states the part from the answers.
 - **Different, or only in the answers (removed in the file):** a conflict,
   `resume.conflicts: [{id, stored, file}]` (`file` is the file's notation, `null` when the
   file has none), with an analysis warning each. Until it is decided the file's state is
@@ -175,9 +178,10 @@ A conflict is **decided** when the current answers answer its question, or list 
 - **Keep the file's:** add the id to `_specify.keep` (`{"_specify": {"keep": ["hole.position:holes:12"]}}`).
   The file's requirement becomes the file's own: the writer writes it without Specify's
   provenance marker, so on reopening it is PMI another tool stated (`existing`, kept, its
-  question not asked) for any reader. A removal kept has no requirement to carry the
-  decision, so it is stored beside the answers (the payload's `kept` list, restored as
-  `_specify.keep`), and its question stays unasked on every later save.
+  question not asked) for any reader, and every later write, the editor's or the CLI's,
+  keeps it as it is. A removal kept has no requirement to carry the decision, so it is stored
+  beside the answers (the payload's `kept` list, restored as `_specify.keep`), and its
+  question stays unasked on every later save.
 
 `review` lists the undecided conflicts as questions (`conflicts`, only when there are some),
 each `{id, kind: "conflict", text, stored, file, choices}`, `text` reading "Saved answer H7,

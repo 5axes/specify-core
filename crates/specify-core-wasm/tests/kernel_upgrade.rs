@@ -124,7 +124,7 @@ fn browser_resumes_v024_answers_on_bosses_with_corrected_end_heights() {
 }
 
 #[test]
-fn browser_reports_unmatched_values_and_leaves_current_question_open() {
+fn browser_reports_unmatched_values_and_the_file_answers_the_current_question() {
     let bytes = saved("pin");
     let mut payload = json!(resume::stored(&bytes)[&0]);
     let answers = payload["answers"].as_object_mut().unwrap();
