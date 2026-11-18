@@ -138,6 +138,7 @@ export interface PmiItemChange {
   old?: string;
   new?: string;
   reason?: string;
+  detail?: string;
 }
 export interface DiffPmi {
   items: PmiItemChange[];

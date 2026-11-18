@@ -429,6 +429,15 @@ impl Assembly {
                 viewer.map(|v| format!("[Turn {} round in 3D]({v}&part={})", p.name, uri(&p.name)));
             s += &r.markdown_headed(&format!("#### {}", p.name), None, link.as_deref());
         }
+        // A part without a section of its own still says how its symmetric tie was broken.
+        for p in &self.parts {
+            if let (Some(r), status) = (&p.revised, p.status)
+                && status != "changed"
+                && let Some(tie) = &r.frame_tie
+            {
+                let _ = writeln!(s, "**{}** ({status}): {}\n", p.name, tie.note);
+            }
+        }
         s
     }
 

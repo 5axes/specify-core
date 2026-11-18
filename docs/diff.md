@@ -201,7 +201,9 @@ Each item has `class` (`added`, `removed`, `changed`, or `renumbered`), optional
 and `reason`. A numbered removal from a carried number history has
 `reason: "retired"`; those numbers are never reused. Fresh numbers (no carried history, or two
 independent histories) reserve nothing: a removal there is `removed` with its old number and no
-`retired` reason, since the new plan may give that number to another item. Renumbering is reported if detected, though ordinary editing preserves
+`retired` reason, since the new plan may give that number to another item. A retired item found
+only by comparing the two plans keeps `reason: "retired"` and says why in `detail`
+(`carried requirement differs from the new file`). Renumbering is reported if detected, though ordinary editing preserves
 numbers. Value and material-modifier edits keep the number and produce one `changed`
 item per edited requirement, including direct STEP edits (For #95). Changes sort by
 characteristic number, then unnumbered id. Markdown prints one line per change, for example:

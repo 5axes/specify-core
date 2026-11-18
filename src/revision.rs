@@ -330,6 +330,10 @@ pub struct PmiItemChange {
     pub new: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
+    /// Beside a `retired` reason (a code), why the item comes from the plans' comparison:
+    /// `carried requirement differs from the new file`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -3209,11 +3213,7 @@ impl Revised {
                 let text = match c.class.as_str() {
                     "changed" => format!("{was} → {now}"),
                     // A number is retired only from a carried history.
-                    "removed"
-                        if c.reason
-                            .as_deref()
-                            .is_some_and(|r| r.starts_with("retired")) =>
-                    {
+                    "removed" if c.reason.as_deref() == Some("retired") => {
                         format!("retired: {was}")
                     }
                     "removed" => format!("removed: {was}"),
@@ -3225,8 +3225,8 @@ impl Revised {
                 let reason = c
                     .reason
                     .as_deref()
-                    .map(|r| r.trim_start_matches("retired").trim_start_matches("; "))
-                    .filter(|r| !r.is_empty() && c.class != "renumbered")
+                    .filter(|r| *r != "retired" && c.class != "renumbered")
+                    .or(c.detail.as_deref())
                     .map_or(String::new(), |r| format!("; {r}"));
                 lines.push(format!("{prefix}{text} ({}{reason})", c.on));
             }

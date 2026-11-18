@@ -640,6 +640,7 @@ fn compare(
             old: was.map(|p| p.text.clone()),
             new: now.map(|p| p.text.clone()),
             reason,
+            detail: None,
         }
     };
     let mut result = Vec::new();
@@ -775,10 +776,12 @@ pub(super) fn diff(
                         || (actual.number.is_some() && actual.number == change.number)
                 }) {
                     let differs = "carried requirement differs from the new file";
-                    change.reason = Some(match change.reason.as_deref() {
-                        Some("retired") => format!("retired; {differs}"),
-                        _ => differs.into(),
-                    });
+                    // `retired` stays the reason, a code; the detail goes beside it.
+                    if change.reason.as_deref() == Some("retired") {
+                        change.detail = Some(differs.into());
+                    } else {
+                        change.reason = Some(differs.into());
+                    }
                     changes.push(change);
                 }
             }

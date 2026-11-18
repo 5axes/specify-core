@@ -1253,19 +1253,15 @@ fn a_removed_hole_s_requirements_are_not_paired_with_the_hole_taking_its_faces()
     // Nothing changes on the Ø5 holes, and no value changes anywhere.
     assert!(!items.iter().any(|i| i.on.contains("Ø5")), "{items:?}");
     assert!(!items.iter().any(|i| i.class == "changed"), "{items:?}");
-    // No number is both retired and given to another item.
-    let retired: Vec<_> = items
-        .iter()
-        .filter(|i| i.reason.as_deref() == Some("retired"))
-        .filter_map(|i| i.number)
-        .collect();
+    // Fresh numbers retire nothing: the plan gives #15-#17 to other items, so the Ø8 hole's
+    // items are removed with their old numbers, not retired.
+    assert_eq!(removed.len(), 3, "{items:?}");
     assert!(
-        items
+        removed
             .iter()
-            .filter(|i| i.class != "removed")
-            .all(|i| i.number.is_none_or(|n| !retired.contains(&n))),
+            .all(|i| i.number.is_some() && i.reason.is_none()),
         "{items:?}"
     );
     let md = r.markdown("Plate", None);
-    assert!(!md.contains("80 → 30"), "{md}");
+    assert!(!md.contains("80 → 30") && !md.contains(" retired:"), "{md}");
 }

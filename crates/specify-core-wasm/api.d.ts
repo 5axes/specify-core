@@ -128,6 +128,7 @@ export interface PmiItemChange {
   old_id?: string;
   on: string;
   reason?: string;
+  detail?: string;
   status: "answered" | "default" | "general" | "existing";
 }
 
