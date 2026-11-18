@@ -39,6 +39,8 @@ pub mod rule_sources;
 pub mod rules;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod serve;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod session;
 pub mod sightlines;
 pub mod standards;
 pub mod tolerancing;

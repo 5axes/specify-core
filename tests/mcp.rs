@@ -10,6 +10,7 @@ use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread;
+use std::time::{Duration, Instant};
 
 use serde_json::{Map, Value, json};
 use specify_core::mcp::{self, Server};
@@ -84,11 +85,21 @@ struct Stdio {
 
 impl Stdio {
     fn start(allow: &[PathBuf], era: &'static str) -> Self {
+        Stdio::start_with(allow, era, |_| {})
+    }
+
+    /// [`Stdio::start`] with the server configured first (the app `show` serves, say).
+    fn start_with(
+        allow: &[PathBuf],
+        era: &'static str,
+        configure: impl FnOnce(&mut Server) + Send + 'static,
+    ) -> Self {
         let (to_server, lines) = channel::<String>();
         let (out, from_server) = channel::<Vec<u8>>();
         let allow = allow.to_vec();
         let server = thread::spawn(move || {
             let mut server = Server::new(&allow).unwrap();
+            configure(&mut server);
             let input = BufReader::new(PipeIn {
                 lines,
                 pending: Vec::new(),
@@ -272,7 +283,10 @@ fn conversation(era: &'static str) {
             "read_pmi",
             "write_pmi",
             "export_answers",
-            "diff"
+            "diff",
+            "changes",
+            "show",
+            "save"
         ]
     );
 
@@ -384,18 +398,30 @@ fn conversation(era: &'static str) {
     assert_eq!(pmi["part_settings"], analysis["part"]);
     assert_eq!(pmi["resumed"], json!(false));
 
-    // write_pmi == serve's write.
+    // write_pmi with the open defaults approved (ADR P9: never taken unasked) == serve's write
+    // of the same answers given.
+    let offered: Map<String, Value> = client.call("questions", json!({"doc": doc}))["questions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|q| !q["default"].is_null())
+        .map(|q| (q["id"].as_str().unwrap().to_string(), q["default"].clone()))
+        .collect();
+    assert!(!offered.is_empty());
+    let mut approved = answers.as_object().unwrap().clone();
+    approved.extend(offered.clone());
     let out = dir.join("plate-pmi.step");
     let written = client.call(
         "write_pmi",
-        json!({"doc": doc, "output": out, "accept_defaults": true}),
+        json!({"doc": doc, "output": out, "accept_defaults": offered}),
     );
+    assert_eq!(written["complete"], json!(true), "{written}");
     let served_out = dir.join("plate-serve.step");
     let served = serve_ok(
         &mut serve,
         json!({
-            "op": "write", "step": plate, "analysis": analysis, "answers": answers,
-            "output": served_out, "accept_defaults": true,
+            "op": "write", "step": plate, "analysis": analysis, "answers": approved,
+            "output": served_out,
         }),
     );
     assert_eq!(
@@ -414,13 +440,16 @@ fn conversation(era: &'static str) {
     );
     assert_eq!(refused["code"], json!("refused"));
 
-    // export_answers == serve's export, and saved where asked.
+    // export_answers == serve's export of the same approved answers, and saved where asked.
     let sidecar = dir.join("plate.answers.json");
-    let exported = client.call("export_answers", json!({"doc": doc, "output": sidecar}));
+    let exported = client.call(
+        "export_answers",
+        json!({"doc": doc, "output": sidecar, "accept_defaults": offered}),
+    );
     let served = serve_ok(
         &mut serve,
         json!({
-            "op": "export_answers", "step": plate, "analysis": analysis, "answers": answers,
+            "op": "export_answers", "step": plate, "analysis": analysis, "answers": approved,
         }),
     );
     assert_eq!(exported["answers"], served["answers"]);
@@ -964,7 +993,7 @@ fn http_needs_the_token_the_host_and_no_origin() {
             .as_array()
             .unwrap()
             .len(),
-        10
+        13
     );
     // A legacy-era JSON-RPC error is a 200 body (2025-11-25 Streamable HTTP); an
     // unsupported header version is still 400.
@@ -1130,5 +1159,1067 @@ fn the_binary_speaks_only_protocol_on_stdout() {
     assert_eq!(lines[0]["result"]["resultType"], json!("complete"));
     assert_eq!(lines[1]["error"]["code"], json!(-32700));
     assert_eq!(lines[2]["result"]["isError"], json!(true));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// ----- the session, shared with the page -----
+
+/// A request to a page server `show` started, from the app's own page.
+fn page(url: &str, method: &str, rel: &str, body: Option<&Value>) -> (u16, Value) {
+    let rest = url.strip_prefix("http://127.0.0.1:").unwrap();
+    let (port, prefix) = rest.split_once('/').unwrap();
+    let port: u16 = port.parse().unwrap();
+    let mut stream = TcpStream::connect(("127.0.0.1", port)).unwrap();
+    let body = body.map(Value::to_string).unwrap_or_default();
+    write!(
+        stream,
+        "{method} /{prefix}{rel} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\
+         Origin: http://127.0.0.1:{port}\r\nContent-Type: application/json\r\n\
+         Content-Length: {}\r\n\r\n{body}",
+        body.len()
+    )
+    .unwrap();
+    let mut response = String::new();
+    BufReader::new(stream)
+        .read_to_string(&mut response)
+        .unwrap();
+    let status = response.split(' ').nth(1).unwrap().parse().unwrap();
+    let body = response.split("\r\n\r\n").nth(1).unwrap_or_default();
+    (status, serde_json::from_str(body).unwrap_or(Value::Null))
+}
+
+/// An open `events` stream of a page server.
+struct Events(BufReader<TcpStream>);
+
+impl Events {
+    fn open(url: &str) -> Events {
+        let rest = url.strip_prefix("http://127.0.0.1:").unwrap();
+        let (port, prefix) = rest.split_once('/').unwrap();
+        let mut stream = TcpStream::connect(("127.0.0.1", port.parse::<u16>().unwrap())).unwrap();
+        write!(
+            stream,
+            "GET /{prefix}events HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\r\n"
+        )
+        .unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(20)))
+            .unwrap();
+        let mut events = Events(BufReader::new(stream));
+        let head = events.block();
+        assert!(head[0].starts_with("HTTP/1.1 200"), "{head:?}");
+        events
+    }
+
+    /// The lines up to the next blank one.
+    fn block(&mut self) -> Vec<String> {
+        let mut lines = Vec::new();
+        loop {
+            let mut line = String::new();
+            assert!(self.0.read_line(&mut line).unwrap() > 0, "the stream ended");
+            let line = line.trim_end_matches(['\r', '\n']).to_string();
+            if line.is_empty() {
+                return lines;
+            }
+            lines.push(line);
+        }
+    }
+
+    /// The next event (comments skipped): its name and data.
+    fn next(&mut self) -> (String, Value) {
+        loop {
+            let block = self.block();
+            let name = block.iter().find_map(|l| l.strip_prefix("event: "));
+            let data = block.iter().find_map(|l| l.strip_prefix("data: "));
+            if let (Some(name), Some(data)) = (name, data) {
+                return (name.to_string(), serde_json::from_str(data).unwrap());
+            }
+        }
+    }
+}
+
+/// A stub app for `show` to serve, in `dir`.
+fn stub_app(dir: &Path) -> specify_core::open::Assets {
+    let app = dir.join("app");
+    std::fs::create_dir_all(&app).unwrap();
+    std::fs::write(
+        app.join("index.html"),
+        b"<!doctype html><title>stub</title>",
+    )
+    .unwrap();
+    specify_core::open::assets(Some(&app), None).unwrap()
+}
+
+/// The agent and the person's page edit one session: the page's change is what the agent
+/// reads next, the agent's reaches the page as an event, and both save the same way.
+#[test]
+fn the_agent_and_the_page_share_one_session() {
+    let dir = scratch("session");
+    let copy = dir.join("plate.step");
+    std::fs::copy(part("plate"), &copy).unwrap();
+    let assets = stub_app(&dir);
+    let mut client = Stdio::start_with(std::slice::from_ref(&dir), mcp::MODERN, move |server| {
+        server.set_app(assets);
+        server.set_page_timing(Duration::from_millis(500), Duration::from_secs(600));
+    });
+
+    let opened = client.call("open", json!({"path": copy}));
+    let doc = opened["doc"].as_str().unwrap().to_string();
+    assert_eq!(opened["rev"], json!(0));
+    let shown = client.call("show", json!({"doc": doc, "browser": false}));
+    assert_eq!(shown["mode"], json!("specify"));
+    let url = shown["url"].as_str().unwrap().to_string();
+    assert!(url.starts_with("http://127.0.0.1:"), "{url}");
+    // Shown again while it runs: the same page.
+    let again = client.call("show", json!({"doc": doc, "browser": false}));
+    assert_eq!(again["url"], json!(url));
+    let (status, config) = page(&url, "GET", "config", None);
+    assert_eq!(status, 200);
+    assert_eq!(config["path"], json!(copy));
+
+    // The person answers in the page: the agent's next calls see it.
+    let (status, put) = page(
+        &url,
+        "PUT",
+        "answers",
+        Some(&json!({"rev": 0, "part": 0, "answers": {"part.material": "6061-T6"}})),
+    );
+    assert_eq!(status, 200, "{put}");
+    assert_eq!(put, json!({"rev": 1}));
+    let changes = client.call("changes", json!({"doc": doc, "since": 0}));
+    assert_eq!(
+        changes,
+        json!({"doc": doc, "rev": 1, "changes": [{"rev": 1, "part": 0, "source": "page",
+               "set": {"part.material": "6061-T6"}, "cleared": []}]})
+    );
+    let answered = client.call("questions", json!({"doc": doc, "state": "answered"}));
+    assert_eq!(answered["rev"], json!(1));
+    let material = answered["questions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|q| q["id"] == "part.material")
+        .expect("answered in the page");
+    assert_eq!(material["answer"], json!("6061-T6"));
+
+    // The agent answers: the page hears it.
+    let mut events = Events::open(&url);
+    let (_, start) = events.next();
+    assert_eq!(start["source"], json!("start"));
+    assert_eq!(start["rev"], json!(1));
+    let set = client.call(
+        "answer",
+        json!({"doc": doc, "set": {"part.material": "6082-T6"}}),
+    );
+    assert_eq!(set["rev"], json!(2));
+    let (name, change) = events.next();
+    assert_eq!(name, "answers");
+    assert_eq!(
+        change,
+        json!({"rev": 2, "part": 0, "answers": {"part.material": "6082-T6"}, "source": "mcp"})
+    );
+
+    // Save says whether to take the defaults, always; an incomplete save is written.
+    let refused = client.refusal("save", json!({"doc": doc}));
+    assert_eq!(refused["code"], json!("invalid"), "{refused}");
+    assert!(!dir.join("plate.specified.step").exists());
+    let saved = client.call("save", json!({"doc": doc, "accept_defaults": {}}));
+    assert_eq!(saved["complete"], json!(false), "{saved}");
+    assert!(!saved["missing"].as_array().unwrap().is_empty());
+    assert_eq!(saved["rev"], json!(2));
+    assert_eq!(saved["path"], json!(dir.join("plate.specified.step")));
+    assert!(
+        std::fs::read(dir.join("plate.specified.step"))
+            .unwrap()
+            .starts_with(b"ISO-10303-21;")
+    );
+    let (name, told) = events.next();
+    assert_eq!(name, "saved");
+    assert_eq!(told["source"], json!("mcp"));
+    assert_eq!(told["path"], saved["path"]);
+    let changes = client.call("changes", json!({"doc": doc, "since": 1}));
+    assert_eq!(changes["changes"][0]["source"], json!("mcp"));
+    assert_eq!(changes["changes"].as_array().unwrap().len(), 1);
+
+    // The page closed: its server stops, and show starts a new one at a new address.
+    drop(events);
+    let (status, _) = page(&url, "POST", "closed", None);
+    assert_eq!(status, 204);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let renewed = loop {
+        assert!(Instant::now() < deadline, "the page server did not stop");
+        thread::sleep(Duration::from_millis(100));
+        let shown = client.call("show", json!({"doc": doc, "browser": false}));
+        if shown["url"] != json!(url) {
+            break shown["url"].as_str().unwrap().to_string();
+        }
+    };
+    let (status, answers) = page(&renewed, "GET", "answers", None);
+    assert_eq!(status, 200);
+    assert_eq!(
+        answers,
+        json!({"rev": 2, "parts": {"0": {"part.material": "6082-T6"}}})
+    );
+    client.finish();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// `open` with `old`: the revisions compared as `diff` compares them, and the session starting
+/// from the answers carried to the new one.
+#[test]
+fn a_diff_session_starts_from_the_carried_answers() {
+    let dir = scratch("diff-session");
+    let (old, new) = (dir.join("plate.old.step.gz"), dir.join("plate.new.step.gz"));
+    std::fs::copy(revision("hole_moved.old.step.gz"), &old).unwrap();
+    std::fs::copy(revision("hole_moved.new.step.gz"), &new).unwrap();
+    let old_answers = dir.join("old.answers.json");
+    std::fs::write(&old_answers, r#"{"part.material": "6061-T6"}"#).unwrap();
+    let mut server = Server::new(std::slice::from_ref(&dir)).unwrap();
+
+    let opened = call(
+        &mut server,
+        "open",
+        json!({"path": new, "old": old, "old_answers": old_answers}),
+    );
+    let out = &opened["structuredContent"];
+    assert_eq!(opened["isError"], json!(false), "{opened}");
+    let given: Map<String, Value> =
+        serde_json::from_str(r#"{"part.material": "6061-T6"}"#).unwrap();
+    let expected = specify_core::revision::diff(
+        &specify_core::part::load(&old, None).unwrap(),
+        &specify_core::part::load(&new, None).unwrap(),
+        &given,
+    )
+    .unwrap();
+    assert_eq!(out["verdict"], json!(expected.verdict));
+    assert_eq!(out["summary"], json!(expected.summary));
+    assert_eq!(out["report"], serde_json::to_value(&expected).unwrap());
+    assert_eq!(out["rev"], json!(0));
+    assert_eq!(out["answered"], json!(expected.answers.len()));
+    let doc = out["doc"].as_str().unwrap().to_string();
+    let answered = call(
+        &mut server,
+        "questions",
+        json!({"doc": doc, "state": "answered"}),
+    );
+    let material = answered["structuredContent"]["questions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|q| q["id"] == "part.material")
+        .cloned()
+        .expect("carried");
+    assert_eq!(material["answer"], json!("6061-T6"));
+    // A comparison is not shown view-only, said in the tool's own terms.
+    server.set_app(stub_app(&dir));
+    let refused = error_of(
+        &mut server,
+        "show",
+        json!({"doc": doc, "browser": false, "read_only": true}),
+    );
+    assert_eq!(refused["code"], json!("invalid"));
+    let message = refused["message"].as_str().unwrap();
+    assert!(
+        message.contains("old") && !message.contains("--"),
+        "{message}"
+    );
+    // old_answers belong to old.
+    let refused = error_of(
+        &mut server,
+        "open",
+        json!({"path": new, "old_answers": old_answers}),
+    );
+    assert_eq!(refused["code"], json!("invalid"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The two-part fixture written to `dir/two.step` with answers for both parts.
+fn two_parts_written(dir: &Path) -> PathBuf {
+    let source = part("a_file_with_two_parts_must_say_which");
+    let file = specify_core::part::File::read(&source).unwrap();
+    let mut jobs = Vec::new();
+    for (k, material) in ["6061-T6", "6082-T6"].into_iter().enumerate() {
+        let loaded = file.load(Some(k)).unwrap();
+        let (analysis, _) = specify_core::api::analyse_reporting_in(&file, &loaded).unwrap();
+        let answers: Map<String, Value> =
+            serde_json::from_value(json!({"part.material": material})).unwrap();
+        let intent = specify_core::api::apply(&analysis, &answers, true).unwrap();
+        jobs.push((intent, Some(answers)));
+    }
+    let written = dir.join("two.step");
+    specify_core::api::write_parts(&source, &jobs, &written).unwrap();
+    written
+}
+
+/// `config.part` is the part `show` was called for, in a file of several parts; a file of one
+/// part has none.
+#[test]
+fn the_page_of_an_assembly_s_part_names_the_part() {
+    let dir = scratch("config-part");
+    let written = two_parts_written(&dir);
+    let mut server = Server::new(std::slice::from_ref(&dir)).unwrap();
+    server.set_app(stub_app(&dir));
+    let opened = call(&mut server, "open", json!({"path": written, "part": 1}));
+    let doc = opened["structuredContent"]["doc"].clone();
+    let shown = call(&mut server, "show", json!({"doc": doc, "browser": false}));
+    let url = shown["structuredContent"]["url"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let (status, config) = page(&url, "GET", "config", None);
+    assert_eq!(status, 200);
+    assert_eq!(config["part"], json!(1), "{config}");
+    let plate = dir.join("plate.step");
+    std::fs::copy(part("plate"), &plate).unwrap();
+    let opened = call(&mut server, "open", json!({"path": plate}));
+    let doc = opened["structuredContent"]["doc"].clone();
+    let shown = call(&mut server, "show", json!({"doc": doc, "browser": false}));
+    let url = shown["structuredContent"]["url"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let (_, config) = page(&url, "GET", "config", None);
+    assert_eq!(config["part"], Value::Null, "{config}");
+    drop(server);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A file of two parts, each written with its own answers, starts its MCP session from both,
+/// as `specify-core open` does, whichever part the agent opens.
+#[test]
+fn an_mcp_session_resumes_every_part_s_stored_answers() {
+    let dir = scratch("resume-parts");
+    let written = two_parts_written(&dir);
+
+    let mut server = Server::new(std::slice::from_ref(&dir)).unwrap();
+    server.set_app(stub_app(&dir));
+    let opened = call(&mut server, "open", json!({"path": written, "part": 0}));
+    let doc = opened["structuredContent"]["doc"].clone();
+    assert_eq!(opened["isError"], json!(false), "{opened}");
+    let shown = call(&mut server, "show", json!({"doc": doc, "browser": false}));
+    let url = shown["structuredContent"]["url"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let (status, answers) = page(&url, "GET", "answers", None);
+    assert_eq!(status, 200);
+    assert_eq!(
+        answers["parts"]["0"]["part.material"],
+        json!("6061-T6"),
+        "{answers}"
+    );
+    assert_eq!(
+        answers["parts"]["1"]["part.material"],
+        json!("6082-T6"),
+        "{answers}"
+    );
+    // The other part, opened next, is in the same session with its own answers.
+    let other = call(&mut server, "open", json!({"path": written, "part": 1}));
+    let other = other["structuredContent"]["doc"].clone();
+    let answered = call(
+        &mut server,
+        "questions",
+        json!({"doc": other, "state": "answered"}),
+    );
+    let material = answered["structuredContent"]["questions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|q| q["id"] == "part.material")
+        .cloned()
+        .unwrap();
+    assert_eq!(material["answer"], json!("6082-T6"));
+    drop(server);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Under MCP, a link opened is kept as the link: the page shows it, Save goes beside it and
+/// in place keeps its `.bak` beside it. The session's own in-place save does not make a second
+/// session; `in_place` changes only when given; a running page is not replaced in another mode.
+#[cfg(unix)]
+#[test]
+fn a_linked_file_saves_beside_the_link_and_reopens_to_its_session() {
+    let dir = scratch("linked");
+    for sub in ["proj", "lib"] {
+        std::fs::create_dir_all(dir.join(sub)).unwrap();
+    }
+    std::fs::copy(part("plate"), dir.join("lib/abc.step")).unwrap();
+    let link = dir.join("proj/part.step");
+    std::os::unix::fs::symlink(dir.join("lib/abc.step"), &link).unwrap();
+    let names = |sub: &str| {
+        let mut n: Vec<String> = std::fs::read_dir(dir.join(sub))
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        n.sort();
+        n
+    };
+    let mut server = Server::new(std::slice::from_ref(&dir)).unwrap();
+    server.set_app(stub_app(&dir));
+
+    let opened = call(&mut server, "open", json!({"path": link}));
+    let doc = opened["structuredContent"]["doc"].clone();
+    let shown = call(&mut server, "show", json!({"doc": doc, "browser": false}));
+    let url = shown["structuredContent"]["url"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let (_, config) = page(&url, "GET", "config", None);
+    assert_eq!(config["path"], json!(link));
+    assert_eq!(
+        config["saveTarget"],
+        json!(dir.join("proj/part.specified.step"))
+    );
+    let saved = call(
+        &mut server,
+        "save",
+        json!({"doc": doc, "accept_defaults": {}}),
+    );
+    assert_eq!(
+        saved["structuredContent"]["path"],
+        json!(dir.join("proj/part.specified.step")),
+        "{saved}"
+    );
+    assert_eq!(
+        names("lib"),
+        ["abc.step"],
+        "nothing beside the link's target"
+    );
+
+    // A running editable page is not replaced by a view-only one.
+    let refused = error_of(
+        &mut server,
+        "show",
+        json!({"doc": doc, "browser": false, "read_only": true}),
+    );
+    assert_eq!(refused["code"], json!("invalid"), "{refused}");
+    assert!(
+        refused["message"].as_str().unwrap().contains(&url),
+        "{refused}"
+    );
+
+    // In place, given explicitly on the same file: the same session, Save over the link's
+    // target, the .bak beside the link and named after it.
+    let in_place = call(&mut server, "open", json!({"path": link, "in_place": true}));
+    assert_eq!(in_place["structuredContent"]["doc"], doc);
+    let (_, config) = page(&url, "GET", "config", None);
+    assert_eq!(config["saveTarget"], json!(link));
+    let saved = call(
+        &mut server,
+        "save",
+        json!({"doc": doc, "accept_defaults": {}}),
+    );
+    assert_eq!(saved["structuredContent"]["path"], json!(link), "{saved}");
+    assert!(
+        std::fs::symlink_metadata(&link)
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+    assert_eq!(names("lib"), ["abc.step"]);
+    assert_eq!(
+        names("proj"),
+        ["part.specified.step", "part.step", "part.step.bak"]
+    );
+    assert_eq!(
+        std::fs::read(dir.join("proj/part.step.bak")).unwrap(),
+        std::fs::read(part("plate")).unwrap()
+    );
+
+    // Opened again after its own in-place save, without in_place: the same session and
+    // document, still saving in place, and the same page.
+    let rev = in_place["structuredContent"]["rev"].clone();
+    let again = call(&mut server, "open", json!({"path": link}));
+    assert_eq!(again["isError"], json!(false), "{again}");
+    assert_eq!(again["structuredContent"]["doc"], doc);
+    assert_eq!(again["structuredContent"]["rev"], rev);
+    let (_, config) = page(&url, "GET", "config", None);
+    assert_eq!(config["saveTarget"], json!(link));
+    let shown = call(&mut server, "show", json!({"doc": doc, "browser": false}));
+    assert_eq!(shown["structuredContent"]["url"], json!(url));
+    drop(server);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Reviewing a diff in the browser: `show` on a session opened with `old` serves the page in
+/// diff mode, with the report, and Save writes the new revision with the carried answers.
+#[test]
+fn a_diff_session_is_shown_in_diff_mode_and_saves_new() {
+    let dir = scratch("diff-show");
+    let (old, new) = (dir.join("plate.old.step.gz"), dir.join("plate.new.step.gz"));
+    std::fs::copy(revision("hole_moved.old.step.gz"), &old).unwrap();
+    std::fs::copy(revision("hole_moved.new.step.gz"), &new).unwrap();
+    let old_answers = dir.join("old.answers.json");
+    std::fs::write(&old_answers, r#"{"part.material": "6061-T6"}"#).unwrap();
+    let mut server = Server::new(std::slice::from_ref(&dir)).unwrap();
+    server.set_app(stub_app(&dir));
+    let opened = call(
+        &mut server,
+        "open",
+        json!({"path": new, "old": old, "old_answers": old_answers}),
+    );
+    let out = opened["structuredContent"].clone();
+    let doc = out["doc"].clone();
+    let shown = call(&mut server, "show", json!({"doc": doc, "browser": false}));
+    assert_eq!(shown["isError"], json!(false), "{shown}");
+    assert_eq!(shown["structuredContent"]["mode"], json!("diff"));
+    let url = shown["structuredContent"]["url"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let (status, config) = page(&url, "GET", "config", None);
+    assert_eq!(status, 200);
+    assert_eq!(config["mode"], json!("diff"));
+    assert_eq!(config["path"], json!(new));
+    assert_eq!(config["oldPath"], json!(old));
+    let (status, report) = page(&url, "GET", "diff", None);
+    assert_eq!(status, 200);
+    // As WASM `diff()`: the report `open` gave, its Markdown, and the view to draw.
+    // The page's report carries the PMI scenes; `open`'s is diff's report.json without them.
+    let mut served = report["report"].clone();
+    assert!(served["pmi"]["scenes"]["new"].is_object());
+    served["pmi"].as_object_mut().unwrap().remove("scenes");
+    assert_eq!(served, out["report"]);
+    assert!(report["markdown"].is_string() && report["view"]["faces"].is_object());
+    let (_, answers) = page(&url, "GET", "answers", None);
+    assert_eq!(answers["parts"]["0"]["part.material"], json!("6061-T6"));
+    // The person saves NEW from the page, with the carried answers.
+    let (status, saved) = page(
+        &url,
+        "POST",
+        "save",
+        Some(&json!({"rev": 0, "acceptDefaults": {}})),
+    );
+    assert_eq!(status, 200, "{saved}");
+    let written = dir.join("plate.new.specified.step");
+    assert_eq!(saved["path"], json!(written));
+    let resumed = specify_core::api::analyse_file(&written, None).unwrap();
+    assert_eq!(
+        resumed["resume"]["answers"]["part.material"],
+        json!("6061-T6")
+    );
+    drop(server);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A file named through a link whose own directory is outside `--allow` is refused, though its
+/// target is inside: Save would write beside the link. And a session that holds such a path
+/// anyway refuses every save, from the page and from the agent, writing nothing.
+#[cfg(unix)]
+#[test]
+fn nothing_is_saved_outside_the_allowed_directories() {
+    let allowed = scratch("allowed-saves");
+    let outside = scratch("outside-saves");
+    std::fs::create_dir_all(allowed.join("lib")).unwrap();
+    let inside = allowed.join("lib/abc.step");
+    std::fs::copy(part("plate"), &inside).unwrap();
+    let evil = outside.join("evil.step");
+    std::os::unix::fs::symlink(&inside, &evil).unwrap();
+    std::fs::write(allowed.join("a.json"), b"{}").unwrap();
+    let evil_answers = outside.join("old.json");
+    std::os::unix::fs::symlink(allowed.join("a.json"), &evil_answers).unwrap();
+    let mut server = Server::new(std::slice::from_ref(&allowed)).unwrap();
+    for arguments in [
+        json!({"path": evil}),
+        json!({"path": inside, "old": evil}),
+        json!({"path": inside, "old": inside, "old_answers": evil_answers}),
+    ] {
+        let refused = error_of(&mut server, "open", arguments.clone());
+        assert_eq!(refused["code"], json!("refused"), "{arguments}: {refused}");
+    }
+    let names = || {
+        let mut n: Vec<String> = std::fs::read_dir(&outside)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        n.sort();
+        n
+    };
+
+    // Second line of defence: the session itself refuses.
+    for in_place in [false, true] {
+        let mut held = specify_core::session::Session::new(
+            specify_core::session::Opened::read(&evil).unwrap(),
+            in_place,
+        )
+        .unwrap();
+        held.set_allowed(vec![allowed.clone()]);
+        let shared = std::sync::Arc::new(std::sync::Mutex::new(held));
+        // The agent's save.
+        let refused = specify_core::session::save(&shared, None, &Default::default(), "mcp");
+        assert!(
+            matches!(refused, Err(specify_core::session::SaveError::Outside(_))),
+            "{refused:?}"
+        );
+        // The page's save.
+        let app = specify_core::open::App::new(
+            shared,
+            stub_app(&allowed),
+            &specify_core::open::Options::default(),
+        )
+        .unwrap();
+        let url = app.url();
+        let served = thread::spawn(move || {
+            app.serve(Duration::from_secs(60), Duration::from_millis(1500), |_| {})
+                .unwrap()
+        });
+        let (status, body) = page(
+            &url,
+            "POST",
+            "save",
+            Some(&json!({"rev": 0, "acceptDefaults": {}})),
+        );
+        assert_eq!(status, 403, "{body}");
+        assert!(body["error"].is_string());
+        served.join().unwrap();
+        assert_eq!(
+            names(),
+            ["evil.step", "old.json"],
+            "nothing written outside"
+        );
+    }
+    assert_eq!(
+        std::fs::read(&inside).unwrap(),
+        std::fs::read(part("plate")).unwrap()
+    );
+    let _ = std::fs::remove_dir_all(&allowed);
+    let _ = std::fs::remove_dir_all(&outside);
+}
+
+/// ADR P9 through MCP: `save` names the defaults the person approved; a bool or an id that is
+/// not an open question with a default is refused, naming it; the approved ones become answers
+/// and the others stay open.
+#[test]
+fn save_writes_only_the_defaults_named() {
+    let dir = scratch("approved-mcp");
+    let copy = dir.join("plate.step");
+    std::fs::copy(part("plate"), &copy).unwrap();
+    let mut server = Server::new(std::slice::from_ref(&dir)).unwrap();
+    let opened = call(&mut server, "open", json!({"path": copy}));
+    let doc = opened["structuredContent"]["doc"].clone();
+    for bad in [
+        json!(true),
+        json!(false),
+        json!("all"),
+        json!([]),
+        json!(["part.material"]),
+    ] {
+        let refused = error_of(
+            &mut server,
+            "save",
+            json!({"doc": doc, "accept_defaults": bad}),
+        );
+        assert_eq!(refused["code"], json!("invalid"), "{bad}");
+    }
+    let refused = error_of(
+        &mut server,
+        "save",
+        json!({"doc": doc, "accept_defaults": {"no.such.question": "x"}}),
+    );
+    assert_eq!(refused["code"], json!("invalid"));
+    assert_eq!(refused["question"], json!("no.such.question"));
+    assert_eq!(refused["part"], json!(0));
+    assert!(!dir.join("plate.specified.step").exists());
+
+    let open = call(&mut server, "questions", json!({"doc": doc}));
+    let offered: Vec<(String, Value)> = open["structuredContent"]["questions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|q| !q["default"].is_null())
+        .map(|q| (q["id"].as_str().unwrap().to_string(), q["default"].clone()))
+        .collect();
+    assert!(offered.len() >= 2, "{offered:?}");
+    // A value that is no longer the default: refused with both, nothing written.
+    let stale = error_of(
+        &mut server,
+        "save",
+        json!({"doc": doc, "accept_defaults": {&offered[0].0: "something else"}}),
+    );
+    assert_eq!(stale["expected"], json!("something else"));
+    assert_eq!(stale["current"], offered[0].1);
+    assert!(!dir.join("plate.specified.step").exists());
+    let saved = call(
+        &mut server,
+        "save",
+        json!({"doc": doc, "accept_defaults": {&offered[0].0: offered[0].1}}),
+    );
+    let offered: Vec<String> = offered.into_iter().map(|(id, _)| id).collect();
+    let saved = &saved["structuredContent"];
+    assert_eq!(saved["rev"], json!(1), "{saved}");
+    let missing = saved["missing"].as_array().unwrap();
+    assert!(!missing.contains(&json!(offered[0])));
+    assert!(missing.contains(&json!(offered[1])));
+    let changes = call(&mut server, "changes", json!({"doc": doc, "since": 0}));
+    let change = &changes["structuredContent"]["changes"][0];
+    assert_eq!(change["source"], json!("mcp"));
+    assert!(change["set"].get(&offered[0]).is_some());
+    assert_eq!(change["set"].as_object().unwrap().len(), 1);
+    // Reopened, the approved default is an answer and the other is still open.
+    let reopened = call(
+        &mut server,
+        "open",
+        json!({"path": dir.join("plate.specified.step")}),
+    );
+    let still = reopened["structuredContent"]["open_questions"]
+        .as_array()
+        .unwrap();
+    assert!(!still.contains(&json!(offered[0])));
+    assert!(still.contains(&json!(offered[1])));
+    drop(server);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Intent known: everything answered in one call with `partial`, each id's outcome given, the
+/// valid ones applied in one rev and a refused one reported with its reason.
+#[test]
+fn a_partial_answer_applies_the_valid_ones_in_one_rev() {
+    let dir = scratch("partial");
+    let copy = dir.join("plate.step");
+    std::fs::copy(part("plate"), &copy).unwrap();
+    let mut server = Server::new(std::slice::from_ref(&dir)).unwrap();
+    let opened = call(&mut server, "open", json!({"path": copy}));
+    let doc = opened["structuredContent"]["doc"].clone();
+    let all = call(
+        &mut server,
+        "questions",
+        json!({"doc": doc, "state": "all"}),
+    );
+    let hole = all["structuredContent"]["questions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|q| q["default"] == "tapped:M5")
+        .unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let set = json!({"part.material": "6061-T6", "datum.A": [9999], &hole: "M5"});
+    // Without partial, all or nothing, as before.
+    let refused = error_of(&mut server, "answer", json!({"doc": doc, "set": set}));
+    assert_eq!(refused["question"], json!("datum.A"));
+    let answered = call(
+        &mut server,
+        "answer",
+        json!({"doc": doc, "set": set, "partial": true}),
+    );
+    assert_eq!(answered["isError"], json!(false), "{answered}");
+    let out = &answered["structuredContent"];
+    assert_eq!(out["rev"], json!(1));
+    let outcomes = out["outcomes"].as_object().unwrap();
+    assert_eq!(outcomes.len(), 3);
+    assert_eq!(outcomes["part.material"]["stored"], json!("6061-T6"));
+    assert_eq!(outcomes["part.material"]["state"], json!("answered"));
+    assert_eq!(outcomes[&hole]["interpreted_from"], json!("M5"));
+    assert!(outcomes[&hole]["stored"].is_string());
+    let reason = outcomes["datum.A"]["refused"].as_str().unwrap();
+    assert!(reason.contains("datum.A"), "{reason}");
+    assert!(outcomes["datum.A"].get("stored").is_none());
+    let changes = call(&mut server, "changes", json!({"doc": doc, "since": 0}));
+    let changes = changes["structuredContent"]["changes"]
+        .as_array()
+        .unwrap()
+        .clone();
+    assert_eq!(changes.len(), 1, "one rev");
+    assert_eq!(changes[0]["set"].as_object().unwrap().len(), 2);
+    assert!(changes[0]["set"].get("datum.A").is_none());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The open questions compactly, to ask the gaps in chat: id, prompt, choices or a hint, and
+/// the suggestion with its rule when there is one.
+#[test]
+fn compact_questions_give_what_a_chat_needs() {
+    let mut server = Server::new(&[common::fixtures()]).unwrap();
+    let opened = call(&mut server, "open", json!({"path": part("plate")}));
+    let doc = opened["structuredContent"]["doc"].clone();
+    let full = call(&mut server, "questions", json!({"doc": doc}));
+    let compact = call(
+        &mut server,
+        "questions",
+        json!({"doc": doc, "compact": true}),
+    );
+    let compact = &compact["structuredContent"];
+    let open = compact["open"].as_array().unwrap();
+    assert_eq!(
+        open.iter().map(|q| q["id"].clone()).collect::<Vec<_>>(),
+        full["structuredContent"]["open"]
+            .as_array()
+            .unwrap()
+            .clone()
+    );
+    assert_eq!(compact["rev"], json!(0));
+    assert!(compact.get("questions").is_none());
+    let mut suggested = 0;
+    for q in open {
+        let keys: Vec<&str> = q.as_object().unwrap().keys().map(String::as_str).collect();
+        for key in &keys {
+            assert!(
+                ["id", "prompt", "choices", "hint", "suggested", "rule"].contains(key),
+                "{q}"
+            );
+        }
+        assert!(q["prompt"].is_string(), "{q}");
+        assert!(
+            q["choices"]
+                .as_array()
+                .is_some_and(|c| c.iter().all(Value::is_string))
+                ^ q["hint"].is_string(),
+            "{q}"
+        );
+        if q.get("suggested").is_some() {
+            suggested += 1;
+            assert!(q["rule"].is_string(), "{q}");
+        }
+    }
+    assert!(suggested > 0);
+}
+
+/// The two agent patterns and ADR P9 are in the server's instructions, in both protocol eras.
+#[test]
+fn the_instructions_say_the_two_patterns_and_never_to_take_a_default() {
+    let mut server = Server::new(&[scratch("instructions")]).unwrap();
+    let modern = server
+        .handle(&modern(1, "server/discover", json!({})), None)
+        .body
+        .unwrap();
+    let mut legacy = Server::new(&[scratch("instructions-legacy")]).unwrap();
+    let init = json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
+        "protocolVersion": mcp::LEGACY, "capabilities": {},
+        "clientInfo": {"name": "test", "version": "0"}}});
+    let legacy = legacy.handle(&init, None).body.unwrap();
+    for reply in [&modern, &legacy] {
+        let text = reply["result"]["instructions"].as_str().unwrap();
+        for needed in [
+            "Intent known",
+            "partial: true",
+            "No context",
+            "`show`",
+            "`changes`",
+            "Never take a default as intent",
+            "accept_defaults",
+            "never decide it yourself",
+        ] {
+            assert!(text.contains(needed), "{needed}: {text}");
+        }
+    }
+}
+
+/// Approvals name their part: a default approved for part 0 of an assembly is not written into
+/// part 1, where the same question is open with a default too; part 1, with no answers, is
+/// left as it was.
+#[test]
+fn an_approved_default_goes_only_to_its_part() {
+    let dir = scratch("approved-by-part");
+    let two = dir.join("two.step");
+    std::fs::copy(part("a_file_with_two_parts_must_say_which"), &two).unwrap();
+    let mut server = Server::new(std::slice::from_ref(&dir)).unwrap();
+    let docs: Vec<Value> = (0..2)
+        .map(|k| {
+            call(&mut server, "open", json!({"path": two, "part": k}))["structuredContent"]["doc"]
+                .clone()
+        })
+        .collect();
+    let offered = |server: &mut Server, doc: &Value| -> Map<String, Value> {
+        call(server, "questions", json!({"doc": doc}))["structuredContent"]["questions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|q| !q["default"].is_null())
+            .map(|q| (q["id"].as_str().unwrap().to_string(), q["default"].clone()))
+            .collect()
+    };
+    let (first, second) = (
+        offered(&mut server, &docs[0]),
+        offered(&mut server, &docs[1]),
+    );
+    let (id, value) = first
+        .iter()
+        .find(|(id, _)| second.contains_key(*id))
+        .map(|(id, v)| (id.clone(), v.clone()))
+        .expect("a question open with a default on both parts");
+    let saved = call(
+        &mut server,
+        "save",
+        json!({"doc": docs[0], "accept_defaults": {"0": {&id: value}}}),
+    );
+    assert_eq!(saved["isError"], json!(false), "{saved}");
+    let written = dir.join("two.specified.step");
+    let file = specify_core::part::File::read(&written).unwrap();
+    let analysed = |k: usize| {
+        specify_core::api::analyse_reporting_in(&file, &file.load(Some(k)).unwrap())
+            .unwrap()
+            .0
+    };
+    assert!(analysed(0)["resume"]["answers"].get(&id).is_some());
+    let other = analysed(1);
+    assert!(
+        other.get("resume").is_none(),
+        "part 1 not written: {}",
+        other["resume"]
+    );
+    let qs = specify_core::api::questions(&other, &Map::new()).unwrap();
+    assert!(
+        specify_core::rules::open_questions(&qs, &Map::new())
+            .iter()
+            .any(|q| q.id == id),
+        "still open on part 1"
+    );
+    drop(server);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A part joining the session while the page is open is a change: the page's save at its old
+/// rev is refused; re-read, the part is there with no answers, and the save leaves it as it was.
+#[test]
+fn a_part_joining_the_session_moves_the_rev_and_is_not_written_empty() {
+    let dir = scratch("joined");
+    let two = dir.join("two.step");
+    std::fs::copy(part("a_file_with_two_parts_must_say_which"), &two).unwrap();
+    let mut server = Server::new(std::slice::from_ref(&dir)).unwrap();
+    server.set_app(stub_app(&dir));
+    let first = call(&mut server, "open", json!({"path": two, "part": 0}));
+    let doc = first["structuredContent"]["doc"].clone();
+    call(
+        &mut server,
+        "answer",
+        json!({"doc": doc, "set": {"part.material": "6061-T6"}}),
+    );
+    let shown = call(&mut server, "show", json!({"doc": doc, "browser": false}));
+    let url = shown["structuredContent"]["url"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let (_, seen) = page(&url, "GET", "answers", None);
+    let rev = seen["rev"].as_u64().unwrap();
+    assert!(seen["parts"].get("1").is_none());
+    let mut events = Events::open(&url);
+    events.next();
+
+    // The agent opens part 1.
+    let joined = call(&mut server, "open", json!({"path": two, "part": 1}));
+    assert_eq!(joined["structuredContent"]["rev"], json!(rev + 1));
+    let (name, change) = events.next();
+    assert_eq!(name, "answers");
+    assert_eq!(
+        change,
+        json!({"rev": rev + 1, "part": 1, "answers": {}, "source": "mcp", "joined": true})
+    );
+    let body = json!({"rev": rev, "acceptDefaults": {}});
+    let (status, refused) = page(&url, "POST", "save", Some(&body));
+    assert_eq!(status, 409, "{refused}");
+    let (_, again) = page(&url, "GET", "answers", None);
+    assert_eq!(again["parts"]["1"], json!({}));
+    let body = json!({"rev": again["rev"], "acceptDefaults": {}});
+    let (status, saved) = page(&url, "POST", "save", Some(&body));
+    assert_eq!(status, 200, "{saved}");
+
+    // Part 1 is left as it was: its PMI and (no) stored answers.
+    let analysed = |path: &Path, k: usize| {
+        let file = specify_core::part::File::read(path).unwrap();
+        specify_core::api::analyse_reporting_in(&file, &file.load(Some(k)).unwrap())
+            .unwrap()
+            .0
+    };
+    let written = dir.join("two.specified.step");
+    let (before, after) = (analysed(&two, 1), analysed(&written, 1));
+    for key in ["existing", "part", "resume"] {
+        assert_eq!(after.get(key), before.get(key), "{key}");
+    }
+    assert_eq!(
+        analysed(&written, 0)["resume"]["answers"],
+        json!({"part.material": "6061-T6"})
+    );
+    drop(events);
+    drop(server);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// ADR P9 for write_pmi and export_answers: without approvals only answers are written or
+/// exported (incomplete allowed); approvals carry the value seen, checked against the default.
+#[test]
+fn write_pmi_and_export_answers_take_only_approved_defaults() {
+    let dir = scratch("p9-write-export");
+    let copy = dir.join("plate.step");
+    std::fs::copy(part("plate"), &copy).unwrap();
+    let mut server = Server::new(std::slice::from_ref(&dir)).unwrap();
+    let opened = call(&mut server, "open", json!({"path": copy}));
+    let doc = opened["structuredContent"]["doc"].clone();
+    call(
+        &mut server,
+        "answer",
+        json!({"doc": doc, "set": {"part.material": "6061-T6"}}),
+    );
+    let open = call(&mut server, "questions", json!({"doc": doc}));
+    let (id, default) = open["structuredContent"]["questions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|q| !q["default"].is_null())
+        .map(|q| (q["id"].as_str().unwrap().to_string(), q["default"].clone()))
+        .unwrap();
+
+    // No approvals: only the answer, incomplete, no default anywhere.
+    let out = dir.join("answered.step");
+    let written = call(&mut server, "write_pmi", json!({"doc": doc, "output": out}));
+    let written = &written["structuredContent"];
+    assert_eq!(written["complete"], json!(false), "{written}");
+    assert!(written["missing"].as_array().unwrap().contains(&json!(id)));
+    let stored = specify_core::api::analyse_file(&out, None).unwrap()["resume"]["answers"].clone();
+    assert_eq!(stored, json!({"part.material": "6061-T6"}));
+    let exported = call(&mut server, "export_answers", json!({"doc": doc}));
+    let exported = &exported["structuredContent"];
+    assert!(exported["answers"].get(&id).is_none());
+    assert_eq!(exported["complete"], json!(false));
+    assert!(exported["missing"].as_array().unwrap().contains(&json!(id)));
+
+    // A bool, or a value that is not the default, is refused; nothing is written.
+    for tool in ["write_pmi", "export_answers"] {
+        let bad = error_of(
+            &mut server,
+            tool,
+            json!({"doc": doc, "output": dir.join(format!("{tool}.out")), "accept_defaults": true}),
+        );
+        assert_eq!(bad["code"], json!("invalid"), "{tool}");
+        let stale = error_of(
+            &mut server,
+            tool,
+            json!({"doc": doc, "output": dir.join(format!("{tool}.out")),
+                   "accept_defaults": {&id: "not the default"}}),
+        );
+        assert_eq!(stale["question"], json!(id), "{tool}");
+        assert_eq!(stale["expected"], json!("not the default"));
+        assert_eq!(stale["current"], default);
+        assert!(!dir.join(format!("{tool}.out")).exists());
+    }
+
+    // Approved with the value seen: written and exported with it.
+    let out = dir.join("approved.step");
+    call(
+        &mut server,
+        "write_pmi",
+        json!({"doc": doc, "output": out, "accept_defaults": {&id: default}}),
+    );
+    let stored = specify_core::api::analyse_file(&out, None).unwrap()["resume"]["answers"].clone();
+    assert_eq!(stored[&id], default);
+    let exported = call(
+        &mut server,
+        "export_answers",
+        json!({"doc": doc, "accept_defaults": {&id: default}}),
+    );
+    assert_eq!(exported["structuredContent"]["answers"][&id], default);
+    // The session's answers are unchanged by either.
+    let answered = call(
+        &mut server,
+        "questions",
+        json!({"doc": doc, "state": "answered"}),
+    );
+    assert_eq!(
+        answered["structuredContent"]["questions"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    drop(server);
     let _ = std::fs::remove_dir_all(&dir);
 }

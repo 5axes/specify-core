@@ -4,6 +4,10 @@
 opens a STEP file, answers Specify's questions, reviews the result and writes AP242 PMI. The tools
 call the same steps as `specify-core serve` (`src/api.rs`). The server is in `src/mcp.rs`.
 
+The answers of an opened file are a **session** held by the server (`src/session.rs`), which
+`show` also serves to the Specify page in the person's browser, so the agent and the person
+edit one set of answers: see [session.md](session.md).
+
 ```text
 specify-core mcp [--allow DIR]...                      stdio (the client starts it)
 specify-core mcp --http [--port N] [--allow DIR]...    Streamable HTTP on 127.0.0.1
@@ -21,8 +25,13 @@ version, the error is `-32022`, and its `data.supported` lists `["2026-07-28", "
 **Claude Code** (stdio), from the directory that holds your parts:
 
 ```sh
-claude mcp add specify -- specify-core mcp --allow "$PWD"
+claude mcp add specify -- specify-core mcp
 ```
+
+(without `--allow` the server may use its working directory; add `--allow DIR` for others).
+`show` serves the Specify app, which is not bundled yet: give the server `SPECIFY_APP_DIR` (and
+`SPECIFY_WASM_DIR`) as `specify-core open` takes them (docs/open.md), for example
+`claude mcp add specify -e SPECIFY_APP_DIR=/path/to/app -- specify-core mcp`.
 
 **Claude Desktop** (stdio), in `claude_desktop_config.json`:
 
@@ -61,29 +70,86 @@ Every tool has an `inputSchema` and an `outputSchema`. A result's `structuredCon
 structured result, and its text content holds the same JSON. A refusal is a tool result with
 `isError: true` and `structuredContent.error`: `{code, message, ...}`. The code is `invalid` (a
 bad argument, or an answer Specify refuses; `question` names it), `refused` (a path outside
-`--allow`, or an existing file without `overwrite`), `unknown_document`, `stale`, `incomplete`
-(with `missing`) or `failed`. Protocol errors, such as an unknown tool or bad params, are
+`--allow`, or an existing file without `overwrite`), `unknown_document`, `stale` (also an
+in-place `save` over a file changed on disk by another program, and a `save` during which the
+session's set of parts changed, such as the page's first change to another part: read it again
+and save again), `incomplete` (with `missing`)
+or `failed`. Protocol errors, such as an unknown tool or bad params, are
 JSON-RPC errors.
 
 | Tool | Arguments | Result |
 | --- | --- | --- |
 | `list_parts` | `path` | `parts`: `[{part, name, product_id, faces, instances, ...}]`, as `serve`'s `parts` |
-| `open` | `path`, `part?`, `answers_file?`, `overwrite?` | `doc`, `open_questions`, `features` (counts by family), `faces`, `existing_pmi`, `resumed`, `conflicts?`, `warnings?`. For an assembly opened without `part`, the result is `needs_part: true` with its `parts` |
-| `questions` | `doc`, `state?` (`open` by default, `answered`, `all`) | each question as review presents it, with its `state` (`open`, `answered`, `optional`) and its `answer`; a default's `source` names the rule behind it ([rule-sources.md](rule-sources.md#rule-ids)) |
-| `answer` | `doc`, `set?: {id: value or text}`, `clear?: [id]`, `keep?: [conflict id]`, `answers_file?`, `overwrite?` | each answer as stored, with `interpreted_from` when it was typed, and its `state`; `kept`; the `open` ids |
-| `review` | `doc` | `open`, `problems`, `writable`/`missing` as answered, `writable_with_defaults`/`missing_with_defaults` |
-| `characteristics` | `doc` | `intent`: the preview, as `serve`'s `preview`; `sources` (question ID to the rule behind each answer that is its question's default) |
-| `read_pmi` | `doc` | `existing` (the file's PMI by face), `part_settings`, `resumed`, `saved_answers?` |
-| `write_pmi` | `doc`, `output`, `accept_defaults?`, `overwrite?` | `report`, as `serve`'s `write` |
-| `export_answers` | `doc`, `output?`, `overwrite?` | `answers`: the complete sidecar (docs/answers.md) |
+| `open` | `path`, `part?`, `old?`, `old_answers?`, `in_place?`, `answers_file?`, `overwrite?` | `doc`, `rev`, `open_questions`, `features` (counts by family), `faces`, `existing_pmi`, `resumed`, `conflicts?`, `warnings?`; with `old`, the comparison's `verdict`, `summary` and `report`. For an assembly opened without `part`, the result is `needs_part: true` with its `parts` |
+| `questions` | `doc`, `state?` (`open` by default, `answered`, `all`), `compact?` (only the open questions, `{id, prompt, choices or hint, suggested?, rule?}`) | each question as review presents it, with its `state` (`open`, `answered`, `optional`) and its `answer`; a default's `source` names the rule behind it ([rule-sources.md](rule-sources.md#rule-ids)); `rev`; `conflicts?` |
+| `answer` | `doc`, `set?: {id: value or text}`, `clear?: [id]`, `keep?: [conflict id]`, `partial?`, `answers_file?`, `overwrite?` | each answer as stored, with `interpreted_from` when it was typed, and its `state`; `kept`; the `open` ids; the new `rev`; with `partial`, `outcomes`: `{id: {stored, interpreted_from?, state}}` or `{id: {refused: reason}}` |
+| `review` | `doc` | `open`, `problems`, `writable`/`missing` as answered, `writable_with_defaults`/`missing_with_defaults`; `rev` |
+| `characteristics` | `doc` | `intent`: the preview, as `serve`'s `preview`; `sources` (question ID to the rule behind each answer that is its question's default); `rev` |
+| `read_pmi` | `doc` | `existing` (the file's PMI by face), `part_settings`, `resumed`, `saved_answers?`; `rev` |
+| `write_pmi` | `doc`, `output`, `accept_defaults?` (`{"<id>": <value>}`, the defaults the person approved for the doc's part), `overwrite?` | `report`, as `serve`'s `write`; `complete`, `missing`, `rev`. What is answered plus only the defaults approved; open questions never refuse it |
+| `export_answers` | `doc`, `accept_defaults?` (as `write_pmi`), `output?`, `overwrite?` | `answers`: the answer map (docs/answers.md) of what is answered plus only the defaults approved, with face evidence; `complete`, `missing`, `rev` |
 | `diff` | `old`, `new`, `part?`, `doc?` | `verdict`, `summary`, carried `answers`, `report`, `markdown`, as `specify-core diff` (nothing is written) |
+| `changes` | `doc`, `since` (a `rev`) | `rev`, and `changes`: `[{rev, part, source, set, cleared}]` after `since`, oldest first (`source` `page` or `mcp`); if `since` is older than the 256 changes kept, `full: true` and `answers`, every part's answers by part index |
+| `show` | `doc`, `browser?` (default `true`), `read_only?` | `url`, `mode`: the Specify page for the document's session on 127.0.0.1 (docs/open.md), started or, if it is running, its address; the browser opened unless `browser: false`. `read_only` makes that page view-only (not for a session opened with `old` or `in_place`). A running page in the other mode is refused (`invalid`, with its `url` and `mode`), never replaced |
+| `save` | `doc`, `accept_defaults` (required: the defaults the person approved with the values they saw, `{"<id>": <value>}` for the doc's part or `{"<part>": {"<id>": <value>}}`; `{}` for none) | `path`, `bytes`, `rev`, `report`, `complete`, `missing`: the session's answers written as the page's Save writes them, beside the file (or over it, opened `in_place`); open questions never refuse it |
 
 `answer` reads free text for a choice question as `serve`'s `interpret` does. `"M6"` on a hole
 becomes the matching `clearance:` or `tapped:` value, `"H7"` on a bore becomes a fit, and an
 exact option is taken as it is. Answers are applied in order, each checked against the answers
-before it. The call is all-or-nothing: if one answer is refused, nothing changes.
+before it. The call is all-or-nothing: if one answer is refused, nothing changes. With `partial: true`, every
+valid answer is applied in one `rev` and each refused one is reported in `outcomes` with its reason.
 
 `diff` with `doc` carries that document's answers. The document must be of `old`.
+
+`in_place` on a file whose session is already open changes where its Save writes only when the
+call gives it. Under `open` the session keeps the path as given (made absolute, not resolved),
+so Save goes beside a link and its `.bak` is named after the link. The directory a file is
+named in must be inside `--allow` as well as the file itself (for `path`, `old` and
+`old_answers`), and every save, from the agent or the page, is refused (`refused`, 403 from the
+page) if it would write outside `--allow`.
+
+`open` with `old` compares the two as `diff` does (the old answers from `old_answers`, else those
+stored in `old`) and the session starts from the answers carried to `path`. `old_answers` needs
+`old`.
+
+## Two ways to work
+
+- **Intent known** (the agent designed the part, or was told the intent): answer everything known
+  in one `answer` call with `partial: true` (each id's outcome is given; the valid ones apply in
+  one `rev`), then ask the person only the gaps in chat, from `questions` with `compact: true`
+  (`{id, prompt, choices or hint, suggested?, rule?}` per open question), and `save`.
+- **No context** (an incoming STEP): answer only what can be inferred, then offer `show`, so the
+  person answers in the page instead of a long chat Q&A, and read their answers with `changes`.
+
+Either way a default is never intent (ADR P9): a suggestion is the person's to approve, and
+`save`'s `accept_defaults` lists only the ones they approved. Where Specify reports that a file
+and its stored answers disagree, the agent brings it to the person and never decides it. The
+server's `instructions` say this for the client.
+
+## The session
+
+Each opened file has one session, held in memory, which every part of it opened shares (see
+[session.md](session.md)): its answers by part, a `rev` that goes up by one on every change
+(from `answer`, `open` with an `answers_file`, or the page's edits), and the last 256 changes.
+Opening the same file again (the same path, its contents as opened or as the session's own
+in-place save left them, and the same `old`) returns its session, its documents and their
+answers. Every tool that reads the answers reads the session as it is now,
+page edits included, and returns `rev`; `changes` says what changed since a `rev` (MCP over
+stdio cannot push to the agent, so it asks).
+
+`show` starts the page server for the session (a random port and token) and opens the
+browser; the page and the tools then share the answers, and the agent's changes reach the page
+as `answers` events with `source: "mcp"`. The page server stops as docs/open.md says (90 s after
+the page is closed, or 30 minutes without a request), and with the MCP server; `show` again
+starts a new one. Under stdio its notices go to stderr.
+
+`save` and the page's Save write the same way (docs/open.md, `save`): `write`'s writer, the
+answers stored in the file, beside it as `<stem>.specified.step` (then `-2`, …) or over it when
+opened `in_place` (keeping a `.bak`; every save writes from the file as opened). An incomplete
+save is written; `complete` and `missing` say what is still open. `accept_defaults` lists
+exactly the defaults the person approved (ADR P9); they become answers, the others stay open
+and unwritten. A session's own in-place save does
+not make its documents `stale`.
 
 **Resources:** each open document has `specify://doc/{doc}/analysis` (the analysis JSON) and
 `specify://doc/{doc}/mesh` (triangles by face index). Both are listed in `resources/list` and
@@ -97,8 +163,8 @@ index, for example `9b1c…e4-0`. Every later call passes it. The analysis and t
 held **in the server's memory, by handle**, and nothing is written unless you ask:
 
 - **Content-addressed.** The handle depends on the file's contents, not its path. A
-  byte-identical copy at another path opens to the same handle, and so shares the answers held
-  in memory; the handle then follows the path opened most recently.
+  byte-identical copy at another path opens to the same handle, and starts from the answers
+  held for it; the handle then follows the path opened most recently (and its session).
 
 - **Restart.** When the server stops, its documents and their answers are lost. A call with a
   forgotten handle is refused as `unknown_document`; open the file again.

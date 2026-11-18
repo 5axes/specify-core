@@ -1,18 +1,45 @@
 # `specify-core open`: the local app contract
 
-`specify-core open FILE` serves the Specify app, the engine and one STEP file from this
-computer and opens the browser at the app. This page is the contract between the command
-(src/open.rs) and the app (built by specify-ui) that it serves.
+The Specify page serves the Specify app, the engine and one STEP file (two for a diff) from
+this computer on 127.0.0.1 and opens the browser at the app. This page is the contract between
+that page server (src/open.rs) and the app (built by specify-ui) that it serves.
+
+The page server is started in one of two ways, with the same code and the same contract:
+
+- **By an AI agent** (the usual way): Specify is set up once as the agent's stdio MCP server,
+  `specify-core mcp`; the agent opens a part and calls the `show` tool, which starts the page
+  server for that session and returns its address (docs/session.md).
+- **By hand**, with no agent: `specify-core open FILE` or `specify-core open --diff OLD NEW`,
+  below.
 
 ```text
 specify-core open FILE [--read-only | --in-place] [--port N] [--no-browser]
                        [--app DIR] [--wasm DIR]
+specify-core open --diff OLD NEW [--answers FILE] [--in-place] [--port N] [--no-browser]
+                       [--app DIR] [--wasm DIR]
 ```
 
-`FILE` is a `.step` or `.stp` file, or either gzipped. `--read-only` and `--in-place` cannot be
-combined. Every path the command shows or returns (`saveTarget`, a save's `path`, its notices)
-is `FILE` as given, made absolute, never resolved: a link stays the link, and nothing is shown
-in a canonical form such as Windows' `\\?\C:\…`.
+`FILE`, `OLD` and `NEW` are `.step` or `.stp` files, or either gzipped. `--read-only` and
+`--in-place` cannot be combined; `--read-only` cannot be combined with `--diff`. Every path
+the command shows or returns (`saveTarget`, a save's `path`, its notices) is the file as given,
+made absolute, never resolved: a link stays the link, and nothing is shown in a canonical form
+such as Windows' `\\?\C:\…`.
+
+The run has one of three modes, given to the app as `config.mode`:
+
+| Mode | Command | The page |
+| --- | --- | --- |
+| `specify` | `open FILE` | answers the part's questions and saves the specified STEP |
+| `read-only` | `open FILE --read-only` | shows the part and its PMI; no answers change, no Save |
+| `diff` | `open --diff OLD NEW` | shows what changed and what was carried; answers what needs a decision; Save writes `NEW` specified |
+
+In `diff` mode everything below that speaks of "the file" or `FILE` means `NEW`; `OLD` is
+only read.
+
+The answers being edited live in the process that serves the page (the *session*, below, and
+docs/session.md), not only in the page: under an agent, the MCP server process, so the agent
+sees the page's answers and the page sees the agent's as they are made. In what follows, "the
+command" is that process: `specify-core open`, or `specify-core mcp` after `show`.
 
 ## Addresses
 
@@ -23,8 +50,9 @@ characters drawn from the operating system's random source for each run. The com
 Open part.step: http://127.0.0.1:<port>/<token>/
 ```
 
-and opens the browser there (not with `--no-browser`). `<token>` without its trailing slash is
-redirected (308) to it. The app must use relative URLs only: it is served under the token, never
+and opens the browser there (not with `--no-browser`). (Under an agent nothing is printed: the
+`show` tool returns the address, and opens the browser unless asked not to.) `<token>`
+without its trailing slash is redirected (308) to it. The app must use relative URLs only: it is served under the token, never
 at `/`.
 
 | Request | Answer |
@@ -33,27 +61,45 @@ at `/`.
 | `GET <token>/<path>` | the static app: the file at `<path>` in the app directory |
 | `GET <token>/wasm/<path>` | the engine: the file at `<path>` in the wasm-pack `pkg/` directory |
 | `GET <token>/file` | the STEP file's bytes, as on disk (gzipped if the file is), `application/octet-stream` |
+| `GET <token>/file?rev=old` | `diff` mode: `OLD`'s bytes; `?rev=new` (or no query) is `NEW`; any other `rev` is 404 |
 | `GET <token>/config` | the app's settings, below; also the page's heartbeat |
-| `POST <token>/save` | the specified STEP written to disk, below |
+| `GET <token>/answers` | the session's answers, below |
+| `PUT <token>/answers` | replace one part's answers in the session, below |
+| `GET <token>/events` | the session's changes as server-sent events, below |
+| `GET <token>/diff` | `diff` mode: the comparison, as WASM `diff()` gives it, below |
+| `POST <token>/save` | the specified STEP written to disk from the session's answers, below |
 | `POST <token>/closed` | the page went away, below |
 
-A query string is ignored. `file` serves the input as it was opened, or as the last `--in-place`
-save left it.
+A query string is ignored, except `rev` on `file`. `file` serves the input as it was opened, or
+as the last `--in-place` save left it. Outside `diff` mode `?rev=old` is 404, and `diff` is 404.
 
 ### `config`
 
 ```json
 {
+  "mode": "specify",
   "name": "part.step",
+  "path": "/home/me/parts/part.step",
+  "part": null,
+  "oldName": null,
+  "oldPath": null,
   "readOnly": false,
   "wasmUrl": "wasm/specify_core_wasm.js",
   "saveTarget": "/home/me/parts/part.specified.step",
-  "specifyCore": "0.1.17"
+  "specifyCore": "0.1.19"
 }
 ```
 
-- `name`: the file's name.
-- `readOnly`: saves are refused (`--read-only`); hide or disable Save.
+- `mode`: `"specify"`, `"read-only"` or `"diff"` (above).
+- `name`: the file's name (`NEW`'s in `diff` mode).
+- `path`: the opened file's absolute path (`NEW`'s in `diff` mode), as given, not resolved
+  (above).
+- `part`: the part index the page is shown for: under an agent, the part (`doc`) `show` was
+  called for, in a file of several parts; otherwise `null` (`specify-core open`, or a file of
+  one part).
+- `oldName`, `oldPath`: `OLD`'s name and absolute path in `diff` mode, otherwise `null`.
+- `readOnly`: saves and answer changes are refused (`--read-only`); hide or disable Save.
+  `true` exactly when `mode` is `"read-only"`.
 - `wasmUrl`: the engine's entry module, relative to the app.
 - `saveTarget`: the absolute path the next save would write (the input itself with
   `--in-place`), or `null` when read-only. It changes after each save. A save may still take
@@ -62,20 +108,60 @@ save left it.
 
 ### `save`
 
-`POST <token>/save` with the STEP file as the body:
+The command writes the STEP itself, from the session's answers, with the same writer as
+`specify-core write` (the answers are stored in the file, so opening it again resumes them).
+The page sends no STEP bytes.
 
-- `Content-Type: application/octet-stream` (415 otherwise);
-- `Content-Length`, and no `Transfer-Encoding`: a chunked body is refused (411). `fetch` with
-  an `ArrayBuffer` or `Blob` body sends exactly this; a `ReadableStream` body does not;
-- `Origin: http://127.0.0.1:<port>` exactly (403 otherwise, and when `Origin` is absent);
-- at most min(4 × the input's STEP text, 512 MB) (413, before the body is read; a gzipped input
-  is measured unzipped);
-- a STEP Part 21 file: `ISO-10303-21;` after an optional UTF-8 BOM and whitespace (400
-  otherwise);
-- the whole body within 30 s plus 1 s per MiB of `Content-Length` (408 otherwise; 400 if the
-  connection ends first).
+`POST <token>/save` with a JSON body:
 
-The file is written to a temporary file next to the input and renamed into place:
+```json
+{"rev": 7, "acceptDefaults": {"0": {"part.general_tolerance": "ISO 2768-m"}}}
+```
+
+- `rev`: the session revision the page last saw (from `answers` or `events`). If the session
+  has moved on since, the save is refused (409, with the current `rev`) so the page never
+  saves answers it has not shown; the page refreshes and the person saves again.
+- `acceptDefaults` (required; 400 when absent or of another shape): an object keyed by part
+  index, as `GET answers`' `parts`, of exactly the defaults the person approved on that part,
+  each question id with the default value the person saw: `{"0": {"<id>": <value>, …}, "2":
+  {…}}`, `{}` for none. A default is written only when the person approves it, per id and per
+  part (ADR P9: "we shouldn't create the default, which then becomes gospel"). Every approval is
+  checked against the defaults as they stand at `rev`, before any is applied: each id must be an
+  open question that has a default on that part, else `400 {"error": "…", "part": <k>,
+  "question": "<id>"}`; and its value must be that default, else `400 {"error": "…", "part":
+  <k>, "question": "<id>", "expected": <the value sent>, "current": <the default now>}`. Either
+  way the whole save is refused and nothing is changed or written. An id given twice on a part
+  with the same value counts once; with different values the save is refused (400, naming
+  `part` and `question`). The approvals are then applied together, in one new `rev` however
+  many parts they name, so none changes another's value, and only the part named gets them. If
+  the write then fails, they are rolled back (a further `rev`) unless the session has moved on. The command first sets those answers to their
+  defaults in the session: a new `rev`, and for each part an `answers` event that also carries
+  `"defaults": {"<k>": [ids]}`, with `source` as for the save (`"page"`, or `"mcp"` for the
+  agent's `save`). Then it writes from that rev: the
+  approved defaults are ordinary answers, so the file stores them and reopening resumes them
+  with its PMI. Questions with a default that are not listed stay open and are never written.
+  The 200 reply's `rev` is that new rev (the one asked for when nothing is listed).
+  (Contract change, 2026-11-18: `acceptDefaults` was `true` or `false`, `true` filling every
+  open default; it was then `{"<part>": [ids]}`; it is now `{"<part>": {"<id>": <value>}}`, and
+  any other shape gets 400.)
+
+**An incomplete save is written** (Paul, 2026-11-18: "The user might want to save something
+with incomplete PMI. What's wrong with that? Lots of step files with ap242 don't have a complete
+answer to everything."). Open questions never refuse a save: the file gets the PMI that is
+answered, its stored answers are the session's, and reopening it resumes with the same
+questions open. The answer says what is still open (`complete`, `missing`).
+- `Content-Type: application/json` (415 otherwise), `Content-Length` and no
+  `Transfer-Encoding` (411), at most 64 KB (413), the whole body within 30 s (408).
+- `Origin: http://127.0.0.1:<port>` exactly (403 otherwise, and when `Origin` is absent).
+
+Every part that has at least one answer in the session (approved defaults count; keys starting
+with `_`, such as `_specify`, do not), and every part the session changed since it joined (a
+`PUT answers`, an agent's change, an approval: so clearing every answer reaches the file), is
+written in one edit. A part the session did not change and that has no answers has nothing to
+write: it and an assembly's other parts are left as they are (their PMI and stored answers
+untouched). With nothing to write, the file is saved as it was opened. A part
+never gets a default not approved for it. The file is written to a temporary file next to the input and renamed
+into place:
 
 - by default in the directory of `FILE` as given (beside a link, not in its target's
   directory) under the first free name of `<stem>.specified.step`, `<stem>.specified-2.step`,
@@ -88,22 +174,140 @@ The file is written to a temporary file next to the input and renamed into place
   the `.bak` holds the file as it was before the run. The replacement keeps the original's
   permissions. If `FILE` is a link, the link is followed: its target's contents are replaced
   (written beside the target and renamed onto it), the link is kept, and the `.bak` is beside
-  the link, named after it. A gzipped input is written gzipped.
+  the link, named after it. A gzipped input is written gzipped. Later saves still write from
+  the file as it was opened, never on top of the PMI an earlier save added.
 
-`200 {"path": "<absolute path written>", "bytes": <body length>}`. Read-only:
-`409 {"error": "…"}` and nothing written. The command prints `Saved <path> (<bytes> bytes).`
-for each save.
+Answers:
+
+- `200 {"path": "<absolute path written>", "bytes": <length written>, "rev": <n>, "report": {…},
+  "complete": <bool>, "missing": ["<question id>", …]}`, `report` being `write`'s report (as
+  `serve`'s `write`), `missing` the required questions still open after this save (empty, and
+  `complete` true, when none are; in an assembly, those of every part written, in part order);
+- `409 {"error": "…", "rev": <current>}`: the session moved on, or read-only, or (`--in-place`)
+  the file was changed on disk by another program since it was opened (nothing written);
+- `422 {"error": "…"}`: an answer the writer refuses (the message names the question); nothing
+  written;
+- `403 {"error": "…"}`: under an agent, the save would write outside the directories the agent's
+  server may use (`--allow`); nothing written.
+
+The command prints `Saved <path> (<bytes> bytes).` for each save.
+
+(Contract change, 2026-11-18: until then the page wrote the STEP with its own engine and sent
+the bytes as `application/octet-stream`. With the answers in the command, the command writes,
+so a save made from the page and one asked for by an AI client write the same file.)
+
+## The session: `answers` and `events`
+
+The command holds the answers for the run: one answer map (as in `docs/answers.md`) per part,
+by part index (`"0"` for a single part), and a revision number `rev` that goes up by one on
+every change. At the start it holds:
+
+- `specify` and `read-only`: the answers stored in `FILE`, when Specify wrote it (resume, as
+  `analyse` reports them), otherwise none;
+- `diff`: the answers the command's own `diff` carried to `NEW` (its `answers.json`, below).
+
+`GET <token>/answers` →
+
+```json
+{"rev": 7, "parts": {"0": {"part.material": "6061-T6", "datum.A": [4]}}}
+```
+
+`PUT <token>/answers` (`Content-Type: application/json`, the `Origin` rule of `save`, at most
+16 MB):
+
+```json
+{"rev": 7, "part": 0, "answers": {"part.material": "6061-T6", "datum.A": [4]}}
+```
+
+replaces part `part`'s map with `answers` when `rev` is the session's current revision:
+`200 {"rev": 8}`. Otherwise `409 {"error": "…", "rev": <current>, "parts": {…}}`, and the page
+reapplies its change to the current answers and tries again. Read-only: `409 {"error": "…"}`.
+The body must be an object of question ids to answers (400 otherwise); the answers themselves
+are checked when they are used (by the page's engine, `save`, and MCP's tools), not here. A
+`part` the file does not have is refused (400).
+
+`GET <token>/events` is a stream of server-sent events (`text/event-stream`, for
+`EventSource`). On connecting it sends the current state (an `answers` event whose data is
+`answers`' body with `"source": "start"`: `{"rev": 7, "parts": {…}, "source": "start"}`), then
+one event per change:
+
+```text
+event: answers
+id: 8
+data: {"rev": 8, "part": 0, "answers": {…}, "source": "page"}
+```
+
+(A change a `save` makes by approving defaults adds `"defaults": {"<part>": ["<id>", …]}`. A
+part joining the session, when the agent opens another part of the file or the page's first
+`PUT answers` for it, is a change too: a new `rev` and an event with `"joined": true`, its
+`answers` possibly `{}`, `source` `"mcp"` or `"page"`; a page holding an older `rev` then
+fails its next check and re-reads.)
+
+`source` is `"page"` (a `PUT answers`), `"mcp"` (the agent's tools, docs/session.md) or
+`"start"` (the first event).
+Every open page receives every change, its own included. One `rev` can carry several `answers`
+events, one per part (a save's approvals on several parts): a page skips an event it already
+has by its `rev` and `part` together, not by `rev` alone.
+A comment line (`: keep-alive`) is sent every 15 s. A stream that falls more than 1,000 events
+behind is closed; reconnecting, it gets the full state. A reconnecting `EventSource` gets the full
+current state again; `Last-Event-ID` is ignored. A `save` also sends
+
+```text
+event: saved
+data: {"path": "…", "bytes": 12345, "rev": 8, "source": "page"}
+```
+
+so every page shows where the file was written, whoever asked.
+
+At most 4 event streams are open at once (a fifth gets 503 with `Retry-After: 1`); they count
+toward the 16 connections.
+
+## `diff` mode
+
+`specify-core open --diff OLD NEW` runs the same comparison as `specify-core diff OLD NEW`
+when it starts, with the old answers from `--answers FILE`, or else those stored in `OLD`
+(a file Specify wrote), or else none (the report then says what changed, with nothing to
+carry).
+
+**The carried answers come from the command's `diff`, not from the engine in the page.**
+The session needs them before any page or MCP client asks, and the command's comparison is
+the one `specify-core diff` and MCP's `diff` give, so the page, the AI and a CI run cannot
+disagree. The page does not compare the parts again.
+
+`GET <token>/diff` → exactly what WASM `diff()` returns for the two files with `scenes` true
+(docs/wasm.md, the `diff(...)` row), computed natively by the same code when the session
+starts: for a part `{report, markdown, view}`, `report` being `diff --pmi-scenes`'s
+`report.json` (docs/diff.md), `markdown` the report headed with `NEW`'s name, and `view` the
+new and old meshes, the `faces` classes, `gone`, `motion` and `changes`; for an assembly
+`{report, markdown, parts}`, each part `{name, status, old, new}` with its `report` when it is
+in both files and, when it changed, its `markdown` and `view`. The PMI scenes are
+`report.pmi.scenes`, `{old, new}`, each a `PmiScene` (docs/wasm.md, "PMI scenes"); in an
+assembly, each compared part's `parts[i].report.pmi.scenes`. (Contract addition, 2026-11-18:
+`GET diff` includes the PMI scenes, as `diff()` with `scenes` true.) The page's StepDiff
+draws from it without comparing again. (Contract change, 2026-11-18: `GET diff` was
+report.json; it is now `{report, markdown, view}` (assembly `{report, markdown, parts}`), as
+WASM `diff()`.) The session then starts from `diff`'s `answers.json`. Questions the report leaves to decide are
+open questions in the session; answering them (page or MCP) changes the session, and the
+report is not recomputed. Save writes `NEW` (beside it, or over it with `--in-place`) from the
+session's answers.
+
+## The agent's side
+
+Under `specify-core mcp` the agent reads and changes the same session through MCP tools
+(docs/session.md): its answers reach the page as `answers` events with `source: "mcp"`, and
+the page's `PUT answers` are what its next call sees. Its `save` tool writes as the page's Save
+does and sends the same `saved` event.
 
 ### Heartbeat and `closed`
 
-The engine runs in the page, so editing makes no requests. While the page is open, visible or
-not, the app sends `GET <token>/config` every 30 s (the heartbeat; the answer may be used or
+The engine runs in the page, so looking at the part makes no requests (answer changes do:
+`PUT answers`). While the page is open, visible or not, the app sends `GET <token>/config` every 30 s (the heartbeat; the answer may be used or
 ignored). Any request resets the idle time and cancels a pending close.
 
 `POST <token>/closed`, with the same `Origin` rule as `save` (any body, ignored; 204). Send it
 with `navigator.sendBeacon` on `pagehide` only when `!event.persisted`: a page going into the
 back/forward cache is not closed, and sends nothing. After `closed` the command stops once no
-request has arrived for 90 s, printing `Closed.`; a reload, or another open tab's heartbeat,
+request has arrived and no event stream has been open for 90 s, printing `Closed.`; a reload, or another open tab's heartbeat,
 keeps it running (90 s, because browsers run a long-hidden tab's timers about once a
 minute). Without `closed` (a forgotten server, no page sending heartbeats) it stops
 after 30 minutes with no request, printing `Stopped: no request for 30 minutes.`.
@@ -111,12 +315,19 @@ after 30 minutes with no request, printing `Stopped: no request for 30 minutes.`
 (Contract addition, after the first version: the heartbeat, the `!event.persisted` rule and
 the 90 s delay, which was 3 s.)
 
+Under an agent, "the command stops" means the page server stops: the MCP server and its
+session carry on, nothing is printed on stdout (it carries the MCP protocol; notices go to
+stderr), and the agent can call `show` again for a new address. When the MCP server exits, its
+page servers stop with it.
+
 ## Which answers have a body
 
-- A JSON `{"error": "…"}` body (`application/json`): every refusal of `POST <token>/save`
-  (403, 409, 411, 413, 415, 400, 408, 500) and a `POST <token>/closed` from another origin
+- A JSON `{"error": "…"}` body (`application/json`), with the extra fields given above: every
+  refusal of `POST <token>/save` and `PUT <token>/answers` (400, 403, 408, 409, 411, 413, 415,
+  422, 500), a refused `events` stream (503) and a `POST <token>/closed` from another origin
   (403).
-- JSON: `config` and a successful `save` (200).
+- JSON: `config`, `answers`, `diff`, a successful `save` and `PUT answers` (200).
+- `events`: `text/event-stream`, never closed by the command but at exit.
 - No body (`Content-Length: 0`): `closed` (204), a wrong `Host` (403), a `GET` from another
   origin (403), any other token or path (404), a 404 under the token, a wrong method (405,
   with `Allow`), a request that cannot be read (400), the 308 redirect and 503.

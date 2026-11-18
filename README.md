@@ -104,14 +104,30 @@ are named `max_deviation_mm`. See [mesh tolerance](docs/mesh-tolerance.md).
 `specify-core analyse plate.step -o - | jq '.features[].family'`.
 
 `specify-core open plate.step` opens the file in Specify in your browser, served by the
-command itself on 127.0.0.1: nothing is uploaded and nothing depends on a website. Specify's
-Save writes `plate.specified.step` next to the input (then `plate.specified-2.step`, …; nothing
-is overwritten); `--in-place` saves over the input (through a link, over its target) and keeps
-the original once as `plate.step.bak`, and `--read-only` refuses saves. `--port N` picks the
-port and `--no-browser` only prints the address. The command stops 90 seconds after the last
-page is closed, or after 30 minutes without a request. The app is not bundled yet: pass `--app DIR` (or set `SPECIFY_APP_DIR`) to the built
-Specify app and `--wasm DIR` (or `SPECIFY_WASM_DIR`) to the engine's wasm-pack `pkg/`
-directory. See [docs/open.md](docs/open.md).
+command itself on 127.0.0.1: nothing is uploaded and nothing depends on a website. The command
+holds the answers given in the page; Specify's Save writes them (what is answered, even with
+questions still open; the defaults only when you choose "with defaults") into
+`plate.specified.step` next to the input (then `plate.specified-2.step`, …; nothing is
+overwritten); `--in-place` saves over the input (through a link, over its target) and keeps the
+original once as `plate.step.bak`, and `--read-only` refuses answer changes and saves.
+`specify-core open --diff old.step new.step` shows what changed and starts from the answers
+`specify-core diff` carries to the new revision (`--answers FILE` for the old answers); Save
+writes the new one. `--port N` picks the port and `--no-browser` only prints the address. The
+command stops 90 seconds after the last page is closed, or after 30 minutes without a request.
+The app is not bundled yet: pass `--app DIR` (or set `SPECIFY_APP_DIR`) to the built Specify app
+and `--wasm DIR` (or `SPECIFY_WASM_DIR`) to the engine's wasm-pack `pkg/` directory. See
+[docs/open.md](docs/open.md).
+
+**With an AI agent.** Add Specify to your agent once, as a stdio MCP server:
+
+```sh
+claude mcp add specify -- specify-core mcp
+```
+
+The agent opens the part, answers what you tell it, and calls `show` to open the same Specify
+page on the same answers: your edits in the page are what the agent reads next, and its answers
+appear in the page as it makes them. Either side saves. See [docs/session.md](docs/session.md)
+and [docs/mcp.md](docs/mcp.md).
 
 **Shell completion.** `specify-core completions SHELL` prints a completion script for `bash`,
 `zsh`, `fish`, `powershell` or `elvish`:
