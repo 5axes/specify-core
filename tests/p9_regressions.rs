@@ -287,3 +287,46 @@ fn defaults_written_without_their_answers_are_kept() {
         review["open"]
     );
 }
+
+/// Case 1 through a session (the MCP `save`, as the page's Save writes): the NX-case file
+/// reopened, one question answered, saved, and the other tool's flatness is still there.
+#[test]
+fn a_session_save_keeps_pmi_another_tool_added() {
+    let dir = dir("session");
+    let input = dir.join("nx.step");
+    let loaded = load(with_foreign_flatness(written(&answers("none"))));
+    let added = flatness(&loaded);
+    std::fs::write(&input, loaded.bytes.as_slice()).unwrap();
+    let mut server = specify_core::mcp::Server::new(std::slice::from_ref(&dir)).unwrap();
+    let mut call = |name: &str, arguments: Value| -> Value {
+        let request = json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {
+            "name": name, "arguments": arguments,
+            "_meta": {
+                "io.modelcontextprotocol/protocolVersion": specify_core::mcp::MODERN,
+                "io.modelcontextprotocol/clientCapabilities": {}
+            }
+        }});
+        let result = server.handle(&request, None).body.unwrap()["result"].clone();
+        assert_ne!(result["isError"], json!(true), "{name}: {result}");
+        result["structuredContent"].clone()
+    };
+    let opened = call("open", json!({"path": input}));
+    let doc = opened["doc"].clone();
+    assert!(opened.get("conflicts").is_none(), "{opened}");
+    call(
+        "answer",
+        json!({"doc": doc, "set": {"part.coating": "Anodise, clear"}}),
+    );
+    let saved = call("save", json!({"doc": doc, "accept_defaults": {}}));
+    let back = load(std::fs::read(saved["path"].as_str().unwrap()).unwrap());
+    assert_eq!(
+        flatness(&back),
+        added,
+        "session save keeps the added flatness"
+    );
+    let reopened = api::analyse(&back).unwrap();
+    assert_eq!(
+        reopened["resume"]["answers"]["part.coating"],
+        "Anodise, clear"
+    );
+}
