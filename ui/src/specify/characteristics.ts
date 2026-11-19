@@ -374,7 +374,7 @@ export const inspectKey = (r: Characteristic): string => `${r.group}|${r.feature
 export function toCsv(rows: readonly Characteristic[], skipped: ReadonlySet<string> = new Set()): string {
   const cell = (v: string | number | null) => {
     const text = v === null ? '' : String(v);
-    return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+    return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
   };
   const head = ['Balloon', 'Instance', 'Feature', 'Characteristic', 'Nominal', 'Upper', 'Lower', 'Datums', 'Basic', 'Measured'];
   return [head, ...rows.filter((r) => !skipped.has(inspectKey(r))).map((r) => [

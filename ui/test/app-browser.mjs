@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { gunzipSync } from 'node:zlib';
 import { chromium, expect } from '@playwright/test';
-import { characteristicHistory, validateOpening } from './engine-fixture.mjs';
+import { characteristicHistory, validateOpening, wasmDirectory } from './engine-fixture.mjs';
 // The local app (dist-app, `npm run build:app`) served by the real `specify-core open`, the manual
 // way in (no agent; test/app-agent.mjs is the agent's): on a part it loads, is titled for the file,
 // takes an answer, has the command save part.specified.step beside it (whose PMI `specify-core
@@ -24,7 +24,7 @@ import { characteristicHistory, validateOpening } from './engine-fixture.mjs';
 const check = expect.configure({ timeout: 90000 });
 const cli = process.env.SPECIFY_CORE ?? 'specify-core';
 const app = resolve('dist-app');
-const wasm = resolve(process.env.SPECIFY_WASM_DIR ?? 'public/wasm/intent');
+const wasm = wasmDirectory;
 const shots = process.env.SHOTS;
 if (shots) mkdirSync(shots, { recursive: true });
 assert.ok(existsSync(join(app, 'index.html')), 'dist-app is built (npm run build:app)');

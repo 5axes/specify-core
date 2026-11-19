@@ -1,9 +1,13 @@
-// The same released engine served to the local app, rather than the package's copy.
+// Load the same engine directory served to the local app, including SPECIFY_WASM_DIR.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import init, { IntentEngine, pmiScene } from '../public/wasm/intent/specify_core_wasm.js';
+import { pathToFileURL } from 'node:url';
+import { requireEngine } from './engine-path.mjs';
+export { wasmDirectory } from './engine-path.mjs';
 
-await init({ module_or_path: readFileSync(new URL('../public/wasm/intent/specify_core_wasm_bg.wasm', import.meta.url)) });
+const { modulePath, wasmPath } = requireEngine();
+const { default: init, IntentEngine, pmiScene } = await import(pathToFileURL(modulePath).href);
+await init({ module_or_path: readFileSync(wasmPath) });
 export { IntentEngine };
 
 /** Read the real writer's private history via its semantic reader; never fabricate a schema. */

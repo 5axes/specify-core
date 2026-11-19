@@ -4,7 +4,8 @@
 export type Cell = string | number | null;
 export interface Sheet { name: string; rows: readonly (readonly Cell[])[]; widths?: readonly number[]; header?: number }
 
-const xml = (text: string) => text.replace(/[<>&"]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' })[c]!)
+// XML normalizes literal CR to LF; a character reference preserves the stored text.
+const xml = (text: string) => text.replace(/[<>&"\r]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', '\r': '&#13;' })[c]!)
   // Characters XML 1.0 can't hold.
   .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\ufffe\uffff]/g, '');
 const column = (i: number): string => (i >= 26 ? column(Math.floor(i / 26) - 1) : '') + String.fromCharCode(65 + (i % 26));
