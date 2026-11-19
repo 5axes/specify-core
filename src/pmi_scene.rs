@@ -78,8 +78,27 @@ impl Scene {
     }
 
     pub(crate) fn file_pmi(&self) -> (&PartPmi, BTreeSet<(String, usize)>) {
-        let unmarked = crate::provenance::unmarked(&self.doc, &self.read, self.index);
-        (&self.read.parts[self.index], unmarked.into_iter().collect())
+        let part = &self.read.parts[self.index];
+        let mut unmarked: BTreeSet<_> =
+            crate::provenance::unmarked(&self.doc, &self.read, self.index)
+                .into_iter()
+                .collect();
+        if self.foreign.is_some() {
+            // In scoped files, other attributes also carry provenance, including
+            // manufacturing details attached to requirements.
+            for (i, ids) in self.read.provenance.parts[self.index]
+                .attributes
+                .iter()
+                .enumerate()
+            {
+                if !resume::is_answers(&part.attributes[i])
+                    && !crate::provenance::marked(&self.doc, ids, "attribute")
+                {
+                    unmarked.insert(("attributes".to_string(), i));
+                }
+            }
+        }
+        (part, unmarked)
     }
 
     /// `None` shows only the file; `Some` shows the current answers. Stored origin/source are authoritative when showing the file.
