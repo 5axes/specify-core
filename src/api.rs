@@ -477,7 +477,7 @@ fn analyse_reconciling(
             haecceity::step::read_part_definitions(&loaded.bytes).map_err(|e| refused(&e))?;
         let reading = existing::read_parsed(loaded, doc, &defs).map_err(|e| refused(&e))?;
         let mut settings = reading.settings(loaded);
-        match resume::truth::reconcile(loaded, &base, &features, &settings, &reading) {
+        match resume::truth::reconcile(loaded, &base, &features, &reading) {
             Ok(r) => {
                 // Specify's own (marked) requirements the answers do not explain, and that no
                 // question accounts for, are Specify's to state: the rewrite states the part from
@@ -659,7 +659,7 @@ pub fn apply(
 /// The answers to store when `answers` are written with every default taken (`write
 /// --accept-defaults`, the person's "accept all", ADR P9): `answers`, and each default taken
 /// whose answer writes no PMI, found by planning the answers as the writer does. The file
-/// cannot state those, so reopening can resume them where the file leaves the scope empty.
+/// cannot state those, so reopening can resume them when the file agrees with the writer's plan.
 /// A default that writes PMI is not stored: the file states it (`resume.present`), and it keeps
 /// following the rules. What is written is unchanged.
 pub fn stored_with_defaults(

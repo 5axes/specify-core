@@ -853,6 +853,43 @@ pub(crate) fn scene_items(scene: &Value) -> BTreeMap<String, (Vec<usize>, String
         .collect()
 }
 
+/// The file requirements the writer's plans state exactly. This uses the semantic
+/// items, independent of characteristic numbers, provenance and drawing text.
+pub(crate) fn exactly_restated<'a>(
+    file: &Value,
+    plans: impl IntoIterator<Item = &'a Value>,
+) -> BTreeSet<String> {
+    let planned: Vec<_> = plans
+        .into_iter()
+        .flat_map(items)
+        .filter(|item| item.status != "existing")
+        .collect();
+    let support = |item: &Item| {
+        (
+            item.match_kind.clone(),
+            item.faces.clone(),
+            item.on_faces.clone(),
+            item.reference_faces.clone(),
+        )
+    };
+    let mut by_support = BTreeMap::<_, Vec<_>>::new();
+    for item in &planned {
+        by_support
+            .entry(support(item))
+            .or_default()
+            .push(&item.semantic);
+    }
+    items(file)
+        .into_iter()
+        .filter(|actual| {
+            by_support
+                .get(&support(actual))
+                .is_some_and(|candidates| candidates.contains(&&actual.semantic))
+        })
+        .map(|actual| actual.id)
+        .collect()
+}
+
 /// Where a stored answer's requirement may be the file's on other faces: recognition that
 /// changed since the file was written, never an edit of the requirement's faces.
 #[derive(Debug, Default)]

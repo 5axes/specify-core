@@ -184,16 +184,16 @@ cone or floor claimed since).
   requirement is in `existing`, tagged `question: <id>`, the question is not asked, and
   every write keeps it until the question is answered (which gives it way). Specify's own
   requirements that no question accounts for at all are Specify's to state from the answers.
-- **An answer that writes no PMI** resumes only when the file has nothing in the answer's
-  scope. For a face question, any PMI on its target faces prevents resumption, regardless
-  of who wrote it. A location dimension's target faces are the faces it locates. For a datum
-  question, check both the stored datum's faces and the file's faces for the same letter.
-  A part setting resumes when the file's value is empty or exactly equals the whole stored
-  value. An additional note can therefore prevent resumption even when every stored note
-  matches. The ordinary file-PMI rules handle a withheld answer
-  (`resume.present`, `resume.file`, or `existing`). The question opens again if those rules
-  leave it open, and withholding adds no conflict. A save keeps the file's requirements and
-  can carry a withheld answer in the STEP payload for the same check on later opens.
+- **An answer that writes no PMI** resumes unless the file contradicts it. For a face
+  question, the file contradicts it if an item on its target faces has no exact match in
+  the writer's plan for all stored answers. A match has the same kind, faces, value and
+  tolerance. A location dimension's target faces are the faces it locates. A datum question
+  checks both the stored datum's faces and the file datum's faces for the same letter.
+  For a part setting, every file entry must match an entry in the stored answer. This
+  includes every note, regardless of who wrote it. The ordinary file-PMI rules handle a
+  withheld answer (`resume.present`, `resume.file`, or `existing`). The question opens again
+  if those rules leave it open. Withholding creates no conflict. A save keeps the file's
+  requirements and carries the withheld answer for reevaluation on later opens.
 - **Different, or only in the answers (removed in the file):** a conflict,
   `resume.conflicts: [{id, stored, file}]` (`file` is the file's notation, `null` when the
   file has none), with an analysis warning each. Until it is decided the file's state is

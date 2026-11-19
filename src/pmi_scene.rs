@@ -116,7 +116,7 @@ impl Scene {
         analysis: Option<&Value>,
         answers: Option<&Map<String, Value>>,
     ) -> Result<Value, String> {
-        self.scene_mode(loaded, analysis, answers, false)
+        self.scene_mode(loaded, analysis, answers, false, None)
     }
 
     // Revision comparisons need current semantic notation, never stale As Drawn text.
@@ -126,7 +126,16 @@ impl Scene {
         analysis: &Value,
         answers: Option<&Map<String, Value>>,
     ) -> Result<Value, String> {
-        self.scene_mode(loaded, Some(analysis), answers, true)
+        self.scene_mode(loaded, Some(analysis), answers, true, None)
+    }
+
+    fn plans_add(&self) -> bool {
+        let before = &self
+            .foreign
+            .as_ref()
+            .map_or(&self.read, |(_, read)| read)
+            .parts[self.index];
+        (self.stored.is_none() || self.foreign.is_some()) && has_pmi(before)
     }
 
     fn scene_mode(
@@ -135,13 +144,14 @@ impl Scene {
         analysis: Option<&Value>,
         answers: Option<&Map<String, Value>>,
         comparison: bool,
+        prepared: Option<(PlannedScene, &Value)>,
     ) -> Result<Value, String> {
         let before = &self
             .foreign
             .as_ref()
             .map_or(&self.read, |(_, read)| read)
             .parts[self.index];
-        let foreign = (self.stored.is_none() || self.foreign.is_some()) && has_pmi(before);
+        let foreign = self.plans_add();
         if let Some(answers) = answers {
             let owned;
             let analysis = match analysis {
@@ -151,7 +161,10 @@ impl Scene {
                     &owned
                 }
             };
-            let (semantic, metadata, counts) = self.planned(loaded, analysis, answers, foreign)?;
+            let ((semantic, metadata, counts), file) = match prepared {
+                Some((plan, file)) => (plan, Some(file)),
+                None => (self.planned(loaded, analysis, answers, foreign)?, None),
+            };
             // Reusing a foreign datum does not author a new item or redraw its callout.
             if foreign
                 && semantic.pmi.material.is_none()
@@ -204,7 +217,10 @@ impl Scene {
             } else if comparison {
                 // Replace plans rebuild Specify requirements; keep CAD requirements even
                 // when the source also contains saved interview answers.
-                let mut file = self.scene_mode(loaded, Some(analysis), None, true)?;
+                let mut file = match file {
+                    Some(file) => file.clone(),
+                    None => self.scene_mode(loaded, Some(analysis), None, true, None)?,
+                };
                 let existing: std::collections::BTreeSet<String> = file["specify"]
                     .as_object()
                     .ok_or("invalid metadata")?
@@ -510,19 +526,42 @@ impl Scene {
             .map(|(scene, _)| scene)
     }
 
-    /// The file's own scene for comparison (as [`Scene::comparison`] without answers), with
-    /// each scene id's item in the file's PMI: `(collection, index)` of haecceity's read of
-    /// the whole file. Reopening compares it with the stored answers' plan (ADR P9).
-    pub(crate) fn file_comparison(
+    /// Build the stored answers' writer plan once. The file scene uses its numbered
+    /// identities, and reconciliation uses the resulting planned and actual PMI.
+    pub(crate) fn reopening_comparison(
         &self,
         loaded: &LoadedPart,
         analysis: &Value,
-    ) -> Result<IndexedScene, String> {
-        let planned = match &self.stored {
-            Some(saved) => Some(self.planned(loaded, analysis, saved, false)?.1),
-            None => None,
-        };
-        self.file_indexed(loaded, planned.as_ref(), true, None)
+        stored: &Map<String, Value>,
+    ) -> Result<(IndexedScene, Value), String> {
+        let planned = self.planned(loaded, analysis, stored, self.plans_add())?;
+        let file = self.file_indexed(loaded, Some(&planned.1), true, None)?;
+        let comparison = self.scene_mode(
+            loaded,
+            Some(analysis),
+            Some(stored),
+            true,
+            Some((planned, &file.0)),
+        )?;
+        Ok((file, comparison))
+    }
+
+    /// Compare another #204 plan against the file scene already read on reopening.
+    pub(crate) fn comparison_with_file(
+        &self,
+        loaded: &LoadedPart,
+        analysis: &Value,
+        answers: &Map<String, Value>,
+        file: &Value,
+    ) -> Result<Value, String> {
+        let planned = self.planned(loaded, analysis, answers, self.plans_add())?;
+        self.scene_mode(
+            loaded,
+            Some(analysis),
+            Some(answers),
+            true,
+            Some((planned, file)),
+        )
     }
 
     fn file_indexed(

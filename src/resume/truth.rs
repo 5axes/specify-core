@@ -48,7 +48,7 @@ pub struct Conflict {
 pub(crate) struct Reconciled {
     /// The stored answers the file agrees with.
     pub answers: Map<String, Value>,
-    /// Stored answers withheld while the file has PMI in their scope.
+    /// Stored answers withheld while the file has unexplained PMI in their scope.
     pub withheld: Map<String, Value>,
     /// File items in that scope which the ordinary reconciliation does not manage.
     pub retained: BTreeSet<(String, usize)>,
@@ -109,15 +109,36 @@ pub(crate) fn reconcile(
     loaded: &LoadedPart,
     analysis: &Value,
     features: &[crate::features::Feature],
-    settings: &Map<String, Value>,
     reading: &crate::existing::Reading,
 ) -> Result<Reconciled, String> {
     let mut stored = analysis["resume"]["answers"]
         .as_object()
         .cloned()
         .unwrap_or_default();
+    let mut occupied_settings = BTreeSet::new();
+    reading.each_setting(false, |key, actual| {
+        let id = format!("part.{key}");
+        if !blank(&actual)
+            && stored
+                .get(&id)
+                .is_some_and(|saved| !contains(saved, &actual))
+        {
+            occupied_settings.insert(id);
+        }
+    });
+    let mut withheld = Map::new();
+    // A competing list cannot be planned in Add mode. Its entries have already
+    // been compared to the full stored list, so withhold it before planning.
+    for id in &occupied_settings {
+        if stored[id].is_array() && !kept(&stored).contains(id.as_str()) {
+            withheld.insert(
+                id.clone(),
+                stored.shift_remove(id).expect("occupied stored answer"),
+            );
+        }
+    }
     let scene = Scene::with(loaded, Some(features))?;
-    let (file, index) = scene.file_comparison(loaded, analysis)?;
+    let ((file, index), mut plan) = scene.reopening_comparison(loaded, analysis, &stored)?;
     let faces = loaded.binding.face_count;
     // What the answers write: their preview (defaults left as suggestions), as the editor
     // writes it; and with every default taken, as `apply` with defaults writes it. Defaults
@@ -152,7 +173,8 @@ pub(crate) fn reconcile(
     let compare = |plan: &Value, stored: &Map<String, Value>| {
         crate::revision::against_plan(plan, &file, faces, stored, &drift)
     };
-    let preview = |answers: &Map<String, Value>| scene.comparison(loaded, analysis, Some(answers));
+    let preview =
+        |answers: &Map<String, Value>| scene.comparison_with_file(loaded, analysis, answers, &file);
     let defaults = |answers: &Map<String, Value>| -> Result<_, String> {
         let mut unkept = answers.clone();
         if let Some(meta) = unkept
@@ -170,13 +192,6 @@ pub(crate) fn reconcile(
         }
     };
     let rows = crate::revision::scene_items(&file);
-    let mut occupied_settings = BTreeSet::new();
-    reading.each_setting(false, |key, actual| {
-        let id = format!("part.{key}");
-        if !blank(&actual) && stored.get(&id).is_some_and(|saved| *saved != actual) {
-            occupied_settings.insert(id);
-        }
-    });
     let mut occupied = occupied_answers(
         analysis,
         &occupied_settings,
@@ -185,28 +200,19 @@ pub(crate) fn reconcile(
         &index,
         part_pmi,
     )?;
-    let mut blocked = BTreeMap::new();
-    let mut withheld = Map::new();
-    // An ordered list that the file has extended already matches every stored entry.
-    // Withhold it before planning Add, which would refuse to append a competing list.
-    occupied.retain(|id, items| {
-        let extended = setting(id)
-            .and_then(|key| settings.get(key))
-            .and_then(Value::as_array)
-            .zip(stored[id].as_array())
-            .is_some_and(|(actual, saved)| actual.starts_with(saved));
-        if extended && !kept(&stored).contains(id.as_str()) {
-            blocked.insert(id.clone(), items.clone());
-            withheld.insert(
+    let mut blocked: BTreeMap<_, Vec<_>> = withheld
+        .keys()
+        .filter_map(|id| {
+            let key = setting(id)?;
+            Some((
                 id.clone(),
-                stored.shift_remove(id).expect("occupied stored answer"),
-            );
-            false
-        } else {
-            true
-        }
-    });
-    let mut plan = preview(&stored)?;
+                rows.keys()
+                    .filter(|row| setting(row) == Some(key))
+                    .cloned()
+                    .collect(),
+            ))
+        })
+        .collect();
     let mut all_planned = defaults(&stored)?;
     let mut truth = compare(&plan, &stored);
     let mut other = all_planned.as_ref().map(|(_, plan)| compare(plan, &stored));
@@ -229,7 +235,17 @@ pub(crate) fn reconcile(
             })
             .map(|(id, _)| id.clone()),
     );
-    occupied.retain(|id, _| {
+    let exact = crate::revision::exactly_restated(
+        &file,
+        std::iter::once(&plan).chain(all_planned.iter().map(|(_, plan)| plan)),
+    );
+    occupied.retain(|id, items| {
+        if setting(id).is_none() {
+            items.retain(|item| !exact.contains(item));
+            if items.is_empty() {
+                return false;
+            }
+        }
         !kept(&stored).contains(id.as_str())
             && (!writes.contains(id) || setting(id).is_some())
             && !(truth.conflicts.contains_key(id)
@@ -340,12 +356,21 @@ pub(crate) fn reconcile(
         .flatten()
         .map(|(id, _)| id)
         .collect();
-    let retained = blocked
-        .values()
-        .flatten()
-        .filter(|id| !truth.explained.contains(*id) && !managed.contains(*id))
-        .filter_map(|id| index.get(id).filter(|at| !unmarked.contains(*at)).cloned())
-        .collect();
+    let mut retained = BTreeSet::new();
+    for (question, items) in &blocked {
+        for id in items.iter().filter(|id| !managed.contains(*id)) {
+            // #204 can explain a requirement through recognition drift. It still
+            // needs preserving when the full plan did not restate it exactly.
+            if setting(question).is_none() {
+                truth.explained.remove(id);
+            }
+            if !truth.explained.contains(id)
+                && let Some(at) = index.get(id).filter(|at| !unmarked.contains(*at))
+            {
+                retained.insert(at.clone());
+            }
+        }
+    }
     let item = |id: &str| index.get(id).cloned();
     let mut out = Reconciled {
         withheld,
@@ -456,6 +481,17 @@ fn blank(value: &Value) -> bool {
         Value::String(s) => s.trim().is_empty(),
         Value::Array(items) => items.is_empty(),
         _ => false,
+    }
+}
+
+/// Every file entry must match a saved entry. Each saved list entry can explain
+/// one file entry, in the order the writer would state it.
+fn contains(saved: &Value, actual: &Value) -> bool {
+    if let (Some(saved), Some(actual)) = (saved.as_array(), actual.as_array()) {
+        let mut saved = saved.iter();
+        actual.iter().all(|entry| saved.any(|value| value == entry))
+    } else {
+        saved == actual
     }
 }
 

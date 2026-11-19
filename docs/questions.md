@@ -30,14 +30,15 @@ building it:
   every rewrite of a defaulted file had to keep it beside the rewritten PMI, which restated
   datums and planner dimensions (characteristic numbering and datum-letter refusals) and lost
   the byte-identical unchanged rewrite. A default the file states differently is `existing`.
-- **Answers that write no PMI** (maintainer, 2026-11-19). A face question resumes its
-  stored answer only when the file contains no PMI of any kind on its target faces.
-  For datum questions, the target includes both the stored faces and the file's faces
-  for the same letter. Part settings compare the whole value, including every list entry.
-  An empty file value or an exact match allows resumption. A withheld answer goes through
-  the ordinary #204 file-PMI rules, and any question those rules leave open is asked again.
-  Withholding creates no conflict. `write --accept-defaults` stores the defaults it
-  takes that write no PMI. Defaults that write PMI read back as `resume.present`.
+- **Answers that write no PMI** (maintainer, 2026-11-19). A stored face answer resumes
+  when every file item on its target faces is restated by the writer's plan for all stored
+  answers with the same kind, faces, value and tolerance. Datum questions check both the
+  stored faces and the file faces for the same datum letter. A part setting resumes when
+  every file entry exactly matches an entry in the stored answer, regardless of who wrote
+  it. Ordinary #204 rules keep unexplained PMI and ask any question it leaves open.
+  Withholding creates no conflict. Saves carry withheld answers for reevaluation on later
+  opens. `write --accept-defaults` stores the defaults it takes that write no PMI. Defaults
+  that write PMI read back as `resume.present`.
 
 
 ## Decision (2026-11-02): limit dimensions and combined ISO 2768 classes
