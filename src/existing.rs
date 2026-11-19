@@ -95,6 +95,9 @@ pub struct ExistingPmi {
     pub number: Option<u64>,
     pub origin: Option<crate::pmi_origin::Origin>,
     pub source: Option<crate::pmi_origin::Source>,
+    /// On reopening a file Specify wrote, the answered question whose stored answer this
+    /// item contradicts (ADR P9): answering that question gives it way.
+    pub question: Option<String>,
 }
 
 impl ExistingPmi {
@@ -114,6 +117,7 @@ impl ExistingPmi {
             number: None,
             origin: None,
             source: None,
+            question: None,
         }
     }
 }
@@ -162,6 +166,9 @@ impl Serialize for ExistingPmi {
         if let Some(source) = &self.source {
             map.serialize_entry("source", source)?;
         }
+        if let Some(question) = &self.question {
+            map.serialize_entry("question", question)?;
+        }
         if self.faces.is_empty() {
             map.serialize_entry("faces", &self.faces)?;
         }
@@ -188,6 +195,26 @@ impl fmt::Display for ExistingError {
 }
 
 impl std::error::Error for ExistingError {}
+
+/// Which of a reading's items to leave out of [`Reading::existing_except`], and which to tag
+/// with a question, by haecceity collection and index (`("dimensions", 2)`).
+#[derive(Clone, Debug, Default)]
+pub(crate) struct Selection {
+    pub skip: BTreeSet<(String, usize)>,
+    pub questions: std::collections::BTreeMap<(String, usize), String>,
+}
+
+impl Selection {
+    fn skips(&self, collection: &str, index: usize) -> bool {
+        self.skip.contains(&(collection.to_string(), index))
+    }
+
+    fn question(&self, collection: &str, index: usize) -> Option<String> {
+        self.questions
+            .get(&(collection.to_string(), index))
+            .cloned()
+    }
+}
 
 /// The part's PMI as haecceity reads it, the findings that concern it (its own and those of
 /// no part), and the parsed document: the file is parsed and read once, and
@@ -277,6 +304,16 @@ impl Reading {
     /// this reading is of. A tolerance citing a datum the reader does not hold is refused, not
     /// listed without it.
     pub fn existing(&self, loaded: &LoadedPart) -> Result<Vec<ExistingPmi>, ExistingError> {
+        self.existing_except(loaded, &Selection::default())
+    }
+
+    /// [`Self::existing`] without the items `selection` leaves out, and with the question it
+    /// gives each tagged item (ADR P9: a reopened file's PMI less what its answers explain).
+    pub(crate) fn existing_except(
+        &self,
+        loaded: &LoadedPart,
+        selection: &Selection,
+    ) -> Result<Vec<ExistingPmi>, ExistingError> {
         let Reading {
             doc,
             pmi,
@@ -286,6 +323,9 @@ impl Reading {
         let mut out = Vec::new();
 
         for (i, dimension) in pmi.dimensions.iter().enumerate() {
+            if selection.skips("dimensions", i) {
+                continue;
+            }
             let (r#type, first, second) = match &dimension.kind {
                 DimensionKind::Size {
                     feature,
@@ -333,6 +373,7 @@ impl Reading {
                 },
             );
             item.faces2 = second;
+            item.question = selection.question("dimensions", i);
             let nominal = dimension.nominal.as_ref();
             item.value = nominal.map(value);
             // Preserve absolute limits, and derive offsets for existing tolerance checks.
@@ -361,6 +402,9 @@ impl Reading {
         }
 
         for (i, tolerance) in pmi.tolerances.iter().enumerate() {
+            if selection.skips("tolerances", i) {
+                continue;
+            }
             let faces = match &tolerance.target {
                 ToleranceTarget::Feature(f) => faces_of(pmi, &[*f]),
                 ToleranceTarget::Dimension(d) => match pmi.dimensions.get(d.0).map(|d| &d.kind) {
@@ -380,6 +424,7 @@ impl Reading {
             item.number =
                 crate::characteristics::on(doc, &prov.tolerances[i], "geometric_tolerance");
             item.value = tolerance.magnitude.as_ref().map(value);
+            item.question = selection.question("tolerances", i);
             item.datums = tolerance
                 .datums
                 .iter()
@@ -403,6 +448,9 @@ impl Reading {
 
         let mut seen = Vec::new();
         for (i, datum) in pmi.datums.iter().enumerate() {
+            if selection.skips("datums", i) {
+                continue;
+            }
             // The datum feature's faces, and those of the features its targets are or lie on.
             let mut features: Vec<FeatureId> = datum.feature().into_iter().collect();
             for target in datum.targets() {
@@ -423,12 +471,13 @@ impl Reading {
                 let mut item = ExistingPmi::new("datum", &key.0, key.1.clone());
                 item.provenance = owned.then(|| provenance::MARKER.into());
                 item.number = crate::characteristics::on(doc, &prov.datums[i], "datum");
+                item.question = selection.question("datums", i);
                 out.push(item);
                 seen.push(key);
             }
         }
 
-        out.extend(notes(loaded, doc, pmi, prov));
+        out.extend(notes(loaded, doc, pmi, prov, selection));
         Ok(out)
     }
 
@@ -722,21 +771,29 @@ fn notes(
     doc: &Document,
     pmi: &PartPmi,
     prov: &pmi::PartProvenance,
+    selection: &Selection,
 ) -> Vec<ExistingPmi> {
-    let mut found: Vec<(String, bool, Option<u64>, BTreeSet<usize>)> = Vec::new();
-    let mut add = |kind: &str, faces: &[usize], owned: bool, number: Option<u64>| {
-        if faces.is_empty() {
+    type Found = (String, bool, Option<u64>, Option<String>, BTreeSet<usize>);
+    let mut found: Vec<Found> = Vec::new();
+    let mut add = |kind: &str,
+                   faces: &[usize],
+                   owned: bool,
+                   number: Option<u64>,
+                   item: Option<(&str, usize)>| {
+        if faces.is_empty() || item.is_some_and(|(c, i)| selection.skips(c, i)) {
             return;
         }
+        let question = item.and_then(|(c, i)| selection.question(c, i));
         match found
             .iter_mut()
-            .find(|(k, o, n, _)| k == kind && *o == owned && *n == number)
+            .find(|(k, o, n, q, _)| k == kind && *o == owned && *n == number && *q == question)
         {
-            Some((_, _, _, set)) => set.extend(faces),
+            Some((_, _, _, _, set)) => set.extend(faces),
             None => found.push((
                 kind.to_string(),
                 owned,
                 number,
+                question,
                 faces.iter().copied().collect(),
             )),
         }
@@ -760,7 +817,7 @@ fn notes(
         if NOTE_KINDS.contains(&kind.as_str())
             && let Some(index) = loaded.definition.face_index(*face)
         {
-            add(kind, &[index], false, None);
+            add(kind, &[index], false, None, None);
         }
     }
     for (i, thread) in pmi.threads.iter().enumerate() {
@@ -773,6 +830,7 @@ fn notes(
             &faces_of(pmi, &[thread.feature]),
             provenance::marked(doc, &prov.threads[i], "thread"),
             crate::characteristics::on(doc, &prov.threads[i], "product_definition_shape"),
+            Some(("threads", i)),
         );
     }
     for (i, knurl) in pmi.knurls.iter().enumerate() {
@@ -781,6 +839,7 @@ fn notes(
             &faces_of(pmi, &[knurl.feature]),
             provenance::marked(doc, &prov.knurls[i], "knurl"),
             crate::characteristics::on(doc, &prov.knurls[i], "product_definition_shape"),
+            Some(("knurls", i)),
         );
     }
     // A hole note as the Rust writer writes it (a heat-set insert or printed thread,
@@ -801,6 +860,7 @@ fn notes(
                     &faces_of(pmi, &[f]),
                     provenance::marked(doc, &prov.attributes[i], "attribute"),
                     None,
+                    Some(("attributes", i)),
                 );
             }
         }
@@ -813,15 +873,17 @@ fn notes(
                 &faces_of(pmi, &[f]),
                 provenance::marked(doc, &prov.surface_textures[i], "surface texture"),
                 crate::characteristics::texture_number(doc, &prov.surface_textures[i]),
+                Some(("surface_textures", i)),
             );
         }
     }
     found
         .into_iter()
-        .map(|(kind, owned, number, faces)| {
+        .map(|(kind, owned, number, question, faces)| {
             let mut item = ExistingPmi::new("note", &kind, faces.into_iter().collect());
             item.provenance = owned.then(|| provenance::MARKER.into());
             item.number = number;
+            item.question = question;
             item
         })
         .collect()

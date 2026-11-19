@@ -16,6 +16,9 @@ mod notes;
 
 type PlannedScene = (Semantic, Map<String, Value>, BTreeMap<String, usize>);
 
+/// A scene with each id's item in the file's PMI, `(collection, index)`.
+type IndexedScene = (Value, BTreeMap<String, (String, usize)>);
+
 type Bindings = BTreeMap<(String, usize), (String, Value, usize)>;
 
 const NUMBERED: [&str; 6] = [
@@ -471,6 +474,32 @@ impl Scene {
         comparison: bool,
         source: Option<(&Document, &pmi::PmiRead)>,
     ) -> Result<Value, String> {
+        self.file_indexed(loaded, planned, comparison, source)
+            .map(|(scene, _)| scene)
+    }
+
+    /// The file's own scene for comparison (as [`Scene::comparison`] without answers), with
+    /// each scene id's item in the file's PMI: `(collection, index)` of haecceity's read of
+    /// the whole file. Reopening compares it with the stored answers' plan (ADR P9).
+    pub(crate) fn file_comparison(
+        &self,
+        loaded: &LoadedPart,
+        analysis: &Value,
+    ) -> Result<IndexedScene, String> {
+        let planned = match &self.stored {
+            Some(saved) => Some(self.planned(loaded, analysis, saved, false)?.1),
+            None => None,
+        };
+        self.file_indexed(loaded, planned.as_ref(), true, None)
+    }
+
+    fn file_indexed(
+        &self,
+        loaded: &LoadedPart,
+        planned: Option<&Map<String, Value>>,
+        comparison: bool,
+        source: Option<(&Document, &pmi::PmiRead)>,
+    ) -> Result<IndexedScene, String> {
         let (doc, read) = source.unwrap_or((&self.doc, &self.read));
         let stored = if source.is_some() {
             None
@@ -532,7 +561,16 @@ impl Scene {
             notes::combined(&mut result, &semantic, None, loaded)?;
         }
         notes::material(&mut result, &semantic, stored);
-        Ok(result)
+        let index = semantic
+            .ids
+            .iter()
+            .flat_map(|(collection, ids)| {
+                ids.iter()
+                    .enumerate()
+                    .map(move |(i, id)| (id.clone(), (collection.clone(), i)))
+            })
+            .collect();
+        Ok((result, index))
     }
 }
 

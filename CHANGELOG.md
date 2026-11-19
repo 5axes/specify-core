@@ -58,6 +58,27 @@ All notable changes to specify-core-rust. The format follows
   `exportAnswers` now needs approvals for defaults; the editor's Answers (JSON) export, which
   uses `acceptDefaults`, still includes every default until the editor moves to
   `exportAnswers` with approvals.
+- On reopening a file Specify wrote, the PMI is the truth (ADR P9 §3): `analyse` reads the
+  file's PMI and part settings first and compares them item by item with what the stored
+  answers would write (the revision diff's PMI item matching, every face its own). Answers
+  the file agrees with resume (`resume.answers`) and their items are not repeated; defaults
+  the file states as written but never stored as answers are `resume.present` (answered by
+  the file, still answerable); Specify's PMI no stored answer states, stated otherwise than
+  its default, answers its question (`resume.file`, kept on writing, not a conflict); the
+  file's other PMI is `existing` and `part` (before, a resumed file gave `existing: []` and
+  `part: {}`). A stored answer the file
+  changed or removed is a conflict, `resume.conflicts: [{id, stored, file}]` with an analysis
+  warning each: the file's items stay in `existing` tagged `question`, the answer is not
+  resumed and its question is not asked until decided, by answering it (restore; the file's
+  items give way on writing) or listing it in `_specify.keep` (keep the file's). `review`,
+  WASM `review` and MCP `open`/`questions` present undecided conflicts as `conflicts`
+  (`kind: "conflict"`, choices keep/restore); MCP `answer` takes `keep: [id]`, and the tool
+  descriptions tell an agent to put conflicts to the person, never decide them. Rewriting a
+  reopened part keeps PMI another tool added and undecided conflicts' items: a
+  replace-written part with unmarked PMI is rewritten as a scoped Add, replacing only
+  Specify's marked requirements (before, a rewrite dropped the added PMI, and the editor's
+  preview write dropped defaults written but not stored). Files from before #22, with no
+  marked requirements, open and rewrite as before. See docs/answers.md.
 - `specify-core open STEP` serves the Specify app itself on 127.0.0.1 instead of handing the
   file to draftwright.io: the app, the engine, the file and its settings are served under a
   random one-off path, and Specify's Save writes the specified STEP next to the input
@@ -92,6 +113,13 @@ All notable changes to specify-core-rust. The format follows
 
 ### Fixed
 
+- Reopening and writing again a file Specify wrote no longer drops PMI (ADR P9): requirements
+  another tool added (unmarked), defaults written but never stored as answers, a stored answer
+  the file contradicts (until the person decides), and a conflict kept are all kept, through
+  the CLI's `write`, WASM `writePmi`, a session save and MCP; another tool's requirement in
+  conflict stands against any answer, saved answers included. Known limits, both also lost
+  before this change: a default whose faces another tool moved, and Specify-marked PMI
+  written from a raw intent where no default exists, are still dropped on rewrite.
 - `diff` on a symmetric part, where the old part fits the new one turned (180° say) as well as
   it lies, broke the tie by the file's frame without saying so. It still matches in the file's
   frame, now a stated rule in docs/diff.md, and says so: report.md's "Matched in the file's
@@ -128,6 +156,11 @@ All notable changes to specify-core-rust. The format follows
   required questions still open). An incomplete set is still written, as before.
 - `diff()`'s PMI items gain an optional `detail`: the explanation that used to be appended to a
   retired item's `reason`, which is now always the plain code.
+- `engine.review` / `review` add `conflicts` (only when there are some): a reopened file's
+  stored answers its PMI contradicts, `{id, kind: "conflict", text, stored, file, choices}`;
+  `snapshot().analysis.resume` adds `conflicts` and `present`, and `existing`/`part`
+  now hold the file's PMI its answers do not explain (ADR P9). Answers accept `_specify.keep: [id]`. The
+  generated declarations are unchanged.
 
 ## 0.1.18 (2026-11-17)
 

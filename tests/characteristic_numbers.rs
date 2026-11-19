@@ -159,7 +159,14 @@ fn a_foreign_or_non_depth_curve_length_cannot_claim_the_depth_number() {
                 .0,
         );
         let current = numbers(&rewritten);
-        assert!(!current.iter().any(|c| c.number == 13));
+        // ADR P9: a foreign (unmarked) curve length in a file Specify wrote is another tool's
+        // PMI and is kept as it is, its own identifier with it; no Specify item takes 13.
+        assert!(current.iter().filter(|c| c.number == 13).all(|c| {
+            foreign
+                && c.source
+                    .as_ref()
+                    .is_none_or(|s| s.parameter != "bore.depth")
+        }));
         let depth = current
             .iter()
             .find(|c| {
@@ -277,10 +284,8 @@ fn every_kind_round_trips_standard_ids_additively_and_is_exposed_in_analysis_and
         analysis["characteristics"],
         serde_json::to_value(&ns).unwrap()
     );
-    assert!(
-        analysis["existing"].as_array().unwrap().is_empty(),
-        "resumed interview stays geometry-only"
-    );
+    // ADR P9: the file's PMI is read on reopening; none of it contradicts the answers.
+    assert!(analysis["resume"].get("conflicts").is_none());
     let existing = existing::read_existing(&written).unwrap();
     assert!(existing.iter().all(|e| e.number.is_some()));
     assert_eq!(
@@ -355,7 +360,16 @@ fn additions_do_not_renumber_removals_retire_even_after_an_empty_write_and_value
         &readded,
         &rules::Intent::new(serde_json::to_value(&readded.binding).unwrap()),
     );
-    assert!(numbers(&empty).is_empty());
+    // ADR P9: no stored answer states the part's finish, which the file states otherwise than
+    // its default: the file answers that question, so even an empty write keeps it (#6).
+    // Every other requirement is Specify's to state from the (empty) intent, and goes.
+    assert_eq!(
+        numbers(&empty)
+            .iter()
+            .map(|c| (c.number, c.kind.as_str(), c.faces.is_empty()))
+            .collect::<Vec<_>>(),
+        [(6, "surface_texture", true)]
+    );
     let mut i = rules::Intent::new(serde_json::to_value(&empty.binding).unwrap());
     i.requirements.push(
         json!({"kind":"flatness", "faces":[5], "tolerance":0.02})
@@ -363,7 +377,14 @@ fn additions_do_not_renumber_removals_retire_even_after_an_empty_write_and_value
             .unwrap()
             .clone(),
     );
-    assert_eq!(numbers(&write(&empty, &i))[0].number, 9);
+    assert_eq!(
+        numbers(&write(&empty, &i))
+            .iter()
+            .find(|c| c.faces == [5])
+            .unwrap()
+            .number,
+        9
+    );
 }
 
 #[test]

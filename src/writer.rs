@@ -624,6 +624,17 @@ impl Source {
     }
 }
 
+/// The datums another tool's (unmarked) tolerances on part `part` cite, with their features:
+/// kept with those tolerances, so a rewrite's equal datum is that one (ADR P9).
+fn foreign_support(original: &Source, part: usize) -> BTreeSet<(String, usize)> {
+    let tolerances = provenance::unmarked(&original.doc, &original.read, part)
+        .into_iter()
+        .filter(|(collection, _)| collection == "tolerances")
+        .map(|(_, i)| i)
+        .collect();
+    resume::truth::datum_support(&original.read.parts[part], &tolerances)
+}
+
 /// One part to write, as planned.
 struct Planned<'a> {
     loaded: &'a LoadedPart,
@@ -653,21 +664,111 @@ fn write_verified(
     let bytes: &[u8] = &first.bytes;
     let original = Source::of(bytes)?;
     let mut scoped = Vec::new();
-    for (loaded, _, _) in jobs {
-        if resume::scoped(&original.doc, loaded.binding.part)
-            && resume::has_answers(loaded).map_err(|e| WriteError::Failed(e.to_string()))?
-        {
-            scoped.push(loaded.binding.part);
+    // ADR P9: a resumed part keeps PMI another tool added and the file's items of a conflict
+    // not yet decided (or kept), unless the rewrite states them again. A part with nothing to
+    // keep is rewritten as before; a replace-written one with something to keep is rewritten
+    // as a scoped Add, replacing only Specify's marked requirements.
+    let mut keep = std::collections::BTreeMap::new();
+    // The file's items of conflicts the answers now decide (restored, or answered anew): they
+    // give way, marked or not.
+    let mut give_way = std::collections::BTreeMap::new();
+    // Replace-written parts taken to a scoped Add only for the Specify-marked PMI they keep.
+    let mut for_keep = BTreeSet::new();
+    let mut reconciled = std::collections::BTreeMap::new();
+    let empty = Map::new();
+    for (loaded, _, answers) in jobs {
+        let part = loaded.binding.part;
+        let resumed = resume::has_answers(loaded).map_err(|e| WriteError::Failed(e.to_string()))?;
+        // Another tool's PMI: unmarked requirements the resumed answers do not explain.
+        let mut foreign = false;
+        let kept = if resumed {
+            match crate::api::reconciled(loaded).map_err(|e| WriteError::Failed(e.to_string()))? {
+                Some(r) => {
+                    let kept = r.kept_items(
+                        &original.read.parts[part],
+                        answers.unwrap_or(&empty),
+                        &BTreeSet::new(),
+                    );
+                    foreign = provenance::unmarked(&original.doc, &original.read, part)
+                        .iter()
+                        .any(|at| !r.explained.contains(at));
+                    let yields = r.give_way(&original.read.parts[part], answers.unwrap_or(&empty));
+                    if !yields.is_empty() {
+                        give_way.insert(part, yields);
+                    }
+                    let mut kept = kept;
+                    kept.extend(foreign_support(&original, part));
+                    reconciled.insert(part, r);
+                    kept
+                }
+                None => BTreeSet::new(),
+            }
+        } else {
+            BTreeSet::new()
+        };
+        if resume::scoped(&original.doc, part) && resumed {
+            scoped.push(part);
+        } else if !kept.is_empty() || foreign {
+            if provenance::any_marked(&original.doc, &original.read, part) {
+                // Replace-written, with PMI to keep: only Specify's marked requirements are
+                // replaced, as a scoped Add; unmarked PMI (another tool's) is kept as it is.
+                scoped.push(part);
+                if !foreign {
+                    for_keep.insert(part);
+                }
+            } else {
+                // Written before requirements were marked (#22): all its PMI is Specify's,
+                // rewritten by replace as before, so none of it is stated twice.
+                continue;
+            }
+        }
+        if !kept.is_empty() {
+            keep.insert(part, kept);
         }
     }
-    let cleaned = if scoped.is_empty() {
+    let clean =
+        |scoped: &[usize], keep: &std::collections::BTreeMap<usize, BTreeSet<(String, usize)>>| {
+            provenance::without_owned_except(&original.doc, &original.read, scoped, keep, &give_way)
+                .map_err(WriteError::Refused)
+                .and_then(|bytes| Source::of(&bytes))
+        };
+    let mut cleaned = if scoped.is_empty() {
         None
     } else {
-        Some(Source::of(
-            &provenance::without_owned(&original.doc, &original.read, &scoped)
-                .map_err(WriteError::Refused)?,
-        )?)
+        Some(clean(&scoped, &keep)?)
     };
+    // What the rewrite states again is not kept beside it: the file's copy gives way.
+    if let Some(first_clean) = &cleaned
+        && !keep.is_empty()
+    {
+        let mut narrowed = keep.clone();
+        for &(loaded, intent, answers) in jobs {
+            let part = loaded.binding.part;
+            let (Some(kept), Some(r)) = (narrowed.get_mut(&part), reconciled.get(&part)) else {
+                continue;
+            };
+            let (planned, _) = part_pmi(loaded, intent, &first_clean.read.parts[part], Mode::Add)?;
+            let restated = resume::truth::restated(&original.read.parts[part], &planned);
+            *kept = r.kept_items(
+                &original.read.parts[part],
+                answers.unwrap_or(&empty),
+                &restated,
+            );
+            kept.extend(foreign_support(&original, part));
+        }
+        narrowed.retain(|_, kept| !kept.is_empty());
+        if narrowed != keep {
+            keep = narrowed;
+            // A replace-written part whose kept PMI the rewrite states again (an unchanged
+            // rewrite) is written by replace as before, keeping its bytes when unchanged.
+            scoped.retain(|part| !for_keep.contains(part) || keep.contains_key(part));
+            cleaned = if scoped.is_empty() {
+                None
+            } else {
+                Some(clean(&scoped, &keep)?)
+            };
+        }
+    }
     let source = cleaned.as_ref().unwrap_or(&original);
     let failed = |e: crate::features::FeatureError| WriteError::Failed(e.to_string());
 
@@ -744,12 +845,30 @@ fn write_verified(
                 saved.remove(crate::characteristics::CARRY);
                 saved.remove(crate::bom::CARRY);
                 saved.retain(|key, _| !key.starts_with("bom."));
+                // ADR P9: an answer another tool's requirement holds the question against is
+                // not written, so it is not stored either: reopening reads the file's value.
+                if let Some(r) = reconciled.get(&loaded.binding.part) {
+                    for c in r.conflicts.iter().filter(|c| c.foreign) {
+                        saved.remove(&c.id);
+                    }
+                }
                 let mut payload = resume::payload(loaded, &saved).map_err(failed)?;
                 // Carry blocks on questions not asked now (#126) are kept beside the answers,
                 // never inside them: older builds refuse `_specify` among answers.
                 let blocks = crate::answer_file::unresolved(answers);
                 if !blocks.is_empty() {
                     payload[resume::UNRESOLVED] = Json::Object(blocks);
+                }
+                // ADR P9: conflicts kept are stored beside the answers (a kept requirement is
+                // also written unmarked, as the file's own), so a later answer to the question
+                // still finds the file's requirement it replaces. Answering clears the keep.
+                let kept: Vec<Json> = resume::truth::kept(answers)
+                    .into_iter()
+                    .filter(|id| !answers.contains_key(*id))
+                    .map(Json::from)
+                    .collect();
+                if !kept.is_empty() {
+                    payload[resume::KEPT] = Json::Array(kept);
                 }
                 if mode == Mode::Add || scoped.contains(&loaded.binding.part) {
                     payload["pmi_scope"] = Json::String(PMI_PROVENANCE.into());
@@ -837,6 +956,33 @@ fn write_verified(
         .collect();
     let (back, kernel_report) = write_by_modes(source, &items, &modes)?;
     verify(source, &items, &modes, &back)?;
+    // ADR P9: a conflict kept by keeping the file's requirement makes it the file's own: it is
+    // written without Specify's provenance marker, so any reader (and Specify reopening it)
+    // sees it as PMI another tool stated, not as Specify's to restate from its answers.
+    let back = {
+        let mut ids = BTreeSet::new();
+        for (&part, r) in &reconciled {
+            let Some(kept) = keep.get(&part) else {
+                continue;
+            };
+            let Some(job) = jobs.iter().find(|(l, _, _)| l.binding.part == part) else {
+                continue;
+            };
+            let empty = Map::new();
+            let answers = job.2.unwrap_or(&empty);
+            ids.extend(r.decided_kept(
+                &original.read.parts[part],
+                &original.read.provenance.parts[part],
+                kept,
+                answers,
+            ));
+        }
+        if ids.is_empty() {
+            back
+        } else {
+            provenance::unmark(&back, &ids).map_err(WriteError::Failed)?
+        }
+    };
     let stored = resume::stored(&back);
     for p in &planned {
         let k = p.loaded.binding.part;

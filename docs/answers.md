@@ -151,6 +151,94 @@ are not refused on reopening: the unknown ID is left out of the resumed answers,
 `resume.unresolved` with its value, and named in an analysis warning
 (`saved answer bogus.question: unknown answer ID: …`), so `questions` and `diff` still work.
 
+## Reopening a file Specify wrote: the PMI is the truth
+
+Specify stores the answers it wrote with in the STEP, but they are only a private helper for
+resuming the questions ([ADR P9](https://github.com/pzfreo/draftwright-project/blob/main/adr/P9-pmi-is-the-truth.md)):
+the file's PMI is what any tool reads, and it may have been edited since. On reopening,
+`analyse` reads the file's PMI and part settings first, as for any file, and compares them
+item by item with what the stored answers would write: their preview (defaults left as
+suggestions) and, where defaults merged requirements, their plan with every default taken.
+The comparison is the revision diff's PMI item matching (`revision::against_plan`), every
+face corresponding to itself, an exact match always taken first. A requirement on a face set
+the file states otherwise is a conflict (an edit), except for recognition drift: in a file
+whose recognition changed since it was written (answers in `resume.migrated`, or matched by ID
+without face evidence), any answer's requirement on overlapping faces; otherwise one face set
+holding the other with every face only one has of a kind the other has none of (a hole's tip
+cone or floor claimed since).
+
+- **Same in both:** the answer resumes (`resume.answers`) and its items are not repeated in
+  `existing`.
+- **A default the file states** (written with defaults accepted, but not stored as an
+  answer): present. When the file states it exactly as the default would be written, it is
+  `resume.present: {id: value}`: the file answers the question with its default, so it is
+  neither open nor a conflict, it is not repeated in `existing`, and it can still be answered
+  otherwise (the answer then replaces it). `resume.answers` stays the stored answers.
+- **Only in the file**, added by another tool (no Specify provenance marker): in
+  `existing`, present and kept, never a conflict. Its question is not asked where the file's
+  PMI already states it.
+- **Specify's own requirement that no stored answer states, stated otherwise than its
+  default** (a default another tool changed while keeping Specify's marker, or a requirement
+  Specify wrote from an intent rather than from answers): the file answers that question,
+  `resume.file: [id]`. It is not a conflict and its default is not restated: the file's
+  requirement is in `existing`, tagged `question: <id>`, the question is not asked, and
+  every write keeps it until the question is answered (which gives it way). Specify's own
+  requirements that no question accounts for at all are Specify's to state from the answers.
+- **Different, or only in the answers (removed in the file):** a conflict,
+  `resume.conflicts: [{id, stored, file}]` (`file` is the file's notation, `null` when the
+  file has none), with an analysis warning each. Until it is decided the file's state is
+  what is shown and what would be written: the file's items stay in `existing`, tagged
+  `question: <id>`; the stored answer is not resumed and the question is not asked.
+
+Part settings (material, general tolerance, finish, coating, heat treatment, edges, notes)
+follow the same rule; a setting in conflict keeps the file's value in `part`.
+
+When the file's requirement in conflict is another tool's (not marked as Specify's, and not
+one the person kept), the conflict says so (`foreign: true`): no answer replaces it, not even
+answers saved before the edit that still hold the old value; its question is not asked and
+the file's requirement is written as it is. Keeping is its only choice. Writing also leaves
+the contradicted answer out of the stored answers, so once the file is saved, reopening reads
+the file's requirement as the truth, with no conflict.
+
+Otherwise a conflict is **decided** when the current answers answer its question, or list it
+in `_specify.keep`:
+
+- **Restore:** answer the question with the stored value (`resume.conflicts[].stored`). The
+  file's tagged items give way (they leave `existing` for the rules, and the writer removes
+  them), so the written file has the restored value, not both.
+- **Keep the file's:** add the id to `_specify.keep` (`{"_specify": {"keep": ["hole.position:holes:12"]}}`).
+  The file's requirement becomes the file's own: the writer writes it without Specify's
+  provenance marker, so on reopening it is PMI another tool stated (`existing`, kept, its
+  question not asked) for any reader, and every later write, the editor's or the CLI's,
+  Every keep is also stored beside the answers (the payload's `kept` list, restored as
+  `_specify.keep`): a removal kept has no requirement to carry it, and a requirement kept
+  stays tied to its question. Answering a kept question later (with any value) clears the
+  keep, and the file's requirement gives way, marked as Specify's or not, so the file holds
+  the new answer's requirement alone.
+
+`review` lists the undecided conflicts as questions (`conflicts`, only when there are some),
+each `{id, kind: "conflict", text, stored, file, choices}`, `text` reading "Saved answer H7,
+file says ⌀10 H8. Keep the file's ⌀10 H8, or restore H7?" or "Saved answer 0.05: removed in
+the file. Restore it, or leave it removed?", and `choices` `[{choice: "keep", label},
+{choice: "restore", label, answer}]`. A front end or agent puts them to the person and never
+decides them itself. Conflicts are not `open` questions: they do not block a write.
+
+**Known limits.** Two kinds of Specify-marked PMI that no stored answer explains are still
+dropped on rewrite, as they were before ADR P9: a default whose faces another tool moved
+(it no longer pairs with its default), and a requirement written from a raw intent where no
+default exists (no question accounts for it). Keeping them needs the writer to match restated
+requirements by meaning rather than by characteristic key, so that what a rewrite states
+again is not written twice.
+
+When the writer rewrites a reopened part, it replaces Specify's own (provenance-marked)
+requirements from the answers and keeps every other one: PMI another tool added (unmarked)
+and, until decided, a conflict's file items (restoring gives them way). A part written by
+replace that holds such PMI is rewritten as a scoped Add (`pmi_scope`), so only its marked
+requirements are replaced; with nothing to keep the write is as before (a replace, and an
+unchanged rewrite keeps the file's bytes). A file written before Specify marked its
+requirements (#22) has none marked: all its PMI is its answers', so it opens and is rewritten
+as before (no reconciliation), and none of it is stated twice.
+
 ## Specify metadata
 
 Specify's complete exports and diff answer maps (`answers.json`, `report.answers`, and

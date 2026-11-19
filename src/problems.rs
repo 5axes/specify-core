@@ -31,6 +31,8 @@ use crate::rules::{self, Ctx, DatumKind, Error, LOCATING, Result, object, str_of
 /// `{severity, message, faces, about}`. Answered controls awaiting datums additionally name
 /// their `code`, `datum_frame` and missing `awaiting` letters.
 pub fn problems(analysis: &Value, answers: &Map<String, Value>) -> Result<Vec<Value>> {
+    let answers = &*crate::resume::truth::answered(analysis, answers);
+    let analysis = &*crate::resume::truth::restored(analysis, answers);
     let ctx = Ctx::new(analysis)?;
     // Python asks for the settled answers' questions and the preview separately; both come
     // from one settling of the same answers.

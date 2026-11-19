@@ -15,7 +15,7 @@ from specify_core.choices import SpecError, interpret
 from specify_core.existing import ExistingPmi, read_existing
 from specify_core.load import Binding, LoadedPart, load
 from specify_core.problems import problems
-from specify_core.rules import IncompleteError, Intent, Question
+from specify_core.rules import IncompleteError, Intent, Question, with_all_defaults
 from specify_core.writer import WriteReport
 
 STEEL = {"part.material": "steel"}
@@ -76,7 +76,26 @@ def test_write_writes_a_step_that_reads_back(plate, tmp_path):
     assert "material steel" in report.written
     existing = read_existing(load(out))
     assert existing and all(isinstance(e, ExistingPmi) for e in existing)
-    assert api.analyse(out)["resume"] == {"answers": STEEL}
+    # The answer given resumes as an answer; the defaults written with accept_defaults are
+    # what the file states (ADR P9: resume.present), not answers the person gave.
+    resume = api.analyse(out)["resume"]
+    assert set(resume) == {"answers", "present"}
+    assert resume["answers"] == STEEL
+    defaults = with_all_defaults(api.analyse(loaded), STEEL)
+    taken = {k: v for k, v in defaults.items() if k not in STEEL}
+    # Every default the file states resumes as present, with the value taken.
+    assert all(taken.get(k) == v for k, v in resume["present"].items())
+    # The rest are defaults that write no PMI, so the file cannot state them.
+    assert set(taken) - set(resume["present"]) == {
+        "part.coating",
+        "part.heat_treatment",
+        "part.notes",
+        "part.locating",
+        "hole.function:holes:9",
+        "datum.A.flatness",
+        "datum.B.control",
+        "datum.C.control",
+    }
 
 
 def test_write_parts_writes_both_parts_of_an_assembly(assembly, tmp_path):

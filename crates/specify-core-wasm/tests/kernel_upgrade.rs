@@ -124,7 +124,7 @@ fn browser_resumes_v024_answers_on_bosses_with_corrected_end_heights() {
 }
 
 #[test]
-fn browser_reports_unmatched_values_and_leaves_current_question_open() {
+fn browser_reports_unmatched_values_and_the_file_answers_the_current_question() {
     let bytes = saved("pin");
     let mut payload = json!(resume::stored(&bytes)[&0]);
     let answers = payload["answers"].as_object_mut().unwrap();
@@ -172,9 +172,15 @@ fn browser_reports_unmatched_values_and_leaves_current_question_open() {
         .review(resumed["answers"].as_object().unwrap())
         .unwrap();
     // The orphan retains its saved key/value; the current hole question owns floor 5.
+    // ADR P9: the file still states that hole's requirement as its default would, so the
+    // question is answered by the file (`resume.present`), not open.
     assert_eq!(key, "hole.function:holes:3");
     assert!(
-        review["open"]
+        resumed["present"].get("hole.function:holes:3.5").is_some(),
+        "{resumed}"
+    );
+    assert!(
+        !review["open"]
             .as_array()
             .unwrap()
             .contains(&json!("hole.function:holes:3.5"))

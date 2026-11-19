@@ -1,7 +1,7 @@
 //! Specify's STEP-only authorship contract; see docs/pmi-provenance.md.
 use haecceity::p21::{Attribute, Document, Edit, RawEntity};
 use haecceity::pmi::{PartPmi, PartProvenance};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 pub const MARKER: &str = "specify-core:written:v1";
 
@@ -202,6 +202,71 @@ pub fn all(p: &PartPmi, prov: &PartProvenance, doc: &Document) -> bool {
         && p.decimal_places.is_none()
 }
 
+/// Whether any requirement of part `part` carries Specify's provenance marker. A file written
+/// before requirements were marked (#22) has none.
+pub(crate) fn any_marked(doc: &Document, read: &haecceity::pmi::PmiRead, part: usize) -> bool {
+    marks(doc, read, part).iter().any(|(_, marked)| *marked)
+}
+
+/// The requirements of part `part` without Specify's provenance marker, by haecceity
+/// collection and index: PMI another tool wrote (or, before #22, Specify itself).
+pub(crate) fn unmarked(
+    doc: &Document,
+    read: &haecceity::pmi::PmiRead,
+    part: usize,
+) -> Vec<(String, usize)> {
+    marks(doc, read, part)
+        .into_iter()
+        .filter(|(_, marked)| !marked)
+        .map(|(at, _)| at)
+        .collect()
+}
+
+/// Whether each requirement of part `part` is marked as Specify's.
+fn marks(
+    doc: &Document,
+    read: &haecceity::pmi::PmiRead,
+    part: usize,
+) -> Vec<((String, usize), bool)> {
+    let p = &read.parts[part];
+    let prov = &read.provenance.parts[part];
+    let at = |collection: &str, i: usize| (collection.to_string(), i);
+    let mut out: Vec<_> = prov
+        .dimensions
+        .iter()
+        .enumerate()
+        .map(|(i, ids)| (at("dimensions", i), dimension(doc, ids)))
+        .collect();
+    out.extend(p.tolerances.iter().enumerate().map(|(i, t)| {
+        (
+            at("tolerances", i),
+            t.description.as_deref() == Some(MARKER),
+        )
+    }));
+    for (items, kind, collection) in [
+        (&prov.datums, "datum", "datums"),
+        (&prov.general, "general", "general"),
+        (&prov.threads, "thread", "threads"),
+        (&prov.knurls, "knurl", "knurls"),
+        (
+            &prov.surface_textures,
+            "surface texture",
+            "surface_textures",
+        ),
+    ] {
+        out.extend(
+            items
+                .iter()
+                .enumerate()
+                .map(|(i, ids)| (at(collection, i), marked(doc, ids, kind))),
+        );
+    }
+    if p.material.is_some() {
+        out.push((at("material", 0), marked(doc, &prov.material, "material")));
+    }
+    out
+}
+
 /// Remove only marked requirements of resumed Add-mode parts. Unmarked requirements and
 /// their complete forward dependencies are protected, including shared features/datums.
 /// The kernel planner handles helpers and presentation; any foreign edit is refused.
@@ -210,11 +275,30 @@ pub(crate) fn without_owned(
     read: &haecceity::pmi::PmiRead,
     parts: &[usize],
 ) -> Result<Vec<u8>, String> {
+    without_owned_except(doc, read, parts, &BTreeMap::new(), &BTreeMap::new())
+}
+
+/// [`without_owned`], keeping the items `keep` names for each part (by haecceity collection
+/// and index: a reopened file's PMI its answers do not explain, ADR P9).
+pub(crate) fn without_owned_except(
+    doc: &Document,
+    read: &haecceity::pmi::PmiRead,
+    parts: &[usize],
+    keep: &BTreeMap<usize, BTreeSet<(String, usize)>>,
+    give_way: &BTreeMap<usize, BTreeSet<(String, usize)>>,
+) -> Result<Vec<u8>, String> {
     let mut seeds = BTreeSet::new();
     let mut protected = BTreeSet::new();
+    let none = BTreeSet::new();
     for &part in parts {
         let p = &read.parts[part];
         let prov = &read.provenance.parts[part];
+        let kept = keep.get(&part).unwrap_or(&none);
+        let yields = give_way.get(&part).unwrap_or(&none);
+        let kept_at = |collection: &str, i: usize| kept.contains(&(collection.to_string(), i));
+        // An item the person decided against (a conflict restored or answered anew) gives way
+        // even when it is not marked as Specify's (kept earlier, so written as the file's own).
+        let yields_at = |collection: &str, i: usize| yields.contains(&(collection.to_string(), i));
         let mut classified = BTreeSet::<u64>::new();
         let mut classify = |ids: &[u64], owned: bool| {
             classified.extend(ids);
@@ -224,26 +308,45 @@ pub(crate) fn without_owned(
                 protected.extend(ids);
             }
         };
-        for ids in &prov.dimensions {
-            classify(ids, dimension(doc, ids));
+        for (i, ids) in prov.dimensions.iter().enumerate() {
+            classify(
+                ids,
+                yields_at("dimensions", i) || (!kept_at("dimensions", i) && dimension(doc, ids)),
+            );
         }
         for (i, ids) in prov.tolerances.iter().enumerate() {
-            classify(ids, p.tolerances[i].description.as_deref() == Some(MARKER));
+            classify(
+                ids,
+                yields_at("tolerances", i)
+                    || (!kept_at("tolerances", i)
+                        && p.tolerances[i].description.as_deref() == Some(MARKER)),
+            );
         }
-        for (items, kind) in [
-            (&prov.features, "feature"),
-            (&prov.datums, "datum"),
-            (&prov.general, "general"),
-            (&prov.threads, "thread"),
-            (&prov.knurls, "knurl"),
-            (&prov.surface_textures, "surface texture"),
-            (&prov.attributes, "attribute"),
+        for (items, kind, collection) in [
+            (&prov.features, "feature", "features"),
+            (&prov.datums, "datum", "datums"),
+            (&prov.general, "general", "general"),
+            (&prov.threads, "thread", "threads"),
+            (&prov.knurls, "knurl", "knurls"),
+            (
+                &prov.surface_textures,
+                "surface texture",
+                "surface_textures",
+            ),
+            (&prov.attributes, "attribute", "attributes"),
         ] {
-            for ids in items {
-                classify(ids, marked(doc, ids, kind));
+            for (i, ids) in items.iter().enumerate() {
+                classify(
+                    ids,
+                    yields_at(collection, i) || (!kept_at(collection, i) && marked(doc, ids, kind)),
+                );
             }
         }
-        classify(&prov.material, marked(doc, &prov.material, "material"));
+        classify(
+            &prov.material,
+            yields_at("material", 0)
+                || (!kept_at("material", 0) && marked(doc, &prov.material, "material")),
+        );
         protected.extend(prov.all().into_iter().filter(|id| !classified.contains(id)));
         protected.extend(prov.geometry.iter().flatten());
     }
@@ -358,5 +461,49 @@ pub(crate) fn without_owned(
     }
     let mut edit = Edit::new();
     plan.into_edit(&mut edit);
+    doc.apply(&edit).map(|w| w.bytes).map_err(|e| e.to_string())
+}
+
+/// `bytes` with Specify's provenance marker taken off the entities `ids` (its string where an
+/// attribute holds it, and the description attributes that state it of them): requirements a
+/// person decided are the file's own (ADR P9), written as any other tool's PMI.
+pub(crate) fn unmark(bytes: &[u8], ids: &BTreeSet<u64>) -> Result<Vec<u8>, String> {
+    let doc = Document::parse(bytes.to_vec()).map_err(|e| e.to_string())?;
+    let mut edit = Edit::new();
+    let clear = |attributes: &mut Vec<Attribute>| {
+        let mut changed = false;
+        for a in attributes.iter_mut() {
+            if matches!(a, Attribute::String(s) if s == MARKER) {
+                *a = Attribute::String(String::new());
+                changed = true;
+            }
+        }
+        changed
+    };
+    for &id in ids {
+        let Some(entity) = doc.get(id) else {
+            continue;
+        };
+        let mut record = entity.clone();
+        let changed = match &mut record {
+            RawEntity::Simple { attributes, .. } => clear(attributes),
+            RawEntity::Complex { parts, .. } => {
+                // Every part of the record, not just the first that holds the marker.
+                let mut any = false;
+                for p in parts.iter_mut() {
+                    any |= clear(&mut p.attributes);
+                }
+                any
+            }
+        };
+        if changed {
+            edit.replace(id, record);
+        }
+        for &r in doc.referrers(id) {
+            if doc.get(r).and_then(description_target) == Some(id) {
+                edit.remove(r);
+            }
+        }
+    }
     doc.apply(&edit).map(|w| w.bytes).map_err(|e| e.to_string())
 }
