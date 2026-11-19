@@ -171,16 +171,62 @@ pub fn feature_id(family: &str, faces: &[usize]) -> String {
     format!("{family}:{}", faces.join("."))
 }
 
+/// Why a face is left out as unmeasured: its `reason` code in the analysis's
+/// `unmeasured_faces` entries and in the review's `unmeasured_face` problems.
+pub const UNMEASURED_REASON: &str = "area_and_centroid_not_computable";
+
+/// The faces whose surface resolved but whose area and centroid haecceity cannot integrate
+/// (`Part::face_moments` gives none), for example a cylinder bounded by one closed circle, as
+/// some converters write a degenerate face. Ascending. Each is left out of [`describe_faces`]
+/// and of every feature ([`recognise`]); nothing is described for it, so no value is guessed.
+/// A face whose surface did not resolve is not one of these: it has its own handling.
+pub fn unmeasured_faces(loaded: &LoadedPart) -> Vec<usize> {
+    let part = &loaded.part;
+    let unresolved: BTreeSet<usize> = loaded
+        .unresolved_faces
+        .iter()
+        .chain(part.unresolved_faces())
+        .copied()
+        .collect();
+    (0..part.faces.len())
+        .filter(|index| !unresolved.contains(index) && part.face_moments(*index).is_none())
+        .collect()
+}
+
+/// The finding for each [`unmeasured_faces`] face, as the analysis reports it: `face` and the
+/// `reason` code ([`UNMEASURED_REASON`]) with a `detail` sentence.
+pub fn unmeasured_findings(loaded: &LoadedPart) -> Vec<Value> {
+    unmeasured_faces(loaded)
+        .into_iter()
+        .map(|face| {
+            serde_json::json!({
+                "face": face,
+                "reason": UNMEASURED_REASON,
+                "detail": format!(
+                    "face {face}'s area and centroid cannot be computed (haecceity \
+                     Part::face_moments gave none; for example a cylinder bounded by one \
+                     closed circle): it is left out, with every feature on it, rather than \
+                     described with guessed values"
+                ),
+            })
+        })
+        .collect()
+}
+
 /// Every face of the part, with what a datum or picking question needs (Python's
 /// `describe_faces`). A face whose surface haecceity could not resolve is `other`, where
-/// haecceity can still integrate it. Refused, naming the face, where haecceity cannot integrate
-/// a face's area (no value is made up): this includes an unresolved face with no surface, as on
-/// a degraded part (tests/features.rs, `recognition_refuses_a_degraded_part`).
+/// haecceity can still integrate it. A face with resolved geometry whose area haecceity cannot
+/// integrate is left out ([`unmeasured_faces`]; no value is made up for it, and the rest of
+/// the part is described); `Face::id` is the index, so the list is not positional. Refused,
+/// naming the face, where an *unresolved* face has no area: as on a degraded part
+/// (tests/features.rs, `recognition_refuses_a_degraded_part`).
 pub fn describe_faces(loaded: &LoadedPart) -> Result<Vec<Face>, FeatureError> {
     let part = &loaded.part;
     let names = crate::resume::names::identities(&loaded.face_names);
     let unresolved: BTreeSet<usize> = loaded.unresolved_faces.iter().copied().collect();
+    let skipped: BTreeSet<usize> = unmeasured_faces(loaded).into_iter().collect();
     (0..part.faces.len())
+        .filter(|index| !skipped.contains(index))
         .map(|index| {
             let moments = part.face_moments(index).ok_or(FeatureError::NoMoments {
                 part: loaded.binding.part,
@@ -243,7 +289,8 @@ const NOT_FEATURES: [&str; 3] = ["gusset_rib_patterns", "slot_patterns", "pocket
 
 /// The part's features (Python's `recognise`): every family's records from quiddity with their
 /// defining faces, hole patterns with their members, and sets of identical holes no pattern
-/// claims. Refused on a degraded part ([`LoadedPart::degraded`]).
+/// claims. A record whose faces include an unmeasured face ([`unmeasured_faces`]), and a
+/// pattern with such a member, is left out. Refused on a degraded part ([`LoadedPart::degraded`]).
 pub fn recognise(loaded: &LoadedPart) -> Result<Vec<Feature>, FeatureError> {
     if let Some(why) = loaded.degraded() {
         return Err(FeatureError::Degraded(why));
@@ -277,6 +324,11 @@ pub fn recognise_from(
         return Err(records("every", "not a JSON object".into()));
     };
 
+    // Faces left out of the analysis (`unmeasured_faces`): no feature that uses one is
+    // described, whatever quiddity reports for it.
+    let unmeasured: BTreeSet<usize> = unmeasured_faces(loaded).into_iter().collect();
+    // Records dropped for one: a pattern of such a member is dropped too.
+    let mut dropped: BTreeSet<(&str, usize)> = BTreeSet::new();
     let mut features = Vec::new();
     // Each base family's feature ids, record by record (None where a record had no faces), so
     // patterns can name their members.
@@ -306,6 +358,11 @@ pub fn recognise_from(
             faces.dedup();
             // As Python: a record with no faces in the part is not a feature.
             if faces.is_empty() {
+                family_ids.push(None);
+                continue;
+            }
+            if faces.iter().any(|face| unmeasured.contains(face)) {
+                dropped.insert((family.as_str(), n));
                 family_ids.push(None);
                 continue;
             }
@@ -360,12 +417,14 @@ pub fn recognise_from(
                 })?;
             let mut members = Vec::new();
             let mut notes = Vec::new();
+            let mut member_dropped = false;
             let listed = record.get(field).and_then(Value::as_array);
             for (i, member) in listed.into_iter().flatten().enumerate() {
                 // The first record of the base family equal to the member, not yet taken
                 // (quiddity-rust's `fingerprint::derived_faces`).
                 // taken is allocated with pool.len(); k ranges over that same length.
                 let found = (0..pool.len()).find(|&k| !taken[k] && pool[k] == *member);
+                member_dropped |= found.is_some_and(|k| dropped.contains(&(base, k)));
                 match found.and_then(|k| {
                     // k was found in 0..pool.len(); taken has the same length.
                     taken[k] = true;
@@ -374,6 +433,9 @@ pub fn recognise_from(
                     Some(id) => members.push(id),
                     None => notes.push(format!("member {i} has no faces in this part")),
                 }
+            }
+            if member_dropped {
+                continue;
             }
             let mut faces: Vec<usize> = members
                 .iter()

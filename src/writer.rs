@@ -2608,9 +2608,18 @@ fn part_pmi_observed(
                 .requirements
                 .extend(crate::dimensioning::stated(before));
         }
-        let input = crate::dimensioning::input(&loaded.part).map_err(WriteError::Failed)?;
-        crate::dimensioning::apply(input, &mut upgraded).map_err(WriteError::Failed)?;
-        &upgraded
+        match crate::dimensioning::input(&loaded.part) {
+            Ok(input) => {
+                crate::dimensioning::apply(input, &mut upgraded).map_err(WriteError::Failed)?;
+                &upgraded
+            }
+            // A face whose area cannot be computed leaves the part without a frame to plan
+            // in (quiddity needs the solid's volume). Its intent is written as stated, as a
+            // hand-authored one is; the face itself is left out of the analysis and of
+            // every requirement (`features::unmeasured_faces`).
+            Err(_) if !crate::features::unmeasured_faces(loaded).is_empty() => intent,
+            Err(why) => return Err(WriteError::Failed(why)),
+        }
     } else {
         intent
     };

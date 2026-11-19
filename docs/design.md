@@ -165,11 +165,23 @@ except where a hash is taken (resume fingerprint, `pyjson.rs`).
 - `Binding { source_sha256, face_count, loader_version: 2, part }`.
 - Analysis (`schema` 1): `{schema, binding, faces: [Face], features: [Feature], dimensioning, mates?,
   existing: [ExistingPmi], part: {material?, general_tolerance?, surface_finish?, coating?,
-  heat_treatment?, edges?}, resume?: {answers, conflicts?}}` (ExistingPmi `question?` on a conflict's items). `Face { id, kind: plane|cylinder|cone|torus|
+  heat_treatment?, edges?}, unmeasured_faces?: [{face, reason, detail}], resume?: {answers, conflicts?}}` (ExistingPmi `question?` on a conflict's items). `Face { id, kind: plane|cylinder|cone|torus|
   other, area, centroid, direction?, origin?, radius?, contact? }`. `Feature { id, family, record
   (JSON object), faces, members?, notes?, description? }`. Analysis snapshots add plain
   `description` text for turned bodies, face grooves, cylindrical profiles and concave
-  fillets. The measured record and source-face indices remain the matching/PMI inputs;
+  fillets. `unmeasured_faces` is present only when a face with resolved geometry has no
+  area or centroid (haecceity `Part::face_moments` gives none: a cylinder bounded by one
+  closed circle, as some converters write a degenerate face; #303). Each entry names the
+  `face` (its index), a `reason` code (`area_and_centroid_not_computable`) and a `detail`
+  sentence. That face is left out of `faces` (a `Face`'s `id` is its index, so the list is
+  not positional), of every feature (a record using it, and a hole pattern with such a
+  member, is dropped, whatever quiddity reports for it) and so of the questions, anchors and
+  written PMI; the review's `problems` carries a `warning` with `code: "unmeasured_face"`
+  and the face, and CLI/serve/MCP warnings say it. The rest of the part is specified and
+  written; the part has no planner frame (quiddity needs the solid's volume), so
+  `dimensioning` is `{"applicable": false, ...}` and the rule-made intent is written as
+  stated, without planned dimensions. An *unresolved* face (surface not resolved) keeps its
+  own handling. The measured record and source-face indices remain the matching/PMI inputs;
   these descriptions introduce no feature questions. `dimensioning` is the shared typed
   planner input on success (unchanged), or `{"applicable": false, "reason": "..."}`
   when input construction fails, including parts with no planar face. Older analyses

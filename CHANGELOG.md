@@ -18,6 +18,15 @@ All notable changes to specify-core-rust. The format follows
 
 ### Fixed
 
+- A face whose area and centroid cannot be computed (a cylinder bounded by one closed circle,
+  as some converters write a degenerate face) no longer refuses the whole part. It is left
+  out of the faces, of every feature that uses it (and of a hole pattern with such a member,
+  whatever quiddity reports for it) and so of the questions, anchors and written PMI, and the
+  analysis reports it: an additive `unmeasured_faces` list of `{face, reason, detail}`, a
+  `warning` problem with `code: "unmeasured_face"` in the review, and a warning in the CLI,
+  serve and MCP. The rest of the part opens, is specified and written; such a part has no
+  planner frame, so its rule-made intent is written without planned dimensions. A face whose
+  surface did not resolve keeps its refusal. For pzfreo/quiddity#303.
 - Reopening a STEP file detects manufacturing-process edits and removals against saved
   answers even after the STEP provenance markers have been stripped. CLI and editor
   rewrites preserve unmarked foreign process attributes, including text outside Specify's

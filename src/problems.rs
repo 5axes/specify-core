@@ -50,6 +50,22 @@ pub fn problems(analysis: &Value, answers: &Map<String, Value>) -> Result<Vec<Va
         diagnostic["code"] = Value::from("saved_answers_unverified");
         out.push(diagnostic);
     }
+    for finding in analysis["unmeasured_faces"]
+        .as_array()
+        .into_iter()
+        .flatten()
+    {
+        if let (Some(face), Some(detail)) = (finding["face"].as_i64(), finding["detail"].as_str()) {
+            let mut diagnostic = problem(
+                "warning",
+                format!("Face {face} is left out: {detail}."),
+                Value::Array(vec![Value::from(face)]),
+                "",
+            );
+            diagnostic["code"] = Value::from("unmeasured_face");
+            out.push(diagnostic);
+        }
+    }
     for saved in analysis["resume"]["unresolved"]
         .as_array()
         .into_iter()

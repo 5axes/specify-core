@@ -325,6 +325,14 @@ fn analyse_reconciling(
         }
     }
     analysis.insert("features".into(), described);
+    // A face haecceity cannot measure is left out of the faces and every feature; say so.
+    let unmeasured = features::unmeasured_findings(loaded);
+    for finding in &unmeasured {
+        warnings.push(finding["detail"].as_str().unwrap_or_default().to_string());
+    }
+    if !unmeasured.is_empty() {
+        analysis.insert("unmeasured_faces".into(), Value::Array(unmeasured));
+    }
     let dimensioning = match crate::dimensioning::input(&loaded.part) {
         Ok(input) => serde_json::to_value(input).map_err(|e| refused(&e))?,
         Err(reason) => json!({"applicable": false, "reason": reason}),
