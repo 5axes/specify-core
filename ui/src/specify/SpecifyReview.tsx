@@ -22,8 +22,8 @@ import { answerOf, confirmRow, display, groupQuestions, needs, nextNeeding, ques
 import { MODES, type PickMode } from './selection';
 import './PmiLab.css';
 export type SpecifyEngine = Pick<PmiLabEngine, 'questions' | 'interpret' | 'preview'> & {
-  /** Optional host-specific review for display and shared-component exports.
-   * The original questions/interpret/preview host contract remains sufficient. */
+  /** Optional host-specific review requested only when an inspection export runs.
+   * Display always uses preview; the original three-method host contract remains sufficient. */
   inspection?(sessionId: string, answers: PmiAnswers): Promise<PmiIntent>;
 };
 /** Where the workspace shows Specify: the part in the 3D pane, the questions in the edit pane. */
@@ -87,12 +87,12 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   /**
    * A PMI viewer: the 3D view and a list of the PMI that is set. Questions, answers, suggestions and the exports
    * are not rendered. Nothing reaches the host's ``engine.questions``, ``engine.interpret`` or ``onKeep``;
-   * ``engine.preview`` (or optional ``inspection``) supplies labels. Default false.
+   * ``engine.preview`` supplies labels. Default false.
    */
   readOnly?: boolean;
 }) {
   const host = engine;
-  const readOnlyHost = useMemo(() => ({ ...readOnlyEngine(host), inspection: host.inspection }), [host]);
+  const readOnlyHost = useMemo(() => readOnlyEngine(host), [host]);
   engine = readOnly ? readOnlyHost : host;
   const stage = useRef<HTMLDivElement>(null);
   const picker = useRef<Picker | null>(null);
@@ -103,7 +103,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   const [current, setCurrent] = useState<string | null>(null);
   // A refusal is shown by what was refused: a question's id, or null for the panel.
   const [error, setError] = useState<{ at: string | null; problem: PmiLabError } | null>(null);
-  const [preview, setPreview] = useState<PmiIntent | null>(null);
+  const [preview, setPreview] = useState<PmiIntent | null>(externalReview.intent);
   const [selection, setSelection] = useState<number[]>([]);
   const [mode, setMode] = useState<PickMode>('face');
   const [status, setStatus] = useState('');
@@ -334,6 +334,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     setAnswers(externalAnswers);
     setQuestions(externalReview.questions);
     setProblems(externalReview.problems);
+    setPreview(externalReview.intent);
     setTyped((typed) => Object.fromEntries(Object.entries(typed).filter(([id, read]) => externalAnswers[id] === read.value)));
   }, [externalAnswers, externalReview]);
 
@@ -341,15 +342,13 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   const relabel = useCallback(async (next: PmiAnswers) => {
     const mine = ++previewing.current;
     try {
-      const shown = await live((id) => engine.inspection
-        ? engine.inspection(id, inspectionAnswers(next, questions, kept, toReview))
-        : engine.preview(id, next));
+      // Keep display traffic on the original preview contract. Inspection is lazy below.
+      const shown = await live((id) => engine.preview(id, next));
       if (mine === previewing.current) setPreview(shown);
     } catch {
       // Labels are a view: a failed refresh keeps the last ones.
     }
-  }, [engine, live, questions, kept, toReview]);
-  useEffect(() => { void relabel(answers); }, [answers, relabel]);
+  }, [engine, live]);
 
   // Once per part opened -- never again on a re-render, which would throw away
   // what has been answered since. Reached through ``startWith``, set below.
@@ -393,6 +392,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
       setQuestions(asked.questions);
       setProblems(asked.problems ?? []);
       setCurrent(focus(groupQuestions(asked.questions)));
+      void relabel(next);
       return true;
     } catch (failure) {
       setError({ at, problem: asError(failure) });

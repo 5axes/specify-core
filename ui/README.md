@@ -107,9 +107,10 @@ show a copyable command with the real path: `specify-core open '<saved copy>' --
 Only bytes served by the session are analysed; the app never reconstructs a saved file.
 
 The shared component keeps the original three-method host contract. `SpecifyEngine.inspection`
-is optional. Without it, display and shared-component exports retain the host's preview behaviour.
-`inspectionIntent` remains an optional export override. The local app owns its saved-file buttons and
-suppresses shared preview-download and CSV-inclusion controls with `inspectionExports={false}`.
+is optional and called only when an inspection export runs. Display always uses `engine.preview`;
+keeping suggestions and receiving host reviews never requests inspection. Without `inspection`,
+shared-component exports retain the host's preview behaviour. `inspectionIntent` remains an optional
+export override. The local app owns its saved-file buttons and suppresses shared preview-download and CSV-inclusion controls with `inspectionExports={false}`.
 
 Stored STEP identifiers supply inspection numbers, including PMI absent from the interview review.
 Material belongs on AS9102 Form 2 only. Form 3 contains numbered characteristics only.

@@ -17,8 +17,9 @@ async function openPage(readOnly, file = 'test/fixtures/spindle_pmi_before.step.
   await page.goto(`${base}/?specify=1${readOnly ? '&readOnly=1' : ''}${query}`);
   await page.locator('#specify-file').setInputFiles(file);
   await check(page.locator(ready).first()).toBeVisible();
-  // Wait for the host's display path: optional inspection or the original preview method.
-  await check.poll(() => page.evaluate(() => window.__calls.includes(location.search.includes('legacy=1') ? 'preview' : 'inspection'))).toBe(true);
+  // Display always follows origin/main's preview contract, even if inspection is available.
+  await check.poll(() => page.evaluate(() => window.__calls.includes('preview'))).toBe(true);
+  assert.ok(!(await page.evaluate(() => window.__calls)).includes('inspection'), 'opening a review never requests inspection');
   return page;
 }
 const calls = page => page.evaluate(() => [...window.__calls]);
@@ -166,25 +167,30 @@ try {
     await check(panel(page).locator('.pmi-lab-suggestion')).toHaveCount(0);
     await page.close();
   }
-  // No export override: the shared component uses the host engine inspection for every given
-  // requirement. Material has no numbered STEP entity, so its displayed and exported ID is empty.
+  // Display keeps the host preview (Material is balloon 12); inspection is an export-only
+  // request. Its given-only Material row has no stored ID, so its CSV number stays empty.
   {
-    const page = await openPage(false, 'test/fixtures/gramil_shaft_before.step.gz');
+    const page = await openPage(false, 'test/fixtures/gramil_shaft_before.step.gz', '#specify-panel .pmi-lab-row-head', '&keep=host');
+    const before = (await calls(page)).length;
     const material = panel(page).locator('[data-question="part.material"] input');
     await material.fill('Aluminium 6082-T6');
     await material.press('Enter');
     await panel(page).getByRole('tab', { name: /^Characteristics/ }).click();
     const row = panel(page).locator('.pmi-lab-table tr').filter({ hasText: 'Material: Aluminium 6082-T6' });
-    await check(row.getByRole('checkbox', { name: 'Inspect Material: Aluminium 6082-T6', exact: true })).toBeVisible();
+    // This expectation follows origin/main's display; export data no longer replaces preview.
+    await check(row.getByRole('checkbox', { name: 'Inspect 12', exact: true })).toBeVisible();
+    await check.poll(async () => (await calls(page)).slice(before)).toEqual(['questions', 'preview']);
     const download = (name) => inspectionDownload(page, name);
     const csv = readFileSync(await download('Inspection list (CSV)'), 'utf8');
     assert.deepEqual(csv.trimEnd().split('\n').slice(1), [',,Part,Material: Aluminium 6082-T6,,,,,,']);
+    assert.deepEqual((await calls(page)).slice(before), ['questions', 'preview', 'inspection'], 'only the requested CSV adds inspection traffic');
     const path = await download('AS9102 FAI (Excel)');
     const form3 = execFileSync('unzip', ['-p', path, 'xl/worksheets/sheet3.xml'], { encoding: 'utf8' });
     assert.doesNotMatch(form3, /<c r="A5"/, 'unnumbered Material has an empty number cell');
     assert.doesNotMatch(form3, /Material: Aluminium 6082-T6/, 'Material belongs only on Form 2');
     assert.match(execFileSync('unzip', ['-p', path, 'xl/worksheets/sheet2.xml'], { encoding: 'utf8' }), /MATERIAL Aluminium 6082-T6/);
     assert.doesNotMatch(form3, /ISO 2768|Ra 3.2|M4×|M2×/, 'no unapproved part notes or threads');
+    assert.deepEqual((await calls(page)).slice(before), ['questions', 'preview', 'inspection', 'inspection'], 'only the requested workbook adds another inspection');
     await page.close();
   }
   // A host that keeps suggestions itself (the editor: onKeep, and kept for the ticks): Keep goes to
@@ -202,10 +208,12 @@ try {
     // On the question kept: what the Ø3.3 hole is for.
     assert.match(await panel(page).locator('.pmi-lab-tick').evaluate(el => el.closest('.pmi-lab-item')?.textContent ?? ''), /What is the Ø3\.3 hole for\?/);
     assert.ok(!(await calls(page)).slice(before).includes('questions'), 'the host keeps it: no answer is committed');
+    assert.deepEqual((await calls(page)).slice(before), [`onKeep:${id}`], 'Keep and unfolding leave preview/inspection traffic unchanged');
     const csv = readFileSync(await inspectionDownload(page, 'Inspection list (CSV)'), 'utf8');
     assert.equal(csv.trimEnd().split('\n').length, 2, 'only the one explicitly kept thread is exported');
     assert.match(csv, /M4×0.7-6H/);
     assert.doesNotMatch(csv, /ISO 2768|Ra 3.2|M2×/);
+    assert.deepEqual((await calls(page)).slice(before), [`onKeep:${id}`, 'inspection'], 'the export is the first inspection request after Keep');
     await page.close();
   }
   // Read only: a PMI viewer. The spindle Specify wrote (semantic PMI linked to graphical PMI) shows what is
@@ -281,9 +289,9 @@ try {
     await check(table.locator('tbody tr.on')).toHaveCount(0);
     await page.waitForTimeout(500);
     const made = await calls(page);
-    // Changed API expectation: inspection replaces preview to obtain writer-assigned IDs.
-    assert.ok(!made.some(call => call !== 'inspection'), `only inspections reach the engine: ${made}`);
-    assert.ok(made.includes('inspection'), 'the answers given are labelled with engine IDs');
+    // Restore origin/main's read-only call contract: inspection is reserved for exports.
+    assert.ok(!made.some(call => call !== 'preview'), `only previews reach the engine: ${made}`);
+    assert.ok(made.includes('preview'), 'the answers given are labelled');
     await page.close();
   }
   assert.deepEqual(problems, [], 'no page errors');
