@@ -14,6 +14,7 @@ import {
   type DrawnPmi, type IntentReview, type PmiAnswers, type PmiLabSession, type PmiQuestion, type SpecifyEngine, type SpecifySlots, type WorkerClient,
 } from '../src/index';
 import { stepBytes } from '../src/model/diff';
+import { SessionApiMismatch } from './session-api';
 import { defaultsToWrite } from '../src/specify/review';
 import { saveFile } from '../src/specify/SpecifyReview';
 import type { StoredInspection } from '../src/specify/saved-inspection';
@@ -132,6 +133,7 @@ function App() {
   const [tab, setTab] = useState<'changes' | 'answers'>('changes');
   const [problem, setProblem] = useState<string | null>(null);
   const [openingError, setOpeningError] = useState<string | null>(null);
+  const [apiProblem, setApiProblem] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState<SavedLine | null>(null);
   const [dirty, setDirty] = useState(false);
@@ -280,7 +282,11 @@ function App() {
         const snapshot = await worker.current.request<{ analysis: PmiLabSession['analysis'] }>('open', fileOf(first.name, bytes, row.part, true)).catch(() => null);
         if (snapshot) answersSession.fileAnswers(row.part, snapshot.analysis.resume?.answers ?? {});
       }
-    })().catch((error: unknown) => { if (!ended) setOpeningError(message(error)); });
+    })().catch((error: unknown) => {
+      if (ended) return;
+      if (error instanceof SessionApiMismatch) setApiProblem(error.message);
+      else setOpeningError(message(error));
+    });
     return () => { stop(); unlisten(); unwatch(); sessionRef.current?.close(); worker.current?.dispose(); };
   }, []);
 
@@ -519,8 +525,8 @@ function App() {
   };
 
   const showingChanges = mode === 'diff' && tab === 'changes';
-  const saveBlocked = openingError ? 'Save is disabled until the file and its answers can be loaded. Correct the session answers, then reload this page.'
-    : stopped ? 'Specify has stopped' : fileChanged ? 'The file changed on disk since it was opened: open it again to save' : undefined;
+  const saveBlocked = apiProblem ?? (openingError ? 'Save is disabled until the file and its answers can be loaded. Correct the session answers, then reload this page.'
+    : stopped ? 'Specify has stopped' : fileChanged ? 'The file changed on disk since it was opened: open it again to save' : undefined);
   return (
     <div className="app">
       <header className="app-header">
@@ -584,6 +590,7 @@ function App() {
           </div>
         )}
       </header>
+      {apiProblem && <p className="app-problem app-api-mismatch" role="alert">{apiProblem}</p>}
       {openingError && <p className="app-problem app-open-failed" role="alert">
         Could not open {config?.name ?? 'the part'}: {openingError}{' '}
         Save is disabled until the file and its answers can be loaded. Correct the session answers, then reload this page.
@@ -664,7 +671,7 @@ function App() {
         </nav>
       )}
       <main className="app-main">
-        {!opened && !problem && !openingError && !stopped && <p className="app-loading">Opening {config?.name ?? 'the part'}…</p>}
+        {!opened && !problem && !openingError && !apiProblem && !stopped && <p className="app-loading">Opening {config?.name ?? 'the part'}…</p>}
         {compared && (
           <div className="app-diff diff-page" hidden={!showingChanges}>
             <StepDiff before={compared.old} after={compared.next} compared={compared.body} wasmUrl={config?.wasmUrl} />

@@ -173,6 +173,13 @@ command serves its own at `config.wasmUrl`). Each release attaches it as `specif
 files at the archive's root) with a `.sha256` and a build provenance attestation (`gh attestation verify
 specify-ui-app-<version>.tgz --repo pzfreo/specify-ui`). To try it: `specify-core open --app dist-app --wasm public/wasm/intent part.step`.
 
+The build also writes `specify-ui-app.json` at the root of `dist-app/` and the app archive:
+`{"name":"specify-ui-app","version":"<package.json version>","api":1}`. The manifest lets specify-core
+verify the app it downloads. `api` is the session API, defined once as `SESSION_API` in
+`app/session-api.ts`, shared by the manifest and the page's compatibility check. The page refuses
+to load a review when `config.api` differs, naming both versions and asking for an update.
+An absent `config.api` remains compatible with specify-core 0.2.0.
+
 `npm run test:app` builds it and drives it in Chromium under the real command (`SPECIFY_CORE`, default
 `specify-core` on `PATH`; it needs the session contract): `test/app-browser.mjs` by hand (answer, save, read the PMI
 back with `specify-core analyse`, resume, read only, diff on the enclosure fixtures, an `--in-place` save over a

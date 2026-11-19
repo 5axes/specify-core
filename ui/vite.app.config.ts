@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import react from '@vitejs/plugin-react';
 import { defineConfig, type Plugin } from 'vite';
+import { SESSION_API } from './app/session-api';
 
 // The local app `specify-core open` serves (app/): a static directory, dist-app/, with relative URLs
 // only and nothing from another origin. The engine is not in it: the command serves its own at
@@ -21,11 +22,21 @@ const licences = (): Plugin => ({
   },
 });
 
+/** specify-core verifies this manifest before serving a downloaded app. */
+const manifest = (): Plugin => ({
+  name: 'specify-app-manifest',
+  apply: 'build',
+  generateBundle() {
+    this.emitFile({ type: 'asset', fileName: 'specify-ui-app.json',
+      source: `${JSON.stringify({ name: 'specify-ui-app', version: pkg.version, api: SESSION_API })}\n` });
+  },
+});
+
 export default defineConfig({
   root: 'app',
   base: './',
   publicDir: false,
-  plugins: [react(), licences()],
+  plugins: [react(), licences(), manifest()],
   define: { __APP_VERSION__: JSON.stringify(pkg.version) },
   resolve: { alias: { '@draftwright/specify-core-wasm': fileURLToPath(new URL('./app/no-bundled-engine.ts', import.meta.url)) } },
   worker: { format: 'es' },

@@ -206,13 +206,15 @@ jobs:
             echo "::error::The local app's tests failed against specify-core $(node -p "require('./engines.lock.json').command.tag"): no app is attached to this release (the npm library is published without it)."
             exit 1
           }
-      # Its files at the archive's root (index.html first level), with its sha256.
+      # Its files and API manifest at the archive's root, with its sha256.
       - name: Pack the local app
         run: |
           set -eu
           version=$(node -p "require('./package.json').version")
           mkdir app-release
           tar -czf "app-release/specify-ui-app-$version.tgz" -C dist-app .
+          # Refuse an app archive without its root manifest (or with different contents).
+          tar -xOzf "app-release/specify-ui-app-$version.tgz" ./specify-ui-app.json | cmp dist-app/specify-ui-app.json -
           (cd app-release && sha256sum "specify-ui-app-$version.tgz" > "specify-ui-app-$version.tgz.sha256")
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

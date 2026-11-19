@@ -1,11 +1,28 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { keepAlive } from '../app/local.ts';
+import { getConfig, keepAlive } from '../app/local.ts';
 import { createSession } from '../app/answers.ts';
 import { sessionSaver } from '../app/save.ts';
+import { SESSION_API, SessionApiMismatch } from '../app/session-api.ts';
 
 const config = { name: 'part.step', saveTarget: '/tmp/part.specified.step' };
 const flush = async () => { for (let n = 0; n < 20; n++) await Promise.resolve(); };
+
+test('config without api remains compatible with specify-core 0.2.0', async (t) => {
+  t.mock.method(globalThis, 'fetch', async () => Response.json(config));
+  assert.deepEqual(await getConfig(), config);
+});
+
+test('config with the supported session API is accepted', async (t) => {
+  t.mock.method(globalThis, 'fetch', async () => Response.json({ api: SESSION_API, ...config }));
+  assert.deepEqual(await getConfig(), { api: SESSION_API, ...config });
+});
+
+test('config with a mismatched API refuses startup and names both versions', async (t) => {
+  t.mock.method(globalThis, 'fetch', async () => Response.json({ api: 2, ...config }));
+  await assert.rejects(getConfig(), (error) => error instanceof SessionApiMismatch
+    && error.message === 'This Specify page speaks session API 1, but specify-core speaks 2: update specify-core or the app');
+});
 
 /** Browser timers run against wall time. Sleeping moves time without executing callbacks. */
 function browser(t) {

@@ -2,11 +2,14 @@
 // started by `specify-core open` or by the MCP server's `show`. Every URL is relative: the app is
 // served under `http://127.0.0.1:<port>/<token>/`, never at `/`.
 import type { PmiAnswers } from '../src/types/pmi';
+import { requireSessionApi } from './session-api.ts';
 
 export type Mode = 'specify' | 'read-only' | 'diff';
 
 /** `GET config`. */
 export interface LocalConfig {
+  /** Session API version; absent in specify-core 0.2.0. */
+  api?: number;
   mode: Mode;
   /** The file's name (NEW's in diff mode), and its absolute path as given. */
   name: string;
@@ -65,7 +68,7 @@ async function json<T>(request: Promise<Response>): Promise<T> {
 
 export const getConfig = (signal?: AbortSignal, onResponse?: () => void) => json<LocalConfig>(
   fetch('config', { cache: 'no-store', signal }).then((response) => { onResponse?.(); return response; }),
-);
+).then((config) => { requireSessionApi(config.api); return config; });
 
 /** The STEP as on disk (gzipped if the file is); in diff mode ``old`` is OLD's. */
 export async function getFile(rev: 'old' | 'new' = 'new'): Promise<Blob> {
