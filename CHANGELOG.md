@@ -48,8 +48,10 @@ All notable changes to specify-core-rust. The format follows
   answers would write (the revision diff's PMI item matching, every face its own). Answers
   the file agrees with resume (`resume.answers`) and their items are not repeated; defaults
   the file states as written but never stored as answers are `resume.present` (answered by
-  the file, still answerable); the file's other PMI is `existing` and `part` (before, a
-  resumed file gave `existing: []` and `part: {}`). A stored answer the file
+  the file, still answerable); Specify's PMI no stored answer states, stated otherwise than
+  its default, answers its question (`resume.file`, kept on writing, not a conflict); the
+  file's other PMI is `existing` and `part` (before, a resumed file gave `existing: []` and
+  `part: {}`). A stored answer the file
   changed or removed is a conflict, `resume.conflicts: [{id, stored, file}]` with an analysis
   warning each: the file's items stay in `existing` tagged `question`, the answer is not
   resumed and its question is not asked until decided, by answering it (restore; the file's

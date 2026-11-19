@@ -157,12 +157,14 @@ cone or floor claimed since).
   otherwise (the answer then replaces it). `resume.answers` stays the stored answers.
 - **Only in the file**, added by another tool (no Specify provenance marker): in
   `existing`, present and kept, never a conflict. Its question is not asked where the file's
-  PMI already states it. Specify's own (marked) requirements that the answers do not explain
-  and that are not present defaults (written by an older version, a default written
-  differently, or a requirement Specify wrote from an intent rather than from answers) are
-  Specify's to state: they are not repeated in `existing`, their questions are asked again,
-  and the rewrite states the part from the answers. (Known limit: a default another tool
-  changed while keeping Specify's marker is therefore restated, see the release notes.)
+  PMI already states it.
+- **Specify's own requirement that no stored answer states, stated otherwise than its
+  default** (a default another tool changed while keeping Specify's marker, or a requirement
+  Specify wrote from an intent rather than from answers): the file answers that question,
+  `resume.file: [id]`. It is not a conflict and its default is not restated: the file's
+  requirement is in `existing`, tagged `question: <id>`, the question is not asked, and
+  every write keeps it until the question is answered (which gives it way). Specify's own
+  requirements that no question accounts for at all are Specify's to state from the answers.
 - **Different, or only in the answers (removed in the file):** a conflict,
   `resume.conflicts: [{id, stored, file}]` (`file` is the file's notation, `null` when the
   file has none), with an analysis warning each. Until it is decided the file's state is
