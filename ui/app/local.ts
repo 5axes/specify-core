@@ -128,7 +128,7 @@ export function listen(onAnswers: (event: AnswersEvent) => void, onSaved: (event
   return () => { stopped = true; window.clearTimeout(timer); source?.close(); };
 }
 
-/** Heartbeat every 30 s, with an immediate probe when SSE fails. A refused stream (e.g. all four
+/** Heartbeat every 30 s, with an early probe when SSE fails. A refused stream (e.g. all four
  * slots taken) is recoverable while config still answers. Retry failed probes for 25 s. */
 export function keepAlive(onConfig: (config: LocalConfig) => void, onStopped: () => void, onClose: () => void) {
   const requests = new AbortController();
@@ -137,6 +137,7 @@ export function keepAlive(onConfig: (config: LocalConfig) => void, onStopped: ()
   let refreshPending = false;
   let deadline = 0;
   let retry = 0;
+  let streamProbe = 0;
   const probe = () => {
     if (stopped || checking) return;
     checking = true;
@@ -159,6 +160,12 @@ export function keepAlive(onConfig: (config: LocalConfig) => void, onStopped: ()
       retry = window.setTimeout(probe, 4_000);
     });
   };
+  // Navigation can cancel SSE before pagehide runs. Let the page cancel this probe before
+  // starting a connection that could race its close beacon.
+  const streamLost = () => {
+    if (stopped || streamProbe) return;
+    streamProbe = window.setTimeout(() => { streamProbe = 0; probe(); }, 250);
+  };
   // A save needs config from after the write, even if a heartbeat was already in flight.
   const refresh = () => { if (checking) refreshPending = true; else probe(); };
   const timer = window.setInterval(probe, 30_000);
@@ -177,7 +184,8 @@ export function keepAlive(onConfig: (config: LocalConfig) => void, onStopped: ()
     window.clearInterval(timer);
     window.clearTimeout(deadline);
     window.clearTimeout(retry);
+    window.clearTimeout(streamProbe);
     window.removeEventListener('pagehide', gone);
   };
-  return { probe, refresh, stop };
+  return { streamLost, refresh, stop };
 }

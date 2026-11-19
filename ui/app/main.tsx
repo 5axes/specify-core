@@ -225,7 +225,7 @@ function App() {
         heartbeat.refresh();
       }, (up) => {
         setLive(up);
-        if (!up) { lost = true; heartbeat.probe(); return; }
+        if (!up) { lost = true; heartbeat.streamLost(); return; }
         // Back after a loss: what changed meanwhile, as the session has it now.
         if (lost) getAnswers().then((now) => answersSession.receive({ ...now, source: 'start' }), () => {});
         lost = false;
