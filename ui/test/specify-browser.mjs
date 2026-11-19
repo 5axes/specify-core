@@ -147,6 +147,31 @@ try {
     }
     await viewPmi.getByRole('radio', { name: 'Semantic' }).check();
     await check(page.locator('#specify-view .pmi:not(.hidden)').first()).toBeVisible();
+    // Notation, not boxes: no label is carded or bordered (a boxed value reads as a basic dimension);
+    // only a frame's cells and a datum's square carry lines.
+    await check(page.locator('#specify-view .pmi:not(.hidden) .datum').first()).toBeAttached();
+    const lines = await page.evaluate(() => {
+      const edge = e => ['Top', 'Right', 'Bottom', 'Left'].map(s => parseFloat(getComputedStyle(e)[`border${s}Width`]) || 0);
+      const own = [...document.querySelectorAll('.pmi-lab .pmi:not(.hidden) .pmi-in')];
+      return {
+        plain: own.filter(e => !e.querySelector('.fcf, .datum')).map(e => ({ text: e.textContent, edges: edge(e), backing: getComputedStyle(e).backgroundColor, shadow: getComputedStyle(e.parentElement).textShadow })),
+        wrappers: own.map(e => edge(e).reduce((a, b) => a + b, 0)),
+        frames: [...document.querySelectorAll('.pmi-lab .pmi .fcf')].map(f => ({ outer: edge(f), dividers: [...f.children].slice(0, -1).map(c => Math.max(edge(c)[1], edge(c)[3])) })),
+        datums: [...document.querySelectorAll('.pmi-lab .pmi .datum')].map(edge),
+      };
+    });
+    assert.ok(lines.plain.length > 0 && lines.frames.length > 0 && lines.datums.length > 0, 'the part has a plain label, a frame and a datum');
+    for (const label of lines.plain) {
+      assert.deepEqual(label.edges, [0, 0, 0, 0], `"${label.text}" has no border`);
+      assert.equal(label.backing, 'rgba(0, 0, 0, 0)', `"${label.text}" has no card (its backing is the text-shadow halo)`);
+      assert.notEqual(label.shadow, 'none', `"${label.text}" is haloed`);
+    }
+    assert.ok(lines.wrappers.every(w => w === 0), 'no label wrapper is bordered');
+    for (const f of lines.frames) {
+      assert.ok(f.outer.every(w => w > 0), 'a frame keeps its outline');
+      assert.ok(f.dividers.every(w => w > 0), 'a frame keeps the lines between its cells');
+    }
+    for (const d of lines.datums) assert.ok(d.every(w => w > 0), 'a datum keeps its square');
     // A characteristic chosen is marked.
     const row = table.locator('tbody tr').first();
     await row.click();
