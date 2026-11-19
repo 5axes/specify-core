@@ -176,8 +176,8 @@ test('a save with defaults writes only the defaults confirmed', async () => {
   await sessionSaver(store, store.session, () => ({ a: 1 }), defaultsOf, write).save({ defaults: [] });
   await assert.rejects(sessionSaver(store, store.session, () => ({ a: 1 }), defaultsOf, write).save({ defaults: [d(0, 'b', 1)] }), DefaultsChanged);
   await sessionSaver(store, store.session, () => ({ a: 1 }), defaultsOf, write).save({ defaults: [d(0, 'c', 2), d(0, 'b', 1)] });
-  // The command's `acceptDefaults` is now the confirmed question ids by part (was a boolean): `{}` for a plain save.
-  assert.deepEqual(writes, [[2, {}], [2, { 0: ['c', 'b'] }]], 'exactly the confirmed ids, by part; nothing written for a list that changed');
+  // The command's `acceptDefaults` is now the confirmed question ids with the values seen, by part (was a boolean, then ids): `{}` for a plain save.
+  assert.deepEqual(writes, [[2, {}], [2, { 0: { c: 2, b: 1 } }]], 'exactly the confirmed ids with the values seen, by part; nothing written for a list that changed');
 });
 
 // Review round 2, item 2: the same questions defaulted to another value (an agent's answer changed
@@ -194,7 +194,7 @@ test('a confirmed default whose value changed before the save is confirmed again
   await assert.rejects(sessionSaver(store, store.session, () => ({ a: 2 }), defaultsOf, write).save({ defaults: confirmed }), DefaultsChanged);
   assert.deepEqual(writes, [], 'nothing written: the list is shown again');
   await sessionSaver(store, store.session, () => ({ a: 2 }), defaultsOf, write).save({ defaults: await defaultsOf(store.session.parts()) });
-  assert.deepEqual(writes, [[3, { 0: ['b'] }]]);
+  assert.deepEqual(writes, [[3, { 0: { b: 0.2 } }]]);
 });
 
 // Review round 2, item 1 (ADR P9): a save writes every part with answers in the session, so the
@@ -211,7 +211,7 @@ test('a save with defaults of an assembly checks the defaults of every part it w
   assert.deepEqual(asked, [['0', '3']], 'the defaults of every part in the session');
   assert.deepEqual(writes, []);
   await sessionSaver(store, session, () => ({ a: 1 }), defaultsOf, write).save({ defaults: [d(3, 'edges', 0.5), d(0, 'edges', 0.5)] });
-  assert.deepEqual(writes, [[5, { 0: ['edges'], 3: ['edges'] }]]);
+  assert.deepEqual(writes, [[5, { 0: { edges: 0.5 }, 3: { edges: 0.5 } }]]);
 });
 
 // Review round 2, nit: answers an agent gave a part before the page loaded are unsaved, even when
@@ -241,8 +241,8 @@ test('approving a default for one part names that part only', async () => {
   await assert.rejects(sessionSaver(store, session, () => ({ a: 1 }), defaultsOf, write).save({ defaults: [d(0, 'edges', 0.5)] }), DefaultsChanged, 'the list shown had both: one alone is not it');
   // The person confirmed the list as shown; the body names each id on its own part.
   await sessionSaver(store, session, () => ({ a: 1 }), async () => [d(0, 'edges', 0.5)], write).save({ defaults: [d(0, 'edges', 0.5)] });
-  assert.deepEqual(writes, [{ 0: ['edges'] }], 'part 1 is not named, so it is untouched');
-  assert.deepEqual(acceptedDefaults([d(2, 'x', 1), d(0, 'a', 1), d(2, 'y', 1)]), { 0: ['a'], 2: ['x', 'y'] });
+  assert.deepEqual(writes, [{ 0: { edges: 0.5 } }], 'part 1 is not named, so it is untouched');
+  assert.deepEqual(acceptedDefaults([d(2, 'x', 1), d(0, 'a', 1), d(2, 'y', 1)]), { 0: { a: 1 }, 2: { x: 1, y: 1 } });
   assert.deepEqual(acceptedDefaults([]), {});
 });
 
@@ -259,9 +259,9 @@ test('the page sends acceptDefaults as the per-part object, never a boolean', as
   globalThis.fetch = async (url, init) => { sent.push(JSON.parse(init.body)); return new Response('{"path":"p","bytes":1,"rev":4,"report":{},"complete":true,"missing":[]}', { status: 200 }); };
   try {
     await postSave(4, {});
-    await postSave(4, { 1: ['edges'] });
+    await postSave(4, { 1: { edges: 0.5 } });
   } finally { globalThis.fetch = real; }
-  assert.deepEqual(sent, [{ rev: 4, acceptDefaults: {} }, { rev: 4, acceptDefaults: { 1: ['edges'] } }]);
+  assert.deepEqual(sent, [{ rev: 4, acceptDefaults: {} }, { rev: 4, acceptDefaults: { 1: { edges: 0.5 } } }]);
 });
 
 // A save writes only parts with at least one answer, plus a single-part file's only part.
@@ -302,4 +302,59 @@ test('GET diff is read as WASM diff() gives it, with its scenes', async () => {
   const body = { report: { verdict: 'ok', pmi: { scenes: { old: {}, new: {} } } }, markdown: '# x', view: { faces: {} } };
   globalThis.fetch = async () => new Response(JSON.stringify(body), { status: 200 });
   try { assert.deepEqual(await getDiff(), body, 'handed on whole: StepDiff draws from it'); } finally { globalThis.fetch = real; }
+});
+
+// Contract 2026-11-18: a value that is no longer the server's default is a 400 with `expected` and
+// `current`; nothing was written. The saver hands both on.
+test('a default whose value no longer matches is refused with what was expected and what it is now', async () => {
+  const store = createSessionStore(0, 2, { a: 1 }, { a: 1 }, async () => ({ rev: 3 }));
+  const write = async () => { throw new Refused('value changed', 400, { error: 'value changed', part: 0, question: 'b', expected: 1, current: 2 }); };
+  await assert.rejects(sessionSaver(store, store.session, () => ({ a: 1 }), async () => [d(0, 'b', 1)], write).save({ defaults: [d(0, 'b', 1)] }),
+    (e) => e instanceof DefaultRefused && e.part === 0 && e.question === 'b' && e.values?.expected === 1 && e.values?.current === 2);
+  // Without expected/current it is the other 400 (not an open question with a default).
+  const other = async () => { throw new Refused('no', 400, { error: 'no', part: 0, question: 'b' }); };
+  await assert.rejects(sessionSaver(store, store.session, () => ({ a: 1 }), async () => [d(0, 'b', 1)], other).save({ defaults: [d(0, 'b', 1)] }),
+    (e) => e instanceof DefaultRefused && e.values === null);
+});
+
+test('the value sent is the default as the person saw it, structured values included', () => {
+  assert.deepEqual(acceptedDefaults([d(0, 'm', 'ISO 2768-m'), d(1, 'edges', { a: [1, 2] })]), { 0: { m: 'ISO 2768-m' }, 1: { edges: { a: [1, 2] } } });
+});
+
+// One rev can carry several `answers` events (one per part); a repeat of (rev, part) is ignored.
+test('events are deduped by (rev, part): one rev may carry one event per part', () => {
+  const session = createSession(2, { 0: { a: 1 }, 1: { m: 'Steel' } });
+  const store0 = session.store(0, {});
+  const store1 = session.store(1, {});
+  const seen = [];
+  store0.subscribe((answers) => seen.push(['0', answers]));
+  store1.subscribe((answers) => seen.push(['1', answers]));
+  assert.equal(session.receive({ rev: 3, part: 0, answers: { a: 1, e: 0.5 }, source: 'mcp', defaults: { 0: ['e'], 1: ['e'] } }), true);
+  assert.equal(session.receive({ rev: 3, part: 1, answers: { m: 'Steel', e: 0.5 }, source: 'mcp', defaults: { 0: ['e'], 1: ['e'] } }), true, 'the same rev, another part: heard');
+  assert.equal(session.receive({ rev: 3, part: 0, answers: { a: 1, e: 0.5 }, source: 'mcp' }), false, 'the same rev and part again: ignored');
+  assert.equal(session.rev(), 3);
+  assert.deepEqual(store0.get(), { a: 1, e: 0.5 });
+  assert.deepEqual(store1.get(), { m: 'Steel', e: 0.5 });
+  assert.equal(seen.length, 2, 'each part told once');
+});
+
+test('a repeated event does not undo what a later resync holds', () => {
+  const session = createSession(2, { 0: { a: 1 } });
+  session.receive({ rev: 3, part: 0, answers: { a: 2 }, source: 'mcp' });
+  session.receive({ rev: 4, parts: { 0: { a: 3 } }, source: 'start' });
+  assert.equal(session.receive({ rev: 3, part: 0, answers: { a: 2 }, source: 'mcp' }), false);
+  assert.deepEqual(session.answers(0), { a: 3 });
+});
+
+// A failed write rolls its approvals back (a further rev): the session ends as it was, so the
+// approvals the page was told of are gone from what it shows.
+test('approvals shown as answers are shown rolled back when the save failed', () => {
+  const session = createSession(2, { 0: { a: 1 } });
+  const store = session.store(0, { a: 1 });
+  session.receive({ rev: 3, part: 0, answers: { a: 1, e: 0.5 }, source: 'page', defaults: { 0: ['e'] } });
+  assert.deepEqual(store.get(), { a: 1, e: 0.5 });
+  assert.equal(session.dirty(), true);
+  session.receive({ rev: 4, parts: { 0: { a: 1 } }, source: 'start' }); // GET answers after the failure
+  assert.deepEqual(store.get(), { a: 1 }, 'not shown as applied');
+  assert.equal(session.dirty(), false, 'nothing unsaved either');
 });

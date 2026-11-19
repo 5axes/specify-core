@@ -33,8 +33,9 @@ export interface AnswersSession {
   answers(part: number): PmiAnswers;
   /** Every part's answers at ``rev()``, by part index: the parts a save writes (with a file's only part). */
   parts(): Record<string, PmiAnswers>;
-  /** An `answers` event (or a `GET answers` resync, as a "start" event). */
-  receive(event: AnswersEvent): void;
+  /** An `answers` event (or a `GET answers` resync, as a "start" event). One rev can carry several
+   * events (one per part): an event for a (rev, part) already received is ignored, and false is returned. */
+  receive(event: AnswersEvent): boolean;
   /** The store for part ``part``. ``onDisk``: its answers stored in the file as opened, so answers
    * an agent gave before the page opened show as unsaved (until a save). */
   store(part: number, onDisk?: PmiAnswers): AnswersStore;
@@ -92,6 +93,8 @@ export function createSession(rev: number, parts: Record<string, PmiAnswers>, pu
   const watchers = new Set<() => void>();
   const changed = () => { for (const watcher of watchers) watcher(); };
   let lastSource: AnswersSource = 'start';
+  // The (rev, part) of the part events received.
+  const heard = new Set<string>();
 
   /** The session at ``at`` holds ``changes``: every part's answers (``all``), or the parts changed. */
   const known = (at: number, changes: Record<string, PmiAnswers>, all: boolean, source: AnswersSource) => {
@@ -108,9 +111,18 @@ export function createSession(rev: number, parts: Record<string, PmiAnswers>, pu
     answers: (part) => state.parts[String(part)] ?? {},
     parts: () => ({ ...state.parts }),
     receive(event) {
-      if (event.source !== 'start') lastSource = event.source;
-      if ('parts' in event) known(event.rev, event.parts, true, event.source);
-      else known(event.rev, { [String(event.part)]: event.answers }, false, event.source);
+      if ('parts' in event) {
+        known(event.rev, event.parts, true, event.source);
+        return true;
+      }
+      // Several events share a rev (one per part), so a repeat is told apart by (rev, part).
+      const key = `${event.rev}:${event.part}`;
+      if (event.rev < state.rev || heard.has(key)) return false;
+      heard.add(key);
+      for (const old of heard) { if (heard.size <= HISTORY) break; heard.delete(old); }
+      lastSource = event.source;
+      known(event.rev, { [String(event.part)]: event.answers }, false, event.source);
+      return true;
     },
     store(part, fileAnswers) {
       const key = String(part);

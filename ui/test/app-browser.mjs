@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn, execFileSync } from 'node:child_process';
-import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { gunzipSync } from 'node:zlib';
@@ -174,7 +174,7 @@ try {
   {
     const analysis = analyse(withDefaults);
     assert.ok(!('part.material' in (analysis.resume?.answers ?? {})), 'the defaults save had no material');
-    // The page sends the ids it listed and the person confirmed (`acceptDefaults: {"0": [ids]}`): the
+    // The page sends the ids it listed and the person confirmed, each with the value seen (`acceptDefaults: {"0": {id: value}}`): the
     // command makes exactly those answers (a new rev) and stores them, so the answers stored are the
     // confirmed defaults and nothing else (before the per-part contract: the session's, none here).
     assert.deepEqual(Object.keys(given(analysis.resume?.answers)).sort(), listed, 'the answers stored are the defaults confirmed');
@@ -207,6 +207,60 @@ try {
     await check(material(page)).toHaveClass(/required/);
     await check(page.locator('.pmi-lab-panel')).toContainText('required');
     onlyLocal(requests, server.origin);
+    await context.close();
+    server.stop();
+  }
+  // A default whose value no longer matches (the command's 400 with expected and current) is said
+  // plainly, nothing is written and the defaults are listed again; a failed write rolls its approvals
+  // back, so the page does not show them as applied.
+  {
+    const copy = join(dir, 'fresh');
+    mkdirSync(copy);
+    const file = join(copy, 'shaft.step');
+    writeFileSync(file, gunzipSync(readFileSync('test/fixtures/gramil_shaft_before.step.gz')));
+    const server = await open(file);
+    const { context, page } = await load(server);
+    const { rev, parts } = await (await fetch(`${server.url}answers`)).json();
+    await page.getByRole('button', { name: 'Save with defaults' }).click();
+    const list = page.getByRole('dialog', { name: 'Save with defaults' });
+    await check(list.locator('[data-default]').first()).toBeVisible();
+    const id = await list.locator('[data-default]').first().getAttribute('data-default');
+    // The command's own refusal of a stale value: what was sent and what the default is.
+    const wrong = await fetch(`${server.url}save`, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: server.origin }, body: JSON.stringify({ rev, acceptDefaults: { 0: { [id]: 'not-the-default' } } }) });
+    assert.equal(wrong.status, 400);
+    const body = await wrong.json();
+    assert.deepEqual([body.part, body.question, body.expected], [0, id, 'not-the-default']);
+    assert.ok('current' in body);
+    assert.ok(!existsSync(join(copy, 'shaft.specified.step')), 'nothing written');
+    // The page, meeting it: says what changed, and lists the defaults again.
+    await page.route('**/save', route => route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ ...body, current: 'a new default' }) }));
+    await list.getByRole('button', { name: /^Save with these \d+ defaults$/ }).click();
+    await check(page.getByRole('alert').first()).toContainText(`the default for ${id}`);
+    await check(page.getByRole('alert').first()).toContainText('changed. You confirmed');
+    await check(page.getByRole('alert').first()).toContainText('it is now a new default');
+    await check(page.getByRole('alert').first()).toContainText('Nothing was written');
+    await check(list).toBeVisible();
+    await page.unroute('**/save');
+    problems.splice(0, problems.length, ...problems.filter(p => !/400/.test(p)));
+    assert.ok(!existsSync(join(copy, 'shaft.specified.step')), 'nothing written');
+    // The write fails (the folder is read-only): the approvals are rolled back, the page shows none of them.
+    if (process.getuid?.() !== 0) {
+      chmodSync(copy, 0o555);
+      try {
+        await list.getByRole('button', { name: /^Save with these \d+ defaults$/ }).click();
+        await check(page.getByRole('alert').first()).toContainText('Not saved');
+      } finally { chmodSync(copy, 0o755); }
+      await check(page.locator('.app-saved')).toHaveCount(0);
+      await check(page.locator('.app-dirty')).toHaveCount(0);
+      const now = await (await fetch(`${server.url}answers`)).json();
+      assert.deepEqual(given(now.parts['0'] ?? {}), given(parts['0'] ?? {}), 'the session holds no approval after the failed write');
+      await check(page.locator('.pmi-lab-panel')).toContainText('Suggested: ISO 2768-m');
+      problems.splice(0, problems.length, ...problems.filter(p => !/50\d/.test(p)));
+      // The folder writable again, the same confirmation saves.
+      await page.getByRole('button', { name: 'Save with defaults' }).click();
+      await list.getByRole('button', { name: /^Save with these \d+ defaults$/ }).click();
+      await check(page.locator('.app-saved')).toContainText('shaft.specified');
+    }
     await context.close();
     server.stop();
   }

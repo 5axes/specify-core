@@ -80,13 +80,16 @@ export const putAnswers = (rev: number, part: number, answers: PmiAnswers) => js
   method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rev, part, answers }),
 }));
 
-/** The defaults the person approved, by part index: `{"<part>": [question ids]}`; `{}` for none. */
-export type AcceptDefaults = Record<string, string[]>;
+/** The defaults the person approved, each with the value they saw, by part index:
+ * `{"<part>": {"<question id>": <value>}}`; `{}` for none. */
+export type AcceptDefaults = Record<string, Record<string, unknown>>;
 
 /** The command writes the specified STEP from the session's answers at ``rev``, after setting
  * ``acceptDefaults`` (exactly the defaults the person approved, per part) as answers. Never refused
- * for open questions; 409 when the session moved on, or (--in-place) the file changed on disk; 400
- * `{error, part, question}` when a default listed is not an open question with a default there. */
+ * for open questions; 409 when the session moved on (or its set of parts changed during the save),
+ * or (--in-place) the file changed on disk; 400 `{error, part, question}` when a default listed is
+ * not an open question with a default there, plus `expected` (the value sent) and `current` (the
+ * default now) when its value is no longer that default. A failed write rolls its approvals back. */
 export const save = (rev: number, acceptDefaults: AcceptDefaults) => json<Saved>(fetch('save', {
   method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rev, acceptDefaults }),
 }));

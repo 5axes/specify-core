@@ -30,7 +30,11 @@ export class DefaultsChanged extends Error {}
 export class DefaultRefused extends Error {
   readonly part: number | null;
   readonly question: string | null;
-  constructor(message: string, part: number | null, question: string | null) { super(message); this.part = part; this.question = question; }
+  /** Set when the value confirmed is no longer the default: what the person saw, and what it is now. */
+  readonly values: { expected: unknown; current: unknown } | null;
+  constructor(message: string, part: number | null, question: string | null, values: { expected: unknown; current: unknown } | null = null) {
+    super(message); this.part = part; this.question = question; this.values = values;
+  }
 }
 
 /** The parts a save writes (specify-core docs/open.md): every part with at least one answer in the
@@ -41,10 +45,11 @@ export function writtenParts(parts: Record<string, PmiAnswers>, several: boolean
   return [...out].sort((a, b) => a - b);
 }
 
-/** The defaults as the command takes them: the question ids confirmed, by part index. */
+/** The defaults as the command takes them: each question id confirmed with the value the person
+ * saw (``raw`` is that value as JSON), by part index. */
 export function acceptedDefaults(defaults: readonly Default[]): AcceptDefaults {
   const out: AcceptDefaults = {};
-  for (const d of defaults) (out[String(d.part)] ??= []).push(d.id);
+  for (const d of defaults) (out[String(d.part)] ??= {})[d.id] = JSON.parse(d.raw);
   return out;
 }
 
@@ -80,7 +85,8 @@ export function sessionSaver(store: AnswersStore, session: Pick<AnswersSession, 
           throw error.body.rev === rev ? new FileChanged(error.message) : new Stale(error.message);
         }
         if (error instanceof Refused && error.status === 400 && typeof error.body.question === 'string') {
-          throw new DefaultRefused(error.message, typeof error.body.part === 'number' ? error.body.part : null, error.body.question);
+          const values = 'expected' in error.body && 'current' in error.body ? { expected: error.body.expected, current: error.body.current } : null;
+          throw new DefaultRefused(error.message, typeof error.body.part === 'number' ? error.body.part : null, error.body.question, values);
         }
         throw error;
       }

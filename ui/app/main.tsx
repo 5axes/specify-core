@@ -191,7 +191,8 @@ function App() {
       shownRef.current = part;
       let lost = false;
       unlisten = listen((event) => {
-        answersSession.receive(event);
+        // One rev can carry an event per part; a repeat of one already received is ignored.
+        if (!answersSession.receive(event)) return;
         // A part joining the session is added to the page's model: the picker lists it, and the
         // session (so the defaults a save lists) holds it, with the answers it has.
         if ('part' in event && several && !rows.some((r) => r.part === event.part)) {
@@ -353,6 +354,12 @@ function App() {
       setSaved({ path: result.path, open: prompts(result.missing, opened.external.review, opened.review), byAgent: false });
       setConfig(await getConfig());
     } catch (error) {
+      // A failed write rolls its approvals back in the session: whatever the page was told while
+      // they were applied is replaced by the session as it is now, so none shows as applied.
+      if (!(error instanceof NotShown || error instanceof DefaultsChanged)) {
+        const now = await getAnswers().catch(() => null);
+        if (now) sessionRef.current?.receive({ ...now, source: 'start' });
+      }
       if (error instanceof FileChanged) {
         setFileChanged(true);
         setProblem('Not saved: the file changed on disk since it was opened (another program wrote it), so Save will not write over it. '
@@ -364,7 +371,12 @@ function App() {
         // The command refused a default it was sent: said by the part and the question, and the list is made again.
         const row = error.part === null ? undefined : parts.find((r) => r.part === error.part);
         const where = error.part === null ? '' : ` on ${row?.name ?? `part ${error.part}`}`;
-        setProblem(`Not saved: the default for ${error.question}${where} was refused (${error.message}). Nothing was written; check the new list.`);
+        const listed = defaults.find((d) => d.id === error.question && d.part === error.part);
+        const shownValue = (value: unknown) => typeof value === 'string' ? value : JSON.stringify(value);
+        const what = error.question;
+        setProblem(error.values
+          ? `Not saved: the default for ${what}${where} changed. You confirmed ${listed?.value ?? shownValue(error.values.expected)}; it is now ${shownValue(error.values.current)}. Nothing was written; check the new list and confirm again.`
+          : `Not saved: the default for ${what}${where} was refused (${error.message}). Nothing was written; check the new list.`);
         void askDefaults(true);
       } else if (error instanceof NotShown && unshown) {
         // The answers that could not be shown: tried again; until they show, Save cannot write them.
@@ -372,12 +384,12 @@ function App() {
         reshow.current();
       } else if (error instanceof Stale || error instanceof NotShown) {
         // The session moved on (an agent answered meanwhile): the page shows its answers before any save.
-        if (error instanceof Stale) {
-          const now = await getAnswers().catch(() => null);
-          if (now) sessionRef.current?.receive({ ...now, source: 'start' });
-        }
-        setProblem('Not saved: the answers changed while you saved (your agent answered). The answers now shown are the latest; check them and Save again.');
         reshow.current();
+        // The answers, or the set of parts, changed while saving: the defaults are listed again for the person to confirm.
+        if (error instanceof Stale && defaults.length) {
+          setProblem('Not saved: the answers or the parts changed while you saved (your agent changed them). The defaults are listed again; check them and confirm.');
+          void askDefaults(true);
+        } else setProblem('Not saved: the answers changed while you saved (your agent answered). The answers now shown are the latest; check them and Save again.');
       } else setProblem(`Not saved: ${message(error)}`);
     } finally { setSaving(false); }
   };

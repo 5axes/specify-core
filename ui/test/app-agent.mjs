@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { gunzipSync } from 'node:zlib';
@@ -109,7 +109,7 @@ try {
     const asked = await agent.call('questions', { doc, state: 'answered' });
     assert.ok(JSON.stringify(asked).includes('Aluminium 6061-T6'), 'the agent reads the page\'s answer');
     // The agent saves (no defaults): part.specified.step beside the part, incomplete, saying what is missing.
-    const byAgent = await agent.call('save', { doc, accept_defaults: [] });
+    const byAgent = await agent.call('save', { doc, accept_defaults: {} });
     assert.equal(byAgent.path, join(dir, 'part.specified.step'));
     assert.equal(byAgent.complete, false);
     assert.ok(byAgent.missing.includes('part.surface_finish'), `missing: ${byAgent.missing}`);
@@ -153,7 +153,7 @@ try {
     const docB = (await first.call('open', { path: asm, part: b })).doc;
     await first.call('answer', { doc: docA, set: { 'part.material': 'Steel 1.4301' } });
     await first.call('answer', { doc: docB, set: { 'part.material': 'Brass CW614N' } });
-    const written = await first.call('save', { doc: docA, accept_defaults: [] });
+    const written = await first.call('save', { doc: docA, accept_defaults: {} });
     assert.equal(written.path, join(dir, 'asm.specified.step'));
     first.stop();
     const second = await mcp(cli, { cwd: dir, env }); agents.push(second);
@@ -290,7 +290,7 @@ try {
     agent.stop();
   }
 
-  // Approvals name their part (`acceptDefaults: {"<part>": [ids]}`): a default approved for part a
+  // Approvals name their part (`acceptDefaults: {"<part>": {"<id>": value}}`): a default approved for part a
   // only is written to a and part b is untouched. A refused one (400 with its part and question)
   // writes nothing and the page says which.
   {
@@ -318,18 +318,37 @@ try {
     await check(page.getByRole('alert').first()).toContainText(listed.parts.find(p => p.part === b).name);
     await check(page.getByRole('alert').first()).toContainText('Nothing was written');
     await page.unroute('**/save');
+    // A value that no longer matches the default (400 with expected and current): said plainly, what
+    // the person confirmed and what it is now, nothing written, and the defaults listed again to confirm.
+    await check(list.getByRole('button', { name: /^Save with these \d+ defaults$/ })).toBeVisible();
+    await page.route('**/save', route => route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: 'default changed', part: a, question: id, expected: 'old value', current: 'new value' }) }));
+    await list.getByRole('button', { name: /^Save with these \d+ defaults$/ }).click();
+    await check(page.getByRole('alert').first()).toContainText('changed');
+    await check(page.getByRole('alert').first()).toContainText('it is now new value');
+    await check(page.getByRole('alert').first()).toContainText('Nothing was written');
+    await check(list).toBeVisible();
+    await page.unroute('**/save');
     problems.splice(0, problems.length, ...problems.filter(p => !/400/.test(p)));
     assert.ok(!existsSync(join(dir, 'asm-approve.specified.step')), 'nothing written for a refused default');
     // The command's own refusal, as the page would meet it: a default that is no question.
     const { rev } = await (await fetch(`${shown.url}answers`)).json();
     const post = (acceptDefaults) => fetch(`${shown.url}save`, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: origin }, body: JSON.stringify({ rev, acceptDefaults }) });
-    const bad = await post({ [a]: ['nope.unknown'] });
+    const bad = await post({ [a]: { 'nope.unknown': 1 } });
     assert.equal(bad.status, 400);
     const badBody = await bad.json();
     assert.equal(badBody.part, a); assert.equal(badBody.question, 'nope.unknown');
     assert.equal((await post(true)).status, 400, 'a boolean is no longer a body');
-    // Approved for part a only.
-    const good = await post({ [a]: [id] });
+    assert.equal((await post({ [a]: [id] })).status, 400, 'a list of ids is no longer a body: each id comes with its value');
+    // A value that is no longer the default (here: never was): 400 with what was sent and what it is, nothing written.
+    const wrong = await post({ [a]: { [id]: 'not-the-default' } });
+    assert.equal(wrong.status, 400);
+    const wrongBody = await wrong.json();
+    assert.equal(wrongBody.part, a); assert.equal(wrongBody.question, id);
+    assert.equal(wrongBody.expected, 'not-the-default');
+    assert.ok('current' in wrongBody && wrongBody.current !== 'not-the-default', 'the body says what the default is now');
+    assert.ok(!existsSync(join(dir, 'asm-approve.specified.step')), 'nothing written for a value that no longer matches');
+    // Approved for part a only, with the value seen.
+    const good = await post({ [a]: { [id]: wrongBody.current } });
     assert.equal(good.status, 200, await good.clone().text());
     const { path } = await good.json();
     const was = id => analyse(asm, id).characteristics?.length ?? 0;
@@ -340,6 +359,115 @@ try {
     const session = await (await fetch(`${shown.url}answers`)).json();
     assert.ok(id in session.parts[String(a)], 'the default is an answer on part a in the session');
     assert.ok(!(id in session.parts[String(b)]), 'and not on part b');
+    await context.close();
+    agent.stop();
+  }
+
+  // The set of parts changing during a save (409 stale): the page takes the session's answers and
+  // parts, lists the defaults again (now with the part that joined) and asks the person to confirm.
+  {
+    const asm = join(dir, 'asm-stale.step');
+    writeFileSync(asm, gunzipSync(readFileSync('test/fixtures/gramil_assembly_before.step.gz')));
+    const agent = await mcp(cli, { cwd: dir, env }); agents.push(agent);
+    const listed = await agent.call('open', { path: asm });
+    const [a, b] = listed.parts.map(p => p.part);
+    const nameB = listed.parts.find(p => p.part === b).name;
+    const docA = (await agent.call('open', { path: asm, part: a })).doc;
+    await agent.call('answer', { doc: docA, set: { 'part.material': 'Steel 1.4301' } });
+    const shown = await agent.call('show', { doc: docA, browser: false });
+    const { context, page } = await load(shown.url);
+    await page.getByRole('button', { name: 'Save with defaults' }).click();
+    const list = page.getByRole('dialog', { name: 'Save with defaults' });
+    await check(list.locator('[data-part]')).toHaveCount(1);
+    // While the save is on its way the agent brings part b in with an answer: the command meets a
+    // save for parts that are no longer the session's (stale, with the session's rev).
+    await page.route('**/save', async route => {
+      const docB = (await agent.call('open', { path: asm, part: b })).doc;
+      await agent.call('answer', { doc: docB, set: { 'part.material': 'Brass CW614N' } });
+      const { rev } = await (await fetch(`${shown.url}answers`)).json();
+      await route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ error: 'the answers have changed since that rev: show them and save again', rev }) });
+    });
+    await list.getByRole('button', { name: /^Save with these \d+ defaults$/ }).click();
+    await check(page.getByRole('alert').first()).toContainText('Not saved');
+    await page.unroute('**/save');
+    await check(page.getByRole('alert').first()).toContainText('listed again');
+    await check(list.locator('[data-part]')).toHaveCount(2);
+    await check(list.locator(`[data-part="${b}"] h4`)).toHaveText(nameB);
+    assert.ok(!existsSync(join(dir, 'asm-stale.specified.step')), 'nothing written for a stale save');
+    problems.splice(0, problems.length, ...problems.filter(p => !/409/.test(p)));
+    // Confirmed again, it saves, both parts.
+    await list.getByRole('button', { name: /^Save with these \d+ defaults$/ }).click();
+    await check(page.locator('.app-saved')).toContainText('asm-stale.specified');
+    assert.equal(given(stored2(join(dir, 'asm-stale.specified.step'), b))['part.material'], 'Brass CW614N');
+    await context.close();
+    agent.stop();
+  }
+
+  // One rev carries an `answers` event for each part an approval touches: an agent's save approving
+  // defaults on two parts reaches the page as one event per part at one rev, and the page shows both.
+  {
+    const asm = join(dir, 'asm-events.step');
+    writeFileSync(asm, readFileSync(join(dir, 'asm.specified.step')));
+    const agent = await mcp(cli, { cwd: dir, env }); agents.push(agent);
+    const listed = await agent.call('open', { path: asm });
+    const [a, b] = listed.parts.map(p => p.part);
+    const docA = (await agent.call('open', { path: asm, part: a })).doc;
+    const docB = (await agent.call('open', { path: asm, part: b })).doc;
+    const defaultsOf = async doc => Object.fromEntries((await agent.call('questions', { doc, state: 'open' })).questions.filter(q => q.default !== null && q.default !== undefined).map(q => [q.id, q.default]));
+    const accept = { [a]: await defaultsOf(docA), [b]: await defaultsOf(docB) };
+    assert.ok(Object.keys(accept[a]).length > 0 && Object.keys(accept[b]).length > 0);
+    const shown = await agent.call('show', { doc: docA, browser: false });
+    const { context, page } = await load(shown.url);
+    const before = await (await fetch(`${shown.url}answers`)).json();
+    const saved = await agent.call('save', { doc: docA, accept_defaults: accept });
+    const session = await (await fetch(`${shown.url}answers`)).json();
+    assert.ok(session.rev > before.rev);
+    for (const part of [a, b]) for (const id of Object.keys(accept[part])) assert.ok(id in session.parts[String(part)], `${id} is an answer on part ${part}`);
+    await check(page.locator('.app-saved')).toContainText('Your agent saved');
+    await check(page.locator('.app-saved')).toContainText(saved.path);
+    await check(page.locator('.app-dirty')).toHaveCount(0);
+    // Both parts show their defaults as answers, whichever is shown.
+    const answered = async () => (await page.locator('.pmi-lab-panel').textContent()) ?? '';
+    const onA = await answered();
+    await page.locator('.app-part select').selectOption(String(b));
+    await check(page.locator('.app-part select')).toHaveValue(String(b));
+    await check(page.locator('.app-dirty')).toHaveCount(0);
+    assert.notEqual(await answered(), onA, 'part b is shown');
+    await check(page.getByRole('alert')).toHaveCount(0);
+    await context.close();
+    agent.stop();
+  }
+
+  // A failed write (the folder is read-only) rolls its approvals back in the session: the page does
+  // not show the approved defaults as applied, says Not saved, and nothing is written.
+  if (process.getuid?.() !== 0) {
+    const locked = join(dir, 'locked');
+    mkdirSync(locked);
+    const file = join(locked, 'shaft.step');
+    writeFileSync(file, gunzipSync(readFileSync('test/fixtures/gramil_shaft_before.step.gz')));
+    const agent = await mcp(cli, { cwd: locked, env }); agents.push(agent);
+    const { doc } = await agent.call('open', { path: file });
+    const shown = await agent.call('show', { doc, browser: false });
+    const { context, page } = await load(shown.url);
+    const answersBefore = (await (await fetch(`${shown.url}answers`)).json()).parts['0'] ?? {};
+    await page.getByRole('button', { name: 'Save with defaults' }).click();
+    const list = page.getByRole('dialog', { name: 'Save with defaults' });
+    await check(list.locator('[data-default]').first()).toBeVisible();
+    chmodSync(locked, 0o555);
+    try {
+      await list.getByRole('button', { name: /^Save with these \d+ defaults$/ }).click();
+      await check(page.getByRole('alert').first()).toContainText('Not saved');
+    } finally { chmodSync(locked, 0o755); }
+    assert.ok(!existsSync(join(locked, 'shaft.specified.step')), 'nothing written');
+    await check(page.locator('.app-saved')).toHaveCount(0);
+    await check(page.locator('.app-dirty')).toHaveCount(0);
+    // The session holds no approvals (rolled back), and the page shows what the session holds.
+    const session = await (await fetch(`${shown.url}answers`)).json();
+    assert.deepEqual(given(session.parts['0'] ?? {}), given(answersBefore), 'the approvals were rolled back');
+    const open = await agent.call('questions', { doc, state: 'open' });
+    assert.ok(open.questions.some(q => q.id === 'part.general_tolerance'), 'the approved default is still an open question');
+    await check(page.locator('.pmi-lab-panel')).toContainText('Suggested: ISO 2768-m');
+    problems.splice(0, problems.length, ...problems.filter(p => !/50\d/.test(p)));
     await context.close();
     agent.stop();
   }
