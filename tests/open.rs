@@ -1760,20 +1760,25 @@ fn bad_arguments_no_app_and_names_that_are_not_step_are_refused_up_front() {
         assert!(stderr.contains("is not a STEP file"), "{stderr}");
     }
 
-    let no_app = Command::new(env!("CARGO_BIN_EXE_specify-core"))
-        .arg("open")
-        .arg(scratch.input())
-        .arg("--no-browser")
-        .env_remove("SPECIFY_APP_DIR")
-        .env_remove("SPECIFY_WASM_DIR")
-        .output()
-        .unwrap();
-    assert_eq!(no_app.status.code(), Some(2));
-    assert!(no_app.stdout.is_empty());
-    let stderr = String::from_utf8(no_app.stderr).unwrap();
-    assert!(stderr.starts_with("cannot open: "), "{stderr}");
-    assert!(stderr.contains("not bundled"), "{stderr}");
-    assert!(stderr.contains("--app DIR"), "{stderr}");
+    // Exercise the shipped placeholder without ever fetching a real pin in this test.
+    let pin: Value = serde_json::from_str(include_str!("../app.lock.json")).unwrap();
+    if pin["tag"] == "v0.0.0" {
+        let no_app = Command::new(env!("CARGO_BIN_EXE_specify-core"))
+            .arg("open")
+            .arg(scratch.input())
+            .arg("--no-browser")
+            .env_remove("SPECIFY_APP_DIR")
+            .env_remove("SPECIFY_WASM_DIR")
+            .output()
+            .unwrap();
+        assert_eq!(no_app.status.code(), Some(2));
+        assert!(no_app.stdout.is_empty());
+        let stderr = String::from_utf8(no_app.stderr).unwrap();
+        assert_eq!(
+            stderr,
+            "cannot open: no pinned app yet: pass --app DIR / set SPECIFY_APP_DIR\n"
+        );
+    }
 
     // The environment names the app as well as --app does.
     let mut from_env = Command::new(env!("CARGO_BIN_EXE_specify-core"))
