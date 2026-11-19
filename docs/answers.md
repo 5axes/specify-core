@@ -210,6 +210,8 @@ cone or floor claimed since).
 Part settings (material, general tolerance, finish, coating, heat treatment, edges, notes)
 follow the same rule. A setting in conflict keeps the file's value in `part`. An unexplained
 entry from another tool can conflict with a stored list even when the other entries match.
+After a save drops a contradicted answer, the file continues to answer the setting with its
+marked entries, including notes for which the default writes no PMI.
 
 When the file's requirement in conflict is another tool's (not marked as Specify's, and not
 one the person kept), the conflict says so (`foreign: true`): no answer replaces it, not even

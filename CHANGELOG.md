@@ -18,8 +18,13 @@ All notable changes to specify-core-rust. The format follows
   alongside a marked one conflicts with "no notes" and both notes survive a save.
   `write --accept-defaults` (and serve's `write` with
   `accept_defaults`), the person's "accept all", now also stores the defaults it takes that
-  write no PMI; those that write PMI are still read back from the file (`resume.present`), and
-  what is written is unchanged. Approved defaults (the page's Save, MCP) were already stored.
+  write no PMI. Defaults that write PMI are read back from the file (`resume.present`).
+  The page's Save and MCP already stored approved defaults.
+
+### WASM API
+
+- `IntentEngine.review` reports conflicts with marked PMI and mixed-provenance part notes
+  on reopen. `IntentEngine.writePmi` keeps the file's requirements when saving those conflicts.
 
 ## 0.2.0 (2026-11-19)
 

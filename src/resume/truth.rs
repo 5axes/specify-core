@@ -275,8 +275,8 @@ pub(crate) fn reconcile(
     }
     // A list can also disagree with the file when it writes some entries but leaves
     // another tool's entry unexplained. Keep the whole setting, including its matched
-    // entries. After the stale answer is dropped on save, its marked entries are still
-    // the file's to keep alongside the unmarked ones.
+    // entries. After a stale answer is dropped on save, the marked entries still
+    // answer the question on reopening, including settings with no writing default.
     let mut part_rows: BTreeMap<&str, Vec<(String, String)>> = BTreeMap::new();
     for (id, (_, text)) in &rows {
         if let Some(key) = setting(id) {
@@ -288,17 +288,14 @@ pub(crate) fn reconcile(
     }
     let is_unmarked = |id: &str| index.get(id).is_some_and(|at| unmarked.contains(at));
     for (key, mut items) in part_rows {
-        if !items
-            .iter()
-            .any(|(id, _)| is_unmarked(id) && !truth.explained.contains(id))
-        {
-            continue;
-        }
         let question = format!("part.{key}");
         if stored.contains_key(&question)
             && !kept_earlier.contains(question.as_str())
             && (settings.get(key) != stored.get(&question)
                 || truth.conflicts.contains_key(&question))
+            && items
+                .iter()
+                .any(|(id, _)| is_unmarked(id) && !truth.explained.contains(id))
         {
             truth.explained.retain(|id| setting(id) != Some(key));
             truth.conflicts.insert(question, items);

@@ -467,6 +467,37 @@ fn a_marked_position_tolerance_contradicts_stored_none() {
 }
 
 #[test]
+fn a_marked_note_contradicts_stored_no_notes() {
+    let (stored, _) = accepted_all();
+    let notes = json!(["KEEP DRY"]);
+    let mut answers = stored.clone();
+    answers.insert("part.notes".into(), notes.clone());
+    let edited = load(written(&answers, &stored));
+    let analysis = api::analyse(&edited).unwrap();
+    let resume = &analysis["resume"];
+    assert!(resume["answers"].get("part.notes").is_none(), "{resume}");
+    assert!(
+        resume["conflicts"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|c| c["id"] == "part.notes" && c["stored"] == json!([])),
+        "{resume}"
+    );
+    let (back, again) = saved_again(&edited, &analysis);
+    assert_eq!(
+        specify_core::existing::part_settings(&back).unwrap()["notes"],
+        notes
+    );
+    assert_eq!(again["part"]["notes"], notes);
+    let (back, _) = saved_again(&back, &again);
+    assert_eq!(
+        specify_core::existing::part_settings(&back).unwrap()["notes"],
+        notes
+    );
+}
+
+#[test]
 fn mixed_provenance_notes_contradict_the_stored_list() {
     let (mut stored, _) = accepted_all();
     assert_eq!(stored["part.notes"], json!([]));
