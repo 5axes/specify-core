@@ -448,18 +448,28 @@ fn analyse_reconciling(
     let mut reconciled = None;
     // A file written before Specify marked its requirements (#22), by replace, keeps its
     // behaviour: all its PMI is its answers', rewritten from them.
-    let marked = || -> bool {
+    let marked = || -> (bool, bool) {
         let Ok(doc) = haecceity::p21::Document::parse(loaded.bytes.as_ref().clone()) else {
-            return false;
+            return (false, false);
         };
+        let part = loaded.binding.part;
+        if resume::scoped(&doc, part) {
+            return (true, false);
+        }
         let Ok(defs) = haecceity::step::read_part_definitions(&loaded.bytes) else {
-            return false;
+            return (false, false);
         };
-        resume::scoped(&doc, loaded.binding.part)
-            || haecceity::pmi::read(&doc, &defs)
-                .is_ok_and(|read| crate::provenance::any_marked(&doc, &read, loaded.binding.part))
+        let Ok(read) = haecceity::pmi::read(&doc, &defs) else {
+            return (false, false);
+        };
+        (
+            crate::provenance::any_marked(&doc, &read, part),
+            !crate::provenance::marked_outside_attributes(&doc, &read, part),
+        )
     };
-    if analysis.contains_key("resume") && marked() {
+    if analysis.contains_key("resume")
+        && let (true, attributes_only) = marked()
+    {
         let base = Value::Object(analysis.clone());
         let doc = haecceity::p21::Document::parse(loaded.bytes.as_ref().clone())
             .map_err(|e| refused(&e))?;
@@ -476,7 +486,12 @@ fn analyse_reconciling(
                 let mut existing = reading
                     .existing_except(loaded, &r.selection())
                     .map_err(|e| refused(&e))?;
-                existing.retain(|e| e.provenance.is_none() || e.question.is_some());
+                // A legacy Replace file with marks on part attributes alone keeps the
+                // interview's old face-PMI view. Still reconcile its settings and preserve
+                // every unmarked requirement on writing, including face PMI.
+                existing.retain(|e| {
+                    e.question.is_some() || (!attributes_only && e.provenance.is_none())
+                });
                 analysis.insert(
                     "existing".into(),
                     serde_json::to_value(existing).map_err(|e| refused(&e))?,

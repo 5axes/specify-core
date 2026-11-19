@@ -208,6 +208,17 @@ pub(crate) fn any_marked(doc: &Document, read: &haecceity::pmi::PmiRead, part: u
     marks(doc, read, part).iter().any(|(_, marked)| *marked)
 }
 
+/// Whether a marked part also carries a mark outside its part attributes.
+pub(crate) fn marked_outside_attributes(
+    doc: &Document,
+    read: &haecceity::pmi::PmiRead,
+    part: usize,
+) -> bool {
+    marks(doc, read, part)
+        .iter()
+        .any(|((collection, _), marked)| *marked && collection != "attributes")
+}
+
 /// The requirements of part `part` without Specify's provenance marker, by haecceity
 /// collection and index: PMI another tool wrote (or, before #22, Specify itself).
 pub(crate) fn unmarked(

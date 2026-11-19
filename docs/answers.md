@@ -266,6 +266,9 @@ requirements are replaced; with nothing to keep the write is as before (a replac
 unchanged rewrite keeps the file's bytes). A file written before Specify marked its
 requirements (#22) has none marked: all its PMI is its answers', so it opens and is rewritten
 as before (no reconciliation), and none of it is stated twice.
+In a legacy Replace file with marks only on part settings, the interview's `existing` list
+shows face PMI tied to a conflict or a file answer. Revision scenes read the full PMI and
+rewrites keep the unmarked requirements.
 
 ## Specify metadata
 
