@@ -214,14 +214,20 @@ pub(crate) fn reconcile(
     if let Some((_, defaults)) = &all_planned {
         writes.extend(writing(defaults));
     }
-    // A full-thread answer supplies a depth to its hole function's thread PMI.
-    // The thread can already be present in the file, so its override may have no
-    // standalone row in this plan.
+    // A full-thread answer supplies depth to its hole function's thread PMI.
+    // Printed hole functions write semantic notes. Neither has a standalone
+    // scene row tagged with the question.
     writes.extend(
         stored
-            .keys()
-            .filter(|id| id.starts_with("hole.full_thread:"))
-            .cloned(),
+            .iter()
+            .filter(|(id, value)| {
+                id.starts_with("hole.full_thread:")
+                    || (id.starts_with("hole.function:")
+                        && value
+                            .as_str()
+                            .is_some_and(|value| crate::choices::PRINTED_HOLES.contains(&value)))
+            })
+            .map(|(id, _)| id.clone()),
     );
     occupied.retain(|id, _| {
         !kept(&stored).contains(id.as_str())

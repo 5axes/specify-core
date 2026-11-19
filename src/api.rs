@@ -659,8 +659,8 @@ pub fn apply(
 /// The answers to store when `answers` are written with every default taken (`write
 /// --accept-defaults`, the person's "accept all", ADR P9): `answers`, and each default taken
 /// whose answer writes no PMI, found by planning the answers as the writer does. The file
-/// cannot state those, so reopening resumes them instead of asking them again. A default
-/// that writes PMI is not stored: the file states it (`resume.present`), and it keeps
+/// cannot state those, so reopening can resume them where the file leaves the scope empty.
+/// A default that writes PMI is not stored: the file states it (`resume.present`), and it keeps
 /// following the rules. What is written is unchanged.
 pub fn stored_with_defaults(
     loaded: &LoadedPart,

@@ -247,7 +247,7 @@ requirements by meaning rather than by characteristic key, so that what a rewrit
 again is not written twice.
 
 When the writer rewrites a reopened part, it replaces Specify's own (provenance-marked)
-requirements from the answers and keeps every other one: PMI another tool added (unmarked)
+requirements from the answers and keeps every other one: PMI another tool added (unmarked),
 PMI in the scope of withheld answers, and a conflict's file items until decided. A part written by
 replace that holds such PMI is rewritten as a scoped Add (`pmi_scope`), so only its marked
 requirements are replaced; with nothing to keep the write is as before (a replace, and an
