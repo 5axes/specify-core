@@ -700,6 +700,7 @@ fn the_app_engine_config_and_file_are_served_under_the_token() {
     assert_eq!(opened.get("diff").status, 404);
 
     let config = opened.config();
+    assert_eq!(config["api"], 1);
     assert_eq!(config["mode"], "specify");
     assert_eq!(config["name"], "part.step");
     assert_eq!(config["path"], scratch.input().display().to_string());
@@ -720,6 +721,7 @@ fn the_app_engine_config_and_file_are_served_under_the_token() {
     assert_eq!(
         keys,
         [
+            "api",
             "mode",
             "name",
             "path",

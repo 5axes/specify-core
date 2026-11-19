@@ -814,3 +814,124 @@ fn another_part_resumes_its_silent_answers() {
         assert!(open.is_empty(), "asked again: {open:?}");
     }
 }
+
+/// `bytes` with Specify's process UDA changed to cast by another tool: the item edited and
+/// the provenance marker on its property link removed.
+fn with_foreign_cast_process(bytes: Vec<u8>) -> Vec<u8> {
+    use haecceity::p21::{Attribute, Document, Edit, RawEntity};
+    use haecceity::pmi;
+    use specify_core::process;
+    let item = |value| {
+        format!(
+            "DESCRIPTIVE_REPRESENTATION_ITEM('{}','{value}')",
+            process::ITEM
+        )
+    };
+    let original = String::from_utf8(bytes).unwrap();
+    assert_eq!(original.matches(&item(process::MACHINED)).count(), 1);
+    let doc = Document::parse(
+        original
+            .replace(&item(process::MACHINED), &item(process::CAST))
+            .into_bytes(),
+    )
+    .unwrap();
+    let defs = haecceity::step::read_part_definitions(doc.bytes()).unwrap();
+    let read = pmi::read(&doc, &defs).unwrap();
+    let i = read.parts[0]
+        .attributes
+        .iter()
+        .position(|set| set.name == process::PROPERTY)
+        .unwrap();
+    let markers: Vec<_> = read.provenance.parts[0].attributes[i]
+        .iter()
+        .flat_map(|&id| doc.referrers(id))
+        .copied()
+        .filter(|&id| {
+            matches!(doc.get(id), Some(RawEntity::Simple { name, attributes, .. })
+                if name == "DESCRIPTION_ATTRIBUTE"
+                    && matches!(attributes.first(),
+                        Some(Attribute::String(s)) if s == "specify-core:written:v1"))
+        })
+        .collect();
+    assert_eq!(markers.len(), 1);
+    let mut edit = Edit::new();
+    edit.remove(markers[0]);
+    doc.apply(&edit).unwrap().bytes
+}
+
+/// The file's process and its process UDAs.
+fn file_process(part: &LoadedPart) -> (usize, Value) {
+    use haecceity::p21::Document;
+    use haecceity::pmi;
+    use specify_core::process;
+    let doc = Document::parse(part.bytes.to_vec()).unwrap();
+    let defs = haecceity::step::read_part_definitions(doc.bytes()).unwrap();
+    let read = pmi::read(&doc, &defs).unwrap();
+    let sets = read.parts[0]
+        .attributes
+        .iter()
+        .filter(|set| set.name == process::PROPERTY)
+        .count();
+    (sets, process::read_pmi(&read.parts[0]).unwrap().value)
+}
+
+/// Both P9 rules on one file: another tool changed the process (#208) and added a flatness on
+/// datum A against the stored "none" (no-PMI answers). Two reopen-and-save rounds keep both:
+/// the process is a foreign conflict on reopening, and the flatness answer is withheld.
+#[test]
+fn foreign_process_and_flatness_survive_two_saves() {
+    use specify_core::process;
+    let (mut all, _) = accepted_all();
+    assert_eq!(all["datum.A.flatness"], "none");
+    all.insert(process::QUESTION.into(), json!(process::MACHINED));
+    let bytes = written(&all, &all);
+    let mut part = load(with_foreign_cast_process(with_foreign_flatness(bytes)));
+    assert_eq!(file_process(&part), (1, json!(process::CAST)));
+    for round in 0..2 {
+        let analysis = api::analyse(&part).unwrap();
+        let conflict = analysis["resume"]["conflicts"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|c| c["id"] == process::QUESTION);
+        if round == 0 {
+            let conflict = conflict.expect("the changed process conflicts with the saved answer");
+            assert_eq!(conflict["stored"], process::MACHINED);
+            assert_eq!(conflict["file"], process::CAST);
+            assert_eq!(conflict["foreign"], true);
+        } else {
+            // #208: a foreign process's answer is not stored again, so the file's process
+            // stands unchallenged on later reopenings.
+            assert!(conflict.is_none(), "{}", analysis["resume"]);
+        }
+        assert!(
+            analysis["resume"]["answers"]
+                .get(process::QUESTION)
+                .is_none()
+        );
+        assert_eq!(analysis["part"]["process"], process::CAST);
+        assert_eq!(analysis["process"]["source"], "file");
+        assert_withheld(&analysis, "datum.A.flatness", false);
+        let flatness = flatness_on_a(&analysis["existing"]);
+        assert_eq!(flatness.len(), 1, "{}", analysis["existing"]);
+        assert_eq!(flatness[0]["value"], 0.05);
+        (part, _) = saved_again(&part, &analysis);
+        assert_eq!(
+            file_process(&part),
+            (1, json!(process::CAST)),
+            "round {round}"
+        );
+        assert!(
+            specify_core::existing::read_existing(&part)
+                .unwrap()
+                .iter()
+                .any(|e| e.r#type == "Flatness" && e.faces == [2] && e.value == Some(0.05)),
+            "round {round}: lost the flatness"
+        );
+        // The withheld answer stays dormant in the file, still withheld on the next reopen.
+        assert_eq!(
+            specify_core::resume::stored(&part.bytes)[&0]["answers"]["datum.A.flatness"],
+            "none"
+        );
+    }
+}

@@ -13,7 +13,7 @@
 //! reader cannot read back).
 
 use haecceity::p21::{Attribute, Document, RawEntity};
-use haecceity::pmi::{AttributeSet, AttributeValue, PartPmi};
+use haecceity::pmi::{AttributeSet, AttributeValue, PartPmi, PartProvenance};
 use serde_json::{Map, Value, json};
 
 use crate::bom::Field;
@@ -163,47 +163,107 @@ pub fn read(doc: &Document, product_definition: u64) -> Option<Field> {
     classify(
         std::iter::once(product_definition)
             .chain(shapes)
-            .flat_map(|owner| crate::bom::properties(doc, owner)),
+            .flat_map(|owner| crate::bom::properties(doc, owner))
+            .enumerate(),
+        false,
     )
+    .map(|(_, field)| field)
 }
 
 /// [`read`] of a part's PMI as the kernel reads it: its part-level attribute sets.
 pub fn read_pmi(pmi: &PartPmi) -> Option<Field> {
-    classify(pmi.attributes.iter().filter(|s| s.on.is_none()).map(|set| {
-        let items = set
-            .items
-            .iter()
-            .filter_map(|(name, v)| match v {
-                AttributeValue::Text(t) => Some((name.clone(), Value::from(t.as_str()))),
-                AttributeValue::Boolean(b) => Some((name.clone(), Value::Bool(*b))),
-                _ => None,
-            })
-            .collect();
-        (set.name.clone(), items)
-    }))
+    indexed_pmi(pmi, false).map(|(_, field)| field)
 }
 
-/// The process of a part's property sets `(name, items)`, with its source (see [`read`]).
-fn classify(sets: impl Iterator<Item = (String, Map<String, Value>)>) -> Option<Field> {
+/// The file's process attribute, including text outside the interview's options.
+pub(crate) fn file_pmi(
+    doc: &Document,
+    pmi: &PartPmi,
+    provenance: &PartProvenance,
+) -> Option<(usize, Field)> {
+    let (i, mut field) = indexed_pmi(pmi, true)?;
+    if !crate::provenance::marked(doc, &provenance.attributes[i], "attribute") {
+        field.source = "file".into();
+    } else if field.source != "default" {
+        field.source = "answered".into();
+    }
+    Some((i, field))
+}
+
+pub(crate) fn indexed_pmi(pmi: &PartPmi, include_unknown: bool) -> Option<(usize, Field)> {
+    classify(
+        pmi.attributes
+            .iter()
+            .enumerate()
+            .filter(|(_, set)| set.on.is_none())
+            .map(|(i, set)| {
+                let items = set
+                    .items
+                    .iter()
+                    .filter_map(|(name, v)| match v {
+                        AttributeValue::Text(t) => Some((name.clone(), Value::from(t.as_str()))),
+                        AttributeValue::Boolean(b) => Some((name.clone(), Value::Bool(*b))),
+                        _ => None,
+                    })
+                    .collect();
+                (i, (set.name.clone(), items))
+            }),
+        include_unknown,
+    )
+}
+
+fn key(name: &str) -> String {
+    name.trim().to_lowercase().replace([' ', '-'], "_")
+}
+
+/// OpenCascade can write the set name as the item's name when it rewrites our UDA.
+fn process_item<T>(set: &str, mut get: impl FnMut(&str) -> Option<T>) -> Option<(T, bool)> {
+    if let Some(value) = get(ITEM) {
+        Some((value, false))
+    } else if set == PROPERTY {
+        get("specify_process").map(|value| (value, true))
+    } else {
+        None
+    }
+}
+
+pub(crate) fn is_process_set(set: &AttributeSet) -> bool {
+    set.on.is_none()
+        && process_item(&set.name, |wanted| {
+            set.items.iter().find(|(name, _)| key(name) == wanted)
+        })
+        .is_some()
+}
+
+fn classify(
+    sets: impl Iterator<Item = (usize, (String, Map<String, Value>))>,
+    include_unknown: bool,
+) -> Option<(usize, Field)> {
     let (mut answered, mut file, mut suggested) = (None, None, None);
-    for (set, items) in sets {
-        let key = |name: &str| name.trim().to_lowercase().replace([' ', '-'], "_");
-        let found = |wanted: &str| {
+    let mut unknown = None;
+    for (i, (set, items)) in sets {
+        let Some((value, rewritten)) = process_item(&set, |wanted| {
             items
                 .iter()
                 .find(|(name, _)| key(name) == wanted)
                 .and_then(|(_, v)| v.as_str())
-                .and_then(normalised)
+                .filter(|v| include_unknown || normalised(v).is_some())
+        }) else {
+            continue;
         };
-        // OpenCascade writes its metadata back as one item named after the set: Specify's
-        // set so rewritten has lost its marker, and is another tool's statement.
-        let (value, rewritten) = match (found(ITEM), found(&key(PROPERTY))) {
-            (Some(v), _) => (v, false),
-            (None, Some(v)) if set == PROPERTY => (v, true),
-            _ => continue,
+        let Some(value) = normalised(value) else {
+            unknown.get_or_insert((
+                i,
+                Field {
+                    value: json!(value),
+                    source: "file".into(),
+                },
+            ));
+            continue;
         };
+        let found = (i, value);
         if rewritten {
-            file.get_or_insert(value);
+            file.get_or_insert(found);
         } else if set == PROPERTY {
             // The last of Specify's sets is current, as the BOM's. Specify writes the marker
             // as text 'true' (haecceity writes no boolean items); the BOM's boolean is read too.
@@ -213,38 +273,27 @@ fn classify(sets: impl Iterator<Item = (String, Map<String, Value>)>) -> Option<
                     .and_then(Value::as_str)
                     .is_some_and(|t| t.trim().eq_ignore_ascii_case("true"));
             if marked {
-                suggested = Some(value);
+                suggested = Some(found);
             } else {
-                answered = Some(value);
+                answered = Some(found);
             }
         } else if file.is_none() {
-            file = Some(value);
+            file = Some(found);
         }
     }
-    let (value, source) = match (answered, file, suggested) {
+    let ((i, value), source) = match (answered, file, suggested) {
         (Some(v), _, _) => (v, "answered"),
         (None, Some(v), _) => (v, "file"),
         (None, None, Some(v)) => (v, "default"),
-        _ => return None,
+        _ => return unknown,
     };
-    Some(Field {
-        value: json!(value),
-        source: source.into(),
-    })
-}
-
-/// Specify's own process set in a part's PMI (the last), if any: its value.
-pub(crate) fn specify_set(pmi: &PartPmi) -> Option<&'static str> {
-    pmi.attributes
-        .iter()
-        .filter(|s| s.on.is_none() && s.name == PROPERTY)
-        .filter_map(|s| {
-            s.items.iter().find_map(|(name, v)| match v {
-                AttributeValue::Text(t) if name == ITEM => normalised(t),
-                _ => None,
-            })
-        })
-        .next_back()
+    Some((
+        i,
+        Field {
+            value: json!(value),
+            source: source.into(),
+        },
+    ))
 }
 
 /// The attribute set written for a part's process; `suggested` marks an accepted suggestion.
@@ -285,12 +334,21 @@ fn bought(ctx: &Ctx<'_>, answers: &Map<String, Value>) -> bool {
     })
 }
 
-/// The process the file states (`analysis.part.process`), which is shown and not asked.
-fn stated(ctx: &Ctx<'_>) -> Option<&'static str> {
+/// The process text the file states (`analysis.part.process`).
+fn stated<'a>(ctx: &Ctx<'a>) -> Option<&'a str> {
     ctx.stated
         .and_then(|p| p.get("process"))
         .and_then(Value::as_str)
-        .and_then(normalised)
+}
+
+/// A foreign UDA is authoritative on every save. `resume.file` identifies a kept
+/// Specify-authored process that lost its marker and can still be answered anew.
+pub(crate) fn foreign(analysis: &Value) -> bool {
+    analysis["part"]["process"].is_string()
+        && analysis["process"]["source"] == "file"
+        && !analysis["resume"]["file"]
+            .as_array()
+            .is_some_and(|ids| ids.iter().any(|id| id == QUESTION))
 }
 
 /// The material to guess from: the answer, else what the file states.
@@ -322,7 +380,7 @@ pub(crate) fn current(ctx: &Ctx<'_>, answers: &Map<String, Value>) -> &'static s
         .get(QUESTION)
         .and_then(Value::as_str)
         .and_then(|a| PROCESSES.iter().copied().find(|p| *p == a))
-        .or_else(|| stated(ctx))
+        .or_else(|| stated(ctx).and_then(normalised))
         .unwrap_or(MACHINED)
 }
 

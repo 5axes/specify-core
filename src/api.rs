@@ -440,7 +440,7 @@ fn analyse_reconciling(
                 serde_json::to_value(existing).map_err(|e| refused(&e))?,
             );
             analysis.insert("part".into(), Value::Object(settings));
-            crate::process::stated_entries(process, None, &mut analysis);
+            crate::process::stated_entries(reading.process().or(process), None, &mut analysis);
         }
     }
     // ADR P9: on reopening, the PMI is the truth. The stored answers are compared with the
@@ -462,9 +462,16 @@ fn analyse_reconciling(
         let Ok(read) = haecceity::pmi::read(&doc, &defs) else {
             return (false, false);
         };
+        // The process question postdates marking, so a saved process answer or a process
+        // attribute is evidence even when the markers were stripped. A legacy file with
+        // marks on part attributes alone keeps its old view.
+        let saved_process = analysis
+            .get("resume")
+            .is_some_and(|resume| resume["answers"].get(crate::process::QUESTION).is_some());
         (
-            crate::provenance::any_marked(&doc, &read, part),
-            !crate::provenance::marked_outside_attributes(&doc, &read, part),
+            crate::provenance::can_reconcile(&doc, &read, part, saved_process),
+            crate::provenance::any_marked(&doc, &read, part)
+                && !crate::provenance::marked_outside_attributes(&doc, &read, part),
         )
     };
     if analysis.contains_key("resume")
@@ -547,6 +554,11 @@ fn analyse_reconciling(
             r.uncompared || (!r.settings.contains(key) && (!all_marked || tagged(key)))
         });
         analysis.insert("part".into(), Value::Object(settings));
+        crate::process::stated_entries(
+            r.process.clone().or_else(|| reading.process()),
+            Some(&r.answers),
+            &mut analysis,
+        );
         let resume = analysis
             .get_mut("resume")
             .and_then(Value::as_object_mut)

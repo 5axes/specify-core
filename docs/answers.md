@@ -225,14 +225,13 @@ in `_specify.keep`:
   file's tagged items give way (they leave `existing` for the rules, and the writer removes
   them), so the written file has the restored value, not both.
 - **Keep the file's:** add the id to `_specify.keep` (`{"_specify": {"keep": ["hole.position:holes:12"]}}`).
-  The file's requirement becomes the file's own: the writer writes it without Specify's
-  provenance marker, so on reopening it is PMI another tool stated (`existing`, kept, its
-  question not asked) for any reader, and every later write, the editor's or the CLI's,
-  Every keep is also stored beside the answers (the payload's `kept` list, restored as
-  `_specify.keep`): a removal kept has no requirement to carry it, and a requirement kept
-  stays tied to its question. Answering a kept question later (with any value) clears the
-  keep, and the file's requirement gives way, marked as Specify's or not, so the file holds
-  the new answer's requirement alone.
+  For Specify-marked requirements and kept removals, the writer stores the Keep in the
+  payload's `kept` list, restored as `_specify.keep`. Keeping a marked requirement removes
+  its provenance marker. A later answer clears the Keep and states the new requirement.
+  Keeping a foreign process clears the conflict without storing permission to replace it.
+  A later answer replaces an unmarked process only if its property-set name and ordered
+  items match the recorded UDA that Specify unmarked when keeping it. Legacy value-only
+  records leave an unmarked process foreign.
 
 `review` lists the undecided conflicts as questions (`conflicts`, only when there are some),
 each `{id, kind: "conflict", text, stored, file, choices}`, `text` reading "Saved answer H7,
@@ -253,6 +252,8 @@ Specify-marked PMI can be dropped on rewrite: a default whose faces another tool
 default exists (no question accounts for it). Keeping them needs the writer to match restated
 requirements by meaning rather than by characteristic key, so that what a rewrite states
 again is not written twice.
+When another tool strips all of Specify's markers from a replace-written STEP file and
+leaves no process evidence, rewrites restore saved answers and drop edited items, as in 0.2.0.
 
 When the writer rewrites a reopened part, it replaces Specify's own (provenance-marked)
 requirements from the answers and keeps every other one: PMI another tool added (unmarked),

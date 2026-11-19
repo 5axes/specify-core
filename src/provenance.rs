@@ -202,6 +202,22 @@ pub fn all(p: &PartPmi, prov: &PartProvenance, doc: &Document) -> bool {
         && p.decimal_places.is_none()
 }
 
+/// Whether to reconcile a replace-written part. The process question postdates marking, so
+/// its saved answer is evidence even when its UDA and the answers marker were removed.
+pub(crate) fn can_reconcile(
+    doc: &Document,
+    read: &haecceity::pmi::PmiRead,
+    part: usize,
+    saved_process: bool,
+) -> bool {
+    saved_process
+        || read.parts[part]
+            .attributes
+            .iter()
+            .any(crate::process::is_process_set)
+        || marks(doc, read, part).iter().any(|(_, marked)| *marked)
+}
+
 /// Whether any requirement of part `part` carries Specify's provenance marker. A file written
 /// before requirements were marked (#22) has none.
 pub(crate) fn any_marked(doc: &Document, read: &haecceity::pmi::PmiRead, part: usize) -> bool {
@@ -284,6 +300,17 @@ fn marks(
     );
     if p.material.is_some() {
         out.push((at("material", 0), marked(doc, &prov.material, "material")));
+    }
+    for (i, _) in p
+        .attributes
+        .iter()
+        .enumerate()
+        .filter(|(_, set)| crate::process::is_process_set(set))
+    {
+        out.push((
+            at("attributes", i),
+            marked(doc, &prov.attributes[i], "attribute"),
+        ));
     }
     out
 }
