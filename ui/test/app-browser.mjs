@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { gunzipSync } from 'node:zlib';
 import { chromium, expect } from '@playwright/test';
+import { characteristicHistory, validateOpening } from './engine-fixture.mjs';
 // The local app (dist-app, `npm run build:app`) served by the real `specify-core open`, the manual
 // way in (no agent; test/app-agent.mjs is the agent's): on a part it loads, is titled for the file,
 // takes an answer, has the command save part.specified.step beside it (whose PMI `specify-core
@@ -73,7 +74,10 @@ async function load(server, ready = '.pmi-lab-panel') {
   page.on('pageerror', error => problems.push(String(error)));
   page.on('console', message => { if (message.type() === 'error') problems.push(`console: ${message.text()}`); });
   await page.goto(server.url);
-  await check(page.locator(ready).first()).toBeVisible();
+  await check(page.locator(`${ready}, .app-open-failed`).first()).toBeVisible();
+  if (ready !== '.app-open-failed' && await page.locator('.app-open-failed').isVisible()) {
+    throw new Error(`The app could not open the part: ${await page.locator('.app-open-failed').textContent()}`);
+  }
   return { context, page, requests };
 }
 /** Nothing but the page's own origin (and its blob:/data: URLs) was asked for. */
@@ -230,13 +234,37 @@ try {
     first = server;
     await context.close();
   }
-  // The sidecar keeps documented metadata while removing private engine records. Compare
-  // the downloaded object exactly: filtering its keys here would hide the regression.
+  // A scene can refuse private metadata even when review accepts it. Opening must finish
+  // with the actual engine error and disabled Save, rather than an endless loading state.
   {
     const server = await open(part);
     const { rev } = await (await fetch(`${server.url}answers`)).json();
     const answers = { 'part.material': 'Steel', _specify: { keep: [], private_state: 'not an answer' },
       _specify_characteristic_numbers: { schema: 2, high_water: 0, entries: [] } };
+    const put = await fetch(`${server.url}answers`, { method: 'PUT', headers: { 'Content-Type': 'application/json', Origin: server.origin }, body: JSON.stringify({ rev, part: 0, answers }) });
+    assert.equal(put.status, 200);
+    const { context, page } = await load(server, '.app-open-failed');
+    await check(page.getByRole('alert')).toContainText('_specify_characteristic_numbers: missing field `faces`');
+    await check(page.getByRole('alert')).toContainText('Correct the session answers, then reload this page');
+    await check(page.locator('.app-loading')).toHaveCount(0);
+    await check(page.locator('.pmi-lab-panel')).toHaveCount(0);
+    for (const name of ['Save', 'Save with defaults']) {
+      const button = page.getByRole('button', { name, exact: true });
+      await check(button).toBeDisabled();
+      await check(button).toHaveAttribute('title', /Save is disabled until the file and its answers can be loaded/);
+    }
+    await context.close();
+    server.stop();
+  }
+  // The sidecar keeps documented metadata while removing a real writer record. The old
+  // invented history was invalid (no faces fingerprint), so it tested an opening refusal.
+  {
+    const server = await open(part);
+    const { rev } = await (await fetch(`${server.url}answers`)).json();
+    const history = characteristicHistory(new Uint8Array(readFileSync(withDefaults)));
+    assert.ok(history.faces && history.entries.length, 'use the history written by the earlier successful Save');
+    const answers = { 'part.material': 'Steel', _specify: { keep: [] }, _specify_characteristic_numbers: history };
+    assert.doesNotThrow(() => validateOpening('part.step', new Uint8Array(readFileSync(part)), answers), 'the fixture passes review AND scene in the served 0.2.0 engine');
     const put = await fetch(`${server.url}answers`, { method: 'PUT', headers: { 'Content-Type': 'application/json', Origin: server.origin }, body: JSON.stringify({ rev, part: 0, answers }) });
     assert.equal(put.status, 200);
     const { context, page } = await load(server);

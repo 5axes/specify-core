@@ -131,6 +131,7 @@ function App() {
   const [compared, setCompared] = useState<Compared | null>(null);
   const [tab, setTab] = useState<'changes' | 'answers'>('changes');
   const [problem, setProblem] = useState<string | null>(null);
+  const [openingError, setOpeningError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState<SavedLine | null>(null);
   const [dirty, setDirty] = useState(false);
@@ -279,7 +280,7 @@ function App() {
         const snapshot = await worker.current.request<{ analysis: PmiLabSession['analysis'] }>('open', fileOf(first.name, bytes, row.part, true)).catch(() => null);
         if (snapshot) answersSession.fileAnswers(row.part, snapshot.analysis.resume?.answers ?? {});
       }
-    })().catch((error: unknown) => setProblem(message(error)));
+    })().catch((error: unknown) => { if (!ended) setOpeningError(message(error)); });
     return () => { stop(); unlisten(); unwatch(); sessionRef.current?.close(); worker.current?.dispose(); };
   }, []);
 
@@ -518,7 +519,8 @@ function App() {
   };
 
   const showingChanges = mode === 'diff' && tab === 'changes';
-  const saveBlocked = stopped ? 'Specify has stopped' : fileChanged ? 'The file changed on disk since it was opened: open it again to save' : undefined;
+  const saveBlocked = openingError ? 'Save is disabled until the file and its answers can be loaded. Correct the session answers, then reload this page.'
+    : stopped ? 'Specify has stopped' : fileChanged ? 'The file changed on disk since it was opened: open it again to save' : undefined;
   return (
     <div className="app">
       <header className="app-header">
@@ -582,6 +584,10 @@ function App() {
           </div>
         )}
       </header>
+      {openingError && <p className="app-problem app-open-failed" role="alert">
+        Could not open {config?.name ?? 'the part'}: {openingError}{' '}
+        Save is disabled until the file and its answers can be loaded. Correct the session answers, then reload this page.
+      </p>}
       {problem && <p className="app-problem" role="alert">{problem}</p>}
       {unshown && (
         <p className="app-problem app-unshown" role="alert">
@@ -658,7 +664,7 @@ function App() {
         </nav>
       )}
       <main className="app-main">
-        {!opened && !problem && !stopped && <p className="app-loading">Opening {config?.name ?? 'the part'}…</p>}
+        {!opened && !problem && !openingError && !stopped && <p className="app-loading">Opening {config?.name ?? 'the part'}…</p>}
         {compared && (
           <div className="app-diff diff-page" hidden={!showingChanges}>
             <StepDiff before={compared.old} after={compared.next} compared={compared.body} wasmUrl={config?.wasmUrl} />
