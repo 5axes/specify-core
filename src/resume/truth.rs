@@ -113,6 +113,7 @@ pub(crate) fn reconcile(
         .as_object()
         .cloned()
         .unwrap_or_default();
+    let kept_earlier = kept(&stored);
     let scene = Scene::for_resume(loaded, features)?;
     let (file, index) = scene.file_comparison(loaded, analysis)?;
     let faces = loaded.binding.face_count;
@@ -145,7 +146,7 @@ pub(crate) fn reconcile(
     };
     // Which of the file's requirements are not marked as Specify's: another tool's, or one the
     // person kept (written unmarked).
-    let (unmarked, process): (BTreeSet<(String, usize)>, _) = {
+    let (unmarked, process, kept_process) = {
         let doc =
             haecceity::p21::Document::parse(loaded.bytes.to_vec()).map_err(|e| e.to_string())?;
         let defs =
@@ -156,30 +157,37 @@ pub(crate) fn reconcile(
             crate::provenance::unmarked(&doc, &read, part)
                 .into_iter()
                 .collect();
-        // Part notes and other attributes another tool stated: told apart only in a file
-        // written since Specify marked its attributes as well as its requirements (an Add
-        // write, `pmi_scope`); in an older replace-written file they are Specify's.
-        let scoped = super::scoped(&doc, part);
+        let pmi = &read.parts[part];
+        // Process answers and attributes also identify files whose property links carry
+        // provenance when authored by Specify.
+        let marked_attributes = super::scoped(&doc, part)
+            || stored.contains_key(crate::process::QUESTION)
+            || pmi.attributes.iter().any(crate::process::is_process_set);
         for (i, ids) in read.provenance.parts[part]
             .attributes
             .iter()
             .enumerate()
-            .filter(|_| scoped)
+            .filter(|_| marked_attributes)
         {
-            if !super::is_answers(&read.parts[part].attributes[i])
+            if !super::is_answers(&pmi.attributes[i])
                 && !crate::provenance::marked(&doc, ids, "attribute")
             {
                 unmarked.insert(("attributes".to_string(), i));
             }
         }
+        let kept_process = if kept_earlier.contains(crate::process::QUESTION) {
+            super::stored_in(&doc)
+                .remove(&part)
+                .and_then(|mut payload| payload.remove(super::KEPT_PROCESS))
+        } else {
+            None
+        };
         (
             unmarked,
-            crate::process::file_pmi(&doc, &read.parts[part], &read.provenance.parts[part]),
+            crate::process::file_pmi(&doc, pmi, &read.provenance.parts[part]),
+            kept_process,
         )
     };
-    // A question the person kept earlier (`_specify.keep`, stored with the answers) is the
-    // file's whatever its marker: the kept requirement was written unmarked.
-    let kept_earlier = kept(&stored);
     let plan = scene.comparison(loaded, analysis, Some(&stored))?;
     let mut truth = crate::revision::against_plan(&plan, &file, faces, &stored, &drift);
     let mut present = Map::new();
@@ -292,7 +300,7 @@ pub(crate) fn reconcile(
     }
     if let Some((i, mut field)) = process {
         let at = ("attributes".to_string(), i);
-        let kept = kept_earlier.contains(question);
+        let kept = kept_process.as_ref() == Some(&field.value);
         out.foreign_process = field.source == "file" && !kept;
         if !out.foreign_process || process_conflict {
             out.contested.insert(at, question.into());
@@ -349,16 +357,32 @@ pub(crate) fn reconcile(
                 file: file.as_ref().map(|texts| texts.join("; ")),
                 // Another tool's requirement (not marked as Specify's, and not one the person
                 // kept): an answer never overrides it unasked; only keeping decides.
-                foreign: !kept_earlier.contains(id.as_str())
-                    && out
-                        .contested
-                        .iter()
-                        .any(|(at, q)| q == id && unmarked.contains(at)),
+                foreign: if id == question {
+                    out.foreign_process
+                } else {
+                    !kept_earlier.contains(id.as_str())
+                        && out
+                            .contested
+                            .iter()
+                            .any(|(at, q)| q == id && unmarked.contains(at))
+                },
             }),
             None if id != crate::process::QUESTION || !out.foreign_process => {
                 out.answers.insert(id.clone(), answer.clone());
             }
             None => {}
+        }
+    }
+    if out.foreign_process
+        && let Some(Value::Object(meta)) = out.answers.get_mut(crate::answer_file::META)
+        && let Some(Value::Array(ids)) = meta.get_mut(KEEP)
+    {
+        ids.retain(|id| id != question);
+        if ids.is_empty() {
+            meta.remove(KEEP);
+        }
+        if meta.is_empty() {
+            out.answers.remove(crate::answer_file::META);
         }
     }
     for (question, items) in file_answered {

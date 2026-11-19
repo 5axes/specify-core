@@ -886,6 +886,11 @@ fn write_verified(
                     .filter(|id| !foreign_process || *id != crate::process::QUESTION)
                     .map(Json::from)
                     .collect();
+                if kept.iter().any(|id| id == crate::process::QUESTION)
+                    && let Some(process) = reconciliation.and_then(|r| r.process.as_ref())
+                {
+                    payload[resume::KEPT_PROCESS] = process.value.clone();
+                }
                 if !kept.is_empty() {
                     payload[resume::KEPT] = Json::Array(kept);
                 }

@@ -448,7 +448,7 @@ fn analyse_reconciling(
     let mut reconciled = None;
     // A file written before Specify marked its requirements (#22), by replace, keeps its
     // behaviour: all its PMI is its answers', rewritten from them.
-    let marked = || -> bool {
+    let can_reconcile = || -> bool {
         let Ok(doc) = haecceity::p21::Document::parse(loaded.bytes.as_ref().clone()) else {
             return false;
         };
@@ -460,10 +460,10 @@ fn analyse_reconciling(
             .is_some_and(|resume| resume["answers"].get(crate::process::QUESTION).is_some());
         resume::scoped(&doc, loaded.binding.part)
             || haecceity::pmi::read(&doc, &defs).is_ok_and(|read| {
-                crate::provenance::any_marked(&doc, &read, loaded.binding.part, saved_process)
+                crate::provenance::can_reconcile(&doc, &read, loaded.binding.part, saved_process)
             })
     };
-    if analysis.contains_key("resume") && marked() {
+    if analysis.contains_key("resume") && can_reconcile() {
         let base = Value::Object(analysis.clone());
         match resume::truth::reconcile(loaded, &base, &features) {
             Ok(r) => {
