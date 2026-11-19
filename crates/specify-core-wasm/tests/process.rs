@@ -19,8 +19,7 @@ fn item(name: &str, value: &str) -> String {
     format!("DESCRIPTIVE_REPRESENTATION_ITEM('{name}','{value}')")
 }
 
-/// Write only the process, so its removal exercises files with no other marked requirement.
-fn edited_process(replacement: Option<(&str, &str)>) -> Vec<u8> {
+fn marked_process(replacement: Option<(&str, &str)>) -> Document {
     let plate = include_bytes!("../../../tests/fixtures/parts/plate.step");
     let bytes = write(&open(plate), &json!({process::QUESTION: process::MACHINED}));
     let original = String::from_utf8(bytes).unwrap();
@@ -30,7 +29,12 @@ fn edited_process(replacement: Option<(&str, &str)>) -> Vec<u8> {
         || original.clone(),
         |(name, value)| original.replace(&before, &item(name, value)),
     );
-    let doc = Document::parse(text.into_bytes()).unwrap();
+    Document::parse(text.into_bytes()).unwrap()
+}
+
+/// Write only the process, so its removal exercises files with no other marked requirement.
+fn edited_process(replacement: Option<(&str, &str)>) -> Vec<u8> {
+    let doc = marked_process(replacement);
     let property = doc
         .graph()
         .entities
@@ -176,11 +180,13 @@ fn removing_the_only_marked_requirement_is_a_conflict() {
     );
 }
 
-fn add_foreign_process(bytes: Vec<u8>, value: &str) -> Vec<u8> {
+fn add_foreign_process(bytes: Vec<u8>, set_name: &str, value: &str) -> Vec<u8> {
     let doc = Document::parse(bytes).unwrap();
     let defs = haecceity::step::read_part_definitions(doc.bytes()).unwrap();
+    let mut set = process::attribute_set(value, false);
+    set.name = set_name.into();
     let foreign = PartPmi {
-        attributes: vec![process::attribute_set(value, false)],
+        attributes: vec![set],
         ..PartPmi::default()
     };
     let (edit, _) = pmi::write(
@@ -192,6 +198,89 @@ fn add_foreign_process(bytes: Vec<u8>, value: &str) -> Vec<u8> {
     )
     .unwrap();
     doc.apply(&edit).unwrap().bytes
+}
+
+fn keep_marked_cast() -> Vec<u8> {
+    let edited = marked_process(Some((process::ITEM, process::CAST)));
+    let opened = open(edited.bytes());
+    let snapshot = opened.snapshot();
+    let analysis = &snapshot["analysis"];
+    assert_eq!(conflict(analysis)["file"], process::CAST);
+    assert!(conflict(analysis).get("foreign").is_none());
+    let kept = write(&opened, &json!({"_specify": {"keep": [process::QUESTION]}}));
+    assert_only_process(&kept, process::ITEM, process::CAST);
+    kept
+}
+
+#[test]
+fn a_supplier_process_with_the_kept_value_is_foreign() {
+    let doc = Document::parse(keep_marked_cast()).unwrap();
+    let defs = haecceity::step::read_part_definitions(doc.bytes()).unwrap();
+    let read = pmi::read(&doc, &defs).unwrap();
+    let kept = read.parts[0]
+        .attributes
+        .iter()
+        .position(|set| set.name == process::PROPERTY)
+        .unwrap();
+    let mut edit = Edit::new();
+    for &id in &read.provenance.parts[0].attributes[kept] {
+        edit.remove(id);
+    }
+    let stripped = doc.apply(&edit).unwrap().bytes;
+    let supplier = add_foreign_process(stripped, "supplier process", process::CAST);
+    let session = open(&supplier);
+    assert_eq!(
+        session.snapshot()["analysis"]["part"]["process"],
+        process::CAST
+    );
+    let saved = write(&session, &json!({process::QUESTION: process::MOULDED}));
+    let doc = Document::parse(saved).unwrap();
+    let read = pmi::read(&doc, &defs).unwrap();
+    let sets: Vec<_> = read.parts[0]
+        .attributes
+        .iter()
+        .filter(|s| s.items.iter().any(|(name, _)| name == process::ITEM))
+        .map(|s| (s.name.as_str(), s.items.as_slice()))
+        .collect();
+    let expected = [(
+        process::ITEM.into(),
+        pmi::AttributeValue::Text(process::CAST.into()),
+    )];
+    assert_eq!(sets, [("supplier process", expected.as_slice())]);
+    assert_eq!(
+        open(doc.bytes()).snapshot()["analysis"]["part"]["process"],
+        process::CAST
+    );
+}
+
+#[test]
+fn an_unmarked_process_with_only_a_legacy_keep_value_is_foreign() {
+    let kept = keep_marked_cast();
+    let mut payload = Value::Object(resume::stored(&kept)[&0].clone());
+    let current = resume::encode(&payload);
+    payload["kept_process"] = json!(process::CAST);
+    let text = String::from_utf8(kept).unwrap();
+    assert_eq!(text.matches(&current).count(), 1);
+    let legacy = text.replace(&current, &resume::encode(&payload));
+    let saved = write(
+        &open(legacy.as_bytes()),
+        &json!({process::QUESTION: process::MOULDED}),
+    );
+    assert_only_process(&saved, process::ITEM, process::CAST);
+}
+
+#[test]
+fn the_same_kept_process_remains_replaceable_after_another_save() {
+    let kept = keep_marked_cast();
+    let reopened = open(&kept);
+    let snapshot = reopened.snapshot();
+    let kept_again = write(&reopened, &snapshot["analysis"]["resume"]["answers"]);
+    assert_only_process(&kept_again, process::ITEM, process::CAST);
+    let saved = write(
+        &open(&kept_again),
+        &json!({process::QUESTION: process::MOULDED}),
+    );
+    assert_only_process(&saved, process::ITEM, process::MOULDED);
 }
 
 #[test]
@@ -207,7 +296,7 @@ fn keeping_a_removal_never_makes_a_later_foreign_process_replaceable() {
             .unwrap()
             .contains(&json!(process::QUESTION))
     );
-    let added = add_foreign_process(kept, process::CAST);
+    let added = add_foreign_process(kept, process::PROPERTY, process::CAST);
     assert_only_process(&added, process::ITEM, process::CAST);
     let reopened = open(&added);
     let saved = write(&reopened, &json!({process::QUESTION: process::MOULDED}));
