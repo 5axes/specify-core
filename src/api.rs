@@ -477,103 +477,108 @@ fn analyse_reconciling(
             haecceity::step::read_part_definitions(&loaded.bytes).map_err(|e| refused(&e))?;
         let reading = existing::read_parsed(loaded, doc, &defs).map_err(|e| refused(&e))?;
         let mut settings = reading.settings(loaded);
-        match resume::truth::reconcile(loaded, &base, &features, &reading) {
-            Ok(r) => {
-                // Specify's own (marked) requirements the answers do not explain, and that no
-                // question accounts for, are Specify's to state: the rewrite states the part from
-                // the answers. The rest is another tool's PMI, or the file's answer to a
-                // question (tagged), shown and kept.
-                let mut existing = reading
-                    .existing_except(loaded, &r.selection())
-                    .map_err(|e| refused(&e))?;
-                // A legacy Replace file with marks on part attributes alone keeps the
-                // interview's old face-PMI view. Still reconcile its settings and preserve
-                // every unmarked requirement on writing, including face PMI.
-                let visible = |e: &existing::ExistingPmi| {
-                    e.question.is_some() || (!attributes_only && e.provenance.is_none())
-                };
-                if r.retained.is_empty() {
-                    existing.retain(visible);
-                } else {
-                    let mut ordinary = r.selection();
-                    ordinary.skip.extend(r.retained.iter().cloned());
-                    let hidden: Vec<_> = reading
-                        .existing_except(loaded, &ordinary)
-                        .map_err(|e| refused(&e))?
-                        .into_iter()
-                        .filter(|e| !visible(e))
-                        .collect();
-                    existing.retain(|e| !hidden.contains(e));
-                }
-                let retained_dimensions = crate::dimensioning::stated_where(reading.model(), |i| {
-                    r.retained.contains(&("dimensions".into(), i))
-                });
-                if !retained_dimensions.is_empty() {
-                    let stated = analysis
-                        .entry("dimensioning_stated")
-                        .or_insert_with(|| json!([]));
-                    stated
-                        .as_array_mut()
-                        .expect("stated dimensions are a list")
-                        .extend(retained_dimensions.into_iter().map(Value::Object));
-                }
-                analysis.insert(
-                    "existing".into(),
-                    serde_json::to_value(existing).map_err(|e| refused(&e))?,
-                );
-                let marked = reading.settings_provenance(loaded);
-                let tagged = |key: &str| {
-                    let question = format!("part.{key}");
-                    r.conflicts.iter().any(|c| c.id == question)
-                        || r.file_answered.contains(&question)
-                };
-                settings.retain(|key, _| {
-                    let all_marked = marked.get(key).is_some_and(|value| {
-                        value
-                            .as_array()
-                            .is_none_or(|entries| entries.iter().all(|v| !v.is_null()))
-                    });
-                    !r.settings.contains(key) && (!all_marked || tagged(key))
-                });
-                analysis.insert("part".into(), Value::Object(settings));
-                let resume = analysis
-                    .get_mut("resume")
-                    .and_then(Value::as_object_mut)
-                    .ok_or_else(|| refused(&"the resumed answers are not an object"))?;
-                resume.insert("answers".into(), Value::Object(r.answers.clone()));
-                if !r.file_answered.is_empty() {
-                    resume.insert("file".into(), json!(r.file_answered));
-                }
-                if !r.present.is_empty() {
-                    resume.insert("present".into(), Value::Object(r.present.clone()));
-                }
-                if !r.conflicts.is_empty() {
-                    resume.insert(
-                        "conflicts".into(),
-                        serde_json::to_value(&r.conflicts).map_err(|e| refused(&e))?,
-                    );
-                }
-                for conflict in &r.conflicts {
-                    warnings.push(match &conflict.file {
-                        Some(file) => format!(
-                            "saved answer {} ({}) differs from the file's PMI ({file}); the \
-                             file's is kept until decided",
-                            conflict.id, conflict.stored
-                        ),
-                        None => format!(
-                            "saved answer {} ({}) was removed in the file; left removed until \
-                             decided",
-                            conflict.id, conflict.stored
-                        ),
-                    });
-                }
-                reconciled = Some(r);
+        let r = match resume::truth::reconcile(loaded, &base, &features, &reading) {
+            Ok(r) => r,
+            Err(why) => {
+                warnings.push(format!(
+                    "saved answers could not be compared with the file's PMI: {why}; saved \
+                     answers are withheld and the file's PMI is kept"
+                ));
+                resume::truth::Reconciled::uncompared(&base, reading.model())
             }
-            Err(why) => warnings.push(format!(
-                "saved answers could not be compared with the file's PMI: {why}; they are \
-                 resumed as stored"
-            )),
+        };
+        // Specify's own (marked) requirements the answers do not explain, and that no
+        // question accounts for, are Specify's to state: the rewrite states the part from
+        // the answers. The rest is another tool's PMI, or the file's answer to a
+        // question (tagged), shown and kept.
+        let mut existing = reading
+            .existing_except(loaded, &r.selection())
+            .map_err(|e| refused(&e))?;
+        // A legacy Replace file with marks on part attributes alone keeps the
+        // interview's old face-PMI view. Still reconcile its settings and preserve
+        // every unmarked requirement on writing, including face PMI.
+        let visible = |e: &existing::ExistingPmi| {
+            e.question.is_some() || (!attributes_only && e.provenance.is_none())
+        };
+        if r.retained.is_empty() {
+            existing.retain(visible);
+        } else {
+            let mut ordinary = r.selection();
+            ordinary.skip.extend(r.retained.iter().cloned());
+            let hidden: Vec<_> = reading
+                .existing_except(loaded, &ordinary)
+                .map_err(|e| refused(&e))?
+                .into_iter()
+                .filter(|e| !visible(e))
+                .collect();
+            existing.retain(|e| !hidden.contains(e));
         }
+        let retained_dimensions = crate::dimensioning::stated_where(reading.model(), |i| {
+            r.retained.contains(&("dimensions".into(), i))
+        });
+        if r.uncompared {
+            if !retained_dimensions.is_empty() {
+                analysis.insert("dimensioning_stated".into(), json!(retained_dimensions));
+            }
+        } else if !retained_dimensions.is_empty() {
+            let stated = analysis
+                .entry("dimensioning_stated")
+                .or_insert_with(|| json!([]));
+            stated
+                .as_array_mut()
+                .expect("stated dimensions are a list")
+                .extend(retained_dimensions.into_iter().map(Value::Object));
+        }
+        analysis.insert(
+            "existing".into(),
+            serde_json::to_value(existing).map_err(|e| refused(&e))?,
+        );
+        let marked = reading.settings_provenance(loaded);
+        let tagged = |key: &str| {
+            let question = format!("part.{key}");
+            r.conflicts.iter().any(|c| c.id == question) || r.file_answered.contains(&question)
+        };
+        settings.retain(|key, _| {
+            let all_marked = marked.get(key).is_some_and(|value| {
+                value
+                    .as_array()
+                    .is_none_or(|entries| entries.iter().all(|v| !v.is_null()))
+            });
+            r.uncompared || (!r.settings.contains(key) && (!all_marked || tagged(key)))
+        });
+        analysis.insert("part".into(), Value::Object(settings));
+        let resume = analysis
+            .get_mut("resume")
+            .and_then(Value::as_object_mut)
+            .ok_or_else(|| refused(&"the resumed answers are not an object"))?;
+        resume.insert("answers".into(), Value::Object(r.answers.clone()));
+        if !r.file_answered.is_empty() {
+            resume.insert("file".into(), json!(r.file_answered));
+        }
+        if !r.present.is_empty() {
+            resume.insert("present".into(), Value::Object(r.present.clone()));
+        }
+        if !r.conflicts.is_empty() {
+            resume.insert(
+                "conflicts".into(),
+                serde_json::to_value(&r.conflicts).map_err(|e| refused(&e))?,
+            );
+        }
+        for conflict in &r.conflicts {
+            warnings.push(match &conflict.file {
+                Some(file) => format!(
+                    "saved answer {} ({}) differs from the file's PMI ({file}); the \
+                             file's is kept until decided",
+                    conflict.id, conflict.stored
+                ),
+                None => format!(
+                    "saved answer {} ({}) was removed in the file; left removed until \
+                             decided",
+                    conflict.id, conflict.stored
+                ),
+            });
+        }
+        reconciled = Some(r);
     }
     if analysis.contains_key("resume") {
         resume::truth::remember(loaded, reconciled.as_ref());

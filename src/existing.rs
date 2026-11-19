@@ -699,27 +699,28 @@ impl Reading {
 
 /// Whether `set` is a ± general tolerance written as a note on the part (`docs/process.md`).
 fn is_general_tolerance_note(set: &pmi::AttributeSet) -> bool {
-    set.on.is_none()
-        && set.name == crate::writer::SEMANTIC_TEXT
-        && set.items.iter().any(|(name, v)| {
-            name == crate::writer::GENERAL_TOLERANCE_NOTE
-                && matches!(v, pmi::AttributeValue::Text(_))
-        })
+    general_tolerance_text(set).is_some()
+}
+
+/// The text of the semantic part attribute used for a printed tolerance.
+pub(crate) fn general_tolerance_text(set: &pmi::AttributeSet) -> Option<&str> {
+    if set.on.is_some() || set.name != crate::writer::SEMANTIC_TEXT {
+        return None;
+    }
+    set.items.iter().find_map(|(name, value)| match value {
+        pmi::AttributeValue::Text(text) if name == crate::writer::GENERAL_TOLERANCE_NOTE => {
+            Some(text.as_str())
+        }
+        _ => None,
+    })
 }
 
 /// The part's ± general tolerance written as a note, if it has one.
 pub(crate) fn general_tolerance_note(pmi: &PartPmi) -> Option<String> {
     pmi.attributes
         .iter()
-        .filter(|set| is_general_tolerance_note(set))
-        .find_map(|set| {
-            set.items.iter().find_map(|(name, v)| match v {
-                pmi::AttributeValue::Text(t) if name == crate::writer::GENERAL_TOLERANCE_NOTE => {
-                    Some(t.clone())
-                }
-                _ => None,
-            })
-        })
+        .find_map(general_tolerance_text)
+        .map(str::to_owned)
 }
 
 /// Only explicit edge-breaking prose, not a general manufacturing-note classifier.

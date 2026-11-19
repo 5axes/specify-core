@@ -184,16 +184,20 @@ cone or floor claimed since).
   requirement is in `existing`, tagged `question: <id>`, the question is not asked, and
   every write keeps it until the question is answered (which gives it way). Specify's own
   requirements that no question accounts for at all are Specify's to state from the answers.
-- **An answer that writes no PMI** resumes unless the file contradicts it. For a face
-  question, the file contradicts it if an item on its target faces has no exact match in
-  the writer's plan for all stored answers. A match has the same kind, faces, value and
-  tolerance. A location dimension's target faces are the faces it locates. A datum question
-  checks both the stored datum's faces and the file datum's faces for the same letter.
+- **An answer that writes no PMI** can resume after the file comparison. A face question
+  withholds it when a file item on its target faces has no exact match in either the plan
+  for all stored answers or the plan with remaining defaults accepted, when that alternative
+  is available. A match has the same kind, faces, value and tolerance. A location
+  dimension's target faces are the faces it locates. A datum question checks both the
+  stored datum's faces and the file datum's faces for the same letter.
   For a part setting, every file entry must match an entry in the stored answer. This
   includes every note, regardless of who wrote it. The ordinary file-PMI rules handle a
   withheld answer (`resume.present`, `resume.file`, or `existing`). The question opens again
   if those rules leave it open. Withholding creates no conflict. A save keeps the file's
   requirements and carries the withheld answer for reevaluation on later opens.
+- **When planning or comparison fails**, Specify warns, withholds the saved answers, and
+  treats the readable PMI and part settings as the file's own. A save protects that PMI
+  and carries the withheld answers for reevaluation.
 - **Different, or only in the answers (removed in the file):** a conflict,
   `resume.conflicts: [{id, stored, file}]` (`file` is the file's notation, `null` when the
   file has none), with an analysis warning each. Until it is decided the file's state is

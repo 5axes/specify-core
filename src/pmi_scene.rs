@@ -655,6 +655,12 @@ fn part_metadata(
         for i in 0..semantic.ids[collection].len() {
             let key = match collection {
                 "general" => Some("general_tolerance"),
+                "attributes"
+                    if crate::existing::general_tolerance_text(&semantic.pmi.attributes[i])
+                        .is_some() =>
+                {
+                    Some("general_tolerance")
+                }
                 "surface_textures" if semantic.pmi.surface_textures[i].on.is_none() => {
                     crate::existing::PART_NOTES
                         .iter()

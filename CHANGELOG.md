@@ -8,19 +8,20 @@ All notable changes to specify-core-rust. The format follows
 
 ### Fixed
 
-- A stored no-PMI face answer resumes when the writer's plan for all stored answers
-  restates every file item on its target faces with the same kind, faces, value and
-  tolerance. Datum questions check both versions of the datum of the same letter. Each
-  entry of a file part setting, including every note, must match the stored answer
-  regardless of authorship. Withheld answers follow ordinary file-PMI handling, create no
-  conflicts, and stay in the file for reevaluation. Questions left open can be asked again.
-  `write --accept-defaults` stores the defaults it takes that write no PMI. Defaults that
-  write PMI read back as `resume.present`.
+- Reopening can resume a no-PMI face answer when each file item on its target faces has
+  an exact match in the stored answers' plan or the available plan with remaining
+  defaults accepted. Datum questions check both versions of the same datum. Part settings
+  compare every file entry, including each note, regardless of authorship. Withheld
+  answers follow ordinary file-PMI handling and stay in the file for reevaluation.
+  `write --accept-defaults` stores the defaults it takes that write no PMI.
+- Saves preserve edited printed general-tolerance notes and marked tolerances hidden by
+  imported tolerances. If comparison fails, reopening warns and withholds the saved
+  answers while protecting the file's readable PMI.
 
 ### WASM API
 
-- `IntentEngine.review` withholds stored no-PMI answers where the file states PMI the
-  stored answers do not exactly restate.
+- `IntentEngine.review` can withhold no-PMI answers where the file states PMI with no
+  exact match in either comparison plan.
   `IntentEngine.writePmi` retains those file requirements on save.
 
 ## 0.2.0 (2026-11-19)

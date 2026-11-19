@@ -52,9 +52,13 @@ pub(crate) struct Reconciled {
     pub withheld: Map<String, Value>,
     /// File items in that scope which the ordinary reconciliation does not manage.
     pub retained: BTreeSet<(String, usize)>,
+    /// The writer's plan could not be compared with the file.
+    pub uncompared: bool,
     pub conflicts: Vec<Conflict>,
     /// The file's items the resumed answers explain, by haecceity collection and index.
     pub explained: BTreeSet<(String, usize)>,
+    /// Explained tolerances whose questions may be suppressed by imported PMI.
+    masked_tolerances: BTreeSet<usize>,
     /// The file's items each conflict's question stands for.
     pub contested: BTreeMap<(String, usize), String>,
     /// Part settings (`part` keys) the resumed answers explain.
@@ -68,6 +72,44 @@ pub(crate) struct Reconciled {
 }
 
 impl Reconciled {
+    /// Without a usable plan, there is no safe basis for resuming answers or
+    /// replacing any of the file's requirements.
+    pub(crate) fn uncompared(analysis: &Value, pmi: &haecceity::pmi::PartPmi) -> Self {
+        let withheld = analysis["resume"]["answers"]
+            .as_object()
+            .into_iter()
+            .flatten()
+            .filter(|(id, _)| !id.starts_with('_'))
+            .map(|(id, answer)| (id.clone(), answer.clone()))
+            .collect();
+        let mut retained: BTreeSet<_> = [
+            ("features", pmi.features.len()),
+            ("datums", pmi.datums.len()),
+            ("datum_targets", pmi.datum_targets.len()),
+            ("dimensions", pmi.dimensions.len()),
+            ("tolerances", pmi.tolerances.len()),
+            ("general", pmi.general.len()),
+            ("threads", pmi.threads.len()),
+            ("knurls", pmi.knurls.len()),
+            ("notes", pmi.notes.len()),
+            ("surface_textures", pmi.surface_textures.len()),
+            ("material", usize::from(pmi.material.is_some())),
+        ]
+        .into_iter()
+        .flat_map(|(collection, len)| (0..len).map(move |i| (collection.to_string(), i)))
+        .collect();
+        retained.extend(pmi.attributes.iter().enumerate().filter_map(|(i, set)| {
+            (!super::is_answers(set) && set.name != crate::characteristics::PROPERTY)
+                .then_some(("attributes".into(), i))
+        }));
+        Self {
+            withheld,
+            retained,
+            uncompared: true,
+            ..Self::default()
+        }
+    }
+
     /// The [`crate::existing::Selection`] that leaves the explained items out of `existing`
     /// and tags the contested ones with their question.
     pub(crate) fn selection(&self) -> crate::existing::Selection {
@@ -372,9 +414,36 @@ pub(crate) fn reconcile(
         }
     }
     let item = |id: &str| index.get(id).cloned();
+    // Rules can omit a tolerance question when imported PMI already controls
+    // its faces. An explained, marked tolerance still needs keeping if the
+    // actual save does not write it again.
+    let imported_tolerance_faces: BTreeSet<_> = rows
+        .iter()
+        .filter(|(id, _)| {
+            index
+                .get(*id)
+                .is_some_and(|at| at.0 == "tolerances" && unmarked.contains(at))
+        })
+        .flat_map(|(_, (faces, _))| faces.iter().copied())
+        .collect();
+    let masked_tolerances = truth
+        .explained
+        .iter()
+        .filter_map(|id| {
+            let at = index.get(id)?;
+            (at.0 == "tolerances"
+                && !unmarked.contains(at)
+                && rows[id]
+                    .0
+                    .iter()
+                    .any(|face| imported_tolerance_faces.contains(face)))
+            .then_some(at.1)
+        })
+        .collect();
     let mut out = Reconciled {
         withheld,
         retained,
+        masked_tolerances,
         explained: truth.explained.iter().filter_map(|id| item(id)).collect(),
         ..Reconciled::default()
     };
@@ -687,8 +756,25 @@ pub fn answered<'a>(
     if present.keys().all(|id| answers.contains_key(id)) {
         return std::borrow::Cow::Borrowed(answers);
     }
+    let process_changed = answers
+        .get(crate::process::QUESTION)
+        .is_some_and(|process| {
+            analysis["process"]
+                .get("value")
+                .is_some_and(|old| old != process)
+        });
     let mut out = answers.clone();
     for (id, value) in present {
+        // A printed tolerance read back as a default belongs to the file's
+        // process. Let an explicitly changed process supply its own default.
+        if process_changed
+            && id == "part.general_tolerance"
+            && value
+                .as_str()
+                .is_some_and(|text| crate::general::plus_minus(text).is_some())
+        {
+            continue;
+        }
         if !out.contains_key(id) {
             out.insert(id.clone(), value.clone());
         }
@@ -745,12 +831,18 @@ impl Reconciled {
         restated: &BTreeSet<(String, usize)>,
     ) -> BTreeSet<(String, usize)> {
         use haecceity::pmi::NoteOwner;
+        if self.uncompared {
+            return self.retained.clone();
+        }
         // Only the file's items of an undecided conflict or of a question the file answers
         // need keeping here: the rewrite replaces Specify's own (marked) requirements and
         // protects every other one, which is another tool's.
         let keeps = |collection: &str, i: usize| {
             let at = (collection.to_string(), i);
             self.retained.contains(&at)
+                || (collection == "tolerances"
+                    && self.masked_tolerances.contains(&i)
+                    && !restated.contains(&at))
                 || (!self.explained.contains(&at)
                     && !restated.contains(&at)
                     && self.contested.get(&at).is_some_and(|question| {
