@@ -606,6 +606,15 @@ pub fn stored_with_defaults(
     analysis: &Value,
     answers: &Map<String, Value>,
 ) -> Result<Map<String, Value>> {
+    // An analysis of another file, part or face numbering: the writer refuses it, saying so.
+    let binding = &analysis["binding"];
+    if binding["source_sha256"] != json!(loaded.binding.source_sha256)
+        || binding["face_count"] != json!(loaded.binding.face_count)
+        || binding["loader_version"] != json!(loaded.binding.loader_version)
+        || binding["part"].as_u64().unwrap_or(0) != loaded.binding.part as u64
+    {
+        return Ok(answers.clone());
+    }
     let all = rules::with_all_defaults(analysis, answers)?;
     let taken: Vec<(&String, &Value)> = all
         .iter()
@@ -620,10 +629,12 @@ pub fn stored_with_defaults(
     if taken.is_empty() {
         return Ok(answers.clone());
     }
-    let scene = crate::pmi_scene::Scene::new(loaded).map_err(Error::Analysis)?;
-    let plan = scene
-        .comparison(loaded, analysis, Some(&all))
-        .map_err(Error::Analysis)?;
+    // A part the scene cannot plan stores what was given; the write says what is wrong.
+    let Ok(plan) = crate::pmi_scene::Scene::new(loaded)
+        .and_then(|scene| scene.comparison(loaded, analysis, Some(&all)))
+    else {
+        return Ok(answers.clone());
+    };
     let writes = resume::truth::writing(&plan);
     let mut out = answers.clone();
     for (id, value) in taken {

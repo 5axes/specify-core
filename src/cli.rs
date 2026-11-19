@@ -590,10 +590,13 @@ fn write(
                 .map_err(Exit::error)?;
         }
         // Every default taken: those that write no PMI are stored with the answers (ADR P9).
+        // A part that cannot be loaded or planned stores what was given; the write refuses it.
         let answers = if accept_defaults {
             let index = analysis["binding"]["part"].as_u64().unwrap_or(0) as usize;
-            let loaded = part::load(step, Some(index)).map_err(Exit::error)?;
-            api::stored_with_defaults(&loaded, &analysis, &answers).map_err(Exit::error)?
+            part::load(step, Some(index))
+                .ok()
+                .and_then(|loaded| api::stored_with_defaults(&loaded, &analysis, &answers).ok())
+                .unwrap_or(answers)
         } else {
             answers
         };

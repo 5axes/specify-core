@@ -767,7 +767,14 @@ fn composition(dir: &Path) -> Vec<Difference> {
         let mut refused = None;
         for analysis in &analyses {
             match api::apply(analysis, &object(&base), true) {
-                Ok(intent) => intents.push((intent, Some(object(&base)))),
+                // The command line stores the defaults it takes that write no PMI (ADR P9).
+                Ok(intent) => {
+                    let part = analysis["binding"]["part"].as_u64().unwrap_or(0) as usize;
+                    let loaded = specify_core::part::load(&input, Some(part)).unwrap();
+                    let stored =
+                        api::stored_with_defaults(&loaded, analysis, &object(&base)).unwrap();
+                    intents.push((intent, Some(stored)));
+                }
                 Err(e) => {
                     // An assembly's refusal names the part (as main.rs words it).
                     let part = analysis["binding"]["part"].as_u64().unwrap_or(0) as usize;

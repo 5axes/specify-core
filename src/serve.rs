@@ -305,9 +305,7 @@ impl Server {
                 let step = path(request, "step")?;
                 let output = path(request, "output")?;
                 let answers = if defaults {
-                    let index = analysis["binding"]["part"].as_u64().unwrap_or(0) as usize;
-                    let loaded = part::load(&step, Some(index)).map_err(Error::Load)?;
-                    api::stored_with_defaults(&loaded, analysis, &answers)?
+                    stored_with_defaults(&step, analysis, answers)
                 } else {
                     answers
                 };
@@ -409,6 +407,20 @@ impl Server {
     }
 }
 
+/// `answers` with the defaults taken that write no PMI ([`api::stored_with_defaults`]); a
+/// part that cannot be loaded or planned stores what was given, and the write refuses it.
+fn stored_with_defaults(
+    step: &Path,
+    analysis: &Value,
+    answers: Map<String, Value>,
+) -> Map<String, Value> {
+    let index = analysis["binding"]["part"].as_u64().unwrap_or(0) as usize;
+    part::load(step, Some(index))
+        .ok()
+        .and_then(|loaded| api::stored_with_defaults(&loaded, analysis, &answers).ok())
+        .unwrap_or(answers)
+}
+
 /// `write` with `parts`: several parts of an assembly, each applied with its answers (a
 /// refusal naming the part), then written together.
 fn write_parts(request: &Map<String, Value>) -> Handled {
@@ -447,15 +459,13 @@ fn write_parts(request: &Map<String, Value>) -> Handled {
         .into_iter()
         .map(|(analysis, intent, answers)| {
             let answers = if defaults {
-                let index = analysis["binding"]["part"].as_u64().unwrap_or(0) as usize;
-                let loaded = part::load(&step, Some(index)).map_err(Error::Load)?;
-                api::stored_with_defaults(&loaded, analysis, &answers)?
+                stored_with_defaults(&step, analysis, answers)
             } else {
                 answers
             };
-            Ok((intent, Some(answers)))
+            (intent, Some(answers))
         })
-        .collect::<Result<Vec<_>, Failure>>()?;
+        .collect::<Vec<_>>();
     let output = path(request, "output")?;
     let report = api::write_parts(&step, &written, &output)?;
     Ok(json!({

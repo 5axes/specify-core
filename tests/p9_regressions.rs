@@ -254,10 +254,21 @@ fn defaults_written_without_their_answers_are_kept() {
         &given,
     ]);
     let loaded = load(std::fs::read(&output).unwrap());
-    // Only the given answers are stored.
+    // The given answers are stored, and of the defaults taken only those that write no PMI
+    // (2026-11-19: "accept all" keeps answers the file cannot state).
+    let mut stored = answers("0.05");
+    for (id, value) in [
+        ("part.coating", json!("None (as machined)")),
+        ("part.heat_treatment", json!("None")),
+        ("part.notes", json!([])),
+        ("hole.function:holes:9", json!("general")),
+        ("datum.C.control", json!("none")),
+    ] {
+        stored.insert(id.into(), value);
+    }
     assert_eq!(
         specify_core::resume::answers_for(&loaded).unwrap(),
-        Some(answers("0.05"))
+        Some(stored)
     );
     let pattern = "hole.position:hole_patterns.grid:6.7.8.10.11.13";
     let positions = |l: &LoadedPart| {
@@ -312,7 +323,13 @@ fn a_session_save_keeps_pmi_another_tool_added() {
     };
     let opened = call("open", json!({"path": input}));
     let doc = opened["doc"].clone();
-    assert!(opened.get("conflicts").is_none(), "{opened}");
+    // The stored "none" the added flatness contradicts is another tool's conflict, not
+    // resumed (2026-11-19: an answer that writes no PMI resumes only where the file has
+    // nothing to contradict it).
+    let conflicts = opened["conflicts"].as_array().unwrap();
+    assert_eq!(conflicts.len(), 1, "{opened}");
+    assert_eq!(conflicts[0]["id"], "datum.A.flatness");
+    assert_eq!(conflicts[0]["foreign"], true);
     call(
         "answer",
         json!({"doc": doc, "set": {"part.coating": "Anodise, clear"}}),

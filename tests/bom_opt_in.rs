@@ -81,6 +81,7 @@ fn no_opt_in_matches_v046_presentation_through_api_and_cli() {
             .join(format!("tests/fixtures/parts/{fixture}.step"));
         let file = File::read(&path).unwrap();
         let mut jobs = Vec::new();
+        let mut cli_jobs = Vec::new();
         let output = dir.join(format!("{fixture}-{all_answered}-{defaults}.step"));
         let mut pairs = Vec::new();
         for part in file.load_all().unwrap() {
@@ -135,6 +136,14 @@ fn no_opt_in_matches_v046_presentation_through_api_and_cli() {
             std::fs::write(&apath, analysis.to_string()).unwrap();
             std::fs::write(&bpath, json!(answers).to_string()).unwrap();
             pairs.push((apath, bpath));
+            // With every default taken, the command line also stores those that write no PMI
+            // (ADR P9): the same PMI, more stored answers.
+            let stored = if defaults {
+                api::stored_with_defaults(&part, &analysis, &answers).unwrap()
+            } else {
+                answers.clone()
+            };
+            cli_jobs.push((intent.clone(), Some(stored)));
             jobs.push((intent, Some(answers)));
         }
         let bytes = api::write_bytes(file.bytes().as_ref().clone(), &jobs)
@@ -160,6 +169,9 @@ fn no_opt_in_matches_v046_presentation_through_api_and_cli() {
             "{}",
             String::from_utf8_lossy(&result.stderr)
         );
-        assert_eq!(std::fs::read(output).unwrap(), bytes);
+        let cli_bytes = api::write_bytes(file.bytes().as_ref().clone(), &cli_jobs)
+            .unwrap()
+            .0;
+        assert_eq!(std::fs::read(output).unwrap(), cli_bytes);
     }
 }

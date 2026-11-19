@@ -277,7 +277,7 @@ pub(crate) fn reconcile(
         rows.retain(|id, _| !truth.explained.contains(id) && !contested.contains(id));
         for (id, items) in contradicted(
             loaded, &scene, analysis, &stored, &silent, &rows, &file, &drift,
-        )? {
+        ) {
             truth.conflicts.insert(id, items);
         }
     }
@@ -408,17 +408,17 @@ fn contradicted(
     rows: &BTreeMap<String, (Vec<usize>, String)>,
     file: &Value,
     drift: &crate::revision::Drift,
-) -> Result<BTreeMap<String, Vec<(String, String)>>, String> {
+) -> BTreeMap<String, Vec<(String, String)>> {
     let mut out = BTreeMap::new();
     if rows.is_empty() {
-        return Ok(out);
+        return out;
     }
     // The part as Specify asked about it: the file's own PMI does not take questions away.
     let mut bare = analysis.clone();
     bare["existing"] = Value::Array(Vec::new());
     bare["part"] = Value::Object(Map::new());
     let Ok(questions) = crate::rules::questions(&bare, stored) else {
-        return Ok(out);
+        return out;
     };
     for id in silent {
         let Some(question) = questions.iter().find(|q| &q.id == *id) else {
@@ -446,7 +446,10 @@ fn contradicted(
         };
         let mut answers = stored.clone();
         answers.insert((*id).clone(), value);
-        let plan = scene.comparison(loaded, &bare, Some(&answers))?;
+        // A question the scene cannot plan otherwise has nothing found to contradict it.
+        let Ok(plan) = scene.comparison(loaded, &bare, Some(&answers)) else {
+            continue;
+        };
         let mut others = stored.clone();
         others.remove(id.as_str());
         let mut truth =
@@ -472,7 +475,7 @@ fn contradicted(
             out.insert((*id).clone(), items);
         }
     }
-    Ok(out)
+    out
 }
 
 /// The question a conflict is presented as (`kind: "conflict"`), for review and MCP.
