@@ -219,8 +219,10 @@ try {
     await page.getByRole('button', { name: 'Save with defaults' }).click();
     const list = page.getByRole('dialog', { name: 'Save with defaults' });
     await check(list).toBeVisible();
-    // Every part written has its own list, the one not shown too, under its name.
-    await check(list.locator('[data-part]')).toHaveCount(written.length);
+    // Changed expectation (Paul's decision, 2026-11-19): every part of the file with a default has its own
+    // list, answered or not (it was only the parts with answers, `written.length`), the one not shown too.
+    await check(list.locator('[data-part]')).not.toHaveCount(written.length);
+    assert.ok(await list.locator('[data-part]').count() > written.length, 'parts with no answers are listed too');
     const nameB = listed.parts.find(p => p.part === b).name;
     await check(list.locator(`[data-part="${b}"] h4`)).toHaveText(nameB);
     await check(list.locator(`[data-part="${a}"] h4`)).toContainText('(shown)');
@@ -245,7 +247,7 @@ try {
 
   // A part the agent opens while the page is open joins the session (`joined`): the page takes it
   // in (said, listed in the picker), a save asked for at the rev before it is stale (409), and the
-  // defaults a save lists include it once it has an answer, not before (a save writes only parts with answers).
+  // defaults a save lists include it (every part of the file is listed, answered or not).
   {
     const asm = join(dir, 'asm-join.step');
     writeFileSync(asm, gunzipSync(readFileSync('test/fixtures/gramil_assembly_before.step.gz')));
@@ -272,18 +274,19 @@ try {
     const stale = await fetch(`${shown.url}save`, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: origin }, body: JSON.stringify({ rev: before.rev, acceptDefaults: {} }) });
     assert.equal(stale.status, 409);
     assert.ok(!existsSync(join(dir, 'asm-join.specified.step')), 'nothing written for the stale save');
-    // The defaults dialog lists the parts the save writes: a, not b (no answers yet).
+    // Changed expectation (Paul's decision, 2026-11-19): Save with defaults lists the defaults of every part
+    // of the file, so b is listed though it has no answers, and approving them is what writes it. It was a
+    // only ("a save writes only parts with answers"), which left an untouched part out of Save with defaults.
     await page.getByRole('button', { name: 'Save with defaults' }).click();
     const list = page.getByRole('dialog', { name: 'Save with defaults' });
-    await check(list.locator('[data-part]')).toHaveCount(1);
     await check(list.locator(`[data-part="${a}"]`)).toBeVisible();
-    await check(list.locator('[data-written]')).not.toContainText(nameB);
-    await check(list.locator('[data-written]')).toContainText('a part with no answers is left as it is');
+    await check(list.locator(`[data-part="${b}"] h4`)).toHaveText(nameB);
+    await check(list.locator('[data-written]')).toContainText(nameB);
+    await check(list.getByText('No part has an answer yet')).toHaveCount(0);
     await list.getByRole('button', { name: 'Cancel' }).click();
-    // Once b has an answer it is written, and listed.
+    // Once b has an answer it is still listed.
     await agent.call('answer', { doc: docB, set: { 'part.material': 'Brass CW614N' } });
     await page.getByRole('button', { name: 'Save with defaults' }).click();
-    await check(list.locator('[data-part]')).toHaveCount(2);
     await check(list.locator(`[data-part="${b}"] h4`)).toHaveText(nameB);
     await check(list.locator('[data-written]')).toContainText(nameB);
     await context.close();
@@ -378,7 +381,10 @@ try {
     const { context, page } = await load(shown.url);
     await page.getByRole('button', { name: 'Save with defaults' }).click();
     const list = page.getByRole('dialog', { name: 'Save with defaults' });
-    await check(list.locator('[data-part]')).toHaveCount(1);
+    // Changed expectation (Paul's decision, 2026-11-19): every part of the file is listed from the start,
+    // b too (it was a alone, as only a had an answer). The agent's join below is still a stale save.
+    await check(list.locator(`[data-part="${a}"]`)).toBeVisible();
+    await check(list.locator(`[data-part="${b}"]`)).toBeVisible();
     // While the save is on its way the agent brings part b in with an answer: the command meets a
     // save for parts that are no longer the session's (stale, with the session's rev).
     await page.route('**/save', async route => {
@@ -391,7 +397,6 @@ try {
     await check(page.getByRole('alert').first()).toContainText('Not saved');
     await page.unroute('**/save');
     await check(page.getByRole('alert').first()).toContainText('listed again');
-    await check(list.locator('[data-part]')).toHaveCount(2);
     await check(list.locator(`[data-part="${b}"] h4`)).toHaveText(nameB);
     assert.ok(!existsSync(join(dir, 'asm-stale.specified.step')), 'nothing written for a stale save');
     problems.splice(0, problems.length, ...problems.filter(p => !/409/.test(p)));

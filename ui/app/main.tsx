@@ -19,7 +19,7 @@ import { saveFile } from '../src/specify/SpecifyReview';
 import { changedIds, createSession, sameAnswers, type AnswersSession, type AnswersStore } from './answers';
 import { decisions, type Decision } from './diff-report';
 import { getAnswers, getConfig, getDiff, getFile, keepAlive, listen, type DiffBody, type LocalConfig } from './local';
-import { DefaultRefused, DefaultsChanged, FileChanged, NotShown, sessionSaver, Stale, writtenParts, type Default, type Saver } from './save';
+import { DefaultRefused, DefaultsChanged, FileChanged, NotShown, defaultParts, sessionSaver, Stale, writtenParts, type Default, type Saver } from './save';
 
 declare const __APP_VERSION__: string;
 const DOCS = 'https://github.com/pzfreo/specify-core#readme';
@@ -33,11 +33,11 @@ const fileOf = (name: string, bytes: Uint8Array, part: number, several: boolean)
   name, bytes, sourceId: several ? `${name}#${part}` : name, ...(several ? { part } : {}),
 });
 
-/** The defaults a save with defaults writes for the session's answers ``parts``: each part's that
- * the save writes (every part with at least one answer, and a file's only part), in part order. */
-async function defaultsOf(worker: WorkerClient, name: string, bytes: Uint8Array, several: boolean, parts: Record<string, PmiAnswers>): Promise<Default[]> {
+/** The defaults a save with defaults lists for the session's answers ``parts``: those of every part
+ * of the file (``indexes``), answered or not, in part order. */
+async function defaultsOf(worker: WorkerClient, name: string, bytes: Uint8Array, several: boolean, parts: Record<string, PmiAnswers>, indexes: readonly number[]): Promise<Default[]> {
   const out: Default[] = [];
-  for (const part of writtenParts(parts, several)) {
+  for (const part of defaultParts(parts, indexes, several)) {
     const answers = parts[String(part)] ?? {};
     const { questions, open } = await worker.request<IntentReview>('review', { ...fileOf(name, bytes, part, several), answers });
     const raw = new Map(questions.map((q) => [q.id, JSON.stringify(q.default)] as const));
@@ -67,7 +67,7 @@ interface Compared { old: { name: string; bytes: Uint8Array }; next: { name: str
 
 /** Opens the part on the engine with the session's answers: its analysis and mesh, their review,
  * and the PMI as drawn. ``edited``: called on each change the person makes. */
-async function openPart(worker: WorkerClient, answersSession: AnswersSession, name: string, bytes: Uint8Array, at: { part: number; several: boolean }, edited: () => void): Promise<Opened> {
+async function openPart(worker: WorkerClient, answersSession: AnswersSession, name: string, bytes: Uint8Array, at: { part: number; several: boolean }, edited: () => void, indexes: () => readonly number[]): Promise<Opened> {
   const file = fileOf(name, bytes, at.part, at.several);
   const { sourceId } = file;
   const snapshot = await worker.request<{ analysis: PmiLabSession['analysis']; mesh: PmiLabSession['mesh'] }>('open', file);
@@ -97,7 +97,7 @@ async function openPart(worker: WorkerClient, answersSession: AnswersSession, na
   const scene = drawnFromScene(await worker.request('scene', { ...file, state: { answers } }));
   const drawn = scene.ok ? withoutNotesBlock(scene.value) : null;
   const reviewOf = (given: PmiAnswers) => worker.request<IntentReview>('review', { ...file, answers: given });
-  const defaults = (parts: Record<string, PmiAnswers>) => defaultsOf(worker, name, bytes, at.several, parts);
+  const defaults = (parts: Record<string, PmiAnswers>) => defaultsOf(worker, name, bytes, at.several, parts, indexes());
   return {
     ...at, session, review, engine, drawn: drawn && hasGraphics(drawn) ? drawn : null, bytes, store, shown,
     saver: sessionSaver(store, answersSession, () => shown.answers, defaults), external: { answers, review }, reviewOf,
@@ -118,6 +118,8 @@ function App() {
   const [switching, setSwitching] = useState(false);
   // The session (every part's answers, and what is on disk) and the part shown, for its events.
   const sessionRef = useRef<AnswersSession | null>(null);
+  // The part indexes of the file, for the defaults a save lists (every part, answered or not).
+  const partIndexes = useRef<number[]>([0]);
   const shownRef = useRef<Opened | null>(null);
   const [compared, setCompared] = useState<Compared | null>(null);
   const [tab, setTab] = useState<'changes' | 'answers'>('changes');
@@ -180,7 +182,8 @@ function App() {
       const asked = rows.find((row) => row.part === first.part);
       const at = { part: several ? (asked ?? withAnswers ?? rows[0]!).part : 0, several };
       setParts(several ? rows : []);
-      const part = await openPart(worker.current, answersSession, first.name, bytes, at, edited);
+      partIndexes.current = rows.map((r) => r.part);
+      const part = await openPart(worker.current, answersSession, first.name, bytes, at, edited, () => partIndexes.current);
       if (old && diff) {
         const r = diff.report as { verdict?: string; summary?: string };
         setCompared({
@@ -198,6 +201,7 @@ function App() {
         if ('part' in event && several && !rows.some((r) => r.part === event.part)) {
           rows = [...rows, { part: event.part, name: `Part ${event.part}`, written: false }];
           setParts(rows);
+          partIndexes.current = rows.map((r) => r.part);
         }
         // An agent's change to another part than the one shown: said, by name.
         if (event.source === 'mcp' && 'part' in event && event.part !== shownRef.current?.part) {
@@ -244,7 +248,7 @@ function App() {
     try {
       // The part left keeps its unsaved answers: in the session, and counted as unsaved.
       await opened.store.settled();
-      const next = await openPart(worker.current, answersSession, config.name, opened.bytes, { part: index, several: true }, edited);
+      const next = await openPart(worker.current, answersSession, config.name, opened.bytes, { part: index, several: true }, edited, () => partIndexes.current);
       opened.store.close();
       setOpened(next);
       setOther(null); setAgent(null);
@@ -328,16 +332,17 @@ function App() {
     setSaved({ path, open: review ? prompts(review.open, review) : null, byAgent: true });
   };
 
-  /** Save with defaults, first: the full list of the defaults it would write, in every part it
-   * writes (an assembly's other parts included), to confirm. */
+  /** Save with defaults, first: the full list of the defaults it would write, in every part
+   * of the file, to confirm. */
   const askDefaults = async (keepProblem = false) => {
     if (!opened || !config || !worker.current || !sessionRef.current) return;
     if (!keepProblem) setProblem(null);
     try {
       await opened.store.settled();
       const parts = sessionRef.current.parts();
-      const defaults = await defaultsOf(worker.current, config.name, opened.bytes, opened.several, parts);
-      const written = writtenParts(parts, opened.several);
+      const defaults = await defaultsOf(worker.current, config.name, opened.bytes, opened.several, parts, partIndexes.current);
+      // Written: every part with a default listed, and those with answers (and a file's only part).
+      const written = [...new Set([...writtenParts(parts, opened.several), ...defaults.map((d) => d.part)])].sort((a, b) => a - b);
       setConfirming({ defaults, written, shownLeftOut: opened.several && !written.includes(opened.part) });
     } catch (error) { setProblem(`The defaults could not be listed: ${message(error)}`); }
   };
@@ -503,12 +508,12 @@ function App() {
               })}
             </>
           ) : confirming.written.length ? <p>Every question with a default is answered: nothing to fill in.</p>
-            : <p>No part has an answer yet, so a save writes no PMI.</p>}
+            : <p>No question has a default to approve.</p>}
           {opened?.several && confirming.written.length > 0 && (
             <p data-written>This save writes {confirming.written.map((part) => parts.find((row) => row.part === part)?.name ?? `Part ${part}`).join(', ')};
-              a part with no answers is left as it is.</p>
+              a part with no answers and no default listed is left as it is.</p>
           )}
-          {confirming.shownLeftOut && <p>The part shown has no answers yet, so this save does not write it.</p>}
+          {confirming.shownLeftOut && <p>The part shown has no answers and no default to approve, so this save does not write it.</p>}
           <button type="button" className="app-save" onClick={() => void onSave(confirming.defaults)}>
             {confirming.defaults.length ? `Save with these ${plural(confirming.defaults.length, 'default')}` : 'Save'}
           </button>{' '}

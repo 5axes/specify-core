@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createSession, createSessionStore, reapply } from '../app/answers.ts';
 import { getDiff, Refused, save as postSave } from '../app/local.ts';
-import { acceptedDefaults, DefaultRefused, DefaultsChanged, FileChanged, NotShown, sessionSaver, Stale, writtenParts } from '../app/save.ts';
+import { acceptedDefaults, defaultParts, DefaultRefused, DefaultsChanged, FileChanged, NotShown, sessionSaver, Stale, writtenParts } from '../app/save.ts';
 // The local app's answers store over the command's session (specify-core docs/open.md): the page's
 // changes go up with `PUT answers {rev, part, answers}`, reapplied on a 409; events from others land.
 
@@ -357,4 +357,29 @@ test('approvals shown as answers are shown rolled back when the save failed', ()
   session.receive({ rev: 4, parts: { 0: { a: 1 } }, source: 'start' }); // GET answers after the failure
   assert.deepEqual(store.get(), { a: 1 }, 'not shown as applied');
   assert.equal(session.dirty(), false, 'nothing unsaved either');
+});
+
+// Save with defaults lists every part of the file, answered or not: approving a part's defaults is
+// enough for the command to write it (specify-core docs/open.md: approvals are applied as answers
+// first, and a part with an approval is a part the session changed). Plain save is unchanged.
+test('save with defaults covers every part of an assembly, even where no part has an answer', async () => {
+  const session = createSession(5, {}, async () => ({ rev: 6 }));
+  const store = session.store(0, {});
+  assert.deepEqual(defaultParts(session.parts(), [0, 1, 2], true), [0, 1, 2], 'every part of the file, though the session holds no answers');
+  assert.deepEqual(defaultParts({ 3: { a: 1 } }, [0, 1], true), [0, 1, 3], 'and a part only the session has');
+  assert.deepEqual(defaultParts({}, [0], false), [0], 'a single part still works');
+  const writes = [];
+  const write = async (rev, acceptDefaults) => { writes.push([rev, acceptDefaults]); return { path: 'p', bytes: 1, rev, report: {}, complete: false, missing: [] }; };
+  const defaultsOf = async (parts) => defaultParts(parts, [0, 1, 2], true).map((k) => d(k, 'edges', 0.5));
+  const listed = await defaultsOf(session.parts());
+  await sessionSaver(store, session, () => ({}), defaultsOf, write).save({ defaults: listed });
+  assert.deepEqual(writes, [[5, { 0: { edges: 0.5 }, 1: { edges: 0.5 }, 2: { edges: 0.5 } }]], 'acceptDefaults names every part');
+  // Left one part's default out of what was confirmed: it is not the list that would be written.
+  await assert.rejects(sessionSaver(store, session, () => ({}), defaultsOf, write).save({ defaults: listed.slice(0, 2) }), DefaultsChanged);
+  assert.equal(writes.length, 1);
+  // A plain save of the same untouched assembly sends nothing for any part (so none is written).
+  await sessionSaver(store, session, () => ({}), defaultsOf, write).save({ defaults: [] });
+  assert.deepEqual(writes[1], [5, {}]);
+  assert.deepEqual(writtenParts(session.parts(), true), [], 'plain save: no part has answers, so none is written');
+  store.close();
 });

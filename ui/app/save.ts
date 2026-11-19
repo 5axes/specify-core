@@ -45,6 +45,14 @@ export function writtenParts(parts: Record<string, PmiAnswers>, several: boolean
   return [...out].sort((a, b) => a - b);
 }
 
+/** The parts a save with defaults lists the defaults of: every part of the file (``indexes``, and any
+ * part the session has), so approving a part's defaults is enough for it to be written (the command
+ * applies approvals as answers before it writes). A file of one part is part 0. */
+export function defaultParts(parts: Record<string, PmiAnswers>, indexes: readonly number[], several: boolean): number[] {
+  if (!several) return [0];
+  return [...new Set([...indexes, ...Object.keys(parts).map(Number)])].sort((a, b) => a - b);
+}
+
 /** The defaults as the command takes them: each question id confirmed with the value the person
  * saw (``raw`` is that value as JSON), by part index. */
 export function acceptedDefaults(defaults: readonly Default[]): AcceptDefaults {
