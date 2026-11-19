@@ -29,6 +29,16 @@ const openHoleRow = async page => {
   await check(head).toHaveAttribute('aria-expanded', 'true');
 };
 const panel = page => page.locator('#specify-panel');
+// Diagnose disabled/covered host controls before starting a download-event timeout. A trial
+// click preserves Playwright's hit testing and never runs an immediate or deferred export.
+async function downloadFrom(page, button) {
+  await check(button).toBeEnabled();
+  await button.click({ trial: true });
+  const [file] = await Promise.all([page.waitForEvent('download'), button.click()]);
+  return file.path();
+}
+const inspectionDownload = (page, name) => downloadFrom(page,
+  page.locator('#specify-exports').getByRole('button', { name, exact: true }));
 try {
   // A host implementing only the original three methods keeps origin/main's shaft preview,
   // including all 15 sequential balloons and its complete Form 3 (Material is balloon 12).
@@ -40,10 +50,7 @@ try {
     await panel(page).getByRole('tab', { name: /^Characteristics/ }).click();
     const material = panel(page).locator('.pmi-lab-table tr').filter({ hasText: 'Material: Steel' });
     await check(material.locator('td').nth(1)).toHaveText('12');
-    const download = async (name) => {
-      const [file] = await Promise.all([page.waitForEvent('download'), page.locator('#specify-exports').getByRole('button', { name, exact: true }).click()]);
-      return file.path();
-    };
+    const download = (name) => inspectionDownload(page, name);
     const csv = readFileSync(await download('Inspection list (CSV)'), 'utf8');
     const expected = [
       'M2×0.4-6H', '⌖ ⌀0.2', 'M4×0.7-6H', '⌖ ⌀0.25',
@@ -80,10 +87,7 @@ try {
     await panel(page).getByRole('tab', { name: /^Characteristics/ }).click();
     await check(panel(page).locator('.pmi-lab-table')).toContainText('Material: Brass CW614N');
     await panel(page).getByRole('checkbox', { name: 'Inspect 1', exact: true }).uncheck();
-    const resume = async () => {
-      const [file] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Resume download', exact: true }).click()]);
-      return file.path();
-    };
+    const resume = () => downloadFrom(page, page.getByRole('button', { name: 'Resume download', exact: true }));
     const csv = readFileSync(await resume(), 'utf8');
     assert.match(csv, /12,,Part,Material: Brass CW614N/);
     assert.doesNotMatch(csv, /Steel|M2×0.4-6H/);
@@ -172,12 +176,7 @@ try {
     await panel(page).getByRole('tab', { name: /^Characteristics/ }).click();
     const row = panel(page).locator('.pmi-lab-table tr').filter({ hasText: 'Material: Aluminium 6082-T6' });
     await check(row.getByRole('checkbox', { name: 'Inspect Material: Aluminium 6082-T6', exact: true })).toBeVisible();
-    const download = async (name) => {
-      const [file] = await Promise.all([
-        page.waitForEvent('download'), page.locator('#specify-exports').getByRole('button', { name, exact: true }).click(),
-      ]);
-      return file.path();
-    };
+    const download = (name) => inspectionDownload(page, name);
     const csv = readFileSync(await download('Inspection list (CSV)'), 'utf8');
     assert.deepEqual(csv.trimEnd().split('\n').slice(1), [',,Part,Material: Aluminium 6082-T6,,,,,,']);
     const path = await download('AS9102 FAI (Excel)');
@@ -203,11 +202,7 @@ try {
     // On the question kept: what the Ø3.3 hole is for.
     assert.match(await panel(page).locator('.pmi-lab-tick').evaluate(el => el.closest('.pmi-lab-item')?.textContent ?? ''), /What is the Ø3\.3 hole for\?/);
     assert.ok(!(await calls(page)).slice(before).includes('questions'), 'the host keeps it: no answer is committed');
-    const [file] = await Promise.all([
-      page.waitForEvent('download'),
-      page.locator('#specify-exports').getByRole('button', { name: 'Inspection list (CSV)', exact: true }).click(),
-    ]);
-    const csv = readFileSync(await file.path(), 'utf8');
+    const csv = readFileSync(await inspectionDownload(page, 'Inspection list (CSV)'), 'utf8');
     assert.equal(csv.trimEnd().split('\n').length, 2, 'only the one explicitly kept thread is exported');
     assert.match(csv, /M4×0.7-6H/);
     assert.doesNotMatch(csv, /ISO 2768|Ra 3.2|M2×/);

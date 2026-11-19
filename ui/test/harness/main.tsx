@@ -112,8 +112,10 @@ function SpecifyHost() {
       <input id="specify-file" type="file" onChange={event => { const chosen = event.target.files?.[0]; if (chosen) void pick(chosen); }} />
       <div id="specify-view" style={{ height: 520 }} ref={view} />
       <div id="specify-panel" ref={panel} />
-      <div id="specify-exports" ref={exports} />
-      {query.has('defer') && <button onClick={() => deferred.current.shift()?.()}>Resume download</button>}
+      <div id="specify-actions">
+        <div id="specify-exports" ref={exports} />
+        {query.has('defer') && <button onClick={() => deferred.current.shift()?.()}>Resume download</button>}
+      </div>
       {open && slots && (
         <SpecifyReview
           engine={open.engine} session={open.session} slots={slots} readOnly={readOnly} drawn={open.drawn}
