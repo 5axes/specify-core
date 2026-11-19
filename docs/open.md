@@ -397,5 +397,10 @@ against that manifest. A missing, changed, or extra entry triggers a fresh downl
 cache can be used offline. Cache directories are `app/<app-version>/` and
 `wasm/<specify-core-version>/` under `$XDG_CACHE_HOME/specify-core/` (`~/.cache/specify-core/` by default) on Linux,
 `~/Library/Caches/specify-core/` on macOS, or `%LOCALAPPDATA%\specify-core\cache\` on Windows.
+
+Cache verification detects corruption, partial installs, and accidental edits. The threat model
+excludes local attackers with write access to the user's cache, who could equally replace the
+specify-core binary.
+
 Subprocess tests use `SPECIFY_TEST_APP_BASE_URL`, `SPECIFY_TEST_APP_PIN`, and
 `SPECIFY_TEST_CACHE_DIR` for a loopback release fixture. The hooks are enabled by the test build.

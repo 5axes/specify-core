@@ -29,8 +29,10 @@ claude mcp add specify -- specify-core mcp
 ```
 
 (without `--allow` the server may use its working directory; add `--allow DIR` for others).
-`show` downloads and caches the pinned Specify app and its engine on first use. Set
-`SPECIFY_APP_DIR` or `SPECIFY_WASM_DIR` in the server's environment to choose local assets.
+`show` downloads and caches the pinned Specify app on first use. It fetches the engine only
+for a pinned app without its own `wasm/` directory or a `SPECIFY_WASM_DIR` override. An empty
+`wasm/` directory also suppresses the fetch. Set `SPECIFY_APP_DIR` or `SPECIFY_WASM_DIR` in
+the server's environment to choose local assets.
 For example, `claude mcp add specify -e SPECIFY_APP_DIR=/path/to/app -- specify-core mcp`.
 See [app and engine resolution](open.md#where-the-app-and-the-engine-come-from).
 

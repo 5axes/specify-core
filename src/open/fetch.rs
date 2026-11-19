@@ -375,6 +375,8 @@ fn read_metadata(path: &Path, limit: u64) -> io::Result<Vec<u8>> {
     Ok(bytes)
 }
 
+// Verification detects corruption and partial or accidentally edited installs. The threat model
+// excludes local attackers with write access to the user's cache, who could equally replace the binary.
 fn verify_inventory(dir: &Path) -> io::Result<()> {
     let expected: Inventory =
         serde_json::from_slice(&read_metadata(&dir.join(FILES), MAX_ARCHIVE_BYTES)?)?;

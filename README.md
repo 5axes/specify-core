@@ -121,8 +121,10 @@ original once as `plate.step.bak`, and `--read-only` refuses answer changes and 
 `specify-core diff` carries to the new revision (`--answers FILE` for the old answers); Save
 writes the new one. `--port N` picks the port and `--no-browser` only prints the address. The
 command stops 90 seconds after the last page is closed, or after 30 minutes without a request.
-On first use, Specify downloads and caches the pinned app and its engine. Pass `--app DIR`
-(or set `SPECIFY_APP_DIR`) to use a local app and `--wasm DIR` (or `SPECIFY_WASM_DIR`) to use a
+On first use, Specify downloads and caches the pinned app. It fetches the engine only for a
+pinned app without its own `wasm/` directory, when neither `--wasm` nor `SPECIFY_WASM_DIR` is
+set. An empty `wasm/` directory also suppresses the fetch. Pass `--app DIR` (or set
+`SPECIFY_APP_DIR`) to use a local app and `--wasm DIR` (or set `SPECIFY_WASM_DIR`) to use a
 local wasm-pack `pkg/` directory. Builds with a placeholder pin require a local app.
 See [docs/open.md](docs/open.md).
 
