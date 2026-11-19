@@ -6,6 +6,28 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+## 0.1.19 (2026-11-19)
+
+Read first:
+
+- **Fixed: rewriting a file Specify wrote no longer drops PMI** (ADR P9; details under Fixed).
+  Before, a rewrite from the editor, `write` or a session dropped PMI another tool had added,
+  and defaults written but never stored as answers. Two cases are still dropped, as before: a
+  default whose faces another tool moved, and Specify-marked PMI written from a raw intent where
+  no default exists.
+- **Preview:** the Specify page (`specify-core open`, `open --diff`) and MCP `show` need the
+  built app until it is bundled: `--app DIR` or `SPECIFY_APP_DIR`, and `--wasm DIR` or
+  `SPECIFY_WASM_DIR`.
+- **Conflicts with another tool's PMI:** when a requirement another tool wrote contradicts a
+  stored answer, Specify offers only to keep the file's requirement; it never replaces it. A
+  "use my answer" choice comes in the next release.
+- **Asked again on reopening:** answers that write no PMI (no coating, a general hole, no
+  flatness on a datum) leave nothing in the file to read back, so a reopened file asks them
+  again.
+- **Exports take only approved defaults** (`questions --resolve-defaults`, serve, Python, WASM
+  `exportAnswers`): pass the approvals to keep an export complete. The editor's Answers (JSON)
+  export is unchanged until the editor sends approvals.
+
 ### Added
 
 - docs/rule-sources.md: where each of Specify's defaults and tables comes from (standard,

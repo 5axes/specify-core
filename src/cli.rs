@@ -109,7 +109,9 @@ A Model Context Protocol server (revisions 2026-07-28 and 2025-11-25) for an LLM
 as Claude Code or Claude Desktop: tools to open a part, answer its questions, review and
 write its PMI. On stdio by default; with --http, Streamable HTTP on 127.0.0.1 with a random
 bearer token printed at start. Open documents and their answers are held in memory and lost
-when the server stops, unless a call names an answers_file. See docs/mcp.md.")]
+when the server stops, unless a call names an answers_file. The show tool, which opens the
+Specify page on the same answers, is a preview: until the app is bundled it needs SPECIFY_APP_DIR
+(the built app) and SPECIFY_WASM_DIR (the engine's wasm-pack pkg/). See docs/mcp.md.")]
     Mcp {
         /// serve Streamable HTTP on 127.0.0.1 instead of stdio
         #[arg(long)]
@@ -212,8 +214,8 @@ With --diff OLD NEW the page shows what changed from OLD and starts from the ans
 to NEW (as `specify-core diff` carries them); Save writes NEW. Stops 90 seconds after the last
 page is closed, or after 30 minutes without a request.
 
-The app is not bundled yet: pass --app DIR (or set SPECIFY_APP_DIR) to the built app and
---wasm DIR (or SPECIFY_WASM_DIR) to the engine's wasm-pack pkg/ directory.")]
+Preview: the app is not bundled yet. Pass --app DIR (or set SPECIFY_APP_DIR) to the built app
+and --wasm DIR (or SPECIFY_WASM_DIR) to the engine's wasm-pack pkg/ directory.")]
     Open {
         /// a .step or .stp file, or either gzipped
         #[arg(required_unless_present = "diff", conflicts_with = "diff")]

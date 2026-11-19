@@ -50,14 +50,14 @@ README, LICENSE and NOTICE (from 0.1.18). The same files are on npm as
 `specify_core_wasm.js`:
 
 ```sh
-npm install @draftwright/specify-core-wasm@0.1.18
+npm install @draftwright/specify-core-wasm@0.1.19
 ```
 
 To use the release archive instead, pin an exact release and verify the archive before
 extracting it:
 
 ```sh
-version=0.1.18 # choose a release that includes the WASM assets
+version=0.1.19 # choose a release that includes the WASM assets
 archive="specify-core-wasm-${version}.tgz"
 gh release download "v${version}" --repo pzfreo/specify-core \
   --pattern "$archive" --pattern "$archive.sha256"
