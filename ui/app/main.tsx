@@ -140,6 +140,7 @@ function App() {
   // is refused until they are, so the page offers to show them again.
   const [unshown, setUnshown] = useState<string | null>(null);
   const reshow = useRef<() => void>(() => {});
+  const refreshConfig = useRef<() => void>(() => {});
   const worker = useRef<WorkerClient | null>(null);
   const view = useRef<HTMLDivElement>(null);
   const panel = useRef<HTMLDivElement>(null);
@@ -170,8 +171,9 @@ function App() {
         unlisten();
         setConfirming(null);
         setStopped(true);
-      });
+      }, () => unlisten());
       stop = heartbeat.stop;
+      refreshConfig.current = heartbeat.refresh;
       worker.current = createIntentEngine({ wasmUrl: first.wasmUrl });
       const [bytes, answers, old, diff] = await Promise.all([
         getFile('new').then(stepBytes), getAnswers(),
@@ -220,7 +222,7 @@ function App() {
       }, (event) => {
         answersSession.markSaved(event.rev);
         if (event.source === 'mcp') void agentSaved(event.path);
-        getConfig().then(setConfig, () => {});
+        heartbeat.refresh();
       }, (up) => {
         setLive(up);
         if (!up) { lost = true; heartbeat.probe(); return; }
@@ -393,7 +395,7 @@ function App() {
       } else {
         setSaved({ path: result.path, open: prompts(result.missing, opened.external.review, opened.review), byAgent: false });
       }
-      getConfig().then(setConfig, () => {});
+      refreshConfig.current();
     } catch (error) {
       // A failed write rolls its approvals back in the session: whatever the page was told while
       // they were applied is replaced by the session as it is now, so none shows as applied.

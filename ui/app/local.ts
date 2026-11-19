@@ -130,21 +130,27 @@ export function listen(onAnswers: (event: AnswersEvent) => void, onSaved: (event
 
 /** Heartbeat every 30 s, with an immediate probe when SSE fails. A refused stream (e.g. all four
  * slots taken) is recoverable while config still answers. Retry failed probes for 25 s. */
-export function keepAlive(onConfig: (config: LocalConfig) => void, onStopped: () => void) {
+export function keepAlive(onConfig: (config: LocalConfig) => void, onStopped: () => void, onClose: () => void) {
+  const requests = new AbortController();
   let stopped = false;
   let checking = false;
+  let refreshPending = false;
   let deadline = 0;
   let retry = 0;
   const probe = () => {
     if (stopped || checking) return;
     checking = true;
-    getConfig(AbortSignal.timeout(5_000)).then((config) => {
+    getConfig(AbortSignal.any([requests.signal, AbortSignal.timeout(5_000)])).then((config) => {
       checking = false;
       if (stopped) return;
       window.clearTimeout(deadline);
       window.clearTimeout(retry);
       deadline = 0;
       onConfig(config);
+      if (refreshPending) {
+        refreshPending = false;
+        probe();
+      }
     }, () => {
       checking = false;
       if (stopped) return;
@@ -153,16 +159,25 @@ export function keepAlive(onConfig: (config: LocalConfig) => void, onStopped: ()
       retry = window.setTimeout(probe, 4_000);
     });
   };
+  // A save needs config from after the write, even if a heartbeat was already in flight.
+  const refresh = () => { if (checking) refreshPending = true; else probe(); };
   const timer = window.setInterval(probe, 30_000);
   // A page entering the back/forward cache can come back.
-  const gone = (event: PageTransitionEvent) => { if (!event.persisted) navigator.sendBeacon('closed'); };
+  const gone = (event: PageTransitionEvent) => {
+    if (event.persisted) return;
+    // The command cancels its close deadline if a new request follows this beacon.
+    stop();
+    onClose();
+    navigator.sendBeacon('closed');
+  };
   window.addEventListener('pagehide', gone);
   const stop = () => {
     stopped = true;
+    requests.abort();
     window.clearInterval(timer);
     window.clearTimeout(deadline);
     window.clearTimeout(retry);
     window.removeEventListener('pagehide', gone);
   };
-  return { probe, stop };
+  return { probe, refresh, stop };
 }
