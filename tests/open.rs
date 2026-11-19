@@ -1146,6 +1146,176 @@ fn read_only_refuses_saves_and_answer_changes_and_writes_nothing() {
     assert_eq!(scratch.work(), ["part.step"]);
 }
 
+/// `file?rev=saved`: 404 before a save, then exactly the bytes the last save wrote (read from
+/// disk, its path in `X-Specify-Path`), following each new copy; a copy changed on disk is 409
+/// and one removed 404, never other bytes.
+#[test]
+fn rev_saved_serves_what_the_last_save_wrote() {
+    let scratch = Scratch::new("rev-saved");
+    let opened = Opened::start(&scratch.input(), &scratch, &[]);
+    let work = |n: &str| scratch.path("work").join(n);
+    let before = opened.get("file?rev=saved");
+    assert_eq!(before.status, 404);
+    assert!(before.json()["error"].is_string());
+
+    let saved = |expected: &Path| {
+        let got = opened.get("file?rev=saved");
+        assert_eq!(got.status, 200, "{}", String::from_utf8_lossy(&got.body));
+        assert_eq!(got.header("content-type"), Some("application/octet-stream"));
+        assert_eq!(
+            got.header("x-specify-path"),
+            Some(expected.display().to_string().as_str())
+        );
+        assert_eq!(got.body, std::fs::read(expected).unwrap());
+        got.body
+    };
+
+    let first = opened.save(0, json!({}));
+    assert_eq!(first.status, 200);
+    assert_eq!(
+        first.json()["path"],
+        work("part.specified.step").display().to_string()
+    );
+    let first_bytes = saved(&work("part.specified.step"));
+    assert!(first_bytes.starts_with(b"ISO-10303-21;"));
+    // The same rules as every GET: another page's Origin, or another Host, is refused.
+    let page = opened.page();
+    let (host, path) = (page.host(), page.path("file?rev=saved"));
+    let foreign = request(
+        page.port,
+        "GET",
+        &path,
+        &[("Host", &host), ("Origin", "http://evil.example")],
+        b"",
+    );
+    assert_eq!(foreign.status, 403);
+    assert!(foreign.body.is_empty());
+    let rebound = request(page.port, "GET", &path, &[("Host", "evil.example")], b"");
+    assert_eq!(rebound.status, 403);
+    // `file` is still the input as opened.
+    assert_eq!(
+        opened.get("file").body,
+        std::fs::read(scratch.input()).unwrap()
+    );
+
+    // A different save to the next name: `rev=saved` follows it.
+    assert_eq!(
+        opened
+            .page()
+            .put(0, 0, json!({"part.material": "6061-T6"}))
+            .status,
+        200
+    );
+    let second = opened.save(1, json!({}));
+    assert_eq!(second.status, 200);
+    assert_eq!(
+        second.json()["path"],
+        work("part.specified-2.step").display().to_string()
+    );
+    let second_bytes = saved(&work("part.specified-2.step"));
+    assert_ne!(
+        second_bytes, first_bytes,
+        "the second save wrote the new answer"
+    );
+
+    // Changed on disk since the save: refused, never the other bytes.
+    let mut changed = second_bytes.clone();
+    changed.extend_from_slice(b"/* edited */\n");
+    std::fs::write(work("part.specified-2.step"), &changed).unwrap();
+    let got = opened.get("file?rev=saved");
+    assert_eq!(got.status, 409);
+    assert_eq!(got.header("content-type"), Some("application/json"));
+    let error = got.json();
+    assert!(
+        error["error"].as_str().unwrap().contains("changed"),
+        "{error}"
+    );
+    assert_eq!(
+        error["path"],
+        work("part.specified-2.step").display().to_string()
+    );
+    // Put back as saved, it is served again; removed, it is 404.
+    std::fs::write(work("part.specified-2.step"), &second_bytes).unwrap();
+    saved(&work("part.specified-2.step"));
+    std::fs::remove_file(work("part.specified-2.step")).unwrap();
+    let got = opened.get("file?rev=saved");
+    assert_eq!(got.status, 404);
+    assert!(
+        got.json()["error"]
+            .as_str()
+            .unwrap()
+            .contains("no longer exists")
+    );
+}
+
+/// `file?rev=saved` after an in-place save is the input as that save left it.
+#[test]
+fn rev_saved_after_an_in_place_save_is_the_input() {
+    let scratch = Scratch::new("rev-saved-in-place");
+    let input = std::fs::read(scratch.input()).unwrap();
+    let opened = Opened::start(&scratch.input(), &scratch, &["--in-place"]);
+    assert_eq!(opened.get("file?rev=saved").status, 404);
+    assert_eq!(
+        opened
+            .page()
+            .put(0, 0, json!({"part.material": "6061-T6"}))
+            .status,
+        200
+    );
+    let got = opened.save(1, json!({}));
+    assert_eq!(got.status, 200);
+    assert_eq!(got.json()["path"], scratch.input().display().to_string());
+    let now = std::fs::read(scratch.input()).unwrap();
+    assert_ne!(now, input);
+    let got = opened.get("file?rev=saved");
+    assert_eq!(got.status, 200);
+    assert_eq!(
+        got.header("x-specify-path"),
+        Some(scratch.input().display().to_string().as_str())
+    );
+    assert_eq!(got.body, now);
+    assert_eq!(opened.get("file").body, now);
+}
+
+/// `--read-only` never saves: `file?rev=saved` is always 404.
+#[test]
+fn rev_saved_read_only_is_not_found() {
+    let scratch = Scratch::new("rev-saved-read-only");
+    let opened = Opened::start(&scratch.input(), &scratch, &["--read-only"]);
+    assert_eq!(opened.get("file?rev=saved").status, 404);
+    assert_eq!(opened.save(0, json!({})).status, 409);
+    assert_eq!(opened.get("file?rev=saved").status, 404);
+}
+
+/// A save made outside the page (MCP's `save`, on the same session) is what `rev=saved` serves.
+#[test]
+fn rev_saved_follows_a_save_from_the_agent() {
+    let scratch = Scratch::new("rev-saved-agent");
+    let session = session_of(&scratch.input());
+    let app = App::new(Arc::clone(&session), scratch.assets(), &Options::default()).unwrap();
+    let port = app.port();
+    let prefix = app
+        .url()
+        .strip_prefix(&format!("http://127.0.0.1:{port}"))
+        .unwrap()
+        .to_string();
+    std::thread::spawn(move || {
+        let _ = app.serve(Duration::from_secs(60), Duration::from_secs(60), |_| {});
+    });
+    let page = Page { port, prefix };
+    assert_eq!(page.get("file?rev=saved").status, 404);
+    let saved = specify_core::session::save(&session, None, &Default::default(), "mcp").unwrap();
+    let written = scratch.path("work/part.specified.step");
+    assert_eq!(saved.path, written.display().to_string());
+    let got = page.get("file?rev=saved");
+    assert_eq!(got.status, 200);
+    assert_eq!(
+        got.header("x-specify-path"),
+        Some(written.display().to_string().as_str())
+    );
+    assert_eq!(got.body, std::fs::read(&written).unwrap());
+}
+
 /// The session's answers: read, replaced at the current rev only, and streamed to every open
 /// page, at most four streams at once.
 #[test]
@@ -1612,6 +1782,11 @@ fn a_diff_serves_both_files_and_starts_from_the_carried_answers() {
     );
     assert_eq!(opened.get("file").body, std::fs::read(&new).unwrap());
     assert_eq!(opened.get("file?rev=other").status, 404);
+    assert_eq!(
+        opened.get("file?rev=saved").status,
+        404,
+        "nothing saved yet"
+    );
     let report = opened.get("diff");
     assert_eq!(report.status, 200);
     // As WASM `diff()`: `diff`'s report.json, the report as Markdown, and the view to draw.
@@ -1627,12 +1802,15 @@ fn a_diff_serves_both_files_and_starts_from_the_carried_answers() {
     // Save writes NEW, beside it.
     let saved = opened.save(0, json!({}));
     assert_eq!(saved.status, 200);
+    let written = scratch.path("work/plate.new.specified.step");
+    assert_eq!(saved.json()["path"], written.display().to_string());
+    // `rev=saved` serves what it wrote, as in the other modes.
+    let got = opened.get("file?rev=saved");
+    assert_eq!(got.status, 200);
+    assert_eq!(got.body, std::fs::read(&written).unwrap());
     assert_eq!(
-        saved.json()["path"],
-        scratch
-            .path("work/plate.new.specified.step")
-            .display()
-            .to_string()
+        got.header("x-specify-path"),
+        Some(written.display().to_string().as_str())
     );
 }
 
