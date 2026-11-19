@@ -235,12 +235,12 @@ fn cadgen_exports_have_real_names_geometry_and_no_source_pmi() {
             assert_eq!(faces[i].kind, "plane");
             assert_eq!(faces[i].direction, Some(direction));
         }
-        assert_eq!(faces[0].centroid[0], -50.0);
-        assert_eq!(faces[5].centroid[0], 50.0);
-        assert_eq!(faces[1].centroid[1], -30.0);
-        assert_eq!(faces[3].centroid[1], 30.0);
-        assert_eq!(faces[2].centroid[2], thickness / 2.0);
-        assert_eq!(faces[4].centroid[2], -thickness / 2.0);
+        assert_eq!(faces[0].centroid.unwrap()[0], -50.0);
+        assert_eq!(faces[5].centroid.unwrap()[0], 50.0);
+        assert_eq!(faces[1].centroid.unwrap()[1], -30.0);
+        assert_eq!(faces[3].centroid.unwrap()[1], 30.0);
+        assert_eq!(faces[2].centroid.unwrap()[2], thickness / 2.0);
+        assert_eq!(faces[4].centroid.unwrap()[2], -thickness / 2.0);
         assert_eq!(faces[6].kind, "cylinder");
         assert_eq!(faces[6].radius, Some(radius));
         assert_eq!(faces[6].origin, Some([0., 0., -thickness / 2.0]));
@@ -254,7 +254,7 @@ fn cadgen_exports_have_real_names_geometry_and_no_source_pmi() {
         };
         let area = 6000.0 - std::f64::consts::PI * radius * radius - added_area;
         for i in [2, 4] {
-            assert!((faces[i].area - area).abs() < 1e-6);
+            assert!((faces[i].area.unwrap() - area).abs() < 1e-6);
         }
     }
     let changed: Vec<_> = NAMES

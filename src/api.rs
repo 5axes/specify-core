@@ -335,7 +335,12 @@ fn analyse_reconciling(
     }
     let dimensioning = match crate::dimensioning::input(&loaded.part) {
         Ok(input) => serde_json::to_value(input).map_err(|e| refused(&e))?,
-        Err(reason) => json!({"applicable": false, "reason": reason}),
+        Err(reason) => {
+            if crate::dimensioning::is_unmeasured_frame(&reason) {
+                warnings.push(crate::dimensioning::unplanned_note(loaded));
+            }
+            json!({"applicable": false, "reason": reason})
+        }
     };
     analysis.insert("dimensioning".into(), dimensioning);
     if let Some(mated) = mated {

@@ -149,11 +149,10 @@ fn rounded_faces(loaded: &LoadedPart) -> Result<Value, FeatureError> {
         describe_faces(loaded)?
             .iter()
             .map(|f| {
-                let centroid: Vec<Value> = f
+                // An unmeasured face has no centroid: its place is kept, with `null`.
+                let centroid: Option<Vec<Value>> = f
                     .centroid
-                    .iter()
-                    .map(|&c| json!(round_half_even(c, 3)))
-                    .collect();
+                    .map(|c| c.iter().map(|&c| json!(round_half_even(c, 3))).collect());
                 json!([f.kind, centroid])
             })
             .collect(),

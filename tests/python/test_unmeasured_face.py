@@ -14,7 +14,10 @@ def test_unmeasured_face_is_reported_and_the_part_is_written(tmp_path):
     face = finding["face"]
     assert finding["reason"] == "area_and_centroid_not_computable"
     assert str(face) in finding["detail"]
-    assert all(f["id"] != face for f in analysis["faces"])
+    assert [f["id"] for f in analysis["faces"]] == list(range(len(analysis["faces"])))
+    wall = analysis["faces"][face]
+    assert wall["unmeasured"] is True and "area" not in wall and "centroid" not in wall
+    assert all("area" in f for f in analysis["faces"] if f["id"] != face)
     assert all(face not in f["faces"] for f in analysis["features"])
     assert any(f["family"] == "holes" for f in analysis["features"])
     assert all(face not in q.faces for q in api.questions(analysis, {}))

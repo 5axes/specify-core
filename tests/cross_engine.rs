@@ -539,7 +539,12 @@ fn faces_gap(loaded: &LoadedPart, evidence: &Value) -> String {
             faces
                 .iter()
                 .map(|f| {
-                    let c: Vec<f64> = f.centroid.iter().map(|&c| round_half_even(c, 3)).collect();
+                    let c: Vec<f64> = f
+                        .centroid
+                        .unwrap()
+                        .iter()
+                        .map(|&c| round_half_even(c, 3))
+                        .collect();
                     json!([f.kind, c])
                 })
                 .collect()

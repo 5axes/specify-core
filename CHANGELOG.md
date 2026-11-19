@@ -19,14 +19,19 @@ All notable changes to specify-core-rust. The format follows
 ### Fixed
 
 - A face whose area and centroid cannot be computed (a cylinder bounded by one closed circle,
-  as some converters write a degenerate face) no longer refuses the whole part. It is left
-  out of the faces, of every feature that uses it (and of a hole pattern with such a member,
-  whatever quiddity reports for it) and so of the questions, anchors and written PMI, and the
-  analysis reports it: an additive `unmeasured_faces` list of `{face, reason, detail}`, a
-  `warning` problem with `code: "unmeasured_face"` in the review, and a warning in the CLI,
-  serve and MCP. The rest of the part opens, is specified and written; such a part has no
-  planner frame, so its rule-made intent is written without planned dimensions. A face whose
-  surface did not resolve keeps its refusal. For pzfreo/quiddity#303.
+  as some converters write a degenerate face) no longer refuses the whole part. Its entry in
+  `faces` keeps its place (position = `id`) with no `area` or `centroid` and
+  `unmeasured: true`; it is left out of every feature that uses it (and of a hole pattern with
+  such a member, whatever quiddity reports for it), so of the questions, anchors, diff face
+  changes and written PMI. The analysis reports it: an additive `unmeasured_faces` list of
+  `{face, reason, detail}`, a `warning` problem with `code: "unmeasured_face"` in the review,
+  and a warning in the CLI, serve and MCP. The rest of the part opens, is specified and written.
+  Such a part has no planner frame (quiddity needs the solid's volume), so its rule-made
+  intent is written without planned dimensions, and a `dimensions_not_planned` problem and a
+  warning in the analysis and the write report say so; only that frame failure is tolerated.
+  `Face.area` and `Face.centroid` are `Option` in the Rust API. A face whose surface did not
+  resolve keeps its refusal, and the mesh lists the face as not triangulated.
+  For pzfreo/quiddity#303.
 - Reopening a STEP file detects manufacturing-process edits and removals against saved
   answers even after the STEP provenance markers have been stripped. CLI and editor
   rewrites preserve unmarked foreign process attributes, including text outside Specify's

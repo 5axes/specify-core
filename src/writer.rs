@@ -2590,6 +2590,7 @@ fn part_pmi_observed(
     // intent here; a caller's hand-authored dimensions remain authoritative as stated.
     // Rule-produced General rows always carry a feature key (empty for plane levels).
     let mut upgraded;
+    let mut frame_warning = None;
     let intent = if !intent
         .requirements
         .iter()
@@ -2614,10 +2615,12 @@ fn part_pmi_observed(
                 &upgraded
             }
             // A face whose area cannot be computed leaves the part without a frame to plan
-            // in (quiddity needs the solid's volume). Its intent is written as stated, as a
-            // hand-authored one is; the face itself is left out of the analysis and of
-            // every requirement (`features::unmeasured_faces`).
-            Err(_) if !crate::features::unmeasured_faces(loaded).is_empty() => intent,
+            // in (quiddity needs the solid's volume): that reason alone. The intent is
+            // written as stated, as a hand-authored one is, and the report says so.
+            Err(why) if crate::dimensioning::is_unmeasured_frame(&why) => {
+                frame_warning = Some(crate::dimensioning::unplanned_note(loaded));
+                intent
+            }
             Err(why) => return Err(WriteError::Failed(why)),
         }
     } else {
@@ -2684,6 +2687,7 @@ fn part_pmi_observed(
     let mut p = PartPmi::default();
     let origins = crate::pmi_origin::Planner::new(loaded).map_err(WriteError::Failed)?;
     let mut lines = Lines::default();
+    lines.warnings.extend(frame_warning);
     let mut depth_input = None;
     let mut features = Vec::new();
     let mut f = Features(&mut features);

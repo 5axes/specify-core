@@ -66,6 +66,30 @@ pub fn problems(analysis: &Value, answers: &Map<String, Value>) -> Result<Vec<Va
             out.push(diagnostic);
         }
     }
+    if analysis["dimensioning"]["reason"]
+        .as_str()
+        .is_some_and(crate::dimensioning::is_unmeasured_frame)
+    {
+        let faces: Vec<Value> = analysis["unmeasured_faces"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|f| f["face"].clone())
+            .collect();
+        let list: Vec<String> = faces.iter().map(Value::to_string).collect();
+        let mut diagnostic = problem(
+            "warning",
+            format!(
+                "Dimensions are not planned: the part frame needs every face's area (face {} \
+                 cannot be measured).",
+                list.join(", ")
+            ),
+            Value::Array(faces),
+            "",
+        );
+        diagnostic["code"] = Value::from("dimensions_not_planned");
+        out.push(diagnostic);
+    }
     for saved in analysis["resume"]["unresolved"]
         .as_array()
         .into_iter()

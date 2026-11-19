@@ -173,15 +173,23 @@ except where a hash is taken (resume fingerprint, `pyjson.rs`).
   area or centroid (haecceity `Part::face_moments` gives none: a cylinder bounded by one
   closed circle, as some converters write a degenerate face; #303). Each entry names the
   `face` (its index), a `reason` code (`area_and_centroid_not_computable`) and a `detail`
-  sentence. That face is left out of `faces` (a `Face`'s `id` is its index, so the list is
-  not positional), of every feature (a record using it, and a hole pattern with such a
-  member, is dropped, whatever quiddity reports for it) and so of the questions, anchors and
-  written PMI; the review's `problems` carries a `warning` with `code: "unmeasured_face"`
-  and the face, and CLI/serve/MCP warnings say it. The rest of the part is specified and
-  written; the part has no planner frame (quiddity needs the solid's volume), so
-  `dimensioning` is `{"applicable": false, ...}` and the rule-made intent is written as
-  stated, without planned dimensions. An *unresolved* face (surface not resolved) keeps its
-  own handling. The measured record and source-face indices remain the matching/PMI inputs;
+  sentence. `faces` stays one entry per face, position = `id`: the unmeasured face's entry
+  has its `kind` (and `direction`, `origin`, `radius` where its surface gives them), `area`
+  and `centroid` absent, and `unmeasured: true`. In Rust `Face.area` and `Face.centroid` are
+  `Option`. The rules do not see such an entry (`Faces::from_values` skips it), so nothing is
+  asked of it; no feature uses it (a record on it, and a hole pattern with such a member, is
+  dropped, whatever quiddity reports); diff leaves it out of the face changes; PMI-origin
+  metadata and resume drift read it by position, never by its moments; and no written PMI
+  names it. The review's `problems` carries a `warning` with `code: "unmeasured_face"` and
+  the face, and CLI/serve/MCP warnings say it. The rest of the part is specified and written.
+  Quiddity needs the solid's volume for the part frame, so such a part has no planner frame:
+  `dimensioning` is `{"applicable": false, "reason": "dimensioning frame: unmeasured-face"}`,
+  the rule-made intent is written as stated, without planned dimensions, and a `warning`
+  problem (`code: "dimensions_not_planned"`), an analysis warning and a write-report warning
+  say "dimensions not planned: the part frame needs every face's area (face N cannot be
+  measured)". Any other frame failure still refuses the write. An *unresolved* face (surface
+  not resolved) keeps its own handling. The mesh lists the face as not triangulated.
+  The measured record and source-face indices remain the matching/PMI inputs;
   these descriptions introduce no feature questions. `dimensioning` is the shared typed
   planner input on success (unchanged), or `{"applicable": false, "reason": "..."}`
   when input construction fails, including parts with no planar face. Older analyses
