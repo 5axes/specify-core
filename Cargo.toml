@@ -24,6 +24,8 @@ default = ["cli"]
 # The command line (src/cli.rs, the binary and the Python console script). The WASM build
 # turns it off so the parser and release asset downloader stay out of the browser bundle.
 cli = ["dep:clap", "dep:clap_complete", "dep:dirs", "dep:tar", "dep:tempfile", "dep:ureq"]
+# Enables the subprocess fixture's loopback release source during cargo test only.
+asset-test-hooks = []
 
 [dependencies]
 # The command line's parser, and its shell completion scripts (`specify-core completions`).
@@ -62,6 +64,7 @@ spade = "2.15.1"
 
 [dev-dependencies]
 flate2 = "1.1.10"
+specify-core = { path = ".", default-features = false, features = ["asset-test-hooks"] }
 
 [profile.wasm-release]
 inherits = "release"

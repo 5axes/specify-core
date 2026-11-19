@@ -169,11 +169,19 @@ pub fn assets(app: Option<&Path>, wasm: Option<&Path>) -> Result<Assets, Error> 
             .filter(|v| !v.is_empty())
             .map(PathBuf::from)
     };
+    let app = app
+        .map(Path::to_path_buf)
+        .or_else(|| from_env("SPECIFY_APP_DIR"));
+    let wasm = wasm
+        .map(Path::to_path_buf)
+        .or_else(|| from_env("SPECIFY_WASM_DIR"));
+    #[cfg(all(feature = "cli", feature = "asset-test-hooks"))]
+    if let Some((base, pin, cache)) = fetch::loopback_fixture() {
+        return resolve_assets(app, wasm, &fetch::Source::fixture(&base, &pin, &cache));
+    }
     resolve_assets(
-        app.map(Path::to_path_buf)
-            .or_else(|| from_env("SPECIFY_APP_DIR")),
-        wasm.map(Path::to_path_buf)
-            .or_else(|| from_env("SPECIFY_WASM_DIR")),
+        app,
+        wasm,
         #[cfg(feature = "cli")]
         &fetch::Source::github(),
     )
@@ -251,7 +259,8 @@ fn check_manifest(dir: &Path, release_version: Option<&str>) -> Result<(), Error
     let manifest = match fs::read(&path) {
         Ok(bytes) => bytes,
         Err(e) if e.kind() == io::ErrorKind::NotFound && release_version.is_none() => {
-            eprintln!(
+            let _ = writeln!(
+                io::stderr(),
                 "warning: {} is missing; continuing with the local app",
                 path.display()
             );
@@ -343,7 +352,9 @@ pub fn start(
     let flag = Arc::clone(&running);
     thread::Builder::new()
         .spawn(move || {
-            let _ = app.serve(close_delay, idle, |n| eprintln!("{n}"));
+            let _ = app.serve(close_delay, idle, |n| {
+                let _ = writeln!(io::stderr(), "{n}");
+            });
             flag.store(false, Ordering::SeqCst);
         })
         .map_err(|e| Error::Io(format!("cannot start the page server: {e}")))?;

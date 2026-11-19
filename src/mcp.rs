@@ -1452,7 +1452,10 @@ impl Server {
         let (url, mode) = (page.url.clone(), page.mode);
         session::lock(&shared).page = Some(page);
         if browser && let Err(e) = (self.browser)(&url) {
-            eprintln!("warning: cannot open a browser ({e}); open {url}");
+            let _ = writeln!(
+                io::stderr(),
+                "warning: cannot open a browser ({e}); open {url}"
+            );
         }
         Ok(json!({"doc": handle, "url": url, "mode": mode}))
     }

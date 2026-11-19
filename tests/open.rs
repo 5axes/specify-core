@@ -7,13 +7,14 @@
 //! keeps a `.bak`); `closed` stops the server.
 
 use std::io::{BufRead, BufReader, Read, Write};
-use std::net::TcpStream;
+use std::net::{Ipv4Addr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdout, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use serde_json::{Map, Value, json};
+use sha2::{Digest, Sha256};
 use specify_core::open::{self, App, Assets, Options};
 use specify_core::session::{Opened as OpenedFile, Session};
 
@@ -142,9 +143,12 @@ impl Opened {
     }
 
     fn run(inputs: &[&Path], scratch: &Scratch, extra: &[&str]) -> Opened {
-        let step = inputs.last().unwrap();
+        Self::from_command(inputs.last().unwrap(), command(inputs, scratch, extra))
+    }
+
+    fn from_command(step: &Path, mut command: Command) -> Opened {
         let name = step.file_name().unwrap().to_string_lossy().into_owned();
-        let mut child = command(inputs, scratch, extra)
+        let mut child = command
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
@@ -1729,7 +1733,7 @@ fn a_server_without_requests_stops_after_its_idle_time() {
 }
 
 #[test]
-fn bad_arguments_no_app_and_names_that_are_not_step_are_refused_up_front() {
+fn bad_arguments_and_names_that_are_not_step_are_refused_up_front() {
     let scratch = Scratch::new("args");
     let stl = scratch.path("work/part.stl");
     std::fs::write(&stl, b"solid").unwrap();
@@ -1758,26 +1762,6 @@ fn bad_arguments_no_app_and_names_that_are_not_step_are_refused_up_front() {
         let stderr = String::from_utf8(out.stderr).unwrap();
         assert!(stderr.starts_with("cannot open: "), "{stderr}");
         assert!(stderr.contains("is not a STEP file"), "{stderr}");
-    }
-
-    // Exercise the shipped placeholder without ever fetching a real pin in this test.
-    let pin: Value = serde_json::from_str(include_str!("../app.lock.json")).unwrap();
-    if pin["tag"] == "v0.0.0" {
-        let no_app = Command::new(env!("CARGO_BIN_EXE_specify-core"))
-            .arg("open")
-            .arg(scratch.input())
-            .arg("--no-browser")
-            .env_remove("SPECIFY_APP_DIR")
-            .env_remove("SPECIFY_WASM_DIR")
-            .output()
-            .unwrap();
-        assert_eq!(no_app.status.code(), Some(2));
-        assert!(no_app.stdout.is_empty());
-        let stderr = String::from_utf8(no_app.stderr).unwrap();
-        assert_eq!(
-            stderr,
-            "cannot open: no pinned app yet: pass --app DIR / set SPECIFY_APP_DIR\n"
-        );
     }
 
     // The environment names the app as well as --app does.
@@ -1842,6 +1826,124 @@ fn bad_arguments_no_app_and_names_that_are_not_step_are_refused_up_front() {
         "{help}"
     );
     assert!(!help.contains("draftwright.io"), "{help}");
+}
+
+#[test]
+fn open_refuses_offline_and_evicts_tampered_javascript() {
+    let scratch = Scratch::new("release-source");
+    let cache = scratch.path("cache");
+    let app_cache = cache.join("app");
+    let version = "1.0.0-test";
+    let asset = format!("specify-ui-app-{version}.tgz");
+    let lock_name = format!("{version}.lock");
+    std::fs::create_dir_all(&app_cache).unwrap();
+    std::fs::write(app_cache.join(&lock_name), b"").unwrap();
+
+    let manifest = json!({"name": "specify-ui-app", "version": version, "api": open::API_VERSION});
+    let mut tar = tar::Builder::new(flate2::write::GzEncoder::new(
+        Vec::new(),
+        flate2::Compression::fast(),
+    ));
+    for (path, body) in [
+        ("index.html", b"stub app".as_slice()),
+        ("specify-ui-app.json", manifest.to_string().as_bytes()),
+        ("main.js", b"export const value = 1;".as_slice()),
+        ("wasm/", b"".as_slice()),
+    ] {
+        let mut header = tar::Header::new_gnu();
+        header.set_mode(0o644);
+        header.set_size(body.len() as u64);
+        if path == "wasm/" {
+            header.set_entry_type(tar::EntryType::Directory);
+        }
+        tar.append_data(&mut header, path, body).unwrap();
+    }
+    let archive = tar.into_inner().unwrap().finish().unwrap();
+    let digest: String = Sha256::digest(&archive)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    let pin = json!({"repository": "pzfreo/specify-ui", "tag": format!("v{version}"),
+        "asset": asset, "sha256": digest, "api": open::API_VERSION})
+    .to_string();
+    let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let make_command = || {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_specify-core"));
+        command
+            .arg("open")
+            .arg(scratch.input())
+            .arg("--no-browser")
+            .env_remove("SPECIFY_APP_DIR")
+            .env_remove("SPECIFY_WASM_DIR")
+            .env("SPECIFY_TEST_APP_BASE_URL", &base)
+            .env("SPECIFY_TEST_APP_PIN", &pin)
+            .env("SPECIFY_TEST_CACHE_DIR", &cache);
+        command
+    };
+    let assert_offline = || {
+        let out = make_command().output().unwrap();
+        assert_eq!(out.status.code(), Some(2));
+        assert!(out.stdout.is_empty());
+        let stderr = String::from_utf8(out.stderr).unwrap();
+        assert!(
+            stderr.contains("cannot open: could not download http://127.0.0.1:"),
+            "{stderr}"
+        );
+        assert!(
+            stderr.contains("check your internet connection"),
+            "{stderr}"
+        );
+        assert!(
+            stderr.contains("pass --app DIR / set SPECIFY_APP_DIR"),
+            "{stderr}"
+        );
+        let entries: Vec<_> = std::fs::read_dir(&app_cache)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        assert_eq!(entries, [std::ffi::OsString::from(&lock_name)]);
+        assert_eq!(std::fs::read_dir(&cache).unwrap().count(), 1);
+    };
+
+    // Reserve this port before testing and reopen it only long enough to install the fixture.
+    let addr = listener.local_addr().unwrap();
+    drop(listener);
+    assert_offline();
+    let listener = TcpListener::bind(addr).unwrap();
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let mut reader = BufReader::new(&mut stream);
+        let mut line = String::new();
+        reader.read_line(&mut line).unwrap();
+        assert!(line.starts_with("GET /pzfreo/specify-ui/releases/download/"));
+        while !line.is_empty() && line != "\r\n" {
+            line.clear();
+            reader.read_line(&mut line).unwrap();
+        }
+        write!(
+            stream,
+            "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: {}\r\n\r\n",
+            archive.len()
+        )
+        .unwrap();
+        stream.write_all(&archive).unwrap();
+    });
+    let page = Opened::from_command(&scratch.input(), make_command());
+    let served = page.get("main.js");
+    assert_eq!(served.status, 200);
+    assert_eq!(served.body, b"export const value = 1;");
+    drop(page);
+    server.join().unwrap();
+
+    let installed = app_cache.join(version);
+    // The replacement has the same number of bytes. Only the digest can detect it.
+    std::fs::write(installed.join("main.js"), b"export const value = 2;").unwrap();
+    assert_offline();
+    assert!(!installed.exists());
 }
 
 #[test]

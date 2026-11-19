@@ -947,6 +947,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "spade",
+ "specify-core",
  "step-io",
  "tar",
  "tempfile",

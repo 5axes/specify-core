@@ -280,6 +280,66 @@ fn rejects_unsafe_paths_and_links() {
 }
 
 #[test]
+fn raw_header_budget_includes_pax_and_gnu_extensions() {
+    let names: Vec<_> = (0..=MAX_ARCHIVE_ENTRIES / 3)
+        .map(|i| (format!("file{i}"), format!("file{i}\0")))
+        .collect();
+    let files: Vec<_> = names
+        .iter()
+        .flat_map(|(name, long_name)| {
+            [
+                ("pax", EntryType::XHeader, b"11 mtime=0\n".as_slice()),
+                ("long-name", EntryType::GNULongName, long_name.as_bytes()),
+                (name.as_str(), EntryType::Regular, b"".as_slice()),
+            ]
+        })
+        .collect();
+    let bytes = archive(&files);
+    let digest = sha256(&bytes);
+    reject_app(bytes, &digest, "too many entries in archive");
+}
+
+#[test]
+fn archive_budget_counts_deep_implicit_directories() {
+    let names: Vec<_> = (0..150)
+        .map(|i| format!("{i}/{}file", "a/".repeat(30)))
+        .collect();
+    let files: Vec<_> = names
+        .iter()
+        .map(|name| (name.as_str(), EntryType::Regular, b"".as_slice()))
+        .collect();
+    let bytes = archive(&files);
+    let digest = sha256(&bytes);
+    reject_app(bytes, &digest, "too many entries in archive");
+}
+
+#[test]
+fn release_redirect_policy_refuses_plain_http() {
+    // ureq applies the same HTTPS-only check to the destination of each redirect.
+    let target = "http://127.0.0.1:1/asset";
+    let result = download_agent(GITHUB).get(target).call();
+    assert!(matches!(result, Err(ureq::Error::RequireHttpsOnly(url)) if url == target));
+}
+
+#[test]
+fn missing_manifest_and_extra_file_both_trigger_reinstallation() {
+    let cache = tempfile::tempdir().unwrap();
+    let bytes = app_archive(Some(API_VERSION));
+    let digest = sha256(&bytes);
+    let (base, server) = serve(vec![(APP_URL, "200 OK", bytes); 3]);
+    let pin = pin(&digest);
+    let source = source(&base, &pin, cache.path());
+    let root = source.app().unwrap();
+    fs::remove_file(root.join(MANIFEST)).unwrap();
+    assert_eq!(source.app().unwrap(), root);
+    assert!(root.join(MANIFEST).is_file());
+    fs::write(root.join("extra.js"), "extra").unwrap();
+    assert_eq!(source.app().unwrap(), root);
+    assert!(!root.join("extra.js").exists());
+    server.join().unwrap();
+}
+
+#[test]
 fn reports_a_refused_connection() {
     let cache = tempfile::tempdir().unwrap();
     // Close the listener before downloading so the connection is refused.
