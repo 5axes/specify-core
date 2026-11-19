@@ -699,7 +699,6 @@ fn open(
         OpenError::Refused(m) => Exit::new(2, format!("cannot open: {m}")),
         other => Exit::error(other),
     };
-    let found = assets(app, wasm).map_err(failed)?;
     let named = |path: &Path| {
         let name = path
             .file_name()
@@ -736,6 +735,7 @@ fn open(
         }
     }
     .map_err(refused)?;
+    let found = assets(app, wasm).map_err(failed)?;
     let session = std::sync::Arc::new(std::sync::Mutex::new(session));
     let served = App::new(session, found, options).map_err(failed)?;
     let url = served.url();
