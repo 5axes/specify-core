@@ -516,3 +516,135 @@ fn answering_a_kept_question_replaces_the_kept_requirement() {
         assert_eq!(again["resume"]["answers"][hole], "0.1");
     }
 }
+
+/// A file Specify wrote (flatness 0.03 on face 2, stored as answered) whose flatness another
+/// tool re-authored as its own: unmarked, 0.05.
+fn re_authored_flatness() -> LoadedPart {
+    let text = String::from_utf8(written(&answers("0.03"))).unwrap();
+    let line = text
+        .lines()
+        .find(|l| l.contains("FLATNESS_TOLERANCE("))
+        .unwrap()
+        .to_string();
+    let measure = line.split(',').nth(2).unwrap().trim().to_string();
+    let value = text
+        .lines()
+        .find(|l| l.starts_with(&format!("{measure}=")))
+        .unwrap()
+        .to_string();
+    assert!(line.contains("'specify-core:written:v1'") && value.contains("(0.03)"));
+    let text = text
+        .replace(&line, &line.replace("'specify-core:written:v1'", "''"))
+        .replace(&value, &value.replace("(0.03)", "(0.05)"));
+    load(text.into_bytes())
+}
+
+/// The other tool's 0.05 stands against answers saved before its edit (which still hold
+/// 0.03): written with them through the CLI, it is kept and 0.03 is not written over it.
+#[test]
+fn another_tools_requirement_stands_against_saved_answers_on_the_cli() {
+    let loaded = re_authored_flatness();
+    assert_eq!(
+        flatness(&loaded),
+        [json!({"faces": [2], "value": 0.05, "marked": false})]
+    );
+    // The conflict is listed, and marked as another tool's.
+    let analysis = api::analyse(&loaded).unwrap();
+    let conflicts = analysis["resume"]["conflicts"].as_array().unwrap();
+    assert!(
+        conflicts
+            .iter()
+            .any(|c| c["id"] == "datum.A.flatness" && c["foreign"] == true),
+        "{conflicts:?}"
+    );
+    // Answers saved before the edit: they say 0.03.
+    let saved = answers("0.03");
+    let review = api::review(&analysis, &saved).unwrap();
+    assert!(
+        review["conflicts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|c| c["id"] == "datum.A.flatness"),
+        "still undecided: {review}"
+    );
+    let written = cli_write(&loaded.bytes, &saved, "saved-answers");
+    assert_eq!(
+        flatness(&written),
+        [json!({"faces": [2], "value": 0.05, "marked": false})]
+    );
+    let editor = preview_write(&loaded, &analysis, &saved);
+    assert_eq!(
+        flatness(&editor),
+        [json!({"faces": [2], "value": 0.05, "marked": false})]
+    );
+}
+
+/// The same over MCP: `open` with an answers file saved before the edit lists the conflict,
+/// and `save` keeps the other tool's 0.05.
+#[test]
+fn another_tools_requirement_stands_against_an_mcp_answers_file() {
+    let dir = dir("mcp-foreign");
+    let input = dir.join("plate.step");
+    std::fs::write(&input, re_authored_flatness().bytes.as_slice()).unwrap();
+    let answers_file = dir.join("answers.json");
+    std::fs::write(&answers_file, Value::Object(answers("0.03")).to_string()).unwrap();
+    let mut server = specify_core::mcp::Server::new(std::slice::from_ref(&dir)).unwrap();
+    let mut call = |name: &str, arguments: Value| -> Value {
+        let request = json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {
+            "name": name, "arguments": arguments,
+            "_meta": {
+                "io.modelcontextprotocol/protocolVersion": specify_core::mcp::MODERN,
+                "io.modelcontextprotocol/clientCapabilities": {}
+            }
+        }});
+        let result = server.handle(&request, None).body.unwrap()["result"].clone();
+        assert_ne!(result["isError"], json!(true), "{name}: {result}");
+        result["structuredContent"].clone()
+    };
+    let opened = call("open", json!({"path": input, "answers_file": answers_file}));
+    assert!(
+        opened["conflicts"]
+            .as_array()
+            .is_some_and(|c| c.iter().any(|c| c["id"] == "datum.A.flatness")),
+        "{opened}"
+    );
+    let saved = call("save", json!({"doc": opened["doc"], "accept_defaults": {}}));
+    let back = load(std::fs::read(saved["path"].as_str().unwrap()).unwrap());
+    assert_eq!(
+        flatness(&back),
+        [json!({"faces": [2], "value": 0.05, "marked": false})]
+    );
+}
+
+/// Keep, write, then restore the stored answer: the kept (unmarked) requirement gives way and
+/// the file holds the restored value alone, with no conflict on reopening.
+#[test]
+fn restoring_after_keeping_replaces_the_kept_requirement() {
+    let edited = specify_core::part::load(
+        &common::fixtures().join("resume-p9/edited-plate.step.gz"),
+        None,
+    )
+    .unwrap();
+    let hole = "hole.position:holes:12";
+    let analysis = api::analyse(&edited).unwrap();
+    let mut answers = analysis["resume"]["answers"].as_object().unwrap().clone();
+    answers.insert("_specify".into(), json!({"keep": [hole]}));
+    let kept = preview_write(&edited, &analysis, &answers);
+    assert_eq!(hole_positions(&kept), [0.2]);
+    let reopened = api::analyse(&kept).unwrap();
+    let mut answers = reopened["resume"]["answers"].as_object().unwrap().clone();
+    answers.insert(hole.into(), json!("0.1"));
+    for written in [
+        preview_write(&kept, &reopened, &answers),
+        cli_write(&kept.bytes, &answers, "restore"),
+    ] {
+        assert_eq!(hole_positions(&written), [0.1]);
+        let again = api::analyse(&written).unwrap();
+        assert!(
+            again["resume"].get("conflicts").is_none(),
+            "{}",
+            again["resume"]
+        );
+    }
+}

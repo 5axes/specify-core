@@ -543,10 +543,22 @@ fn all_questions(
     // A conflict the person kept (`_specify.keep`, stored with the answers when the file
     // left its requirement removed) stays the file's: its question is not asked either.
     let kept = crate::resume::truth::kept(answers);
+    // Another tool's requirement in conflict with a stored answer stands, answered or not.
+    let foreign: BTreeSet<&str> = ctx
+        .analysis
+        .get("resume")
+        .and_then(|r| r.get("conflicts"))
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|c| c.get("foreign") == Some(&Value::Bool(true)))
+        .filter_map(|c| c.get("id").and_then(Value::as_str))
+        .collect();
     if !conflicts.is_empty() || !kept.is_empty() {
         out.retain(|q| {
-            (!conflicts.contains(q.id.as_str()) && !kept.contains(q.id.as_str()))
-                || answers.contains_key(&q.id)
+            !foreign.contains(q.id.as_str())
+                && ((!conflicts.contains(q.id.as_str()) && !kept.contains(q.id.as_str()))
+                    || answers.contains_key(&q.id))
         });
     }
     Ok(out)

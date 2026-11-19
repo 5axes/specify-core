@@ -37,6 +37,10 @@ pub struct Conflict {
     /// What the file states for it (its requirements' notation), `None` when the file has
     /// none: removed in the file.
     pub file: Option<String>,
+    /// The file's requirement is another tool's (not marked as Specify's): answering the
+    /// question does not replace it; it stands until the conflict is kept.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub foreign: bool,
 }
 
 /// The stored answers reconciled with the file's PMI.
@@ -135,6 +139,40 @@ pub(crate) fn reconcile(
             .map(|f| f["kind"].as_str().unwrap_or_default().to_owned())
             .collect(),
     };
+    // Which of the file's requirements are not marked as Specify's: another tool's, or one the
+    // person kept (written unmarked).
+    let unmarked: BTreeSet<(String, usize)> = {
+        let doc =
+            haecceity::p21::Document::parse(loaded.bytes.to_vec()).map_err(|e| e.to_string())?;
+        let defs =
+            haecceity::step::read_part_definitions(&loaded.bytes).map_err(|e| e.to_string())?;
+        let read = haecceity::pmi::read(&doc, &defs).map_err(|e| e.to_string())?;
+        let part = loaded.binding.part;
+        let mut unmarked: BTreeSet<(String, usize)> =
+            crate::provenance::unmarked(&doc, &read, part)
+                .into_iter()
+                .collect();
+        // Part notes and other attributes another tool stated: told apart only in a file
+        // written since Specify marked its attributes as well as its requirements (an Add
+        // write, `pmi_scope`); in an older replace-written file they are Specify's.
+        let scoped = super::scoped(&doc, part);
+        for (i, ids) in read.provenance.parts[part]
+            .attributes
+            .iter()
+            .enumerate()
+            .filter(|_| scoped)
+        {
+            if !super::is_answers(&read.parts[part].attributes[i])
+                && !crate::provenance::marked(&doc, ids, "attribute")
+            {
+                unmarked.insert(("attributes".to_string(), i));
+            }
+        }
+        unmarked
+    };
+    // A question the person kept earlier (`_specify.keep`, stored with the answers) is the
+    // file's whatever its marker: the kept requirement was written unmarked.
+    let kept_earlier = kept(&stored);
     let plan = scene.comparison(loaded, analysis, Some(&stored))?;
     let mut truth = crate::revision::against_plan(&plan, &file, faces, &stored, &drift);
     let mut present = Map::new();
@@ -171,35 +209,6 @@ pub(crate) fn reconcile(
         // answers its question (`resume.present`), which stays answerable, not a suggestion.
         // Only Specify's own (marked) requirements are its defaults: one written unmarked is
         // another tool's, or one the person kept, and is simply the file's (`existing`).
-        let unmarked: BTreeSet<(String, usize)> = {
-            let doc = haecceity::p21::Document::parse(loaded.bytes.to_vec())
-                .map_err(|e| e.to_string())?;
-            let defs =
-                haecceity::step::read_part_definitions(&loaded.bytes).map_err(|e| e.to_string())?;
-            let read = haecceity::pmi::read(&doc, &defs).map_err(|e| e.to_string())?;
-            let part = loaded.binding.part;
-            let mut unmarked: BTreeSet<(String, usize)> =
-                crate::provenance::unmarked(&doc, &read, part)
-                    .into_iter()
-                    .collect();
-            // Part notes and other attributes another tool stated: told apart only in a file
-            // written since Specify marked its attributes as well as its requirements (an Add
-            // write, `pmi_scope`); in an older replace-written file they are Specify's.
-            let scoped = super::scoped(&doc, part);
-            for (i, ids) in read.provenance.parts[part]
-                .attributes
-                .iter()
-                .enumerate()
-                .filter(|_| scoped)
-            {
-                if !super::is_answers(&read.parts[part].attributes[i])
-                    && !crate::provenance::marked(&doc, ids, "attribute")
-                {
-                    unmarked.insert(("attributes".to_string(), i));
-                }
-            }
-            unmarked
-        };
         for (question, (unchanged, ids)) in other.defaults {
             // The process is read from the file with its own source (an accepted suggestion
             // stays one, `process::read`), so it is not taken as an answer here.
@@ -222,7 +231,6 @@ pub(crate) fn reconcile(
         // the file's, kept on writing, until the question is answered.
         // A question the person kept earlier (`_specify.keep`, stored with the answers) is the
         // file's whatever its marker: the kept requirement was written unmarked.
-        let kept_earlier = kept(&stored);
         for (question, items) in other.changed_defaults {
             let own = kept_earlier.contains(question.as_str())
                 || items
@@ -301,6 +309,13 @@ pub(crate) fn reconcile(
                 id: id.clone(),
                 stored: answer.clone(),
                 file: file.as_ref().map(|texts| texts.join("; ")),
+                // Another tool's requirement (not marked as Specify's, and not one the person
+                // kept): an answer never overrides it unasked; only keeping decides.
+                foreign: !kept_earlier.contains(id.as_str())
+                    && out
+                        .contested
+                        .iter()
+                        .any(|(at, q)| q == id && unmarked.contains(at)),
             }),
             None => {
                 out.answers.insert(id.clone(), answer.clone());
@@ -323,6 +338,13 @@ pub(crate) fn reconcile(
 pub fn question(conflict: &Conflict) -> Value {
     let stored = short(&conflict.stored);
     let (text, keep) = match &conflict.file {
+        Some(file) if conflict.foreign => (
+            format!(
+                "Saved answer {stored}, file says {file}, another tool's requirement. Keep the \
+                 file's {file}?"
+            ),
+            format!("Keep the file's {file}"),
+        ),
         Some(file) => (
             format!(
                 "Saved answer {stored}, file says {file}. Keep the file's {file}, or restore {stored}?"
@@ -335,17 +357,27 @@ pub fn question(conflict: &Conflict) -> Value {
         ),
     };
     let restore = format!("Restore {stored}");
-    serde_json::json!({
+    // Another tool's requirement is not replaced by an answer: keeping is the only choice.
+    let choices = if conflict.foreign {
+        serde_json::json!([{"choice": "keep", "label": keep}])
+    } else {
+        serde_json::json!([
+            {"choice": "keep", "label": keep},
+            {"choice": "restore", "label": restore, "answer": conflict.stored},
+        ])
+    };
+    let mut out = serde_json::json!({
         "id": conflict.id,
         "kind": "conflict",
         "text": text,
         "stored": conflict.stored,
         "file": conflict.file,
-        "choices": [
-            {"choice": "keep", "label": keep},
-            {"choice": "restore", "label": restore, "answer": conflict.stored},
-        ],
-    })
+        "choices": choices,
+    });
+    if conflict.foreign {
+        out["foreign"] = Value::Bool(true);
+    }
+    out
 }
 
 /// The conflicts of `analysis` not decided under `answers`.
@@ -355,11 +387,20 @@ pub fn open_conflicts(analysis: &Value, answers: &Map<String, Value>) -> Vec<Con
         .into_iter()
         .flatten()
         .filter_map(|c| serde_json::from_value::<ConflictIn>(c.clone()).ok())
-        .filter(|c| !decided(answers, &c.id))
+        // Another tool's requirement is decided only by keeping it: an answer, such as one
+        // from answers saved before the file was edited, does not override it.
+        .filter(|c| {
+            if c.foreign {
+                !kept(answers).contains(c.id.as_str())
+            } else {
+                !decided(answers, &c.id)
+            }
+        })
         .map(|c| Conflict {
             id: c.id,
             stored: c.stored,
             file: c.file,
+            foreign: c.foreign,
         })
         .collect()
 }
@@ -369,9 +410,23 @@ struct ConflictIn {
     id: String,
     stored: Value,
     file: Option<String>,
+    #[serde(default)]
+    foreign: bool,
 }
 
 /// Every conflict question of `analysis`, decided or not.
+/// The conflicts whose file requirement is another tool's (`foreign`): their question is not
+/// asked, answered or not, and the file's requirement stands.
+pub(crate) fn foreign_ids(analysis: &Value) -> BTreeSet<&str> {
+    analysis["resume"]["conflicts"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|c| c["foreign"] == Value::Bool(true))
+        .filter_map(|c| c["id"].as_str())
+        .collect()
+}
+
 pub(crate) fn conflict_ids(analysis: &Value) -> BTreeSet<&str> {
     analysis["resume"]["conflicts"]
         .as_array()
@@ -423,9 +478,10 @@ pub fn restored<'a>(
     analysis: &'a Value,
     answers: &Map<String, Value>,
 ) -> std::borrow::Cow<'a, Value> {
+    let foreign = foreign_ids(analysis);
     let answered: BTreeSet<&str> = file_questions(analysis)
         .into_iter()
-        .filter(|id| answers.contains_key(*id))
+        .filter(|id| answers.contains_key(*id) && !foreign.contains(id))
         .collect();
     if answered.is_empty() {
         return std::borrow::Cow::Borrowed(analysis);
@@ -472,10 +528,9 @@ impl Reconciled {
             let at = (collection.to_string(), i);
             !self.explained.contains(&at)
                 && !restated.contains(&at)
-                && self
-                    .contested
-                    .get(&at)
-                    .is_some_and(|question| !answers.contains_key(question))
+                && self.contested.get(&at).is_some_and(|question| {
+                    !answers.contains_key(question) || self.is_foreign(question)
+                })
         };
         let mut out = BTreeSet::new();
         let lengths = [
@@ -804,7 +859,7 @@ impl Reconciled {
         let mut out: BTreeSet<(String, usize)> = self
             .contested
             .iter()
-            .filter(|(_, question)| answers.contains_key(*question))
+            .filter(|(_, question)| answers.contains_key(*question) && !self.is_foreign(question))
             .map(|(at, _)| at.clone())
             .collect();
         for (i, set) in pmi.attributes.iter().enumerate() {
@@ -818,5 +873,12 @@ impl Reconciled {
             }
         }
         out
+    }
+}
+
+impl Reconciled {
+    /// Whether `question` is a conflict whose file requirement is another tool's.
+    fn is_foreign(&self, question: &str) -> bool {
+        self.conflicts.iter().any(|c| c.id == question && c.foreign)
     }
 }
