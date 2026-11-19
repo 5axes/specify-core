@@ -78,14 +78,20 @@ The flow is the same everywhere:
 specify-core analyse plate.step -o plate.analysis.json          # features, faces, existing PMI
 specify-core questions plate.analysis.json --open                # what is still unanswered
 echo '{"part.material": "6082-T6", "hole.function:holes:9": "fit:H7"}' > answers.json
-# Export the answers, with face evidence, before writing (defaults only as approved,
-# by part with the values seen: --accept-defaults approved.json):
+# The defaults the person approved, by part, each with the value they saw (here every
+# default offered for the open questions, once the person has seen the list and agreed):
+specify-core questions plate.analysis.json --answers answers.json --open \
+  | jq '{"0": (map(select(.default != null) | {(.id): .default}) | add)}' > approved.json
+# Export the answers plus those defaults, with face evidence; stderr lists what is still open:
 specify-core questions plate.analysis.json --answers answers.json \
-  --resolve-defaults --step plate.step > plate.complete.answers.json
-specify-core write plate.step plate.analysis.json plate.complete.answers.json -o plate-pmi.step
+  --resolve-defaults --step plate.step --accept-defaults approved.json > plate.answers.json
+specify-core write plate.step plate.analysis.json plate.answers.json -o plate-pmi.step
 ```
 
-`write` refuses until every question has an answer, or `--accept-defaults` supplies the rest.
+An export takes no default the person did not approve (ADR P9), so without `--accept-defaults`
+it is usually incomplete. `write` still needs a complete set: answer the open questions, or
+approve their defaults in the approvals file, and export again. `write` refuses until every
+question has an answer, or its own `--accept-defaults` supplies the rest.
 It prints a JSON report with `output`, `written`, `not_written` and `warnings`. `not_written`
 gives each reason, including an answer whose question is not asked given the other answers
 ([answers](docs/answers.md#answers-to-questions-not-asked)).
@@ -290,7 +296,7 @@ echo '{"id": 1, "op": "analyse", "step": "part.step"}' | specify-core serve
   `export_answers` takes `step`, `analysis`, `answers` and optional `accept_defaults` (the
   defaults approved, `{"<part>": {"<id>": value}}`), and returns `result.answers` (what is
   answered plus those defaults, with geometry evidence), `complete` and `missing`.
-  See [answer files](docs/answers.md#export-a-complete-sidecar).
+  See [answer files](docs/answers.md#export-a-sidecar).
 - `analyse` accepts optional `max_deviation_mm` for the returned mesh (for example `0.05`).
   It must be a finite number of at least 0.001 mm; invalid or unmet bounds return `invalid`.
   Omission or `null` preserves the default mesh. See [mesh tolerance](docs/mesh-tolerance.md).

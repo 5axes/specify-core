@@ -54,8 +54,10 @@ All notable changes to specify-core-rust. The format follows
   blocks no longer refuse an export: it is written incomplete, blocks kept in
   `_specify.unresolved`; serve's result adds `complete` and `missing`, and the CLI lists the
   open questions on stderr. `api::export_answers` now returns `Exported {answers, missing}`;
-  `api::with_approved` is the one approval check, shared with the page's Save and MCP. The
-  editor's Answers (JSON) export changes this way when it pins this release.
+  `api::with_approved` is the one approval check, shared with the page's Save and MCP.
+  `exportAnswers` now needs approvals for defaults; the editor's Answers (JSON) export, which
+  uses `acceptDefaults`, still includes every default until the editor moves to
+  `exportAnswers` with approvals.
 - `specify-core open STEP` serves the Specify app itself on 127.0.0.1 instead of handing the
   file to draftwright.io: the app, the engine, the file and its settings are served under a
   random one-off path, and Specify's Save writes the specified STEP next to the input

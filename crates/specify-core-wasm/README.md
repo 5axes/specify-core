@@ -25,5 +25,5 @@ duplicate names are unresolved without geometric fallback. See
 Answer sidecars (with geometry evidence) can be exported before writing:
 `engine.exportAnswers(answersJson, approvalsJson?)` returns an answer map as JSON: the answers
 given plus exactly the defaults approved (`{"<part>": {"<id>": value}}`).
-Incomplete sets and unresolved carries are refused. See
-[answer files](https://github.com/pzfreo/specify-core/blob/main/docs/answers.md#export-a-complete-sidecar).
+Open questions and carry blocks do not throw (`writePmi` reports what is open). See
+[answer files](https://github.com/pzfreo/specify-core/blob/main/docs/answers.md#export-a-sidecar).

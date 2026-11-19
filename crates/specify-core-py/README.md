@@ -129,5 +129,5 @@ the changelog. Draftwright® is a registered trade mark of Betwixt Ltd.
 Answer sidecars (with geometry evidence) can be exported before writing:
 `api.export_answers(step, analysis, answers, accept_defaults=None)` returns a dict of the
 answers given plus exactly the defaults approved (`{"<part>": {"<id>": value}}`).
-Incomplete sets and unresolved carries are refused. See
-[answer files](../../docs/answers.md#export-a-complete-sidecar).
+Open questions and carry blocks do not refuse it (`write` still needs a complete set). See
+[answer files](../../docs/answers.md#export-a-sidecar).

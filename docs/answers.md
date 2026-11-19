@@ -21,14 +21,19 @@ This also applies to **released v0.1.8 and earlier `changes/answers.json` files*
 `diff` with the original old/new parts and old answers to regenerate these changes files**;
 merely upgrading the writer cannot recover their lost carry decisions.
 
-## Export a complete sidecar
+## Export a sidecar
 
-Export after choosing answers, before writing STEP:
+Export after choosing answers, before writing STEP. The approvals file lists the defaults the
+person approved, by part, each with the value they saw; here, every default offered for the
+open questions, once the person has seen the list and agreed:
 
 ```sh
 specify-core analyse plate_v1.step -o plate.analysis.json
+specify-core questions plate.analysis.json --answers chosen.json --open \
+  | jq '{"0": (map(select(.default != null) | {(.id): .default}) | add)}' > approved.json
 specify-core questions plate.analysis.json --answers chosen.json \
-  --resolve-defaults --step plate_v1.step [--accept-defaults approved.json] > plate.answers.json
+  --resolve-defaults --step plate_v1.step --accept-defaults approved.json > plate.answers.json
+# write needs a complete set: stderr's "open: …" lists what to answer or approve first.
 specify-core write plate_v1.step plate.analysis.json plate.answers.json -o plate.pmi.step
 # After editing geometry, carry the committed sidecar from its matching old part:
 specify-core diff plate_v1.step plate_v2.step --answers plate.answers.json -o changes
@@ -85,9 +90,10 @@ The same non-writing operation is available in existing front-end shapes:
 
 Existing `with_all_defaults` / `acceptDefaults` operations still give every default, for
 partial review, and retain their return shapes. Exported maps can be passed directly to
-`write`, `diff`, questions/review, serve, Python and WASM. Exporting with every default
-approved and writing the unchanged part from the export gives the same semantic PMI as
-`write --accept-defaults`. Writing changed geometry is refused as stale; carry with `diff`
+`diff`, questions/review, serve, Python and WASM, and to `write` once complete: `write`
+(without its own `--accept-defaults`) refuses an incomplete set, so answer the open questions
+or approve their defaults and export again. Exporting with every default approved and writing
+the unchanged part from the export gives the same semantic PMI as `write --accept-defaults`. Writing changed geometry is refused as stale; carry with `diff`
 instead, then explicitly resolve its blocks.
 
 ## Answers to questions not asked
