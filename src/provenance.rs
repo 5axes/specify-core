@@ -202,18 +202,21 @@ pub fn all(p: &PartPmi, prov: &PartProvenance, doc: &Document) -> bool {
         && p.decimal_places.is_none()
 }
 
-/// Whether the part has a marked requirement or answers payload. A file written before
-/// provenance marking (#22) has neither. The payload can outlast the last marked requirement.
-pub(crate) fn any_marked(doc: &Document, read: &haecceity::pmi::PmiRead, part: usize) -> bool {
+/// Whether to reconcile a replace-written part. A marked answers payload is also evidence
+/// for the process when its UDA was unmarked or removed after Specify wrote it.
+pub(crate) fn any_marked(
+    doc: &Document,
+    read: &haecceity::pmi::PmiRead,
+    part: usize,
+    saved_process: bool,
+) -> bool {
+    let attributes = &read.parts[part].attributes;
     marks(doc, read, part).iter().any(|(_, marked)| *marked)
-        || read.parts[part]
-            .attributes
-            .iter()
-            .enumerate()
-            .any(|(i, set)| {
+        || ((saved_process || attributes.iter().any(crate::process::is_process_set))
+            && attributes.iter().enumerate().any(|(i, set)| {
                 crate::resume::is_answers(set)
                     && marked(doc, &read.provenance.parts[part].attributes[i], "attribute")
-            })
+            }))
 }
 
 /// The requirements of part `part` without Specify's provenance marker, by haecceity

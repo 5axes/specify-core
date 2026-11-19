@@ -715,17 +715,11 @@ fn write_verified(
         if resume::scoped(&original.doc, part) && resumed {
             scoped.push(part);
         } else if !kept.is_empty() || foreign {
-            if provenance::any_marked(&original.doc, &original.read, part) {
-                // Replace-written, with PMI to keep: only Specify's marked requirements are
-                // replaced, as a scoped Add; unmarked PMI (another tool's) is kept as it is.
-                scoped.push(part);
-                if !foreign {
-                    for_keep.insert(part);
-                }
-            } else {
-                // Written before requirements were marked (#22): all its PMI is Specify's,
-                // rewritten by replace as before, so none of it is stated twice.
-                continue;
+            // Reconciliation identified this replace-written part's PMI to preserve. Use a
+            // scoped Add so the rewrite only replaces Specify's marked requirements.
+            scoped.push(part);
+            if !foreign {
+                for_keep.insert(part);
             }
         }
         if !kept.is_empty() {

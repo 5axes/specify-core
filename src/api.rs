@@ -455,9 +455,13 @@ fn analyse_reconciling(
         let Ok(defs) = haecceity::step::read_part_definitions(&loaded.bytes) else {
             return false;
         };
+        let saved_process = analysis
+            .get("resume")
+            .is_some_and(|resume| resume["answers"].get(crate::process::QUESTION).is_some());
         resume::scoped(&doc, loaded.binding.part)
-            || haecceity::pmi::read(&doc, &defs)
-                .is_ok_and(|read| crate::provenance::any_marked(&doc, &read, loaded.binding.part))
+            || haecceity::pmi::read(&doc, &defs).is_ok_and(|read| {
+                crate::provenance::any_marked(&doc, &read, loaded.binding.part, saved_process)
+            })
     };
     if analysis.contains_key("resume") && marked() {
         let base = Value::Object(analysis.clone());
