@@ -109,10 +109,10 @@ A Model Context Protocol server (revisions 2026-07-28 and 2025-11-25) for an LLM
 as Claude Code or Claude Desktop: tools to open a part, answer its questions, review and
 write its PMI. On stdio by default; with --http, Streamable HTTP on 127.0.0.1 with a random
 bearer token printed at start. Open documents and their answers are held in memory and lost
-when the server stops, unless a call names an answers_file. The show tool, which opens the
-Specify page on the same answers, is a preview: until the app is bundled it needs SPECIFY_APP_DIR
-(the built app), and SPECIFY_WASM_DIR (the engine's wasm-pack pkg/) when the engine is not in
-the app's wasm/. See docs/mcp.md.")]
+when the server stops, unless a call names an answers_file. The show tool opens the Specify
+page on the same answers. It downloads and caches the pinned app and its engine on first use.
+Set SPECIFY_APP_DIR to use a local app or SPECIFY_WASM_DIR to use a local wasm-pack pkg/.
+Builds without a pin require a local app. See docs/mcp.md.")]
     Mcp {
         /// serve Streamable HTTP on 127.0.0.1 instead of stdio
         #[arg(long)]
@@ -215,8 +215,10 @@ With --diff OLD NEW the page shows what changed from OLD and starts from the ans
 to NEW (as `specify-core diff` carries them); Save writes NEW. Stops 90 seconds after the last
 page is closed, or after 30 minutes without a request.
 
-Preview: the app is not bundled yet. Pass --app DIR (or set SPECIFY_APP_DIR) to the built app
-and --wasm DIR (or SPECIFY_WASM_DIR) to the engine's wasm-pack pkg/ directory.")]
+On first use, Specify downloads and caches the pinned app and its engine. Use --app DIR
+(or SPECIFY_APP_DIR) for a local app and --wasm DIR (or SPECIFY_WASM_DIR) for a local wasm-pack
+pkg/ directory. Builds without a pin require a local app, which can supply the engine in its
+own wasm/ directory.")]
     Open {
         /// a .step or .stp file, or either gzipped
         #[arg(required_unless_present = "diff", conflicts_with = "diff")]
@@ -239,10 +241,10 @@ and --wasm DIR (or SPECIFY_WASM_DIR) to the engine's wasm-pack pkg/ directory.")
         /// print the address to open instead of opening a browser
         #[arg(long)]
         no_browser: bool,
-        /// the built Specify app (index.html at its root); default $SPECIFY_APP_DIR
+        /// a local Specify app (index.html at its root); overrides SPECIFY_APP_DIR and the pinned app
         #[arg(long, value_name = "DIR")]
         app: Option<PathBuf>,
-        /// the engine's wasm-pack pkg/ directory, served at wasm/; default $SPECIFY_WASM_DIR
+        /// a local wasm-pack pkg/ directory; overrides SPECIFY_WASM_DIR and the default engine
         #[arg(long, value_name = "DIR")]
         wasm: Option<PathBuf>,
     },
