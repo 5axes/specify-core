@@ -190,8 +190,10 @@ cone or floor claimed since).
   again, unless the file contradicts it. Whether an answer writes PMI is found by planning the
   answers as the writer does. The check is deliberately conservative (asking again is better
   than resuming an answer the file says otherwise): a question about faces is contradicted by
-  any requirement on its faces that no stored answer explains, of whatever kind (another
-  tool's thread on a "general" hole, its flatness on datum A against "none"); a part setting
+  any requirement on its faces that no stored answer explains and that is not marked as
+  Specify's, of whatever kind (another tool's thread on a "general" hole, its flatness on
+  datum A against "none"; Specify's own, such as the dimension planner's basic locations, are
+  the answers' to state and never contradict); a part setting
   (notes, coating, heat treatment, ...) by the file's own setting, not marked as Specify's,
   when it is stated and differs (another tool's general note against "no notes"). A
   contradicted answer is a conflict as below (`file` the file's notation, `foreign` when it

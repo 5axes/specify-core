@@ -274,9 +274,15 @@ pub(crate) fn reconcile(
             .flatten()
             .map(|(id, _)| id.clone())
             .collect();
+        // The file's requirements no stored answer explains, and of them those not marked as
+        // Specify's: another tool's, or one the person kept. Specify's own are the answers' to
+        // state (the dimension planner's basic locations among them, which never contradict
+        // an answer).
         let mut rows = crate::revision::scene_items(&file);
         rows.retain(|id, _| !truth.explained.contains(id) && !contested.contains(id));
-        for (id, items) in contradicted(analysis, settings, &stored, &silent, &rows) {
+        let mut foreign = rows.clone();
+        foreign.retain(|id, _| index.get(id).is_some_and(|at| unmarked.contains(at)));
+        for (id, items) in contradicted(analysis, settings, &stored, &silent, &rows, &foreign) {
             truth.conflicts.insert(id, items);
         }
     }
@@ -394,8 +400,8 @@ fn blank(value: &Value) -> bool {
 /// Of the stored answers `silent`, which write no PMI, those the file contradicts, each with
 /// the file's requirements for it (scene id, notation). Conservative: asking again is better
 /// than resuming an answer the file may say otherwise.
-/// - A question about faces: any requirement of the file no stored answer explains (`rows`)
-///   on the question's faces, whatever its kind.
+/// - A question about faces: any requirement of the file no stored answer explains and not
+///   marked as Specify's (`foreign`) on the question's faces, whatever its kind.
 /// - A part setting (`part.notes`, `part.coating`, ...): the file's setting not marked as
 ///   Specify's (`settings`), stated and different from the answer.
 fn contradicted(
@@ -404,6 +410,7 @@ fn contradicted(
     stored: &Map<String, Value>,
     silent: &[&String],
     rows: &BTreeMap<String, (Vec<usize>, String)>,
+    foreign: &BTreeMap<String, (Vec<usize>, String)>,
 ) -> BTreeMap<String, Vec<(String, String)>> {
     let mut out = BTreeMap::new();
     fn stated<'a>(settings: &Map<String, Value>, id: &'a str) -> Option<&'a str> {
@@ -412,7 +419,7 @@ fn contradicted(
             .flatten()
             .filter(|key| settings.get(*key).is_some_and(|v| !blank(v)))
     }
-    if rows.is_empty() && !silent.iter().any(|id| stated(settings, id).is_some()) {
+    if foreign.is_empty() && !silent.iter().any(|id| stated(settings, id).is_some()) {
         return out;
     }
     // The part as Specify asked about it: the file's own PMI does not take questions away,
@@ -459,7 +466,7 @@ fn contradicted(
         if faces.is_empty() {
             continue;
         }
-        let items: Vec<(String, String)> = rows
+        let items: Vec<(String, String)> = foreign
             .iter()
             .filter(|(_, (on, _))| on.iter().any(|f| faces.contains(f)))
             .map(|(row, (_, text))| (row.clone(), text.clone()))

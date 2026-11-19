@@ -37,7 +37,9 @@ building it:
 - **Answers that write no PMI** (maintainer, 2026-11-19): kept with the stored answers and
   resumed, not asked again, where the file has nothing to contradict them; the file is the
   truth for everything it can state. Contradiction is conservative (review, 2026-11-19): any
-  requirement no stored answer explains on the question's faces, of any kind, or for a part
+  requirement no stored answer explains on the question's faces, of any kind, that is not
+  marked as Specify's (the planner's basic locations on datum and hole faces made the alpha.6
+  and alpha.7 files ask their controls again), or for a part
   setting the file's own unmarked setting stated and different; it is then a conflict. An
   earlier version planned the question's first other option and paired its requirements,
   which missed another kind (a thread on a "general" hole) and every free-text or list

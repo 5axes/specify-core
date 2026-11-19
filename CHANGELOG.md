@@ -13,7 +13,8 @@ All notable changes to specify-core-rust. The format follows
   asked again on every reopen. Stored with the answers, they resume (`resume.answers`) where
   the file has nothing to contradict them; whether an answer writes PMI is found by planning
   it as the writer does. A file that states PMI for such a question contradicts it: any
-  requirement no stored answer explains on the question's faces (another tool's flatness on
+  requirement no stored answer explains and Specify did not mark on the question's faces
+  (another tool's flatness on
   datum A against "none", or its thread on a "general" hole), or the file's own part setting
   stated otherwise (another tool's general note against "no notes"). That is a conflict,
   following ADR P9's rules, never resumed silently, and the file's PMI is kept. `write --accept-defaults` (and serve's `write` with
