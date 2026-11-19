@@ -1,6 +1,6 @@
 //! Haecceity's semantic/presentation documents with Specify's interview metadata.
 //! `Scene` caches the parsed source; answering never reloads STEP or geometry.
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use haecceity::{
     json::{self as wire, Semantic, presentation},
@@ -77,6 +77,11 @@ impl Scene {
         characteristics::carries_history(&self.read.parts[self.index], answers)
     }
 
+    pub(crate) fn file_pmi(&self) -> (&PartPmi, BTreeSet<(String, usize)>) {
+        let unmarked = crate::provenance::unmarked(&self.doc, &self.read, self.index);
+        (&self.read.parts[self.index], unmarked.into_iter().collect())
+    }
+
     /// `None` shows only the file; `Some` shows the current answers. Stored origin/source are authoritative when showing the file.
     pub fn scene(
         &self,
@@ -84,7 +89,7 @@ impl Scene {
         analysis: Option<&Value>,
         answers: Option<&Map<String, Value>>,
     ) -> Result<Value, String> {
-        self.scene_mode(loaded, analysis, answers, false)
+        self.scene_mode(loaded, analysis, answers, false, None)
     }
 
     // Revision comparisons need current semantic notation, never stale As Drawn text.
@@ -94,7 +99,18 @@ impl Scene {
         analysis: &Value,
         answers: Option<&Map<String, Value>>,
     ) -> Result<Value, String> {
-        self.scene_mode(loaded, Some(analysis), answers, true)
+        self.scene_mode(loaded, Some(analysis), answers, true, None)
+    }
+
+    /// Compare with the writer's plan, recording which file items it would restate.
+    pub(crate) fn reopening_plan(
+        &self,
+        loaded: &LoadedPart,
+        analysis: &Value,
+        answers: &Map<String, Value>,
+        restated: &mut BTreeSet<(String, usize)>,
+    ) -> Result<Value, String> {
+        self.scene_mode(loaded, Some(analysis), Some(answers), true, Some(restated))
     }
 
     fn scene_mode(
@@ -103,6 +119,7 @@ impl Scene {
         analysis: Option<&Value>,
         answers: Option<&Map<String, Value>>,
         comparison: bool,
+        restated: Option<&mut BTreeSet<(String, usize)>>,
     ) -> Result<Value, String> {
         let before = &self
             .foreign
@@ -120,6 +137,12 @@ impl Scene {
                 }
             };
             let (semantic, metadata, counts) = self.planned(loaded, analysis, answers, foreign)?;
+            if let Some(restated) = restated {
+                restated.extend(resume::truth::restated(
+                    &self.read.parts[self.index],
+                    &semantic.pmi,
+                ));
+            }
             // Reusing a foreign datum does not author a new item or redraw its callout.
             if foreign
                 && semantic.pmi.material.is_none()
@@ -168,11 +191,11 @@ impl Scene {
                 } else {
                     self.file(loaded, None, comparison)?
                 };
-                merge(&mut result, file)?;
+                merge(&mut result, file, comparison)?;
             } else if comparison {
                 // Replace plans rebuild Specify requirements; keep CAD requirements even
                 // when the source also contains saved interview answers.
-                let mut file = self.scene_mode(loaded, Some(analysis), None, true)?;
+                let mut file = self.scene_mode(loaded, Some(analysis), None, true, None)?;
                 let existing: std::collections::BTreeSet<String> = file["specify"]
                     .as_object()
                     .ok_or("invalid metadata")?
@@ -217,7 +240,7 @@ impl Scene {
                 // the same part note differently when the file has extra foreign PMI.
                 file["presentation"]["planes"] = json!([]);
                 file["presentation"]["views"] = json!([]);
-                merge(&mut result, file)?;
+                merge(&mut result, file, comparison)?;
             }
             let original = foreign
                 .then(|| {
@@ -596,8 +619,8 @@ fn part_metadata(
                 {
                     semantic.pmi.attributes[i]
                         .items
-                        .first()
-                        .and_then(|(kind, _)| {
+                        .iter()
+                        .find_map(|(kind, _)| {
                             crate::existing::PART_NOTES
                                 .iter()
                                 .find(|(_, stored)| *stored == kind)
@@ -632,6 +655,13 @@ fn part_metadata(
                     format!("{question}:{index}")
                 } else {
                     question.clone()
+                };
+                // Imported entries can use the same index (or state the same scalar
+                // setting twice). Each still has its own value and provenance.
+                let id = if metadata.contains_key(&id) {
+                    format!("{id}:{i}")
+                } else {
+                    id
                 };
                 let old = std::mem::replace(
                     &mut semantic
@@ -1041,7 +1071,7 @@ fn prune_views(presentation: &mut Value) {
     }
 }
 
-fn merge(target: &mut Value, other: Value) -> Result<(), String> {
+fn merge(target: &mut Value, other: Value, comparison: bool) -> Result<(), String> {
     for (collection, rows) in other["pmi"]["pmi"]
         .as_object()
         .ok_or("invalid PMI document")?
@@ -1123,7 +1153,9 @@ fn merge(target: &mut Value, other: Value) -> Result<(), String> {
                 .ok_or("invalid presentation collection")?;
             for row in rows {
                 if let Some(old) = output.iter().find(|old| old["id"] == row["id"]) {
-                    if old != row {
+                    // A comparison can generate two different layouts for the same
+                    // general-notes block. The combined scene lays it out again.
+                    if old != row && !comparison {
                         return Err(format!("conflicting presentation {field} id {}", row["id"]));
                     }
                 } else {
@@ -1227,7 +1259,7 @@ mod tests {
         };
         let mut scene = document("generated");
         let file = document("file");
-        merge(&mut scene, file.clone()).unwrap();
+        merge(&mut scene, file.clone(), false).unwrap();
         assert_eq!(
             scene["presentation"]["views"],
             file["presentation"]["views"]

@@ -174,9 +174,9 @@ cone or floor claimed since).
   `resume.present: {id: value}`: the file answers the question with its default, so it is
   neither open nor a conflict, it is not repeated in `existing`, and it can still be answered
   otherwise (the answer then replaces it). `resume.answers` stays the stored answers.
-- **Only in the file**, added by another tool (no Specify provenance marker): in
-  `existing`, present and kept, never a conflict. Its question is not asked where the file's
-  PMI already states it.
+- **Only in the file**, added by another tool (no Specify provenance marker), is shown in
+  `existing` and kept. It can contradict a stored answer. Its question is settled wherever
+  the file's PMI already states it.
 - **Specify's own requirement that no stored answer states, stated otherwise than its
   default** (a default another tool changed while keeping Specify's marker, or a requirement
   Specify wrote from an intent rather than from answers): the file answers that question,
@@ -190,15 +190,17 @@ cone or floor claimed since).
   again, unless the file contradicts it. Whether an answer writes PMI is found by planning the
   answers as the writer does. The check is deliberately conservative (asking again is better
   than resuming an answer the file says otherwise): a question about faces is contradicted by
-  any requirement on its faces that no stored answer explains and that is not marked as
-  Specify's, of whatever kind (another tool's thread on a "general" hole, its flatness on
-  datum A against "none"; Specify's own, such as the dimension planner's basic locations, are
-  the answers' to state and never contradict); a part setting
-  (notes, coating, heat treatment, ...) by the file's own setting, not marked as Specify's,
-  when it is stated and differs (another tool's general note against "no notes"). A
-  contradicted answer is a conflict as below (`file` the file's notation, `foreign` when it
-  is another tool's), never resumed silently, and the file's PMI is kept on writing. An
-  answer that wrote PMI the file then removed stays a conflict, "removed in the file".
+  any unexplained requirement on its faces, regardless of provenance. This includes a marked
+  position tolerance against "none" or another tool's thread on a "general" hole. Specify's
+  plain location dimensions are explained when the writer's plan restates their characteristic
+  keys. The same applies to basic locations of features covered by a position tolerance and
+  to locations covered by the file's general tolerance. Older planners represented these with
+  different keys. A stated part setting (notes, coating, heat treatment, ...) contradicts the
+  stored answer when it differs. Provenance is checked per entry, so another tool's general note
+  can contradict "no notes" even alongside a Specify-marked note. Both notes stay in the file.
+  A contradicted answer is a conflict as below (`file` gives the notation and `foreign`
+  identifies a conflict involving another tool's PMI). An answer whose PMI the file removed
+  stays a conflict with `file: null`.
 - **Different, or only in the answers (removed in the file):** a conflict,
   `resume.conflicts: [{id, stored, file}]` (`file` is the file's notation, `null` when the
   file has none), with an analysis warning each. Until it is decided the file's state is
@@ -206,7 +208,8 @@ cone or floor claimed since).
   `question: <id>`; the stored answer is not resumed and the question is not asked.
 
 Part settings (material, general tolerance, finish, coating, heat treatment, edges, notes)
-follow the same rule; a setting in conflict keeps the file's value in `part`.
+follow the same rule. A setting in conflict keeps the file's value in `part`. An unexplained
+entry from another tool can conflict with a stored list even when the other entries match.
 
 When the file's requirement in conflict is another tool's (not marked as Specify's, and not
 one the person kept), the conflict says so (`foreign: true`): no answer replaces it, not even

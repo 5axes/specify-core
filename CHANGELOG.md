@@ -12,12 +12,11 @@ All notable changes to specify-core-rust. The format follows
   tolerances", a hole of "general" function, no flatness or control on a datum) are no longer
   asked again on every reopen. Stored with the answers, they resume (`resume.answers`) where
   the file has nothing to contradict them; whether an answer writes PMI is found by planning
-  it as the writer does. A file that states PMI for such a question contradicts it: any
-  requirement no stored answer explains and Specify did not mark on the question's faces
-  (another tool's flatness on
-  datum A against "none", or its thread on a "general" hole), or the file's own part setting
-  stated otherwise (another tool's general note against "no notes"). That is a conflict,
-  following ADR P9's rules, never resumed silently, and the file's PMI is kept. `write --accept-defaults` (and serve's `write` with
+  it as the writer does. Unexplained PMI on the question's faces conflicts even when Specify
+  marked it, such as a position tolerance against "none". Derived locations remain compatible
+  with legacy files. Part settings compare provenance per entry, so an unmarked general note
+  alongside a marked one conflicts with "no notes" and both notes survive a save.
+  `write --accept-defaults` (and serve's `write` with
   `accept_defaults`), the person's "accept all", now also stores the defaults it takes that
   write no PMI; those that write PMI are still read back from the file (`resume.present`), and
   what is written is unchanged. Approved defaults (the page's Save, MCP) were already stored.

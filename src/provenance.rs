@@ -261,6 +261,16 @@ fn marks(
                 .map(|(i, ids)| (at(collection, i), marked(doc, ids, kind))),
         );
     }
+    out.extend(
+        prov.attributes
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| {
+                let set = &p.attributes[*i];
+                set.on.is_none() && set.name == crate::writer::SEMANTIC_TEXT
+            })
+            .map(|(i, ids)| (at("attributes", i), marked(doc, ids, "attribute"))),
+    );
     if p.material.is_some() {
         out.push((at("material", 0), marked(doc, &prov.material, "material")));
     }

@@ -466,12 +466,8 @@ fn analyse_reconciling(
         let defs =
             haecceity::step::read_part_definitions(&loaded.bytes).map_err(|e| refused(&e))?;
         let reading = existing::read_parsed(loaded, doc, &defs).map_err(|e| refused(&e))?;
-        // The part settings the file states that are not marked as Specify's: another
-        // tool's, which an answer that writes no PMI must agree with.
-        let mut own = reading.settings(loaded);
-        let marked_settings = reading.settings_provenance(loaded);
-        own.retain(|key, _| !marked_settings.contains_key(key));
-        match resume::truth::reconcile(loaded, &base, &features, &own) {
+        let mut settings = reading.settings(loaded);
+        match resume::truth::reconcile(loaded, &base, &features, &settings) {
             Ok(r) => {
                 // Specify's own (marked) requirements the answers do not explain, and that no
                 // question accounts for, are Specify's to state: the rewrite states the part from
@@ -485,7 +481,6 @@ fn analyse_reconciling(
                     "existing".into(),
                     serde_json::to_value(existing).map_err(|e| refused(&e))?,
                 );
-                let mut settings = reading.settings(loaded);
                 let marked = reading.settings_provenance(loaded);
                 let tagged = |key: &str| {
                     let question = format!("part.{key}");
@@ -493,7 +488,12 @@ fn analyse_reconciling(
                         || r.file_answered.contains(&question)
                 };
                 settings.retain(|key, _| {
-                    !r.settings.contains(key) && (!marked.contains_key(key) || tagged(key))
+                    let all_marked = marked.get(key).is_some_and(|value| {
+                        value
+                            .as_array()
+                            .is_none_or(|entries| entries.iter().all(|v| !v.is_null()))
+                    });
+                    !r.settings.contains(key) && (!all_marked || tagged(key))
                 });
                 analysis.insert("part".into(), Value::Object(settings));
                 let resume = analysis

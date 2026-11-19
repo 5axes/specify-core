@@ -142,39 +142,12 @@ pub(crate) fn reconcile(
     };
     // Which of the file's requirements are not marked as Specify's: another tool's, or one the
     // person kept (written unmarked).
-    let unmarked: BTreeSet<(String, usize)> = {
-        let doc =
-            haecceity::p21::Document::parse(loaded.bytes.to_vec()).map_err(|e| e.to_string())?;
-        let defs =
-            haecceity::step::read_part_definitions(&loaded.bytes).map_err(|e| e.to_string())?;
-        let read = haecceity::pmi::read(&doc, &defs).map_err(|e| e.to_string())?;
-        let part = loaded.binding.part;
-        let mut unmarked: BTreeSet<(String, usize)> =
-            crate::provenance::unmarked(&doc, &read, part)
-                .into_iter()
-                .collect();
-        // Part notes and other attributes another tool stated: told apart only in a file
-        // written since Specify marked its attributes as well as its requirements (an Add
-        // write, `pmi_scope`); in an older replace-written file they are Specify's.
-        let scoped = super::scoped(&doc, part);
-        for (i, ids) in read.provenance.parts[part]
-            .attributes
-            .iter()
-            .enumerate()
-            .filter(|_| scoped)
-        {
-            if !super::is_answers(&read.parts[part].attributes[i])
-                && !crate::provenance::marked(&doc, ids, "attribute")
-            {
-                unmarked.insert(("attributes".to_string(), i));
-            }
-        }
-        unmarked
-    };
+    let (part_pmi, unmarked) = scene.file_pmi();
     // A question the person kept earlier (`_specify.keep`, stored with the answers) is the
     // file's whatever its marker: the kept requirement was written unmarked.
     let kept_earlier = kept(&stored);
-    let plan = scene.comparison(loaded, analysis, Some(&stored))?;
+    let mut restated = BTreeSet::new();
+    let plan = scene.reopening_plan(loaded, analysis, &stored, &mut restated)?;
     let mut truth = crate::revision::against_plan(&plan, &file, faces, &stored, &drift);
     // The questions whose answers the plans state PMI for; any other stored answer writes none.
     let mut writes = writing(&plan);
@@ -192,7 +165,7 @@ pub(crate) fn reconcile(
     if let Ok(all) = crate::rules::with_all_defaults(analysis, &unkept)
         && all.len() > stored.len()
     {
-        let planned = scene.comparison(loaded, analysis, Some(&all))?;
+        let planned = scene.reopening_plan(loaded, analysis, &all, &mut restated)?;
         writes.extend(writing(&planned));
         let other = crate::revision::against_plan(&planned, &file, faces, &stored, &drift);
         truth
@@ -266,7 +239,19 @@ pub(crate) fn reconcile(
                 && !truth.conflicts.contains_key(*id)
         })
         .collect();
+    let rows = crate::revision::scene_items(&file);
     if !silent.is_empty() {
+        use haecceity::pmi::{ToleranceKind, ToleranceTarget};
+        let positioned: BTreeSet<usize> = part_pmi
+            .tolerances
+            .iter()
+            .filter(|t| t.kind == ToleranceKind::Position)
+            .filter_map(|t| match t.target {
+                ToleranceTarget::Feature(f) => Some(f),
+                _ => None,
+            })
+            .flat_map(|f| crate::existing::faces_of(part_pmi, &[f]))
+            .collect();
         let contested: BTreeSet<String> = truth
             .conflicts
             .values()
@@ -274,16 +259,54 @@ pub(crate) fn reconcile(
             .flatten()
             .map(|(id, _)| id.clone())
             .collect();
-        // The file's requirements no stored answer explains, and of them those not marked as
-        // Specify's: another tool's, or one the person kept. Specify's own are the answers' to
-        // state (the dimension planner's basic locations among them, which never contradict
-        // an answer).
-        let mut rows = crate::revision::scene_items(&file);
+        let mut rows = rows.clone();
         rows.retain(|id, _| !truth.explained.contains(id) && !contested.contains(id));
-        let mut foreign = rows.clone();
-        foreign.retain(|id, _| index.get(id).is_some_and(|at| unmarked.contains(at)));
-        for (id, items) in contradicted(analysis, settings, &stored, &silent, &rows, &foreign) {
+        let mut face_rows = rows.clone();
+        face_rows.retain(|id, _| {
+            !index.get(id).is_some_and(|at| {
+                at.0 == "dimensions"
+                    && !unmarked.contains(at)
+                    && derived_location(part_pmi, at.1, restated.contains(at), &positioned)
+            })
+        });
+        for (id, items) in contradicted(analysis, settings, &stored, &silent, &rows, &face_rows) {
             truth.conflicts.insert(id, items);
+        }
+    }
+    // A list can also disagree with the file when it writes some entries but leaves
+    // another tool's entry unexplained. Keep the whole setting, including its matched
+    // entries. After the stale answer is dropped on save, its marked entries are still
+    // the file's to keep alongside the unmarked ones.
+    let mut part_rows: BTreeMap<&str, Vec<(String, String)>> = BTreeMap::new();
+    for (id, (_, text)) in &rows {
+        if let Some(key) = setting(id) {
+            part_rows
+                .entry(key)
+                .or_default()
+                .push((id.clone(), text.clone()));
+        }
+    }
+    let is_unmarked = |id: &str| index.get(id).is_some_and(|at| unmarked.contains(at));
+    for (key, mut items) in part_rows {
+        if !items
+            .iter()
+            .any(|(id, _)| is_unmarked(id) && !truth.explained.contains(id))
+        {
+            continue;
+        }
+        let question = format!("part.{key}");
+        if stored.contains_key(&question)
+            && !kept_earlier.contains(question.as_str())
+            && (settings.get(key) != stored.get(&question)
+                || truth.conflicts.contains_key(&question))
+        {
+            truth.explained.retain(|id| setting(id) != Some(key));
+            truth.conflicts.insert(question, items);
+        } else if !stored.contains_key(&question) && !present.contains_key(&question) {
+            items.retain(|(id, _)| !is_unmarked(id) && !truth.explained.contains(id));
+            if !items.is_empty() {
+                file_answered.entry(question).or_default().extend(items);
+            }
         }
     }
     let item = |id: &str| index.get(id).cloned();
@@ -371,6 +394,44 @@ pub(crate) fn reconcile(
     Ok(out)
 }
 
+/// A location the planner measures from the part geometry can share a question's faces
+/// without stating its answer. Older writers emitted separate locations where the current
+/// planner merges them, so those locations need not share a characteristic key.
+fn derived_location(
+    part: &haecceity::pmi::PartPmi,
+    i: usize,
+    restated: bool,
+    positioned: &BTreeSet<usize>,
+) -> bool {
+    use haecceity::pmi::{DimTolerance, DimensionKind, LocationKind};
+    let d = &part.dimensions[i];
+    let DimensionKind::Location {
+        to,
+        kind: LocationKind::LinearDistance,
+        path: None,
+        angle: None,
+        directed: false,
+        ..
+    } = d.kind
+    else {
+        return false;
+    };
+    if !d.modifiers.is_empty() || d.qualifier.is_some() || d.principle.is_some() {
+        return false;
+    }
+    match d.tolerance {
+        DimTolerance::Basic if !restated => {
+            // Legacy files place each hole individually. The basic dimensions define the
+            // true position of the faces covered by the file's position tolerance.
+            let faces = crate::existing::faces_of(part, &[to]);
+            !faces.is_empty() && faces.iter().all(|face| positioned.contains(face))
+        }
+        DimTolerance::Basic => true,
+        DimTolerance::None => restated || !part.general.is_empty(),
+        _ => false,
+    }
+}
+
 /// The questions whose answers `plan`, a comparison scene of answers, states PMI for: a
 /// requirement or part setting tagged with the question, or the material.
 pub(crate) fn writing(plan: &Value) -> BTreeSet<String> {
@@ -400,26 +461,23 @@ fn blank(value: &Value) -> bool {
 /// Of the stored answers `silent`, which write no PMI, those the file contradicts, each with
 /// the file's requirements for it (scene id, notation). Conservative: asking again is better
 /// than resuming an answer the file may say otherwise.
-/// - A question about faces: any requirement of the file no stored answer explains and not
-///   marked as Specify's (`foreign`) on the question's faces, whatever its kind.
-/// - A part setting (`part.notes`, `part.coating`, ...): the file's setting not marked as
-///   Specify's (`settings`), stated and different from the answer.
+/// - A question about faces: any unexplained file requirement on the question's faces.
+/// - A part setting (`part.notes`, `part.coating`, ...): the file's setting, stated and
+///   different from the answer, with each unexplained entry tagged individually.
 fn contradicted(
     analysis: &Value,
     settings: &Map<String, Value>,
     stored: &Map<String, Value>,
     silent: &[&String],
     rows: &BTreeMap<String, (Vec<usize>, String)>,
-    foreign: &BTreeMap<String, (Vec<usize>, String)>,
+    face_rows: &BTreeMap<String, (Vec<usize>, String)>,
 ) -> BTreeMap<String, Vec<(String, String)>> {
     let mut out = BTreeMap::new();
-    fn stated<'a>(settings: &Map<String, Value>, id: &'a str) -> Option<&'a str> {
-        id.starts_with("part.")
-            .then(|| setting(id))
-            .flatten()
-            .filter(|key| settings.get(*key).is_some_and(|v| !blank(v)))
-    }
-    if foreign.is_empty() && !silent.iter().any(|id| stated(settings, id).is_some()) {
+    if rows.is_empty()
+        && !silent
+            .iter()
+            .any(|id| setting(id).is_some_and(|key| settings.get(key).is_some_and(|v| !blank(v))))
+    {
         return out;
     }
     // The part as Specify asked about it: the file's own PMI does not take questions away,
@@ -429,16 +487,16 @@ fn contradicted(
     bare["part"] = Value::Object(Map::new());
     let questions = crate::rules::questions(&bare, stored).unwrap_or_default();
     for id in silent {
-        if let Some(key) = stated(settings, id) {
+        if let Some(key) = setting(id).filter(|key| settings.get(*key).is_some_and(|v| !blank(v))) {
             let actual = &settings[key];
-            if *actual == stored[id.as_str()] {
-                continue;
-            }
             let mut items: Vec<(String, String)> = rows
                 .iter()
                 .filter(|(row, _)| setting(row) == Some(key))
                 .map(|(row, (_, text))| (row.clone(), text.clone()))
                 .collect();
+            if *actual == stored[id.as_str()] && items.len() <= 1 {
+                continue;
+            }
             if items.is_empty() {
                 // No scene item to tag: the setting's value is what the file says.
                 let text = match actual {
@@ -466,7 +524,7 @@ fn contradicted(
         if faces.is_empty() {
             continue;
         }
-        let items: Vec<(String, String)> = foreign
+        let items: Vec<(String, String)> = face_rows
             .iter()
             .filter(|(_, (on, _))| on.iter().any(|f| faces.contains(f)))
             .map(|(row, (_, text))| (row.clone(), text.clone()))

@@ -415,7 +415,8 @@ fn accepted_all() -> (Map<String, Value>, Vec<u8>) {
 /// reopened again.
 fn saved_again(loaded: &LoadedPart, analysis: &Value) -> (LoadedPart, Value) {
     let answers = analysis["resume"]["answers"].as_object().unwrap().clone();
-    let intent = api::apply(analysis, &answers, false).unwrap();
+    let intent = api::apply(analysis, &answers, false)
+        .unwrap_or_else(|e| panic!("{e}\n{}", analysis["resume"]));
     let back = load(
         api::write_bytes(loaded.bytes.to_vec(), &[(intent, Some(answers))])
             .unwrap()
@@ -445,7 +446,7 @@ fn a_marked_position_tolerance_contradicts_stored_none() {
 
     let analysis = api::analyse(&edited).unwrap();
     let resume = &analysis["resume"];
-    let (back, _) = saved_again(&edited, &analysis);
+    let (back, again) = saved_again(&edited, &analysis);
     assert_eq!(positions(&back), [(0.2, true)], "{resume}");
     assert!(resume["answers"].get(hole).is_none(), "{resume}");
     assert!(
@@ -461,58 +462,82 @@ fn a_marked_position_tolerance_contradicts_stored_none() {
                 .any(|id| id == hole),
         "{resume}"
     );
+    let (back, _) = saved_again(&back, &again);
+    assert_eq!(positions(&back), [(0.2, true)]);
 }
 
 #[test]
-fn mixed_provenance_notes_contradict_stored_no_notes() {
-    use haecceity::pmi::{AttributeSet, AttributeValue, PartPmi};
-    let (stored, _) = accepted_all();
+fn mixed_provenance_notes_contradict_the_stored_list() {
+    let (mut stored, _) = accepted_all();
     assert_eq!(stored["part.notes"], json!([]));
     let mut answers = stored.clone();
     answers.insert("part.notes".into(), json!(["KEEP DRY"]));
-    let edited = load(with_foreign(
-        written(&answers, &stored),
+    let notes = json!(["KEEP DRY", "DEBURR ALL OVER"]);
+    for (old, index) in [(json!([]), 2), (json!(["KEEP DRY"]), 1)] {
+        stored.insert("part.notes".into(), old.clone());
+        let edited = load(with_general_note(
+            written(&answers, &stored),
+            "DEBURR ALL OVER",
+            index,
+        ));
+        assert_eq!(
+            specify_core::existing::part_settings(&edited).unwrap()["notes"],
+            notes
+        );
+        let provenance = specify_core::existing::part_settings_provenance(&edited).unwrap();
+        assert!(provenance["notes"][0].is_string());
+        assert!(provenance["notes"][1].is_null());
+
+        let analysis = api::analyse(&edited).unwrap();
+        let resume = &analysis["resume"];
+        let (back, again) = saved_again(&edited, &analysis);
+        assert_eq!(
+            specify_core::existing::part_settings(&back).unwrap()["notes"],
+            notes,
+            "{resume}"
+        );
+        assert_eq!(analysis["part"]["notes"], notes);
+        assert!(resume["answers"].get("part.notes").is_none(), "{resume}");
+        assert!(
+            resume["conflicts"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .any(|c| c["id"] == "part.notes" && c["stored"] == old && c["foreign"] == true),
+            "{resume}"
+        );
+        assert_eq!(again["part"]["notes"], notes, "{}", again["resume"]);
+        let (back, _) = saved_again(&back, &again);
+        assert_eq!(
+            specify_core::existing::part_settings(&back).unwrap()["notes"],
+            notes
+        );
+        assert_eq!(
+            specify_core::existing::part_settings_provenance(&back).unwrap()["notes"],
+            provenance["notes"]
+        );
+    }
+}
+
+fn with_general_note(bytes: Vec<u8>, text: &str, index: i64) -> Vec<u8> {
+    use haecceity::pmi::{AttributeSet, AttributeValue, PartPmi};
+    let note = AttributeSet {
+        name: "semantic text".into(),
+        on: None,
+        items: vec![
+            ("general note".into(), AttributeValue::Text(text.into())),
+            ("note index".into(), AttributeValue::Integer(index)),
+        ],
+        description: None,
+        general_property: None,
+    };
+    with_foreign(
+        bytes,
         PartPmi {
-            attributes: vec![AttributeSet {
-                name: "semantic text".into(),
-                on: None,
-                items: vec![
-                    (
-                        "general note".into(),
-                        AttributeValue::Text("DEBURR ALL OVER".into()),
-                    ),
-                    ("note index".into(), AttributeValue::Integer(2)),
-                ],
-                description: None,
-                general_property: None,
-            }],
+            attributes: vec![note],
             ..Default::default()
         },
-    ));
-    let notes = json!(["KEEP DRY", "DEBURR ALL OVER"]);
-    assert_eq!(
-        specify_core::existing::part_settings(&edited).unwrap()["notes"],
-        notes
-    );
-
-    let analysis = api::analyse(&edited).unwrap();
-    let resume = &analysis["resume"];
-    let (back, _) = saved_again(&edited, &analysis);
-    assert_eq!(
-        specify_core::existing::part_settings(&back).unwrap()["notes"],
-        notes,
-        "{resume}"
-    );
-    assert_eq!(analysis["part"]["notes"], notes);
-    assert!(resume["answers"].get("part.notes").is_none(), "{resume}");
-    assert!(
-        resume["conflicts"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .any(|c| c["id"] == "part.notes" && c["stored"] == json!([]) && c["foreign"] == true),
-        "{resume}"
-    );
+    )
 }
 
 /// "No notes" stored, then another tool adds a general note: the file's note contradicts the
@@ -520,29 +545,9 @@ fn mixed_provenance_notes_contradict_stored_no_notes() {
 /// the file through a save.
 #[test]
 fn another_tools_general_note_contradicts_stored_no_notes() {
-    use haecceity::pmi::{AttributeSet, AttributeValue, PartPmi};
     let (all, bytes) = accepted_all();
     assert_eq!(all["part.notes"], json!([]));
-    let note = AttributeSet {
-        name: "semantic text".into(),
-        on: None,
-        items: vec![
-            (
-                "general note".into(),
-                AttributeValue::Text("DEBURR ALL OVER".into()),
-            ),
-            ("note index".into(), AttributeValue::Integer(1)),
-        ],
-        description: None,
-        general_property: None,
-    };
-    let edited = load(with_foreign(
-        bytes,
-        PartPmi {
-            attributes: vec![note],
-            ..Default::default()
-        },
-    ));
+    let edited = load(with_general_note(bytes, "DEBURR ALL OVER", 1));
     let analysis = api::analyse(&edited).unwrap();
     let resume = &analysis["resume"];
     assert_eq!(

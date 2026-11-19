@@ -30,17 +30,17 @@ building it:
   every rewrite of a defaulted file had to keep it beside the rewritten PMI, which restated
   datums and planner dimensions (characteristic numbering and datum-letter refusals) and lost
   the byte-identical unchanged rewrite. A default the file states differently is `existing`.
-- **Derived basic locations.** The dimension planner's basic location dimensions for an
-  answered question explain the file's equal ones but never make a conflict: how they merge
-  (one location to a hole and a pattern) varies with the other answers and the planner's
-  version, and they state nothing the answer chose.
+- **Derived locations.** The dimension planner can merge locations across several supported
+  faces. Reconciliation recognizes Specify-marked, plain linear locations restated by the
+  writer's plan. It also recognizes basic locations of features covered by position and
+  nominal locations covered by the file's general tolerance. Legacy planners used different
+  keys for these dimensions.
 - **Answers that write no PMI** (maintainer, 2026-11-19): kept with the stored answers and
   resumed, not asked again, where the file has nothing to contradict them; the file is the
-  truth for everything it can state. Contradiction is conservative (review, 2026-11-19): any
-  requirement no stored answer explains on the question's faces, of any kind, that is not
-  marked as Specify's (the planner's basic locations on datum and hole faces made the alpha.6
-  and alpha.7 files ask their controls again), or for a part
-  setting the file's own unmarked setting stated and different; it is then a conflict. An
+  truth for everything it can state. An unexplained requirement on the question's faces can
+  conflict with a stored answer even if Specify wrote the requirement. For part settings,
+  provenance follows each entry. An unmarked note beside a marked note still conflicts with
+  a stored "no notes" answer, and the file keeps both. An
   earlier version planned the question's first other option and paired its requirements,
   which missed another kind (a thread on a "general" hole) and every free-text or list
   setting (another tool's general note was lost). `write --accept-defaults`
