@@ -440,7 +440,7 @@ fn analyse_reconciling(
                 serde_json::to_value(existing).map_err(|e| refused(&e))?,
             );
             analysis.insert("part".into(), Value::Object(settings));
-            crate::process::stated_entries(process, None, &mut analysis);
+            crate::process::stated_entries(reading.process().or(process), None, &mut analysis);
         }
     }
     // ADR P9: on reopening, the PMI is the truth. The stored answers are compared with the

@@ -63,6 +63,8 @@ pub(crate) struct Reconciled {
     pub present: Map<String, Value>,
     /// The process the file states, with the attribute's provenance.
     pub process: Option<crate::bom::Field>,
+    /// The process belongs to another tool, even after its conflict has cleared.
+    pub foreign_process: bool,
 }
 
 impl Reconciled {
@@ -170,7 +172,10 @@ pub(crate) fn reconcile(
                 unmarked.insert(("attributes".to_string(), i));
             }
         }
-        (unmarked, crate::process::indexed_pmi(&read.parts[part]))
+        (
+            unmarked,
+            crate::process::file_pmi(&doc, &read.parts[part], &read.provenance.parts[part]),
+        )
     };
     // A question the person kept earlier (`_specify.keep`, stored with the answers) is the
     // file's whatever its marker: the kept requirement was written unmarked.
@@ -287,17 +292,15 @@ pub(crate) fn reconcile(
     }
     if let Some((i, mut field)) = process {
         let at = ("attributes".to_string(), i);
-        let foreign = unmarked.contains(&at);
         let kept = kept_earlier.contains(question);
-        if !foreign || kept || process_conflict {
+        out.foreign_process = field.source == "file" && !kept;
+        if !out.foreign_process || process_conflict {
             out.contested.insert(at, question.into());
         }
-        if foreign {
-            field.source = "file".into();
-        } else if process_conflict && field.source == "default" {
+        if process_conflict && field.source == "default" {
             field.source = "answered".into();
         }
-        if saved_process.is_none() && (!foreign || kept) && field.source != "default" {
+        if saved_process.is_none() && !out.foreign_process && field.source != "default" {
             out.file_answered.push(question.into());
         }
         out.process = Some(field);
@@ -352,9 +355,10 @@ pub(crate) fn reconcile(
                         .iter()
                         .any(|(at, q)| q == id && unmarked.contains(at)),
             }),
-            None => {
+            None if id != crate::process::QUESTION || !out.foreign_process => {
                 out.answers.insert(id.clone(), answer.clone());
             }
+            None => {}
         }
     }
     for (question, items) in file_answered {
@@ -495,7 +499,7 @@ pub fn answered<'a>(
     let present = analysis["resume"]["present"].as_object();
     let process = crate::process::QUESTION;
     // An old process answer must not drive the rules when the file's foreign process wins.
-    let foreign_process = answers.contains_key(process) && foreign_ids(analysis).contains(process);
+    let foreign_process = answers.contains_key(process) && crate::process::foreign(analysis);
     if !foreign_process && present.is_none_or(|p| p.keys().all(|id| answers.contains_key(id))) {
         return std::borrow::Cow::Borrowed(answers);
     }
@@ -930,6 +934,10 @@ impl Reconciled {
 
     /// Whether `question` is a conflict whose file requirement is another tool's.
     fn is_foreign(&self, question: &str) -> bool {
-        self.conflicts.iter().any(|c| c.id == question && c.foreign)
+        if question == crate::process::QUESTION {
+            self.foreign_process
+        } else {
+            self.conflicts.iter().any(|c| c.id == question && c.foreign)
+        }
     }
 }

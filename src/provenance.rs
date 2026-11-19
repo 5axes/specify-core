@@ -202,17 +202,18 @@ pub fn all(p: &PartPmi, prov: &PartProvenance, doc: &Document) -> bool {
         && p.decimal_places.is_none()
 }
 
-/// Whether any requirement of part `part` carries Specify's provenance marker. A file written
-/// before requirements were marked (#22) has none.
+/// Whether the part has a marked requirement or answers payload. A file written before
+/// provenance marking (#22) has neither. The payload can outlast the last marked requirement.
 pub(crate) fn any_marked(doc: &Document, read: &haecceity::pmi::PmiRead, part: usize) -> bool {
     marks(doc, read, part).iter().any(|(_, marked)| *marked)
-        // The process could have been the only marked requirement before another tool edited
-        // it. A marked answers payload also identifies a modern file in that case.
-        || (crate::process::read_pmi(&read.parts[part]).is_some()
-            && read.parts[part].attributes.iter().enumerate().any(|(i, set)| {
+        || read.parts[part]
+            .attributes
+            .iter()
+            .enumerate()
+            .any(|(i, set)| {
                 crate::resume::is_answers(set)
                     && marked(doc, &read.provenance.parts[part].attributes[i], "attribute")
-            }))
+            })
 }
 
 /// The requirements of part `part` without Specify's provenance marker, by haecceity
@@ -271,7 +272,12 @@ fn marks(
     if p.material.is_some() {
         out.push((at("material", 0), marked(doc, &prov.material, "material")));
     }
-    if let Some((i, _)) = crate::process::indexed_pmi(p) {
+    for (i, _) in p
+        .attributes
+        .iter()
+        .enumerate()
+        .filter(|(_, set)| crate::process::is_process_set(set))
+    {
         out.push((
             at("attributes", i),
             marked(doc, &prov.attributes[i], "attribute"),

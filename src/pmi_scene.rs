@@ -365,12 +365,12 @@ impl Scene {
         if self.reconciling
             && foreign
             && intent.part.contains_key(crate::process::INTENT_KEY)
-            && crate::process::specify_set(before).is_some()
+            && before.attributes.iter().any(crate::process::is_process_set)
         {
             baseline
                 .to_mut()
                 .attributes
-                .retain(|set| set.on.is_some() || set.name != crate::process::PROPERTY);
+                .retain(|set| !crate::process::is_process_set(set));
         }
         let mut p = writer::scene_model(
             loaded,

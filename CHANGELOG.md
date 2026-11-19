@@ -8,8 +8,9 @@ All notable changes to specify-core-rust. The format follows
 
 ### Fixed
 
-- Reopening a STEP file detects manufacturing-process edits that conflict with a saved answer.
-  CLI and editor rewrites preserve the file's process until a permitted replacement is chosen.
+- Reopening a STEP file detects manufacturing-process edits or removals that conflict with a
+  saved answer. CLI and editor rewrites keep foreign process attributes, including values
+  outside Specify's options, and allow explicit replacement of Specify's own process.
 
 ## 0.2.0 (2026-11-19)
 

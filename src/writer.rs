@@ -847,6 +847,19 @@ fn write_verified(
         }
         let payload = match answers {
             Some(answers) => {
+                let part = loaded.binding.part;
+                let reconciliation = reconciled.get(&part);
+                let foreign_process = reconciliation.map_or_else(
+                    || {
+                        crate::process::file_pmi(
+                            &original.doc,
+                            &original.read.parts[part],
+                            &original.read.provenance.parts[part],
+                        )
+                        .is_some_and(|(_, field)| field.source == "file")
+                    },
+                    |r| r.foreign_process,
+                );
                 let mut saved = answers.clone();
                 saved.remove(crate::answer_file::META);
                 saved.remove(crate::characteristics::CARRY);
@@ -854,10 +867,13 @@ fn write_verified(
                 saved.retain(|key, _| !key.starts_with("bom."));
                 // ADR P9: an answer another tool's requirement holds the question against is
                 // not written, so it is not stored either: reopening reads the file's value.
-                if let Some(r) = reconciled.get(&loaded.binding.part) {
+                if let Some(r) = reconciliation {
                     for c in r.conflicts.iter().filter(|c| c.foreign) {
                         saved.remove(&c.id);
                     }
+                }
+                if foreign_process {
+                    saved.remove(crate::process::QUESTION);
                 }
                 let mut payload = resume::payload(loaded, &saved).map_err(failed)?;
                 // Carry blocks on questions not asked now (#126) are kept beside the answers,
@@ -869,9 +885,11 @@ fn write_verified(
                 // ADR P9: conflicts kept are stored beside the answers (a kept requirement is
                 // also written unmarked, as the file's own), so a later answer to the question
                 // still finds the file's requirement it replaces. Answering clears the keep.
+                // A foreign process doesn't acquire that permission when its conflict is kept.
                 let kept: Vec<Json> = resume::truth::kept(answers)
                     .into_iter()
                     .filter(|id| !answers.contains_key(*id))
+                    .filter(|id| !foreign_process || *id != crate::process::QUESTION)
                     .map(Json::from)
                     .collect();
                 if !kept.is_empty() {
@@ -3439,26 +3457,21 @@ fn part_pmi_observed(
             ));
         }
         let suggested = truthy(intent.part.get(crate::process::INTENT_DEFAULT_KEY));
-        // One set per part. Add mode keeps the file's PMI, Specify's own set among it when no
-        // answers were stored to scope it, so the same process is not written again and
-        // another is refused rather than written beside it.
-        let old = crate::process::specify_set(before).filter(|_| add);
-        let write = match old {
-            Some(old) if old == process => {
-                lines.warnings.push(format!(
-                    "process {process} is already stated in the file; not written again"
-                ));
-                false
-            }
-            Some(old) => {
+        // Add retains the source's process UDA. Accept an equal intent without writing a
+        // second UDA, and refuse a contradictory direct intent that bypassed the rules.
+        if add && before.attributes.iter().any(crate::process::is_process_set) {
+            let old = crate::process::indexed_pmi(before, true);
+            let old = old.as_ref().and_then(|(_, field)| field.value.as_str());
+            if old != Some(process) {
+                let old = old.unwrap_or("with an unsupported value");
                 return invalid(format!(
-                    "the part already states process {old}, written without stored answers, \
-                     so it cannot be replaced; adding {process} would give it two"
+                    "the part already states process {old}; adding {process} would give it two"
                 ));
             }
-            None => true,
-        };
-        if write {
+            lines.warnings.push(format!(
+                "process {process} is already stated in the file; not written again"
+            ));
+        } else {
             p.attributes
                 .push(crate::process::attribute_set(process, suggested));
             lines.written.push(format!(

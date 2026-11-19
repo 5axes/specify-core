@@ -300,6 +300,11 @@ impl Reading {
         &self.pmi
     }
 
+    /// The part's process in the file, including its authorship.
+    pub(crate) fn process(&self) -> Option<crate::bom::Field> {
+        crate::process::file_pmi(&self.doc, &self.pmi, &self.provenance).map(|(_, field)| field)
+    }
+
     /// The semantic PMI the file states on the part, as [`read_existing`]; `loaded` is the part
     /// this reading is of. A tolerance citing a datum the reader does not hold is refused, not
     /// listed without it.
