@@ -6,7 +6,7 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
-## 0.1.19 (2026-11-19)
+## 0.2.0 (2026-11-19)
 
 Read first:
 
