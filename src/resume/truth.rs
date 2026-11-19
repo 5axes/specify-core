@@ -19,7 +19,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use serde::Serialize;
-use serde_json::{Map, Value};
+use serde_json::{Map, Value, json};
 
 use crate::part::LoadedPart;
 use crate::pmi_scene::Scene;
@@ -61,6 +61,12 @@ pub(crate) struct Reconciled {
     /// Questions not stored as answers whose defaults the file states, with those defaults:
     /// present in the file, so answered by it (`resume.present`).
     pub present: Map<String, Value>,
+    /// The process the file states, with the attribute's provenance.
+    pub process: Option<crate::bom::Field>,
+    /// The attribute index and identity for a process Specify may keep as replaceable.
+    pub process_keep_identity: Option<(usize, Value)>,
+    /// The process belongs to another tool, even after its conflict has cleared.
+    pub foreign_process: bool,
 }
 
 impl Reconciled {
@@ -109,7 +115,8 @@ pub(crate) fn reconcile(
         .as_object()
         .cloned()
         .unwrap_or_default();
-    let scene = Scene::with(loaded, Some(features))?;
+    let kept_earlier = kept(&stored);
+    let scene = Scene::for_resume(loaded, features)?;
     let (file, index) = scene.file_comparison(loaded, analysis)?;
     let faces = loaded.binding.face_count;
     // What the answers write: their preview (defaults left as suggestions), as the editor
@@ -141,7 +148,7 @@ pub(crate) fn reconcile(
     };
     // Which of the file's requirements are not marked as Specify's: another tool's, or one the
     // person kept (written unmarked).
-    let unmarked: BTreeSet<(String, usize)> = {
+    let (unmarked, process, kept_process) = {
         let doc =
             haecceity::p21::Document::parse(loaded.bytes.to_vec()).map_err(|e| e.to_string())?;
         let defs =
@@ -152,27 +159,39 @@ pub(crate) fn reconcile(
             crate::provenance::unmarked(&doc, &read, part)
                 .into_iter()
                 .collect();
-        // Part notes and other attributes another tool stated: told apart only in a file
-        // written since Specify marked its attributes as well as its requirements (an Add
-        // write, `pmi_scope`); in an older replace-written file they are Specify's.
-        let scoped = super::scoped(&doc, part);
+        let pmi = &read.parts[part];
+        // Process answers and attributes also identify files whose property links carry
+        // provenance when authored by Specify.
+        let marked_attributes = super::scoped(&doc, part)
+            || stored.contains_key(crate::process::QUESTION)
+            || pmi.attributes.iter().any(crate::process::is_process_set);
         for (i, ids) in read.provenance.parts[part]
             .attributes
             .iter()
             .enumerate()
-            .filter(|_| scoped)
+            .filter(|_| marked_attributes)
         {
-            if !super::is_answers(&read.parts[part].attributes[i])
+            if !super::is_answers(&pmi.attributes[i])
                 && !crate::provenance::marked(&doc, ids, "attribute")
             {
                 unmarked.insert(("attributes".to_string(), i));
             }
         }
-        unmarked
+        let kept_process = if kept_earlier.contains(crate::process::QUESTION) {
+            super::stored_in(&doc)
+                .remove(&part)
+                .and_then(|mut payload| payload.remove(super::KEPT_PROCESS))
+        } else {
+            None
+        };
+        let process =
+            crate::process::file_pmi(&doc, pmi, &read.provenance.parts[part]).map(|(i, field)| {
+                let set = &pmi.attributes[i];
+                let identity = json!({"name": set.name, "items": set.items});
+                (i, field, identity)
+            });
+        (unmarked, process, kept_process)
     };
-    // A question the person kept earlier (`_specify.keep`, stored with the answers) is the
-    // file's whatever its marker: the kept requirement was written unmarked.
-    let kept_earlier = kept(&stored);
     let plan = scene.comparison(loaded, analysis, Some(&stored))?;
     let mut truth = crate::revision::against_plan(&plan, &file, faces, &stored, &drift);
     let mut present = Map::new();
@@ -267,6 +286,40 @@ pub(crate) fn reconcile(
         }
         conflicts.insert(question.clone(), (!items.is_empty()).then_some(texts));
     }
+    // Process affects the questions themselves and has no graphical requirement to match.
+    // Compare its selected attribute directly and keep its index for the normal write rules.
+    let question = crate::process::QUESTION;
+    let saved_process = stored.get(question).filter(|_| {
+        crate::rules::Ctx::new(analysis).is_ok_and(|ctx| crate::process::applies(&ctx, &stored))
+    });
+    let file_process = process.as_ref().map(|(_, field, _)| &field.value);
+    let process_conflict = saved_process.is_some() && saved_process != file_process;
+    if process_conflict {
+        conflicts.insert(
+            question.into(),
+            file_process
+                .and_then(Value::as_str)
+                .map(|text| vec![text.into()]),
+        );
+    }
+    if let Some((i, mut field, identity)) = process {
+        let at = ("attributes".to_string(), i);
+        let kept = kept_process.as_ref() == Some(&identity);
+        out.foreign_process = field.source == "file" && !kept;
+        if !out.foreign_process {
+            out.process_keep_identity = Some((i, identity));
+        }
+        if !out.foreign_process || process_conflict {
+            out.contested.insert(at, question.into());
+        }
+        if process_conflict && field.source == "default" {
+            field.source = "answered".into();
+        }
+        if saved_process.is_none() && !out.foreign_process && field.source != "default" {
+            out.file_answered.push(question.into());
+        }
+        out.process = Some(field);
+    }
     // Part settings: each is one scene item named by its question (notes one per note).
     let mut settings: BTreeMap<&str, bool> = BTreeMap::new();
     for id in file["specify"]
@@ -311,15 +364,32 @@ pub(crate) fn reconcile(
                 file: file.as_ref().map(|texts| texts.join("; ")),
                 // Another tool's requirement (not marked as Specify's, and not one the person
                 // kept): an answer never overrides it unasked; only keeping decides.
-                foreign: !kept_earlier.contains(id.as_str())
-                    && out
-                        .contested
-                        .iter()
-                        .any(|(at, q)| q == id && unmarked.contains(at)),
+                foreign: if id == question {
+                    out.foreign_process
+                } else {
+                    !kept_earlier.contains(id.as_str())
+                        && out
+                            .contested
+                            .iter()
+                            .any(|(at, q)| q == id && unmarked.contains(at))
+                },
             }),
-            None => {
+            None if id != crate::process::QUESTION || !out.foreign_process => {
                 out.answers.insert(id.clone(), answer.clone());
             }
+            None => {}
+        }
+    }
+    if out.foreign_process
+        && let Some(Value::Object(meta)) = out.answers.get_mut(crate::answer_file::META)
+        && let Some(Value::Array(ids)) = meta.get_mut(KEEP)
+    {
+        ids.retain(|id| id != question);
+        if ids.is_empty() {
+            meta.remove(KEEP);
+        }
+        if meta.is_empty() {
+            out.answers.remove(crate::answer_file::META);
         }
     }
     for (question, items) in file_answered {
@@ -457,17 +527,21 @@ pub fn answered<'a>(
     analysis: &Value,
     answers: &'a Map<String, Value>,
 ) -> std::borrow::Cow<'a, Map<String, Value>> {
-    let Some(present) = analysis["resume"]["present"].as_object() else {
-        return std::borrow::Cow::Borrowed(answers);
-    };
-    if present.keys().all(|id| answers.contains_key(id)) {
+    let present = analysis["resume"]["present"].as_object();
+    let process = crate::process::QUESTION;
+    // An old process answer must not drive the rules when the file's foreign process wins.
+    let foreign_process = answers.contains_key(process) && crate::process::foreign(analysis);
+    if !foreign_process && present.is_none_or(|p| p.keys().all(|id| answers.contains_key(id))) {
         return std::borrow::Cow::Borrowed(answers);
     }
     let mut out = answers.clone();
-    for (id, value) in present {
+    for (id, value) in present.into_iter().flatten() {
         if !out.contains_key(id) {
             out.insert(id.clone(), value.clone());
         }
+    }
+    if foreign_process {
+        out.remove(process);
     }
     std::borrow::Cow::Owned(out)
 }
@@ -518,6 +592,7 @@ impl Reconciled {
         &self,
         pmi: &haecceity::pmi::PartPmi,
         answers: &Map<String, Value>,
+        writes_process: bool,
         restated: &BTreeSet<(String, usize)>,
     ) -> BTreeSet<(String, usize)> {
         use haecceity::pmi::NoteOwner;
@@ -528,9 +603,10 @@ impl Reconciled {
             let at = (collection.to_string(), i);
             !self.explained.contains(&at)
                 && !restated.contains(&at)
-                && self.contested.get(&at).is_some_and(|question| {
-                    !answers.contains_key(question) || self.is_foreign(question)
-                })
+                && self
+                    .contested
+                    .get(&at)
+                    .is_some_and(|question| !self.replaces(question, answers, writes_process))
         };
         let mut out = BTreeSet::new();
         let lengths = [
@@ -854,12 +930,13 @@ impl Reconciled {
         &self,
         pmi: &haecceity::pmi::PartPmi,
         answers: &Map<String, Value>,
+        writes_process: bool,
     ) -> BTreeSet<(String, usize)> {
         use haecceity::pmi::NoteOwner;
         let mut out: BTreeSet<(String, usize)> = self
             .contested
             .iter()
-            .filter(|(_, question)| answers.contains_key(*question) && !self.is_foreign(question))
+            .filter(|(_, question)| self.replaces(question, answers, writes_process))
             .map(|(at, _)| at.clone())
             .collect();
         for (i, set) in pmi.attributes.iter().enumerate() {
@@ -877,8 +954,21 @@ impl Reconciled {
 }
 
 impl Reconciled {
+    fn replaces(&self, question: &str, answers: &Map<String, Value>, writes_process: bool) -> bool {
+        let answered = if question == crate::process::QUESTION {
+            writes_process
+        } else {
+            answers.contains_key(question)
+        };
+        answered && !self.is_foreign(question)
+    }
+
     /// Whether `question` is a conflict whose file requirement is another tool's.
     fn is_foreign(&self, question: &str) -> bool {
-        self.conflicts.iter().any(|c| c.id == question && c.foreign)
+        if question == crate::process::QUESTION {
+            self.foreign_process
+        } else {
+            self.conflicts.iter().any(|c| c.id == question && c.foreign)
+        }
     }
 }
