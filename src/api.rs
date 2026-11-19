@@ -53,6 +53,20 @@ pub enum Error {
     Rules(rules::Error),
     /// Nothing was written (see [`WriteError`] for which kinds are the caller's fault).
     Write(WriteError),
+    /// A default approved that is not an open question with a default, or whose value is no
+    /// longer the default (ADR P9).
+    Unapproved(Unapproved),
+}
+
+/// A default approved that is not an open question with a default on its part, or, with
+/// `values` (the value approved, the default now), one whose default has changed since the
+/// person saw it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Unapproved {
+    pub message: String,
+    pub part: usize,
+    pub question: String,
+    pub values: Option<Box<(Value, Value)>>,
 }
 
 impl fmt::Display for Error {
@@ -62,6 +76,7 @@ impl fmt::Display for Error {
             Error::Analysis(why) => f.write_str(why),
             Error::Rules(e) => e.fmt(f),
             Error::Write(e) => e.fmt(f),
+            Error::Unapproved(e) => f.write_str(&e.message),
         }
     }
 }
@@ -73,6 +88,7 @@ impl std::error::Error for Error {
             Error::Analysis(_) => None,
             Error::Rules(e) => Some(e),
             Error::Write(e) => Some(e),
+            Error::Unapproved(_) => None,
         }
     }
 }
@@ -595,30 +611,137 @@ pub fn apply(
     )?)
 }
 
-/// Complete, editable answer file for this part, without writing STEP. Accepts defaults to
-/// a fixed point and refuses missing answers (including carry blocks). Verify both the
-/// analysis binding and any supplied evidence before attaching fresh evidence: an export
-/// must never turn stale indices into apparently verified answers.
+/// Approved defaults by part (ADR P9): each question id with the default value the person saw.
+pub type Approved = std::collections::BTreeMap<usize, Map<String, Value>>;
+
+/// Approved defaults as given on the wire: `{"<part index>": {"<question id>": <value>, ...}}`
+/// (`{}` for none). None for anything else.
+pub fn approvals(value: &Value) -> Option<Approved> {
+    value
+        .as_object()?
+        .iter()
+        .map(|(k, ids)| Some((k.parse().ok()?, ids.as_object()?.clone())))
+        .collect()
+}
+
+/// What [`approvals`] takes, for a refusal's message.
+pub const APPROVALS_FORM: &str = "{\"<part>\": {\"<question id>\": <default value the person \
+                                  saw>}} for exactly the defaults the person approved ({} for none)";
+
+/// Part `part`'s `answers` with the defaults `approved` for it taken, all checked first
+/// against the defaults as they stand with `answers` (ADR P9): each id must be an open
+/// question with a default, and its value that default (the one the person saw), else refused
+/// ([`Error::Unapproved`]) naming it. Taken together, so no approval changes another's value.
+/// The page's Save, MCP's `write_pmi` and `export_answers`, and [`export_answers`].
+pub fn with_approved(
+    analysis: &Value,
+    answers: &Map<String, Value>,
+    part: usize,
+    approved: &Map<String, Value>,
+) -> Result<Map<String, Value>> {
+    if approved.is_empty() {
+        return Ok(answers.clone());
+    }
+    let qs = questions(analysis, answers)?;
+    let open = rules::open_questions(&qs, answers);
+    for (id, value) in approved {
+        let current = open
+            .iter()
+            .find(|q| q.id == *id)
+            .and_then(|q| q.default.clone());
+        let refused = |message: String, values| {
+            Err(Error::Unapproved(Unapproved {
+                message,
+                part,
+                question: id.clone(),
+                values,
+            }))
+        };
+        match current {
+            None => {
+                return refused(
+                    format!(
+                        "part {part}: {id} is not an open question with a default: approve \
+                         only the defaults offered"
+                    ),
+                    None,
+                );
+            }
+            Some(current) if current != *value => {
+                return refused(
+                    format!(
+                        "part {part}: {id}'s default is now {current}, not the {value} \
+                         approved: show it and approve again"
+                    ),
+                    Some(Box::new((value.clone(), current))),
+                );
+            }
+            Some(_) => {}
+        }
+    }
+    let mut taken = answers.clone();
+    taken.extend(approved.clone());
+    Ok(taken)
+}
+
+/// An exported answer map and the questions still open in it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Exported {
+    /// The answers given, the defaults approved, `_specify` (face evidence, carry blocks still
+    /// unresolved, and `sources`: the rule behind each approved default), sorted.
+    pub answers: Map<String, Value>,
+    /// The questions still open, which the answers do not settle.
+    pub missing: Vec<String>,
+}
+
+impl Exported {
+    /// No question is left open.
+    pub fn complete(&self) -> bool {
+        self.missing.is_empty()
+    }
+}
+
+/// An editable answer file for this part, without writing STEP: what is answered, plus
+/// exactly the defaults `approved` for this part (by part index; another part's approvals do
+/// not apply), each checked against the default as it stands ([`with_approved`]). Never every
+/// default (ADR P9): with no approvals, no defaults. Open questions do not refuse it (incomplete
+/// is normal) and are reported in `missing`; a carry block on an open question is kept in
+/// `_specify.unresolved`. Verify both the analysis binding and any supplied evidence before
+/// attaching fresh evidence: an export must never turn stale indices into apparently verified
+/// answers.
 pub fn export_answers(
     loaded: &LoadedPart,
     analysis: &Value,
     answers: &Map<String, Value>,
-) -> Result<Map<String, Value>> {
+    approved: &Approved,
+) -> Result<Exported> {
     crate::answer_file::check(loaded, answers)
         .map_err(|why| Error::Rules(rules::Error::Invalid(why)))?;
-    let mut complete = rules::with_all_defaults(analysis, answers)?;
-    let intent = rules::apply(analysis, &complete)?;
-    writer::check_binding(loaded, &intent)?;
-    let sources = rules::answered_sources(&questions(analysis, &complete)?, &complete);
-    crate::answer_file::attach(loaded, &mut complete, answers, std::iter::empty())
+    // Validates the answers, before any approval is read against them.
+    questions(analysis, answers)?;
+    let none = Map::new();
+    let wanted = approved.get(&loaded.binding.part).unwrap_or(&none);
+    let taken = with_approved(analysis, answers, loaded.binding.part, wanted)?;
+    writer::check_binding(loaded, &rules::preview(analysis, &taken)?)?;
+    let qs = questions(analysis, &taken)?;
+    let missing = rules::open_questions(&qs, &taken)
+        .iter()
+        .map(|q| q.id.clone())
+        .collect();
+    let sources = rules::answered_sources(&qs, &taken);
+    let mut out = taken.clone();
+    crate::answer_file::attach(loaded, &mut out, &taken, std::iter::empty())
         .map_err(|why| Error::Rules(rules::Error::Invalid(why)))?;
     // attach() has just set the metadata object; its sources are output only.
-    complete[crate::answer_file::META]["sources"] = Value::Object(sources);
+    out[crate::answer_file::META]["sources"] = Value::Object(sources);
     // Sort objects recursively, including caller-supplied extra requirements. Arrays keep
     // their semantic order (datum precedence, feature members, and note sequences).
-    let mut value = Value::Object(complete);
+    let mut value = Value::Object(out);
     value.sort_all_objects();
-    Ok(value.as_object().expect("constructed an object").clone())
+    Ok(Exported {
+        answers: value.as_object().expect("constructed an object").clone(),
+        missing,
+    })
 }
 
 /// For each answer that is its question's default, the rule behind it

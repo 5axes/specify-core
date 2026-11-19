@@ -37,6 +37,31 @@ fn export(step: &Path, analysis: &Path, answers: &Path) -> Output {
         path(step),
     ])
 }
+fn export_approving(step: &Path, analysis: &Path, answers: &Path, approved: &Path) -> Output {
+    run(&[
+        "questions",
+        path(analysis),
+        "--answers",
+        path(answers),
+        "--resolve-defaults",
+        "--step",
+        path(step),
+        "--accept-defaults",
+        path(approved),
+    ])
+}
+/// Every default `with_all_defaults` takes for `given`, approved for part 0 with its value:
+/// what a person who saw and confirmed the whole list would send.
+fn every_default(analysis: &Value, given: &Value) -> Value {
+    let mut all = rules::with_all_defaults(analysis, &map(given)).unwrap();
+    all.retain(|id, _| !map(given).contains_key(id));
+    json!({"0": all})
+}
+fn plain(exported: &Map<String, Value>) -> Map<String, Value> {
+    let mut plain = exported.clone();
+    plain.remove("_specify");
+    plain
+}
 fn succeeded(out: Output) -> Vec<u8> {
     assert!(
         out.status.success(),
@@ -71,10 +96,13 @@ fn cli_complete_export_roundtrips_semantic_pmi_and_carries_to_changed_geometry()
     let a = dir.join("analysis.json");
     let answers = dir.join("given.json");
     let sidecar = dir.join("exported.json");
+    let approvals = dir.join("approved.json");
     let given = json!({"part.material":"6061-T6", "datum.A":[4], "datum.B":[1], "datum.C":[0]});
     save(&a, &analysis);
     save(&answers, &given);
-    let bytes = succeeded(export(&old, &a, &answers));
+    // Every default, each approved (ADR P9): the same answers `write --accept-defaults` takes.
+    save(&approvals, &every_default(&analysis, &given));
+    let bytes = succeeded(export_approving(&old, &a, &answers, &approvals));
     let exported: Value = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(
         exported["_specify"]["evidence"],
@@ -93,7 +121,10 @@ fn cli_complete_export_roundtrips_semantic_pmi_and_carries_to_changed_geometry()
             .unwrap()
             .is_empty()
     );
-    assert_eq!(bytes, succeeded(export(&old, &a, &answers)));
+    assert_eq!(
+        bytes,
+        succeeded(export_approving(&old, &a, &answers, &approvals))
+    );
     assert_eq!(bytes.last(), Some(&b'\n'));
     assert_eq!(
         bytes,
@@ -173,14 +204,21 @@ fn cli_complete_export_roundtrips_semantic_pmi_and_carries_to_changed_geometry()
             .unwrap()
             .contains("no match")
     );
-    refused(
-        export(&new, &new_analysis, &changes.join("answers.json")),
-        "datum.A (carried answer could not be applied:",
+    // Incomplete is normal: the carry block is kept for the person, its question open.
+    let out = export(&new, &new_analysis, &changes.join("answers.json"));
+    assert!(String::from_utf8_lossy(&out.stderr).contains("datum.A"));
+    let kept: Value = serde_json::from_slice(&succeeded(out)).unwrap();
+    assert!(
+        kept["_specify"]["unresolved"]["datum.A"]
+            .as_str()
+            .unwrap()
+            .contains("no match")
     );
+    assert!(kept.get("datum.A").is_none());
 }
 
 #[test]
-fn export_refuses_incomplete_stale_and_mismatched_inputs_without_restamping() {
+fn export_keeps_incomplete_answers_and_refuses_stale_and_mismatched_inputs() {
     let dir = scratch("refusals");
     let old = fixture("revisions/plate_split.old.step.gz");
     let new = fixture("revisions/plate_split.new.step.gz");
@@ -190,13 +228,18 @@ fn export_refuses_incomplete_stale_and_mismatched_inputs_without_restamping() {
     let answers = dir.join("answers.json");
     save(&a, &analysis);
     save(&answers, &json!({}));
-    refused(export(&old, &a, &answers), "part.material");
+    // Nothing given, nothing approved: no defaults, and what is open said on stderr.
+    let out = export(&old, &a, &answers);
+    assert!(String::from_utf8_lossy(&out.stderr).contains("part.material"));
+    let exported: Value = serde_json::from_slice(&succeeded(out)).unwrap();
+    assert_eq!(plain(&map(&exported)), Map::new());
     let mut given =
         json!({"part.material":"steel", "_specify":{"unresolved":{"datum.A":"review the split"}}});
     save(&answers, &given);
-    refused(
-        export(&old, &a, &answers),
-        "datum.A (carried answer could not be applied: review the split)",
+    let exported: Value = serde_json::from_slice(&succeeded(export(&old, &a, &answers))).unwrap();
+    assert_eq!(
+        exported["_specify"]["unresolved"],
+        json!({"datum.A": "review the split"})
     );
     given["datum.A"] = json!([4]);
     save(&answers, &given);
@@ -219,7 +262,7 @@ fn export_refuses_incomplete_stale_and_mismatched_inputs_without_restamping() {
 }
 
 #[test]
-fn serve_exports_the_same_map_and_preserves_carry_refusals() {
+fn serve_exports_approved_defaults_only_and_keeps_carry_blocks() {
     let old = part::load(&fixture("revisions/plate_split.old.step.gz"), None).unwrap();
     let new = part::load(&fixture("revisions/plate_split.new.step.gz"), None).unwrap();
     let mut server = Server::default();
@@ -234,20 +277,156 @@ fn serve_exports_the_same_map_and_preserves_carry_refusals() {
         saved["_specify"]["evidence"],
         resume::evidence(&old).unwrap()
     );
-    let mut plain = saved.clone();
-    plain.remove("_specify");
+    // No approvals, no defaults (ADR P9); what is open is said.
+    assert_eq!(plain(&saved), map(&given));
+    assert_eq!(reply["result"]["complete"], false);
+    assert!(
+        reply["result"]["missing"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("datum.B"))
+    );
+    // Every default approved, by part: what `write` with accept_defaults takes.
+    let approved = server.reply(&json!({"op":"export_answers", "step":old.path,
+        "analysis":analysis, "answers":given, "accept_defaults": every_default(&analysis, &given)}));
+    assert_eq!(approved["ok"], true, "{approved}");
+    assert_eq!(approved["result"]["complete"], true);
+    assert_eq!(approved["result"]["missing"], json!([]));
+    let saved = map(&approved["result"]["answers"]);
     assert_eq!(
-        plain,
+        plain(&saved),
         rules::with_all_defaults(&analysis, &map(&given)).unwrap()
     );
-    let carried = revision::diff(&old, &new, &saved).unwrap();
-    let refused = server.reply(&json!({"op":"export_answers", "step":new.path, "analysis":api::analyse(&new).unwrap(), "answers":carried.answers}));
-    assert_eq!(refused["ok"], false);
-    assert!(
-        refused
-            .to_string()
-            .contains("carried answer could not be applied")
+    // A default approved with a value it no longer has is refused, naming both.
+    let questions = api::questions(&analysis, &map(&given)).unwrap();
+    let tolerance = questions
+        .iter()
+        .find(|q| q.id == "part.general_tolerance")
+        .unwrap();
+    let stale = server.reply(&json!({"op":"export_answers", "step":old.path,
+        "analysis":analysis, "answers":given,
+        "accept_defaults": {"0": {"part.general_tolerance": "not what was offered"}}}));
+    assert_eq!(stale["ok"], false);
+    assert_eq!(stale["error"]["code"], "invalid");
+    assert_eq!(stale["error"]["part"], 0);
+    assert_eq!(stale["error"]["question"], "part.general_tolerance");
+    assert_eq!(stale["error"]["expected"], "not what was offered");
+    assert_eq!(
+        stale["error"]["current"],
+        *tolerance.default.as_ref().unwrap()
     );
+    let malformed = server.reply(&json!({"op":"export_answers", "step":old.path,
+        "analysis":analysis, "answers":given, "accept_defaults": true}));
+    assert_eq!(malformed["error"]["code"], "invalid");
+    // A carry block no longer refuses the export: it is kept, its question open.
+    let carried = revision::diff(&old, &new, &saved).unwrap();
+    let kept = server.reply(&json!({"op":"export_answers", "step":new.path, "analysis":api::analyse(&new).unwrap(), "answers":carried.answers}));
+    assert_eq!(kept["ok"], true, "{kept}");
+    assert!(
+        kept["result"]["missing"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("datum.A"))
+    );
+    assert!(
+        kept["result"]["answers"]["_specify"]["unresolved"]["datum.A"]
+            .as_str()
+            .unwrap()
+            .contains("no match")
+    );
+}
+
+/// ADR P9: an export takes exactly the defaults approved for its part, with the values the
+/// person saw. None approved, none taken; a value that changed, refused; another part's
+/// approval does not apply.
+#[test]
+fn export_takes_only_the_defaults_approved_for_its_part() {
+    let loaded = part::load(&fixture("revisions/plate_split.old.step.gz"), None).unwrap();
+    let analysis = api::analyse(&loaded).unwrap();
+    let given = map(&json!({"part.material":"steel"}));
+    let offered = api::questions(&analysis, &given).unwrap();
+    let default = |id: &str| {
+        offered
+            .iter()
+            .find(|q| q.id == id)
+            .and_then(|q| q.default.clone())
+            .unwrap()
+    };
+    let tolerance = default("part.general_tolerance");
+    let approve = |part: usize, value: Value| {
+        api::Approved::from([(part, map(&json!({"part.general_tolerance": value})))])
+    };
+
+    let none = api::export_answers(&loaded, &analysis, &given, &api::Approved::new()).unwrap();
+    assert_eq!(plain(&none.answers), given);
+    assert!(!none.complete());
+    assert!(none.missing.contains(&"part.general_tolerance".to_string()));
+
+    let one =
+        api::export_answers(&loaded, &analysis, &given, &approve(0, tolerance.clone())).unwrap();
+    let mut expected = given.clone();
+    expected.insert("part.general_tolerance".into(), tolerance.clone());
+    assert_eq!(
+        plain(&one.answers),
+        expected,
+        "the approved default, and no other"
+    );
+    assert!(!one.missing.contains(&"part.general_tolerance".to_string()));
+    assert_eq!(
+        one.answers["_specify"]["sources"]["part.general_tolerance"]["rule"],
+        "part.general_tolerance.machined"
+    );
+
+    match api::export_answers(&loaded, &analysis, &given, &approve(0, json!("ISO 2768-c"))) {
+        Err(api::Error::Unapproved(u)) => {
+            assert_eq!((u.part, u.question.as_str()), (0, "part.general_tolerance"));
+            assert_eq!(*u.values.unwrap(), (json!("ISO 2768-c"), tolerance.clone()));
+        }
+        other => panic!("a changed default must be refused: {other:?}"),
+    }
+    match api::export_answers(
+        &loaded,
+        &analysis,
+        &given,
+        &api::Approved::from([(0, map(&json!({"part.material": "steel"})))]),
+    ) {
+        Err(api::Error::Unapproved(u)) => assert!(u.values.is_none()),
+        other => panic!("an approval of no open default must be refused: {other:?}"),
+    }
+
+    let elsewhere =
+        api::export_answers(&loaded, &analysis, &given, &approve(1, tolerance)).unwrap();
+    assert_eq!(
+        elsewhere, none,
+        "part 1's approval does not apply to part 0"
+    );
+}
+
+#[test]
+fn cli_refuses_a_changed_default_and_malformed_approvals() {
+    let dir = scratch("cli-approvals");
+    let old = fixture("revisions/plate_split.old.step.gz");
+    let a = dir.join("analysis.json");
+    let answers = dir.join("answers.json");
+    let approvals = dir.join("approved.json");
+    save(&a, &api::analyse(&part::load(&old, None).unwrap()).unwrap());
+    save(&answers, &json!({"part.material":"steel"}));
+    save(
+        &approvals,
+        &json!({"0": {"part.general_tolerance": "ISO 2768-c"}}),
+    );
+    refused(
+        export_approving(&old, &a, &answers, &approvals),
+        "part 0: part.general_tolerance's default is now",
+    );
+    save(&approvals, &json!({"part.general_tolerance": "ISO 2768-m"}));
+    refused(
+        export_approving(&old, &a, &answers, &approvals),
+        "--accept-defaults: {\"<part>\"",
+    );
+    let out = run(&["questions", path(&a), "--accept-defaults", path(&approvals)]);
+    assert_eq!(out.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&out.stderr).contains("requires --resolve-defaults"));
 }
 
 #[test]

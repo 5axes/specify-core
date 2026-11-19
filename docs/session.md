@@ -66,7 +66,9 @@ new `rev`, an `answers` event with `"defaults": {"<part>": [ids]}`), are stored 
 the rest stay open, unwritten. A save writes only the parts that have at least one answer (keys
 starting with `_` not counting) or that the session changed since they joined (so a clear
 reaches the file); any other part is left as it is, and with nothing to write the file is saved
-as it was opened. MCP's `write_pmi` and `export_answers` follow the same rule for defaults:
+as it was opened. MCP's `write_pmi` and `export_answers` (and the session-free exports: `api::export_answers`,
+CLI `questions --resolve-defaults --accept-defaults FILE`, serve, WASM `exportAnswers` and
+Python, by part only) follow the same rule for defaults:
 they write or export what is answered plus exactly the `accept_defaults` given, with the values
 the person saw, checked against the current defaults; without them, no default, and open
 questions are reported (`complete`, `missing`), never filled. A part joining the session

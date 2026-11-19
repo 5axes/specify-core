@@ -21,14 +21,19 @@ This also applies to **released v0.1.8 and earlier `changes/answers.json` files*
 `diff` with the original old/new parts and old answers to regenerate these changes files**;
 merely upgrading the writer cannot recover their lost carry decisions.
 
-## Export a complete sidecar
+## Export a sidecar
 
-Export after choosing required answers, before writing STEP:
+Export after choosing answers, before writing STEP. The approvals file lists the defaults the
+person approved, by part, each with the value they saw; here, every default offered for the
+open questions, once the person has seen the list and agreed:
 
 ```sh
 specify-core analyse plate_v1.step -o plate.analysis.json
+specify-core questions plate.analysis.json --answers chosen.json --open \
+  | jq '{"0": (map(select(.default != null) | {(.id): .default}) | add // {})}' > approved.json
 specify-core questions plate.analysis.json --answers chosen.json \
-  --resolve-defaults --step plate_v1.step > plate.answers.json
+  --resolve-defaults --step plate_v1.step --accept-defaults approved.json > plate.answers.json
+# write needs a complete set: stderr's "open: …" lists what to answer or approve first.
 specify-core write plate_v1.step plate.analysis.json plate.answers.json -o plate.pmi.step
 # After editing geometry, carry the committed sidecar from its matching old part:
 specify-core diff plate_v1.step plate_v2.step --answers plate.answers.json -o changes
@@ -40,42 +45,56 @@ an analysis alone cannot supply verified face evidence. Its binding selects the 
 assembly and must match that STEP. `--open` cannot be combined with export.
 
 The map contains every supplied answer (including any whose question is not asked; see
-below) and each accepted PMI default, including defaults
-of questions revealed by earlier answers, plus `_specify.evidence` for this part and
-`_specify.unresolved: {}`, and `_specify.sources`: for each answer equal to its question's
-default, the rule behind it ([rule-sources.md](rule-sources.md#rule-ids)); it is output only,
+below) and exactly the PMI defaults the person approved, never every default (ADR P9: a
+default becomes intent only when approved). Approvals are by part, each question id with the
+default value the person saw: `{"<part>": {"<id>": value}}` (`--accept-defaults FILE` on the
+command line), the same form as the page's Save and MCP. Only the exported part's approvals
+apply. Each is checked against the defaults as they stand with the answers given: an id that is
+not an open question with a default, or a value that is no longer its default, refuses the
+export naming the part and question. Without approvals no default is exported. The map also has
+`_specify.evidence` for this part, `_specify.unresolved` (the carry blocks still open), and
+`_specify.sources`: for each answer equal to its question's default, the rule behind it ([rule-sources.md](rule-sources.md#rule-ids)); it is output only,
 ignored when the map is read and recomputed on export. Optional BOM suggestions remain opt-in; supplied BOM answers
 are preserved. Output recursively sorts object keys, uses two-space indentation and a
 final newline, and preserves array order. Identical inputs export identical bytes,
 independent of input key order. Re-exporting the complete map is idempotent.
 
-An incomplete export **refuses** (CLI exit 2, no JSON on stdout), naming every missing
-required question or blocked carry. It never accepts a default for an unresolved question.
-Supply explicit answers to acknowledge blocks, then export again. A shell may create or
+Incomplete is normal: open questions and carry blocks do not refuse an export. The command
+line lists the questions still open on stderr (`open: …`); serve gives `complete` and
+`missing`. A carry block stays in `_specify.unresolved` until its question is answered. (Contract
+change, 2026-11-19: an export used to take every default and refuse an incomplete set.) A
+refused export prints no JSON on stdout (CLI exit 2). A shell may create or
 truncate a redirected file before the command runs; export to a temporary path and rename
 on success when replacing an existing committed sidecar. Existing saved evidence is checked
 before export, so changed geometry cannot be silently restamped with fresh evidence.
 
 Like `write`, export reads answers only from `--answers`, not from answers already stored
-in the STEP: exporting a PMI-written STEP with `{}` refuses its required questions. Pass
-the part's committed sidecar (or the answers you want) explicitly.
+in the STEP: exporting a PMI-written STEP with `{}` exports no answers. Pass the part's
+committed sidecar (or the answers you want) explicitly.
 
 The same non-writing operation is available in existing front-end shapes:
 
-- Rust: `api::export_answers(&loaded, &analysis, &answers)` returns an answer map.
-- Serve: `{"op":"export_answers","step":"plate_v1.step","analysis":<analysis>,"answers":<chosen>}`
-  returns `result.answers` in the normal reply envelope.
-- Python: `api.export_answers(step_or_loaded_part, analysis, answers)` returns a dict;
-  serialize with `json.dumps(complete, indent=2) + "\n"` for the same stable file layout.
-- WASM: `engine.exportAnswers(answersJson)` returns the answer map as a JSON string;
-  use `JSON.stringify(JSON.parse(result), null, 2) + "\n"` for a formatted sidecar.
+- Rust: `api::export_answers(&loaded, &analysis, &answers, &approved)` returns
+  `Exported {answers, missing}`; an approval refused is `Error::Unapproved` (part, question,
+  and the value approved and the default now when they differ).
+- Serve: `{"op":"export_answers","step":"plate_v1.step","analysis":<analysis>,"answers":<chosen>,
+  "accept_defaults":{"0":{"part.general_tolerance":"ISO 2768-m"}}}` returns `result.answers`,
+  `complete` and `missing`; a refused approval is `invalid` with `part`, `question`, and
+  `expected`/`current` when the value differs.
+- Python: `api.export_answers(step_or_loaded_part, analysis, answers, accept_defaults=None)`
+  returns a dict (a refused approval raises `ValueError`); serialize with
+  `json.dumps(complete, indent=2) + "\n"` for the same stable file layout.
+- WASM: `engine.exportAnswers(answersJson, approvalsJson?)` returns the answer map as a JSON
+  string; use `JSON.stringify(JSON.parse(result), null, 2) + "\n"` for a formatted sidecar.
+- MCP: the `export_answers` tool, on the session's answers (docs/mcp.md).
 
-These exports accept defaults explicitly and require completeness. Existing
-`with_all_defaults` / `acceptDefaults` operations still support partial review and retain
-their existing return shapes. Exported maps can be passed directly to `write`, `diff`,
-questions/review, serve, Python and WASM. Writing the unchanged part from the export gives
-the same semantic PMI as accepting the original defaults. Writing changed geometry is
-refused as stale; carry with `diff` instead, then explicitly resolve its blocks.
+Existing `with_all_defaults` / `acceptDefaults` operations still give every default, for
+partial review, and retain their return shapes. Exported maps can be passed directly to
+`diff`, questions/review, serve, Python and WASM, and to `write` once complete: `write`
+(without its own `--accept-defaults`) refuses an incomplete set, so answer the open questions
+or approve their defaults and export again. Exporting with every default approved and writing
+the unchanged part from the export gives the same semantic PMI as `write --accept-defaults`. Writing changed geometry is refused as stale; carry with `diff`
+instead, then explicitly resolve its blocks.
 
 ## Answers to questions not asked
 

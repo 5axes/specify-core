@@ -191,6 +191,12 @@ impl From<Error> for ToolError {
             Error::Rules(rules::Error::Invalid(m)) => ToolError::invalid(m),
             Error::Load(e) => ToolError::invalid(e.to_string()),
             Error::Write(WriteError::Invalid(m)) => ToolError::invalid(m),
+            Error::Unapproved(u) => save_error(session::SaveError::Question {
+                message: u.message,
+                part: u.part,
+                question: u.question,
+                values: u.values,
+            }),
             other => ToolError::new("failed", other.to_string()),
         }
     }
@@ -1284,20 +1290,10 @@ impl Server {
         // What is answered and the defaults approved, never every default (ADR P9), with the
         // face evidence and the rule behind each approved default.
         let loaded = doc.loaded()?;
-        crate::answer_file::check(&loaded, &answers).map_err(ToolError::invalid)?;
-        let mut complete = answers.clone();
-        crate::answer_file::attach(&loaded, &mut complete, &answers, std::iter::empty())
-            .map_err(ToolError::invalid)?;
-        let qs = api::questions(&doc.analysis, &answers)?;
-        complete[crate::answer_file::META]["sources"] =
-            Value::Object(rules::answered_sources(&qs, &answers));
-        let missing: Vec<String> = rules::open_questions(&qs, &answers)
-            .iter()
-            .map(|q| q.id.clone())
-            .collect();
-        let mut sorted = Value::Object(complete);
-        sorted.sort_all_objects();
-        let complete = sorted.as_object().cloned().unwrap_or_default();
+        let api::Exported {
+            answers: complete,
+            missing,
+        } = api::export_answers(&loaded, &doc.analysis, &answers, &session::Approved::new())?;
         let mut out = Map::new();
         out.insert("doc".into(), json!(handle));
         out.insert("rev".into(), json!(rev));
