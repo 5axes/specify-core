@@ -8,15 +8,18 @@ import { acceptedDefaults, defaultParts, DefaultRefused, DefaultsChanged, FileCh
 
 const none = async () => [];
 
-test('saved revision snapshots keep answers and number metadata after further edits', () => {
+// Full answer replay history was removed with reconstruction; retain disk-baseline coverage.
+test('a delayed saved revision still tracks disk answers after further edits', () => {
   const metadata = { schema: 2, high_water: 17, entries: [] };
-  const session = createSession(0, { 0: { 'part.material': 'Steel', _specify_characteristic_numbers: metadata } });
-  session.receive({ rev: 1, part: 0, answers: { 'part.material': 'Steel', 'part.surface_finish': 'Ra 3.2', _specify_characteristic_numbers: metadata }, source: 'page' });
-  session.markSaved(1);
+  const saved = { 'part.material': 'Steel', 'part.surface_finish': 'Ra 3.2', _specify_characteristic_numbers: metadata };
+  const session = createSession(0, { 0: {} });
+  session.receive({ rev: 1, part: 0, answers: saved, source: 'page' });
   session.receive({ rev: 2, part: 0, answers: { 'part.material': 'Brass' }, source: 'page' });
-  assert.deepEqual(session.atRevision(1), { 0: { 'part.material': 'Steel', 'part.surface_finish': 'Ra 3.2', _specify_characteristic_numbers: metadata } });
+  session.markSaved(1);
+  assert.equal(session.dirty(), true);
   assert.deepEqual(session.parts(), { 0: { 'part.material': 'Brass' } });
-  assert.equal(session.atRevision(999), null, 'an unavailable save is never replaced by current answers');
+  session.receive({ rev: 3, part: 0, answers: saved, source: 'page' });
+  assert.equal(session.dirty(), false, 'the saved answers remain the disk baseline, independent of current answers');
 });
 
 test('closing while Save waits for pending answers prevents the deferred POST', async () => {

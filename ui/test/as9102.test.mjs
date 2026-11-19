@@ -32,9 +32,10 @@ test('Forms 1–3: the part, its materials, each characteristic with its require
   ], 'skipped rows are left out; results are the inspector\'s');
 });
 
+// Explicit STEP metadata selects saved-file rules; legacy rows keep origin/main's contents.
 test('Form 3 has numbered characteristics only, while Material appears on Form 2', () => {
-  const material = row(0, 'Material: Steel', { source: 'part:material' });
-  const note = row(0, 'An unnumbered note');
+  const material = row(0, 'Material: Steel', { source: 'part:material', numbering: 'step' });
+  const note = row(0, 'An unnumbered note', { numbering: 'step' });
   const [, form2, form3] = as9102({ name: 'part' }, [material, note, row(9, 'Stored dimension')], new Set(), [{ key: 'part:material', text: 'MATERIAL Steel' }]);
   assert.deepEqual(form2.rows[4], ['MATERIAL Steel', '', '', '', '', '']);
   assert.deepEqual(form3.rows.slice(4).map((row) => [row[0], row[3]]), [['9', 'Stored dimension']]);

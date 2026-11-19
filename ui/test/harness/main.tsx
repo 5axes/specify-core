@@ -96,7 +96,7 @@ function SpecifyHost() {
         return worker.request<any>('interpret', { analysis: snapshot.analysis, answers, question, text });
       },
       preview: async (_id: string, answers: unknown) => { window.__calls.push('preview'); return (await call('review', answers)).intent; },
-      inspection: async (_id: string, answers: unknown) => { window.__calls.push('inspection'); return (await call('review-given', answers)).intent; },
+      ...(!query.has('legacy') ? { inspection: async (_id: string, answers: unknown) => { window.__calls.push('inspection'); return (await call('review-given', answers)).intent; } } : {}),
     };
     const session = { sessionId: sourceId, filename: name, analysis: snapshot.analysis, mesh: snapshot.mesh, questions: review.questions, problems: review.problems };
     // The PMI as drawn, as the editor asks for it: the worker's call, not the host engine's.

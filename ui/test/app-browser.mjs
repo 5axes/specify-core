@@ -29,7 +29,7 @@ if (shots) mkdirSync(shots, { recursive: true });
 assert.ok(existsSync(join(app, 'index.html')), 'dist-app is built (npm run build:app)');
 assert.ok(existsSync(join(wasm, 'specify_core_wasm.js')), 'the engine is fetched (npm run fetch:wasm)');
 
-const dir = mkdtempSync(join(tmpdir(), 'specify-app-'));
+const dir = mkdtempSync(join(tmpdir(), "specify app's-"));
 const part = join(dir, 'part.step');
 // A part with no answers stored in it: gramil's shaft.
 writeFileSync(part, gunzipSync(readFileSync('test/fixtures/gramil_shaft_before.step.gz')));
@@ -124,6 +124,20 @@ const assertSaveFirst = async (page) => {
   }
 };
 
+const assertOpenCopy = async (page, path) => {
+  const command = `specify-core open '${path.replaceAll("'", "'\"'\"'")}' --read-only`;
+  const instruction = `Open the saved file to export: ${command}`;
+  await check(page.locator('.app-inspection-source')).toHaveText(instruction);
+  await check(page.locator('.app-inspection-source code')).toHaveText(command);
+  for (const name of ['Inspection list (CSV)', 'AS9102 FAI (Excel)']) {
+    const button = page.getByRole('button', { name, exact: true });
+    await check(button).toBeDisabled();
+    await check(button).toHaveAttribute('title', instruction);
+  }
+  const ops = await page.evaluate(() => window.__engineOps);
+  assert.ok(!ops.includes('saved-copy'), 'a separate copy is never reconstructed');
+};
+
 try {
   // Specify: answer, save, read the PMI back.
   {
@@ -140,6 +154,7 @@ try {
     // (nothing, here), and says what is still open. Many STEP files have no complete answer to everything.
     await page.getByRole('button', { name: 'Save', exact: true }).click();
     await check(page.locator('.app-saved')).toContainText(specified);
+    await assertOpenCopy(page, specified);
     await check(page.locator('.app-saved')).toContainText('still open');
     // Open questions by what they ask, not their ids.
     await check(page.locator('.app-saved')).toContainText('What material is the part made from?');
@@ -187,9 +202,9 @@ try {
     await box.press('Enter');
     await check(page.locator('.app-dirty')).toBeVisible();
     if (shots) await page.screenshot({ path: join(shots, 'specify.png') });
-    // Inspection exports still describe the saved defaults file while Material is unsaved.
-    await inspectSaved(page, withDefaults);
-    for (const [name, file] of [['Answers (JSON)', 'part.answers.json'], ['Inspection list (CSV)', 'part.specified-2-characteristics.csv'], ['AS9102 FAI (Excel)', 'part.specified-2-AS9102.xlsx']]) {
+    // Separate outputs are not served by 0.2.0. Require reopening that actual file.
+    await assertOpenCopy(page, withDefaults);
+    for (const [name, file] of [['Answers (JSON)', 'part.answers.json']]) {
       const path = await downloadFile(page, name, file);
       if (file.endsWith('.json')) {
         const answers = JSON.parse(readFileSync(path, 'utf8'));
@@ -202,6 +217,7 @@ try {
     // the page said 'still open' and stored the material alone).
     await page.getByRole('button', { name: 'Save', exact: true }).click();
     await check(page.locator('.app-saved')).toContainText(second);
+    await assertOpenCopy(page, second);
     await check(page.locator('.app-saved')).toContainText('complete');
     await check(page.locator('.app-dirty')).toHaveCount(0);
     assert.deepEqual(Object.keys(given(analyse(second).resume?.answers)).sort(), [...listed, 'part.material'].sort(), 'Save stores the answers given and the defaults confirmed, nothing else');
@@ -326,7 +342,9 @@ try {
   }
   // Decision 2026-11-19: local inspection downloads describe the last saved STEP, never live answers.
   {
-    const server = await open(specified);
+    const saved = join(dir, "inspection's in-place.step");
+    writeFileSync(saved, gunzipSync(readFileSync('test/fixtures/gramil_shaft_before.step.gz')));
+    const server = await open(saved, '--in-place');
     const { context, page } = await load(server);
     await assertSaveFirst(page);
     const box = material(page).locator('input');
@@ -336,17 +354,16 @@ try {
     await check(page.locator('.app-dirty')).toBeVisible();
     await assertSaveFirst(page);
     await page.getByRole('button', { name: 'Save', exact: true }).click();
-    const saved = join(dir, 'part.specified.specified.step');
     await check(page.locator('.app-saved')).toContainText(saved);
     const original = await inspectSaved(page, saved);
     assert.match(original.form2, /MATERIAL:? Aluminium 6082-T6/);
-    await check(page.locator('.app-inspection-source')).toContainText('reconstructed from the saved revision');
+    assert.ok(existsSync(`${saved}.bak`), 'successful in-place save retained the original backup');
     await page.locator('.pmi-lab-panel').getByRole('button', { name: /^Material/ }).click();
     await box.fill('Brass CW614N');
     await box.press('Enter');
     await check(page.locator('.app-dirty')).toBeVisible();
     assert.deepEqual(await inspectSaved(page, saved), original, 'further edits leave both saved inspection downloads unchanged');
-    const json = await exportAnswers(page, 'part.specified.answers.json');
+    const json = await exportAnswers(page, "inspection's in-place.answers.json");
     assert.equal(json['part.material'], 'Brass CW614N', 'Answers JSON still exports the current answers');
     await context.close();
     server.stop();

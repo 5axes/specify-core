@@ -2,7 +2,6 @@ import { readCarried } from './carried';
 import { withCharacteristicNumbers, type NumberScene } from './characteristic-numbers';
 import type { IntentReview } from '../types/pmi';
 import { inspectionFromStep } from '../specify/saved-inspection';
-import { rebuildSavedStep } from './saved-step';
 
 interface IntentModule {
   default(): Promise<unknown>;
@@ -83,9 +82,7 @@ self.onmessage = ({ data }) => {
     try {
       const module = await load();
       let result: unknown = true;
-      if (operation === 'saved-copy') {
-        result = rebuildSavedStep(module.IntentEngine, args.name, args.bytes, args.parts);
-      } else if (operation === 'file-inspection') {
+      if (operation === 'file-inspection') {
         const file = args.part === undefined ? new module.IntentEngine(args.name, args.bytes)
           : module.IntentEngine.openPart(args.name, args.bytes, args.part);
         try {

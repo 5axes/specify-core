@@ -109,8 +109,10 @@ const stem = (name: string) => name.replace(/\.gz$/i, '').replace(/\.(step|stp)$
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`;
 
-interface InspectionStep { path: string; name: string; bytes: Uint8Array; rebuilt: boolean }
+interface InspectionStep { path: string; name: string; bytes: Uint8Array }
 const inspectionName = (path: string) => path.split(/[\\/]/).pop() ?? path;
+// Shell-quote the real path so this text can be copied directly into a terminal.
+const reopenCommand = (path: string) => `specify-core open '${path.replaceAll("'", "'\"'\"'")}' --read-only`;
 const SAVE_FIRST = 'Save first: the inspection files describe the saved STEP';
 
 /** What the last save wrote, and the questions still open in it, by their prompts. */
@@ -152,10 +154,11 @@ function App() {
   const [inspectionStep, setInspectionStep] = useState<InspectionStep | null>(null);
   const [inspectionData, setInspectionData] = useState<(StoredInspection & { part: number }) | null>(null);
   const [inspectionProblem, setInspectionProblem] = useState<string | null>(null);
+  const [inspectionCopy, setInspectionCopy] = useState<string | null>(null);
   const inspectionLoad = useRef(0);
   const savedRevision = useRef(-1);
   const heardSaves = useRef(new Set<string>());
-  const captureSaved = useRef<(saved: { path: string; rev: number }, parts?: Record<string, PmiAnswers>) => void>(() => {});
+  const captureSaved = useRef<(saved: { path: string; rev: number }) => void>(() => {});
   const [slots, setSlots] = useState<SpecifySlots | null>(null);
   useEffect(() => setSlots({ view: view.current!, panel: panel.current!, exports: null }), []);
   // Answers from outside the page (an agent's, source "mcp") are shown as they land: the review
@@ -194,26 +197,21 @@ function App() {
         first.mode === 'diff' ? getDiff() : null,
       ]);
       const answersSession = createSession(answers.rev, answers.parts);
-      if (first.readOnly) setInspectionStep({ path: first.path, name: first.name, bytes, rebuilt: false });
-      captureSaved.current = (event, snapshot = answersSession.atRevision(event.rev) ?? undefined) => {
+      if (first.readOnly) setInspectionStep({ path: first.path, name: first.name, bytes });
+      captureSaved.current = (event) => {
         if (event.rev < savedRevision.current || ended) return;
         savedRevision.current = event.rev;
         const load = ++inspectionLoad.current;
         setInspectionStep(null);
         setInspectionData(null);
         setInspectionProblem(null);
+        setInspectionCopy(event.path !== first.path ? event.path : null);
+        // 0.2.0 serves the opened path, updated by an in-place save, never a separate copy.
+        if (event.path !== first.path) return;
         void (async () => {
-          // file?rev=new serves the saved bytes only for an in-place save. A separate output
-          // has no endpoint in 0.2.0, so replay the exact saved revision with the pinned writer.
-          const rebuilt = event.path !== first.path;
-          let written: Uint8Array;
-          if (!rebuilt) written = await getFile('new').then(stepBytes);
-          else {
-            if (!snapshot) throw new Error('The saved revision is no longer available. Open the saved STEP in read-only mode.');
-            written = await worker.current!.request<Uint8Array>('saved-copy', { name: first.name, bytes, parts: snapshot });
-          }
+          const written = await getFile('new').then(stepBytes);
           if (!ended && load === inspectionLoad.current) setInspectionStep({
-            path: event.path, name: inspectionName(event.path), bytes: written, rebuilt,
+            path: event.path, name: inspectionName(event.path), bytes: written,
           });
         })().catch((error: unknown) => {
           if (!ended && load === inspectionLoad.current) setInspectionProblem(message(error));
@@ -431,7 +429,7 @@ function App() {
       sessionRef.current?.markSaved(result.rev);
       // The saved events are ordered by the command. A delayed HTTP reply must not replace a
       // later save at the same answer revision (for example an agent saving again meanwhile).
-      if (!heardSaves.current.has(`${result.rev}:${result.path}`)) captureSaved.current(result, result.answers);
+      if (!heardSaves.current.has(`${result.rev}:${result.path}`)) captureSaved.current(result);
       if (opened.several && result.missing.length) {
         const line = { path: result.path, open: null, byAgent: false, assemblyCount: result.missing.length, matching: true };
         setSaved(line);
@@ -512,7 +510,7 @@ function App() {
     const book = xlsx(as9102({ name: stem(inspectionStep.name) }, inspectionData.chars, new Set(), inspectionData.notes));
     saveFile(new File([book as BlobPart], `${stem(inspectionStep.name)}-AS9102.xlsx`, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
   };
-  const inspectionTitle = inspectionProblem ?? (!inspectionStep && savedRevision.current < 0 ? SAVE_FIRST : !inspectionReady ? 'Reading the saved STEP…' : undefined);
+  const inspectionTitle = inspectionCopy ? `Open the saved file to export: ${reopenCommand(inspectionCopy)}` : inspectionProblem ?? (!inspectionStep && savedRevision.current < 0 ? SAVE_FIRST : !inspectionReady ? 'Reading the saved STEP…' : undefined);
   /** A decision picked in the diff: its question, in the answers. */
   const decide = (d: Decision) => {
     setTab('answers');
@@ -545,8 +543,11 @@ function App() {
             {opened && <button type="button" onClick={downloadAnswers}>Answers (JSON)</button>}
             <button type="button" onClick={downloadCsv} disabled={!inspectionReady} title={inspectionTitle}>Inspection list (CSV)</button>
             <button type="button" onClick={downloadFai} disabled={!inspectionReady} title={inspectionTitle}>AS9102 FAI (Excel)</button>
+            {inspectionCopy && <span className="app-inspection-source">
+              Open the saved file to export: <code>{reopenCommand(inspectionCopy)}</code>
+            </span>}
             {inspectionStep && <span className="app-inspection-source">
-              from <code>{inspectionStep.name}</code>{inspectionStep.rebuilt && ' (reconstructed from the saved revision; 0.2.0 does not serve saved copies)'}
+              from <code>{inspectionStep.name}</code>
             </span>}
             {inspectionProblem && <span className="app-problem" role="alert">Inspection exports unavailable. {inspectionProblem}</span>}
           </div>

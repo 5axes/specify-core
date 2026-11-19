@@ -92,16 +92,19 @@ const slots: SpecifySlots = { view: viewElement, panel: panelElement, exports: e
 />
 ```
 
+Hosts without characteristic-number metadata retain the original sequential preview balloons and
+CSV/AS9102 contents. STEP-aware previews and saved-file inspections explicitly mark their rows
+as using STEP numbering, including unnumbered settings.
+
 In the local app, **Inspection list (CSV)** and **AS9102 FAI (Excel)** describe only the last saved
 STEP, or the opened STEP in read-only mode. Before the first Save they are disabled and say
-“Save first: the inspection files describe the saved STEP”. After Save the label names the source
-file. Further answer edits do not change either export. Answers (JSON) still exports the answers.
+“Save first: the inspection files describe the saved STEP”. After an in-place Save the label names
+the source file. Further answer edits do not change either export. Answers (JSON) still exports the answers.
 
 `GET file?rev=new` in specify-core 0.2.0 serves the input, updated after an in-place save. It cannot
-serve Save's separate output. For that case the app reconstructs the command's exact saved revision
-with the pinned writer, reads the resulting STEP's semantic PMI, and labels this fallback near the
-buttons. It never substitutes the current answers. Unavailable saved revisions disable exports
-and direct the person to open the saved STEP in read-only mode.
+serve Save's separate output. After saving a separate copy, inspection exports stay disabled and
+show a copyable command with the real path: `specify-core open '<saved copy>' --read-only`.
+Only bytes served by the session are analysed; the app never reconstructs a saved file.
 
 The shared component keeps the original three-method host contract. `SpecifyEngine.inspection`
 is optional. Without it, display and shared-component exports retain the host's preview behaviour.

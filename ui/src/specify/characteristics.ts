@@ -6,19 +6,24 @@
 // covers (pmi-assist lists it, from the datums) and what the file states,
 // ending with the part's notes -- material, general tolerance, finish -- which
 // are inspected too. Numbers come from the STEP or the engine's planned allocation,
-// so the display, inspection files and the STEP writer share the same IDs.
+// so the display, inspection files and the STEP writer share the same IDs. Hosts without
+// number metadata retain the original sequential preview balloons.
 import type { PmiAnalysis, PmiIntent, PmiIntentItem } from '../types/pmi';
 
 import { describeFaces } from './datums.ts';
 import { CHARACTERISTIC, fmt } from './labels.ts';
 
 export interface Characteristic {
-  /** The engine characteristic number. Zero denotes an unnumbered setting or requirement. */
+  /** The STEP/engine number, or a sequential legacy balloon. Zero denotes an unnumbered row. */
   readonly n: number;
   /** Which of the balloon's features it is, from 1; 0 when it has one. */
   readonly sub: number;
   /** Selection key, or numbered measurement ID ("3", "3.2"). Unnumbered keys are never exported. */
   readonly id: string;
+  /** Exact ID_ATTRIBUTE string from the saved STEP (including leading zeros). */
+  readonly identifier?: string;
+  /** STEP numbering is explicit; absent for legacy hosts with sequential preview balloons. */
+  readonly numbering?: 'step';
   /** The feature it is on: "6× Ø6.6 holes, hole 2", "top face". */
   readonly feature: string;
   /** What the whole balloon is on: "6× Ø6.6 holes". */
@@ -70,7 +75,7 @@ const letters = (item: PmiIntentItem): string => {
 
 /**
  * Every characteristic in ``intent`` and the file's own PMI, using stored or engine-planned
- * numbers. Consumers never allocate characteristic IDs from row order.
+ * numbers when supplied. Legacy previews without metadata retain sequential balloons.
  * ``titles`` names features by id (a row's title).
  */
 export function characteristics(
@@ -116,9 +121,12 @@ export function characteristics(
     });
   };
 
+  const stepNumbers = intent?.partNumbers !== undefined
+    || [...(intent?.datums ?? []), ...(intent?.requirements ?? []), ...(intent?.general ?? []), ...analysis.existing]
+      .some((item) => item.number !== undefined);
   const rows: Row[] = [];
   for (const datum of intent?.datums ?? []) {
-    if (datum.existing) continue;
+    if (!stepNumbers || datum.existing) continue;
     rows.push({
       source: `datum:${datum.letter}`, number: datum.number, question: datum.question,
       feature: describeFaces(datum.faces, analysis), faces: datum.faces, text: `Datum ${datum.letter}`,
@@ -214,7 +222,7 @@ export function characteristics(
     // A characteristic the file states without a value (CTC-01's presentation-only
     // dimensions) is listed as such, never as 0.
     if (e.kind === 'datum') {
-      if (existingDatums.has(e.type)) return;
+      if (!stepNumbers || existingDatums.has(e.type)) return;
       existingDatums.add(e.type);
       rows.push({
         feature, faces, source, number: e.number, text: `Datum ${e.type}`,
@@ -247,6 +255,21 @@ export function characteristics(
       upper: Number.isFinite(ra) ? ra : null, lower: null, datums: '', basic: false,
     });
   }
+  if (!stepNumbers) {
+    // Preserve origin/main's grouping, ordering and numbering for three-method hosts.
+    const key = (r: Row | undefined) => (r?.basic ? `basic:${r.group}` : r?.source);
+    const size = new Map<string | undefined, number>();
+    for (const r of rows) size.set(key(r), (size.get(key(r)) ?? 0) + 1);
+    const out: Characteristic[] = [];
+    let n = 0;
+    rows.forEach((r, i) => {
+      const first = key(r) !== key(rows[i - 1]);
+      if (first) n++;
+      const sub = (size.get(key(r)) ?? 1) > 1 ? (first ? 1 : (out[out.length - 1]?.sub ?? 0) + 1) : 0;
+      out.push({ ...r, n, sub, id: sub ? `${n}.${sub}` : `${n}`, group: r.group ?? r.feature });
+    });
+    return out;
+  }
   // The engine assigns one stable number per semantic requirement. A pattern may have several
   // measured instances of that requirement. Unnumbered settings get internal selection keys,
   // while the display and files leave their number cell empty.
@@ -261,7 +284,7 @@ export function characteristics(
     instance.set(key(row), count);
     const sub = (size.get(key(row)) ?? 1) > 1 ? count : 0;
     const id = n ? `${n}${sub ? `.${sub}` : ''}` : `unnumbered:${row.source}${sub ? `.${sub}` : ''}`;
-    return { ...row, n, sub, id, group: row.group ?? row.feature };
+    return { ...row, n, sub, id, numbering: 'step', group: row.group ?? row.feature };
   });
   out.sort((a, b) => (a.n || Infinity) - (b.n || Infinity));
   return out;
@@ -355,6 +378,6 @@ export function toCsv(rows: readonly Characteristic[], skipped: ReadonlySet<stri
   };
   const head = ['Balloon', 'Instance', 'Feature', 'Characteristic', 'Nominal', 'Upper', 'Lower', 'Datums', 'Basic', 'Measured'];
   return [head, ...rows.filter((r) => !skipped.has(inspectKey(r))).map((r) => [
-    r.n || '', r.sub || '', r.feature, r.text, r.nominal, r.upper, r.lower, r.datums, r.basic ? 'yes' : '', '',
+    r.identifier ?? (r.numbering === 'step' ? (r.n || '') : r.n), r.sub || '', r.feature, r.text, r.nominal, r.upper, r.lower, r.datums, r.basic ? 'yes' : '', '',
   ])].map((line) => line.map(cell).join(',')).join('\n') + '\n';
 }

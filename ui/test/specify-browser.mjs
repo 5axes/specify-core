@@ -17,8 +17,8 @@ async function openPage(readOnly, file = 'test/fixtures/spindle_pmi_before.step.
   await page.goto(`${base}/?specify=1${readOnly ? '&readOnly=1' : ''}${query}`);
   await page.locator('#specify-file').setInputFiles(file);
   await check(page.locator(ready).first()).toBeVisible();
-  // The engine inspection now supplies the display's authoritative characteristic numbers.
-  await check.poll(() => page.evaluate(() => window.__calls.includes('inspection'))).toBe(true);
+  // Wait for the host's display path: optional inspection or the original preview method.
+  await check.poll(() => page.evaluate(() => window.__calls.includes(location.search.includes('legacy=1') ? 'preview' : 'inspection'))).toBe(true);
   return page;
 }
 const calls = page => page.evaluate(() => [...window.__calls]);
@@ -30,6 +30,37 @@ const openHoleRow = async page => {
 };
 const panel = page => page.locator('#specify-panel');
 try {
+  // A host implementing only the original three methods keeps origin/main's shaft preview,
+  // including all 15 sequential balloons and its complete Form 3 (Material is balloon 12).
+  {
+    const page = await openPage(false, 'test/fixtures/gramil_shaft_before.step.gz', '#specify-panel .pmi-lab-row-head', '&legacy=1');
+    const input = panel(page).locator('[data-question="part.material"] input');
+    await input.fill('Steel');
+    await input.press('Enter');
+    await panel(page).getByRole('tab', { name: /^Characteristics/ }).click();
+    const material = panel(page).locator('.pmi-lab-table tr').filter({ hasText: 'Material: Steel' });
+    await check(material.locator('td').nth(1)).toHaveText('12');
+    const download = async (name) => {
+      const [file] = await Promise.all([page.waitForEvent('download'), page.locator('#specify-exports').getByRole('button', { name, exact: true }).click()]);
+      return file.path();
+    };
+    const csv = readFileSync(await download('Inspection list (CSV)'), 'utf8');
+    const expected = [
+      'M2×0.4-6H', '⌖ ⌀0.2', 'M4×0.7-6H', '⌖ ⌀0.25',
+      '36.1 from datum B', '10.4 from datum B', '4 from datum B', '3 from bottom face',
+      '4.9 from bottom face', '4.75 from back face', '37.6 from 2 left faces',
+      'Material: Steel', 'General tolerance: ISO 2768-m', 'Surface finish: Ra 3.2', 'Edges: Break sharp edges 0.2 max',
+    ];
+    assert.deepEqual(csv.trimEnd().split('\n').slice(1).map((line) => [line.split(',')[0], line.split(',')[3]]), expected.map((text, i) => [String(i + 1), text]));
+    const form3 = execFileSync('unzip', ['-p', await download('AS9102 FAI (Excel)'), 'xl/worksheets/sheet3.xml'], { encoding: 'utf8' });
+    for (const [i, text] of expected.entries()) {
+      assert.match(form3, new RegExp(`<c r="A${i + 5}"[^>]*><is><t [^>]*>${i + 1}</t>`));
+      assert.ok(form3.includes(text), `Form 3 retains ${text}`);
+    }
+    assert.ok(!(await calls(page)).includes('inspection'), 'the host exposes only three methods');
+    await page.close();
+  }
+
   // Editable: the controls the read-only checks look for are there.
   {
     const page = await openPage(false);

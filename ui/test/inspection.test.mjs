@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { gunzipSync } from 'node:zlib';
 import init, { IntentEngine, pmiScene } from '@draftwright/specify-core-wasm';
-import { toCsv } from '../src/specify/characteristics.ts';
+import { characteristics, balloonsBySource, toCsv } from '../src/specify/characteristics.ts';
 import { inspectionAnswers } from '../src/specify/inspection.ts';
 import { inspectionFromStep } from '../src/specify/saved-inspection.ts';
-import { rebuildSavedStep } from '../src/engine/saved-step.ts';
+import { withCharacteristicNumbers } from '../src/engine/characteristic-numbers.ts';
 import { as9102 } from '../src/specify/as9102.ts';
 
 await init({ module_or_path: readFileSync(new URL('specify_core_wasm_bg.wasm', import.meta.resolve('@draftwright/specify-core-wasm'))) });
@@ -27,7 +27,7 @@ function assertNumbers(saved) {
   const numbers = saved.analysis.characteristics?.map((row) => row.number).sort((a, b) => a - b) ?? [];
   assert.deepEqual(saved.chars.filter((row) => row.n).map((row) => row.n), numbers, 'every stored number is exported exactly once');
   const csv = toCsv(saved.chars).trimEnd().split('\n').slice(1);
-  assert.deepEqual(csv.map((line) => line.split(',')[0]), saved.chars.map((row) => row.n ? String(row.n) : ''));
+  assert.deepEqual(csv.map((line) => line.split(',')[0]), saved.chars.map((row) => row.identifier ?? (row.n ? String(row.n) : '')));
   const form3 = as9102({ name: 'saved' }, saved.chars, new Set(), saved.notes)[2];
   assert.deepEqual(form3.rows.slice(4).map((row) => row[0]), numbers.map(String));
 }
@@ -48,7 +48,7 @@ test('Material appears on Form 2 only and Form 3 omits every unnumbered row', (t
   assert.match(form2.rows.flat().join(' '), /MATERIAL:? Aluminium 6082-T6/);
   assert.equal(form3.rows.length, 4, 'headers only: Material has no stored characteristic number');
   assert.doesNotMatch(form3.rows.flat().join(' '), /6082/);
-  const unnumbered = { n: 0, id: 'unnumbered', source: 'note', group: 'Part', feature: 'Part', text: 'An unnumbered note' };
+  const unnumbered = { numbering: 'step', n: 0, id: 'unnumbered', source: 'note', group: 'Part', feature: 'Part', text: 'An unnumbered note' };
   assert.equal(as9102({ name: 'shaft' }, [unnumbered], new Set(), saved.notes)[2].rows.length, 4);
   assertNumbers(saved);
 });
@@ -132,19 +132,64 @@ test('export callback, displayed source and read-only loading describe the same 
   assertNumbers({ ...loaded, ...callback() });
 });
 
-test('the 0.2.0 separate-file fallback rebuilds only the reported saved revision', (t) => {
-  const savedAnswers = { 'hole.function:holes:13': 'tapped:M4', 'part.material': 'Steel' };
-  const saved = { 0: { ...savedAnswers } };
-  const rebuilt = rebuildSavedStep(IntentEngine, 'shaft.step', shaft, saved);
-  const expected = write(open(t), savedAnswers);
-  const fromReport = readSaved(t, rebuilt);
-  assert.deepEqual(fromReport.chars, readSaved(t, expected).chars);
-  assert.deepEqual(fromReport.notes, readSaved(t, expected).notes);
-  const live = { ...savedAnswers, 'part.material': 'Brass', 'part.surface_finish': 'Ra 0.8' };
-  assert.notDeepEqual(live, saved[0]);
-  assert.deepEqual(readSaved(t, rebuilt).chars, fromReport.chars);
-  assert.deepEqual(readSaved(t, rebuilt).notes, fromReport.notes);
-  assertNumbers(fromReport);
-  const untouched = fixture('spindle_pmi_after');
-  assert.equal(rebuildSavedStep(IntentEngine, 'spindle.step', untouched, {}), untouched, 'nothing written leaves every stored characteristic untouched');
+// The reconstruction fallback test was removed with that unsupported path. These compare
+// the preview's planned numbers to the actual writer and reader, rather than replaying twice.
+test('preview-to-writer parity includes general dimensions, hole depth, thread and new datums', (t) => {
+  const engine = open(t);
+  const planned = (engine, answers) => {
+    const { intent } = JSON.parse(engine.review(JSON.stringify(answers)));
+    const { analysis } = JSON.parse(engine.snapshot());
+    const numbered = withCharacteristicNumbers(intent, JSON.parse(engine.pmiScene(JSON.stringify({ answers }))));
+    return characteristics(numbered, analysis, new Map()).filter((row) => row.n);
+  };
+  for (const answers of [
+    { 'part.general_tolerance': 'ISO 2768-m' },
+    { 'hole.function:holes:13': 'tapped:M4', 'datum.A': [0], 'part.surface_finish': 'Ra 3.2' },
+  ]) {
+    const before = planned(engine, answers);
+    const bytes = write(engine, answers);
+    const stored = readSaved(t, bytes);
+    const after = planned(open(t, bytes), stored.analysis.resume.answers);
+    const ids = (rows) => rows.map((row) => row.n);
+    assert.ok(before.length > 0);
+    assert.deepEqual(ids(before), ids(stored.chars), 'every displayed planned number is written and exported');
+    assert.deepEqual(after.map((row) => [row.n, row.text]), before.map((row) => [row.n, row.text]), 'readback preview preserves numbers and wording');
+    // The writer can narrow preview supports (e.g. a depth's end face). Exports must
+    // use the exact target faces read back from the stored STEP, rather than preview faces.
+    for (const row of stored.analysis.characteristics) {
+      assert.deepEqual(stored.chars.find((item) => item.n === row.number).faces, row.faces, `#${row.number} has its stored target support`);
+    }
+    assertNumbers(stored);
+  }
+});
+
+test('stored decimal ID strings with leading zeros survive readback and both exports', (t) => {
+  const original = fixture('spindle_pmi_after').toString();
+  assert.match(original, /ID_ATTRIBUTE\('9',/);
+  const bytes = new TextEncoder().encode(original.replace(/ID_ATTRIBUTE\('9',/g, "ID_ATTRIBUTE('009',"));
+  const saved = readSaved(t, bytes);
+  const stored = saved.chars.find((row) => row.identifier === '009');
+  assert.ok(stored, 'the semantic reader preserves the actual stored string');
+  assert.equal(stored.n, 9);
+  assert.equal(stored.id, '009');
+  assert.ok(toCsv(saved.chars).split('\n').some((line) => line.startsWith('009,')));
+  assert.ok(as9102({ name: 'spindle' }, saved.chars, new Set(), saved.notes)[2].rows.some((row) => row[0] === '009'));
+});
+
+test('imported existing numbers and numbered pattern measurements retain their IDs', () => {
+  const analysis = {
+    faces: [{ id: 1, kind: 'cylinder', radius: 5 }, { id: 2, kind: 'cylinder', radius: 5 }],
+    features: [
+      { id: 'one', faces: [1] }, { id: 'two', faces: [2] },
+      { id: 'pattern', faces: [1, 2], members: ['one', 'two'] },
+    ], existing: [{ kind: 'dimension', type: 'Size_Diameter', faces: [1], value: 10, number: 42 }], part: {},
+  };
+  const intent = { datums: [], general: [], part: {}, requirements: [
+    { kind: 'size', feature: 'pattern', faces: [1, 2], nominal: 10, upper: 0.1, lower: 0, question: 'size', number: 57 },
+  ] };
+  const rows = characteristics(intent, analysis, new Map());
+  assert.deepEqual(rows.map((row) => [row.n, row.sub, row.id]), [[42, 0, '42'], [57, 1, '57.1'], [57, 2, '57.2']]);
+  assert.deepEqual([...balloonsBySource(rows)], [['existing:0', [42]], ['req:0', [57]]]);
+  assert.deepEqual(toCsv(rows).trimEnd().split('\n').slice(1).map((row) => row.split(',').slice(0, 2)), [['42', ''], ['57', '1'], ['57', '2']]);
+  assert.deepEqual(as9102({ name: 'pattern' }, rows, new Set(), [])[2].rows.slice(4).map((row) => row[0]), ['42', '57.1', '57.2']);
 });

@@ -20,12 +20,17 @@ export function inspectionFromStep(analysis: PmiAnalysis, scene: PmiScene): Stor
   const entries = Object.values(pmi).flatMap((value) => Array.isArray(value) ? value : [])
     .filter((value): value is PmiSceneItem => typeof object(value)['id'] === 'string' && 'value' in object(value));
   const byId = new Map(entries.map((entry) => [entry.id, entry.value]));
-  const features = new Map(pmi.features.map((entry) => [entry.id,
-    list(object(entry.value)['items']).flatMap((item) => typeof object(item)['face'] === 'number' ? [object(item)['face'] as number] : []),
-  ]));
-  const facesOf = (value: unknown): number[] => {
-    if (typeof value === 'string') return features.get(value) ?? [];
-    return [...new Set((Array.isArray(value) ? value : Object.values(object(value))).flatMap(facesOf))].sort((a, b) => a - b);
+  const features = new Map(pmi.features.map((entry) => [entry.id, entry.value]));
+  const facesOf = (value: unknown, seen: ReadonlySet<string> = new Set()): number[] => {
+    if (typeof value === 'string') {
+      if (seen.has(value)) return [];
+      return facesOf(features.get(value), new Set([...seen, value]));
+    }
+    const face = object(value)['face'];
+    if (typeof face === 'number') return [face];
+    // A semantic feature may be an items list or a group of other features.
+    return [...new Set((Array.isArray(value) ? value : Object.values(object(value)))
+      .flatMap((item) => facesOf(item, seen)))].sort((a, b) => a - b);
   };
   const unitFactors = new Map<string, number>();
   const factors: Record<string, number> = {
@@ -67,8 +72,14 @@ export function inspectionFromStep(analysis: PmiAnalysis, scene: PmiScene): Stor
     const meta = scene.specify[entry.id];
     // identifier is the ID_ATTRIBUTE actually read from the STEP, including foreign IDs.
     const identifier = entry.identifier ?? (meta?.number === undefined ? '' : String(meta.number));
-    const number = /^[1-9]\d*$/.test(identifier) && Number.isSafeInteger(Number(identifier)) ? Number(identifier) : 0;
-    const on = facesOf(value);
+    // The writer emits canonical positive u64 IDs, but the semantic reader also preserves
+    // imported decimal strings such as 009. Keep that exact string for both exports.
+    const numeric = /^\+?\d+$/.test(identifier) ? BigInt(identifier) : 0n;
+    const number = numeric > 0n && numeric <= 18446744073709551615n ? Number(numeric) : 0;
+    // A location measures the target; its "from" feature is a separate reference, not
+    // another measured instance. This matches the preview and stored characteristic support.
+    const location = object(object(value['kind'])['location']);
+    const on = facesOf(collection === 'dimensions' && 'to' in location ? location['to'] : value);
     let nominal: number | null = null;
     let upper: number | null = null;
     let lower: number | null = null;
@@ -126,7 +137,7 @@ export function inspectionFromStep(analysis: PmiAnalysis, scene: PmiScene): Stor
     }
     const feature = on.length ? describeFaces(on, analysis) : 'Part';
     chars.push({
-      n: number, sub: 0, id: number ? identifier : `unnumbered:${entry.id}`,
+      n: number, sub: 0, numbering: 'step', identifier: number ? identifier : '', id: number ? identifier : `unnumbered:${entry.id}`,
       source: entry.id, feature, group: feature, faces: on, text: wording,
       nominal, upper, lower, datums, basic,
     });
