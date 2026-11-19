@@ -61,6 +61,8 @@ pub(crate) struct Reconciled {
     /// Questions not stored as answers whose defaults the file states, with those defaults:
     /// present in the file, so answered by it (`resume.present`).
     pub present: Map<String, Value>,
+    /// The process the file states, with the attribute's provenance.
+    pub process: Option<crate::bom::Field>,
 }
 
 impl Reconciled {
@@ -109,7 +111,7 @@ pub(crate) fn reconcile(
         .as_object()
         .cloned()
         .unwrap_or_default();
-    let scene = Scene::with(loaded, Some(features))?;
+    let scene = Scene::for_resume(loaded, features)?;
     let (file, index) = scene.file_comparison(loaded, analysis)?;
     let faces = loaded.binding.face_count;
     // What the answers write: their preview (defaults left as suggestions), as the editor
@@ -141,7 +143,7 @@ pub(crate) fn reconcile(
     };
     // Which of the file's requirements are not marked as Specify's: another tool's, or one the
     // person kept (written unmarked).
-    let unmarked: BTreeSet<(String, usize)> = {
+    let (unmarked, process): (BTreeSet<(String, usize)>, _) = {
         let doc =
             haecceity::p21::Document::parse(loaded.bytes.to_vec()).map_err(|e| e.to_string())?;
         let defs =
@@ -168,7 +170,7 @@ pub(crate) fn reconcile(
                 unmarked.insert(("attributes".to_string(), i));
             }
         }
-        unmarked
+        (unmarked, crate::process::indexed_pmi(&read.parts[part]))
     };
     // A question the person kept earlier (`_specify.keep`, stored with the answers) is the
     // file's whatever its marker: the kept requirement was written unmarked.
@@ -266,6 +268,39 @@ pub(crate) fn reconcile(
             }
         }
         conflicts.insert(question.clone(), (!items.is_empty()).then_some(texts));
+    }
+    // Process affects the questions themselves and has no graphical requirement to match.
+    // Compare its selected attribute directly and keep its index for the normal write rules.
+    let question = crate::process::QUESTION;
+    let saved_process = stored.get(question).filter(|_| {
+        crate::rules::Ctx::new(analysis).is_ok_and(|ctx| crate::process::applies(&ctx, &stored))
+    });
+    let file_process = process.as_ref().map(|(_, field)| &field.value);
+    let process_conflict = saved_process.is_some() && saved_process != file_process;
+    if process_conflict {
+        conflicts.insert(
+            question.into(),
+            file_process
+                .and_then(Value::as_str)
+                .map(|text| vec![text.into()]),
+        );
+    }
+    if let Some((i, mut field)) = process {
+        let at = ("attributes".to_string(), i);
+        let foreign = unmarked.contains(&at);
+        let kept = kept_earlier.contains(question);
+        if !foreign || kept || process_conflict {
+            out.contested.insert(at, question.into());
+        }
+        if foreign {
+            field.source = "file".into();
+        } else if process_conflict && field.source == "default" {
+            field.source = "answered".into();
+        }
+        if saved_process.is_none() && (!foreign || kept) && field.source != "default" {
+            out.file_answered.push(question.into());
+        }
+        out.process = Some(field);
     }
     // Part settings: each is one scene item named by its question (notes one per note).
     let mut settings: BTreeMap<&str, bool> = BTreeMap::new();
@@ -457,17 +492,21 @@ pub fn answered<'a>(
     analysis: &Value,
     answers: &'a Map<String, Value>,
 ) -> std::borrow::Cow<'a, Map<String, Value>> {
-    let Some(present) = analysis["resume"]["present"].as_object() else {
-        return std::borrow::Cow::Borrowed(answers);
-    };
-    if present.keys().all(|id| answers.contains_key(id)) {
+    let present = analysis["resume"]["present"].as_object();
+    let process = crate::process::QUESTION;
+    // An old process answer must not drive the rules when the file's foreign process wins.
+    let foreign_process = answers.contains_key(process) && foreign_ids(analysis).contains(process);
+    if !foreign_process && present.is_none_or(|p| p.keys().all(|id| answers.contains_key(id))) {
         return std::borrow::Cow::Borrowed(answers);
     }
     let mut out = answers.clone();
-    for (id, value) in present {
+    for (id, value) in present.into_iter().flatten() {
         if !out.contains_key(id) {
             out.insert(id.clone(), value.clone());
         }
+    }
+    if foreign_process {
+        out.remove(process);
     }
     std::borrow::Cow::Owned(out)
 }
@@ -518,6 +557,7 @@ impl Reconciled {
         &self,
         pmi: &haecceity::pmi::PartPmi,
         answers: &Map<String, Value>,
+        writes_process: bool,
         restated: &BTreeSet<(String, usize)>,
     ) -> BTreeSet<(String, usize)> {
         use haecceity::pmi::NoteOwner;
@@ -528,9 +568,10 @@ impl Reconciled {
             let at = (collection.to_string(), i);
             !self.explained.contains(&at)
                 && !restated.contains(&at)
-                && self.contested.get(&at).is_some_and(|question| {
-                    !answers.contains_key(question) || self.is_foreign(question)
-                })
+                && self
+                    .contested
+                    .get(&at)
+                    .is_some_and(|question| !self.replaces(question, answers, writes_process))
         };
         let mut out = BTreeSet::new();
         let lengths = [
@@ -854,12 +895,13 @@ impl Reconciled {
         &self,
         pmi: &haecceity::pmi::PartPmi,
         answers: &Map<String, Value>,
+        writes_process: bool,
     ) -> BTreeSet<(String, usize)> {
         use haecceity::pmi::NoteOwner;
         let mut out: BTreeSet<(String, usize)> = self
             .contested
             .iter()
-            .filter(|(_, question)| answers.contains_key(*question) && !self.is_foreign(question))
+            .filter(|(_, question)| self.replaces(question, answers, writes_process))
             .map(|(at, _)| at.clone())
             .collect();
         for (i, set) in pmi.attributes.iter().enumerate() {
@@ -877,6 +919,15 @@ impl Reconciled {
 }
 
 impl Reconciled {
+    fn replaces(&self, question: &str, answers: &Map<String, Value>, writes_process: bool) -> bool {
+        let answered = if question == crate::process::QUESTION {
+            writes_process
+        } else {
+            answers.contains_key(question)
+        };
+        answered && !self.is_foreign(question)
+    }
+
     /// Whether `question` is a conflict whose file requirement is another tool's.
     fn is_foreign(&self, question: &str) -> bool {
         self.conflicts.iter().any(|c| c.id == question && c.foreign)

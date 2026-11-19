@@ -676,8 +676,9 @@ fn write_verified(
     let mut for_keep = BTreeSet::new();
     let mut reconciled = std::collections::BTreeMap::new();
     let empty = Map::new();
-    for (loaded, _, answers) in jobs {
+    for (loaded, intent, answers) in jobs {
         let part = loaded.binding.part;
+        let writes_process = intent.part.contains_key(crate::process::INTENT_KEY);
         let resumed = resume::has_answers(loaded).map_err(|e| WriteError::Failed(e.to_string()))?;
         // Another tool's PMI: unmarked requirements the resumed answers do not explain.
         let mut foreign = false;
@@ -687,12 +688,17 @@ fn write_verified(
                     let kept = r.kept_items(
                         &original.read.parts[part],
                         answers.unwrap_or(&empty),
+                        writes_process,
                         &BTreeSet::new(),
                     );
                     foreign = provenance::unmarked(&original.doc, &original.read, part)
                         .iter()
                         .any(|at| !r.explained.contains(at));
-                    let yields = r.give_way(&original.read.parts[part], answers.unwrap_or(&empty));
+                    let yields = r.give_way(
+                        &original.read.parts[part],
+                        answers.unwrap_or(&empty),
+                        writes_process,
+                    );
                     if !yields.is_empty() {
                         give_way.insert(part, yields);
                     }
@@ -752,6 +758,7 @@ fn write_verified(
             *kept = r.kept_items(
                 &original.read.parts[part],
                 answers.unwrap_or(&empty),
+                intent.part.contains_key(crate::process::INTENT_KEY),
                 &restated,
             );
             kept.extend(foreign_support(&original, part));

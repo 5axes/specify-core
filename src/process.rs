@@ -163,30 +163,44 @@ pub fn read(doc: &Document, product_definition: u64) -> Option<Field> {
     classify(
         std::iter::once(product_definition)
             .chain(shapes)
-            .flat_map(|owner| crate::bom::properties(doc, owner)),
+            .flat_map(|owner| crate::bom::properties(doc, owner))
+            .enumerate(),
     )
+    .map(|(_, field)| field)
 }
 
 /// [`read`] of a part's PMI as the kernel reads it: its part-level attribute sets.
 pub fn read_pmi(pmi: &PartPmi) -> Option<Field> {
-    classify(pmi.attributes.iter().filter(|s| s.on.is_none()).map(|set| {
-        let items = set
-            .items
-            .iter()
-            .filter_map(|(name, v)| match v {
-                AttributeValue::Text(t) => Some((name.clone(), Value::from(t.as_str()))),
-                AttributeValue::Boolean(b) => Some((name.clone(), Value::Bool(*b))),
-                _ => None,
-            })
-            .collect();
-        (set.name.clone(), items)
-    }))
+    indexed_pmi(pmi).map(|(_, field)| field)
 }
 
-/// The process of a part's property sets `(name, items)`, with its source (see [`read`]).
-fn classify(sets: impl Iterator<Item = (String, Map<String, Value>)>) -> Option<Field> {
+/// The process and the index of the attribute set that states it.
+pub(crate) fn indexed_pmi(pmi: &PartPmi) -> Option<(usize, Field)> {
+    classify(
+        pmi.attributes
+            .iter()
+            .enumerate()
+            .filter(|(_, set)| set.on.is_none())
+            .map(|(i, set)| {
+                let items = set
+                    .items
+                    .iter()
+                    .filter_map(|(name, v)| match v {
+                        AttributeValue::Text(t) => Some((name.clone(), Value::from(t.as_str()))),
+                        AttributeValue::Boolean(b) => Some((name.clone(), Value::Bool(*b))),
+                        _ => None,
+                    })
+                    .collect();
+                (i, (set.name.clone(), items))
+            }),
+    )
+}
+
+fn classify(
+    sets: impl Iterator<Item = (usize, (String, Map<String, Value>))>,
+) -> Option<(usize, Field)> {
     let (mut answered, mut file, mut suggested) = (None, None, None);
-    for (set, items) in sets {
+    for (i, (set, items)) in sets {
         let key = |name: &str| name.trim().to_lowercase().replace([' ', '-'], "_");
         let found = |wanted: &str| {
             items
@@ -202,8 +216,9 @@ fn classify(sets: impl Iterator<Item = (String, Map<String, Value>)>) -> Option<
             (None, Some(v)) if set == PROPERTY => (v, true),
             _ => continue,
         };
+        let found = (i, value);
         if rewritten {
-            file.get_or_insert(value);
+            file.get_or_insert(found);
         } else if set == PROPERTY {
             // The last of Specify's sets is current, as the BOM's. Specify writes the marker
             // as text 'true' (haecceity writes no boolean items); the BOM's boolean is read too.
@@ -213,24 +228,27 @@ fn classify(sets: impl Iterator<Item = (String, Map<String, Value>)>) -> Option<
                     .and_then(Value::as_str)
                     .is_some_and(|t| t.trim().eq_ignore_ascii_case("true"));
             if marked {
-                suggested = Some(value);
+                suggested = Some(found);
             } else {
-                answered = Some(value);
+                answered = Some(found);
             }
         } else if file.is_none() {
-            file = Some(value);
+            file = Some(found);
         }
     }
-    let (value, source) = match (answered, file, suggested) {
+    let ((i, value), source) = match (answered, file, suggested) {
         (Some(v), _, _) => (v, "answered"),
         (None, Some(v), _) => (v, "file"),
         (None, None, Some(v)) => (v, "default"),
         _ => return None,
     };
-    Some(Field {
-        value: json!(value),
-        source: source.into(),
-    })
+    Some((
+        i,
+        Field {
+            value: json!(value),
+            source: source.into(),
+        },
+    ))
 }
 
 /// Specify's own process set in a part's PMI (the last), if any: its value.

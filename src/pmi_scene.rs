@@ -36,6 +36,7 @@ pub struct Scene {
     index: usize,
     stored: Option<Map<String, Value>>,
     foreign: Option<(Document, pmi::PmiRead)>,
+    reconciling: bool,
 }
 
 impl Scene {
@@ -70,7 +71,18 @@ impl Scene {
             index: loaded.binding.part,
             stored,
             foreign,
+            reconciling: false,
         })
+    }
+
+    /// Compare saved answers even when an unmarked process would prevent writing them.
+    pub(crate) fn for_resume(
+        loaded: &LoadedPart,
+        features: &[crate::features::Feature],
+    ) -> Result<Self, String> {
+        let mut scene = Self::with(loaded, Some(features))?;
+        scene.reconciling = true;
+        Ok(scene)
     }
 
     pub(crate) fn carries_numbers(&self, answers: &Map<String, Value>) -> Result<bool, String> {
@@ -347,10 +359,23 @@ impl Scene {
             .as_ref()
             .map_or((&self.doc, &self.read), |(doc, read)| (doc, read));
         let before = &baseline_read.parts[self.index];
+        // The historical plan uses the saved process for its other requirements. The file's
+        // UDA is compared separately, and must not block construction of that plan in Add mode.
+        let mut baseline = std::borrow::Cow::Borrowed(before);
+        if self.reconciling
+            && foreign
+            && intent.part.contains_key(crate::process::INTENT_KEY)
+            && crate::process::specify_set(before).is_some()
+        {
+            baseline
+                .to_mut()
+                .attributes
+                .retain(|set| set.on.is_some() || set.name != crate::process::PROPERTY);
+        }
         let mut p = writer::scene_model(
             loaded,
             &intent,
-            before,
+            &baseline,
             if foreign {
                 pmi::write::Mode::Add
             } else {

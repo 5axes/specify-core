@@ -164,7 +164,11 @@ fn cli_rewrite(bytes: &[u8], name: &str) -> LoadedPart {
 fn edited_process(marked: bool) -> LoadedPart {
     let mut given = answers("0.05");
     given.insert(process::QUESTION.into(), json!(process::MACHINED));
-    let original = String::from_utf8(written(&given)).unwrap();
+    change_process(written(&given), marked)
+}
+
+fn change_process(bytes: Vec<u8>, marked: bool) -> LoadedPart {
+    let original = String::from_utf8(bytes).unwrap();
     let item = |value| {
         format!(
             "DESCRIPTIVE_REPRESENTATION_ITEM('{}','{value}')",
@@ -279,6 +283,65 @@ fn editor_keeps_edited_process(marked: bool) {
     let reopened = api::analyse(&written).unwrap();
     assert!(process_conflict(&reopened).is_none());
     assert_eq!(reopened["part"]["process"], process::CAST);
+    assert_eq!(
+        reopened["resume"]["file"]
+            .as_array()
+            .is_some_and(|ids| ids.contains(&json!(process::QUESTION))),
+        marked,
+    );
+    assert_eq!(
+        reopened["process"]["source"],
+        if marked { "answered" } else { "file" },
+    );
+}
+
+#[test]
+fn a_process_conflict_on_a_scoped_file_keeps_the_foreign_uda() {
+    let loaded = load(with_foreign_flatness(std::fs::read(plate()).unwrap()));
+    let analysis = api::analyse(&loaded).unwrap();
+    let given = map(json!({"part.material": "6082-T6", "part.process": process::MACHINED}));
+    let written = preview_write(&loaded, &analysis, &given);
+    assert_eq!(
+        specify_core::resume::stored(&written.bytes)[&0]["pmi_scope"],
+        specify_core::writer::PMI_PROVENANCE,
+    );
+    let edited = change_process(written.bytes.to_vec(), false);
+    let analysis = api::analyse(&edited).unwrap();
+    assert_eq!(process_conflict(&analysis).unwrap()["foreign"], true);
+    // A stale editor/answers file may still send the saved answer in full.
+    let written = preview_write(&edited, &analysis, &given);
+    assert_process(&written, process::CAST);
+    let reopened = api::analyse(&written).unwrap();
+    assert!(process_conflict(&reopened).is_none());
+    assert!(
+        reopened["resume"]["answers"]
+            .get(process::QUESTION)
+            .is_none()
+    );
+}
+
+#[test]
+fn a_marked_process_conflict_can_be_replaced_before_or_after_keeping() {
+    let edited = edited_process(true);
+    let analysis = api::analyse(&edited).unwrap();
+    let mut resumed = map(analysis["resume"]["answers"].clone());
+    resumed.insert(process::QUESTION.into(), json!(process::MOULDED));
+    assert_process(
+        &preview_write(&edited, &analysis, &resumed),
+        process::MOULDED,
+    );
+
+    resumed.remove(process::QUESTION);
+    resumed.insert("_specify".into(), json!({"keep": [process::QUESTION]}));
+    let kept = preview_write(&edited, &analysis, &resumed);
+    assert_process(&kept, process::CAST);
+    let reopened = api::analyse(&kept).unwrap();
+    assert_eq!(reopened["process"]["source"], "file");
+    assert!(process_conflict(&reopened).is_none());
+    let mut resumed = map(reopened["resume"]["answers"].clone());
+    assert_eq!(resumed["_specify"]["keep"], json!([process::QUESTION]));
+    resumed.insert(process::QUESTION.into(), json!(process::MOULDED));
+    assert_process(&preview_write(&kept, &reopened, &resumed), process::MOULDED);
 }
 
 /// Case 1: a bare part Specify wrote (a replace payload, no `pmi_scope`) to which another

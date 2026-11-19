@@ -491,6 +491,7 @@ fn analyse_reconciling(
                     !r.settings.contains(key) && (!marked.contains_key(key) || tagged(key))
                 });
                 analysis.insert("part".into(), Value::Object(settings));
+                crate::process::stated_entries(r.process.clone(), Some(&r.answers), &mut analysis);
                 let resume = analysis
                     .get_mut("resume")
                     .and_then(Value::as_object_mut)

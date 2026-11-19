@@ -6,6 +6,11 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+### Fixed
+
+- Reopening a STEP file detects manufacturing-process edits that conflict with a saved answer.
+  CLI and editor rewrites preserve the file's process until a permitted replacement is chosen.
+
 ## 0.2.0 (2026-11-19)
 
 Read first:
