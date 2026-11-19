@@ -313,8 +313,9 @@ try {
       assert.deepEqual(csv.trimEnd().split('\n').slice(1), ['1,,Part,Material: Aluminium 6082-T6,,,,,,'], 'the CSV has only the given characteristic');
       assert.match(workbookSheet(workbook, 2), /MATERIAL Aluminium 6082-T6/);
       const form3 = workbookSheet(workbook, 3);
+      // Column D includes the repeated part name above the characteristic table.
       assert.deepEqual([...form3.matchAll(/<c r="D\d+"[^>]*><is><t [^>]*>([^<]+)<\/t>/g)].map((match) => match[1]),
-        ['Requirement', 'Material: Aluminium 6082-T6'], 'Form 3 has only the given characteristic');
+        [name, 'Requirement', 'Material: Aluminium 6082-T6'], 'Form 3 has only the given characteristic');
     };
     await inspect(page, stem);
     await page.getByRole('button', { name: 'Save', exact: true }).click();

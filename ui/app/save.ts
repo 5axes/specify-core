@@ -16,7 +16,9 @@ export interface SaveOptions {
   defaults: readonly Default[];
 }
 
-export interface Saver { save(options: SaveOptions): Promise<Saved> }
+/** The session answers that went into a successful write, including the approvals sent with it. */
+export interface SavedWithAnswers extends Saved { answers: Record<string, PmiAnswers> }
+export interface Saver { save(options: SaveOptions): Promise<SavedWithAnswers> }
 
 /** Nothing saved: the session holds answers the page has not shown yet (they are being shown). */
 export class NotShown extends Error {}
@@ -86,7 +88,11 @@ export function sessionSaver(store: AnswersStore, session: Pick<AnswersSession, 
       try {
         // Exactly the defaults the person confirmed, each on the part it was listed for; checked
         // above for every part at this rev (a later rev is a 409).
-        return await write(rev, acceptedDefaults(defaults));
+        const approved = acceptedDefaults(defaults);
+        const saved = await write(rev, approved);
+        const answers = { ...parts };
+        for (const [part, values] of Object.entries(approved)) answers[part] = { ...answers[part], ...values };
+        return { ...saved, answers };
       } catch (error) {
         // Both are 409s with the session's rev: when the session is still at the page's rev, it is the file that changed.
         if (error instanceof Refused && error.status === 409 && typeof error.body.rev === 'number') {
@@ -100,4 +106,24 @@ export function sessionSaver(store: AnswersStore, session: Pick<AnswersSession, 
       }
     },
   };
+}
+
+/** Match the save response's flat list in part order. A part whose answers were cleared can be
+ * written too, but the contract does not expose which empty parts were touched. */
+export function matchMissing(missing: readonly string[], parts: readonly {
+  open: readonly string[]; labels: readonly string[] | null; required: boolean;
+}[]): string[] | null {
+  // Each offset is a way to consume that many question IDs. Null means the labels are ambiguous.
+  let matches = new Map<number, string[] | null>([[0, []]]);
+  for (const { open, labels, required } of parts) {
+    if (!open.length) continue;
+    const next = required ? new Map<number, string[] | null>() : new Map(matches);
+    for (const [offset, previous] of matches) {
+      if (!open.every((id, i) => missing[offset + i] === id)) continue;
+      const end = offset + open.length;
+      next.set(end, next.has(end) || !previous || !labels ? null : [...previous, ...labels]);
+    }
+    matches = next;
+  }
+  return matches.get(missing.length) ?? null;
 }

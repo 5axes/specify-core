@@ -136,9 +136,21 @@ try {
     assert.equal(stale.status, 409);
     assert.equal(typeof (await stale.json()).rev, 'number');
     assert.ok(!existsSync(join(dir, 'part.specified-3.step')), 'nothing written for a stale save');
+    // Killing the MCP command drops SSE. The page briefly retries, then keeps the review and
+    // identifies the last file actually saved rather than the next target.
+    const beforeStop = problems.length;
+    agent.stop();
+    await check(page.locator('.app-offline')).toContainText('reconnecting', { timeout: 10_000 });
+    const stopped = page.locator('.app-stopped');
+    await check(stopped).toHaveText(`Specify has stopped. Run specify-core open … again (or ask your agent to show it). Your saved file is at ${join(dir, 'part.specified-2.step')}.`, { timeout: 30_000 });
+    await check(page.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
+    await check(page.getByRole('button', { name: 'Save with defaults', exact: true })).toBeDisabled();
+    await check(page.getByRole('button', { name: 'Answers (JSON)', exact: true })).toBeEnabled();
+    await check(page.locator('.pmi-lab-panel')).toContainText('6061-T6');
+    problems.splice(beforeStop, problems.length - beforeStop,
+      ...problems.slice(beforeStop).filter(p => !/^console: .*net::ERR_CONNECTION_REFUSED$/.test(p)));
     onlyLocal(requests, shown.url);
     await context.close();
-    agent.stop();
   }
 
   // An assembly: answers given to two parts and saved; a new agent opening one part resumes both.
@@ -186,6 +198,16 @@ try {
     // Saved: and still saved, back and forth between the parts (not judged against the file as opened).
     await page.getByRole('button', { name: 'Save', exact: true }).click();
     await check(page.locator('.app-saved')).toContainText('asm.specified');
+    const stillOpen = page.locator('.app-saved details');
+    await stillOpen.locator('summary').click();
+    const expected = [];
+    for (const { part, name } of listed.parts.filter(({ part }) => part === a || part === b)) {
+      const { doc } = await second.call('open', { path: written.path, part });
+      const { questions } = await second.call('questions', { doc, state: 'open' });
+      assert.ok(questions.length, `${name} has open questions`);
+      expected.push(...questions.map(q => `${name} — ${q.prompt}`));
+    }
+    await check(stillOpen.locator('li')).toHaveText(expected);
     await check(page.locator('.app-dirty')).toHaveCount(0);
     await page.locator('.app-part select').selectOption(String(other));
     await check(page.locator('.pmi-lab-panel')).toContainText(other === a ? '1.4301' : 'CW614N');

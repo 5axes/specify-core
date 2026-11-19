@@ -63,7 +63,7 @@ async function json<T>(request: Promise<Response>): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-export const getConfig = () => json<LocalConfig>(fetch('config', { cache: 'no-store' }));
+export const getConfig = (signal?: AbortSignal) => json<LocalConfig>(fetch('config', { cache: 'no-store', signal }));
 
 /** The STEP as on disk (gzipped if the file is); in diff mode ``old`` is OLD's. */
 export async function getFile(rev: 'old' | 'new' = 'new'): Promise<Blob> {
@@ -128,11 +128,41 @@ export function listen(onAnswers: (event: AnswersEvent) => void, onSaved: (event
   return () => { stopped = true; window.clearTimeout(timer); source?.close(); };
 }
 
-/** The heartbeat (`GET config` every 30 s while the page is open) and `closed` when it goes away
- * for good: not when it enters the back/forward cache. ``onConfig`` gets each heartbeat's answer. */
-export function keepAlive(onConfig: (config: LocalConfig) => void): () => void {
-  const timer = window.setInterval(() => { getConfig().then(onConfig, () => {}); }, 30_000);
+/** Heartbeat every 30 s, with an immediate probe when SSE fails. A refused stream (e.g. all four
+ * slots taken) is recoverable while config still answers. Retry failed probes for 25 s. */
+export function keepAlive(onConfig: (config: LocalConfig) => void, onStopped: () => void) {
+  let stopped = false;
+  let checking = false;
+  let deadline = 0;
+  let retry = 0;
+  const probe = () => {
+    if (stopped || checking) return;
+    checking = true;
+    getConfig(AbortSignal.timeout(5_000)).then((config) => {
+      checking = false;
+      if (stopped) return;
+      window.clearTimeout(deadline);
+      window.clearTimeout(retry);
+      deadline = 0;
+      onConfig(config);
+    }, () => {
+      checking = false;
+      if (stopped) return;
+      if (!deadline) deadline = window.setTimeout(() => { stop(); onStopped(); }, 25_000);
+      window.clearTimeout(retry);
+      retry = window.setTimeout(probe, 4_000);
+    });
+  };
+  const timer = window.setInterval(probe, 30_000);
+  // A page entering the back/forward cache can come back.
   const gone = (event: PageTransitionEvent) => { if (!event.persisted) navigator.sendBeacon('closed'); };
   window.addEventListener('pagehide', gone);
-  return () => { window.clearInterval(timer); window.removeEventListener('pagehide', gone); };
+  const stop = () => {
+    stopped = true;
+    window.clearInterval(timer);
+    window.clearTimeout(deadline);
+    window.clearTimeout(retry);
+    window.removeEventListener('pagehide', gone);
+  };
+  return { probe, stop };
 }

@@ -2,11 +2,20 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createSession, createSessionStore, reapply } from '../app/answers.ts';
 import { getDiff, Refused, save as postSave } from '../app/local.ts';
-import { acceptedDefaults, defaultParts, DefaultRefused, DefaultsChanged, FileChanged, NotShown, sessionSaver, Stale, writtenParts } from '../app/save.ts';
+import { acceptedDefaults, defaultParts, DefaultRefused, DefaultsChanged, FileChanged, matchMissing, NotShown, sessionSaver, Stale, writtenParts } from '../app/save.ts';
 // The local app's answers store over the command's session (specify-core docs/open.md): the page's
 // changes go up with `PUT answers {rev, part, answers}`, reapplied on a 409; events from others land.
 
 const none = async () => [];
+
+test('assembly missing IDs retain part order, including a part that was cleared', () => {
+  const empty = { open: ['material', 'finish'], labels: ['A material', 'A finish'], required: false };
+  const answered = { open: ['finish'], labels: ['B finish'], required: true };
+  assert.deepEqual(matchMissing(['material', 'finish', 'finish'], [empty, answered]), ['A material', 'A finish', 'B finish']);
+  assert.deepEqual(matchMissing(['finish'], [empty, answered]), ['B finish'], 'a joined but untouched part is omitted');
+  assert.equal(matchMissing(['material', 'finish', 'finish'], [empty, { ...empty, labels: ['C material', 'C finish'] }, answered]), null,
+    'a flat ID list cannot distinguish two empty parts with the same questions');
+});
 
 /** A session the store talks to: its rev and part 0's answers, and every PUT it was sent.
  * ``s.during(put)``, when set, runs while a PUT is on its way (after the command applied it). */

@@ -20,6 +20,8 @@ body { background: #fff; color: #1a1d21; font: 13px/1.45 ui-sans-serif, -apple-s
 .app-paths { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px 18px; color: #707880; font-size: 12px; }
 .app-paths code, .app-path { font-family: var(--specify-mono-font); }
 .app-saved { color: #2c6650; }
+.app-open-questions summary { cursor: pointer; }
+.app-open-questions ul { margin: 4px 0; padding-left: 20px; max-height: 160px; overflow: auto; }
 .app-problem { margin: 0; padding: 6px 14px; background: #fbeaea; color: #b3261e; white-space: pre-wrap; }
 .app-main { position: relative; flex: 1; min-height: 0; overflow: hidden; }
 .app-loading { position: absolute; inset: 0; display: grid; place-items: center; margin: 0; color: #707880; }

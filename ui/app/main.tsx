@@ -19,7 +19,7 @@ import { saveFile } from '../src/specify/SpecifyReview';
 import { changedIds, createSession, sameAnswers, type AnswersSession, type AnswersStore } from './answers';
 import { decisions, type Decision } from './diff-report';
 import { getAnswers, getConfig, getDiff, getFile, keepAlive, listen, type DiffBody, type LocalConfig } from './local';
-import { DefaultRefused, DefaultsChanged, FileChanged, NotShown, defaultParts, sessionSaver, Stale, writtenParts, type Default, type Saver } from './save';
+import { DefaultRefused, DefaultsChanged, FileChanged, NotShown, defaultParts, matchMissing, sessionSaver, Stale, writtenParts, type Default, type SavedWithAnswers, type Saver } from './save';
 
 declare const __APP_VERSION__: string;
 const DOCS = 'https://github.com/pzfreo/specify-core#readme';
@@ -109,7 +109,7 @@ const message = (error: unknown) => (error instanceof Error ? error.message : St
 const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`;
 
 /** What the last save wrote, and the questions still open in it, by their prompts. */
-interface SavedLine { path: string; open: string[] | null; byAgent: boolean }
+interface SavedLine { path: string; open: string[] | null; byAgent: boolean; assemblyCount?: number; matching?: boolean }
 
 function App() {
   const [config, setConfig] = useState<LocalConfig | null>(null);
@@ -129,6 +129,7 @@ function App() {
   const [dirty, setDirty] = useState(false);
   // The event stream: null until it first opens, false while it is lost (retrying).
   const [live, setLive] = useState<boolean | null>(null);
+  const [stopped, setStopped] = useState(false);
   // An in-place save refused because another program changed the file: Save cannot succeed again.
   const [fileChanged, setFileChanged] = useState(false);
   // Save with defaults: the defaults it would write, of every part it writes, listed for the person
@@ -159,11 +160,18 @@ function App() {
     let stop = () => {};
     let unlisten = () => {};
     let unwatch = () => {};
+    let ended = false;
     (async () => {
       const first = await getConfig();
       setConfig(first);
       document.title = `${first.name} — Specify`;
-      stop = keepAlive(setConfig);
+      const heartbeat = keepAlive(setConfig, () => {
+        ended = true;
+        unlisten();
+        setConfirming(null);
+        setStopped(true);
+      });
+      stop = heartbeat.stop;
       worker.current = createIntentEngine({ wasmUrl: first.wasmUrl });
       const [bytes, answers, old, diff] = await Promise.all([
         getFile('new').then(stepBytes), getAnswers(),
@@ -193,7 +201,7 @@ function App() {
       }
       shownRef.current = part;
       let lost = false;
-      unlisten = listen((event) => {
+      if (!ended) unlisten = listen((event) => {
         // One rev can carry an event per part; a repeat of one already received is ignored.
         if (!answersSession.receive(event)) return;
         // A part joining the session is added to the page's model: the picker lists it, and the
@@ -215,7 +223,7 @@ function App() {
         getConfig().then(setConfig, () => {});
       }, (up) => {
         setLive(up);
-        if (!up) { lost = true; return; }
+        if (!up) { lost = true; heartbeat.probe(); return; }
         // Back after a loss: what changed meanwhile, as the session has it now.
         if (lost) getAnswers().then((now) => answersSession.receive({ ...now, source: 'start' }), () => {});
         lost = false;
@@ -327,15 +335,37 @@ function App() {
   // answers for the part shown leave unanswered.
   const agentSaved = async (path: string) => {
     const now = shownRef.current;
-    if (!now) return;
-    const review = await now.reviewOf(now.store.get()).catch(() => null);
-    setSaved({ path, open: review ? prompts(review.open, review) : null, byAgent: true });
+    const line = { path, open: null, byAgent: true };
+    setSaved(line);
+    const review = await now?.reviewOf(now.store.get()).catch(() => null);
+    if (review) setSaved((saved) => saved === line ? { ...line, open: prompts(review.open, review) } : saved);
+  };
+
+  const assemblyQuestions = async (result: SavedWithAnswers, opened: Opened) => {
+    if (!worker.current || !config) return null;
+    const engine = worker.current;
+    const reviewed = await Promise.all(
+      Object.entries(result.answers).sort(([a], [b]) => Number(a) - Number(b)).map(async ([index, answers]) => {
+        const part = Number(index);
+        const name = parts.find((row) => row.part === part)?.name ?? `Part ${part}`;
+        const file = fileOf(config.name, opened.bytes, part, true);
+        const { questions, open } = await engine.request<IntentReview>('review-given', { ...file, answers });
+        const byId = new Map(questions.map((q) => [q.id, q.prompt]));
+        const labels = open.map((id) => byId.get(id));
+        return {
+          open,
+          labels: labels.every((label) => label !== undefined) ? labels.map((label) => `${name} — ${label}`) : null,
+          required: Object.keys(answers).some((id) => !id.startsWith('_')),
+        };
+      }),
+    );
+    return matchMissing(result.missing, reviewed);
   };
 
   /** Save with defaults, first: the full list of the defaults it would write, in every part
    * of the file, to confirm. */
   const askDefaults = async (keepProblem = false) => {
-    if (!opened || !config || !worker.current || !sessionRef.current) return;
+    if (stopped || !opened || !config || !worker.current || !sessionRef.current) return;
     if (!keepProblem) setProblem(null);
     try {
       await opened.store.settled();
@@ -350,14 +380,20 @@ function App() {
   // Save writes the answers given, whatever is still open, and says what is. Defaults are written
   // only when the person has seen and confirmed the list of them (``defaults``).
   const onSave = async (defaults: readonly Default[]) => {
-    if (!opened) return;
+    if (stopped || !opened) return;
     setConfirming(null);
     setSaving(true); setProblem(null);
     try {
       const result = await opened.saver.save({ defaults });
       sessionRef.current?.markSaved(result.rev);
-      setSaved({ path: result.path, open: prompts(result.missing, opened.external.review, opened.review), byAgent: false });
-      setConfig(await getConfig());
+      if (opened.several && result.missing.length) {
+        const line = { path: result.path, open: null, byAgent: false, assemblyCount: result.missing.length, matching: true };
+        setSaved(line);
+        void assemblyQuestions(result, opened).catch(() => null).then((open) => setSaved((now) => now === line ? { ...line, open, matching: false } : now));
+      } else {
+        setSaved({ path: result.path, open: prompts(result.missing, opened.external.review, opened.review), byAgent: false });
+      }
+      getConfig().then(setConfig, () => {});
     } catch (error) {
       // A failed write rolls its approvals back in the session: whatever the page was told while
       // they were applied is replaced by the session as it is now, so none shows as applied.
@@ -441,7 +477,7 @@ function App() {
   };
 
   const showingChanges = mode === 'diff' && tab === 'changes';
-  const saveBlocked = fileChanged ? 'The file changed on disk since it was opened: open it again to save' : undefined;
+  const saveBlocked = stopped ? 'Specify has stopped' : fileChanged ? 'The file changed on disk since it was opened: open it again to save' : undefined;
   return (
     <div className="app">
       <header className="app-header">
@@ -471,10 +507,10 @@ function App() {
           </div>
           {config && !readOnly && (
             <>
-              <button type="button" className="app-save" onClick={() => void onSave([])} disabled={!opened || saving || fileChanged} title={saveBlocked}>
-                {saving ? 'Saving…' : 'Save'}
+              <button type="button" className="app-save" onClick={() => void onSave([])} disabled={!opened || saving || Boolean(saveBlocked)} title={saveBlocked}>
+                {saving && !stopped ? 'Saving…' : 'Save'}
               </button>
-              <button type="button" className="app-save-defaults" onClick={() => void askDefaults()} disabled={!opened || saving || fileChanged || confirming !== null}
+              <button type="button" className="app-save-defaults" onClick={() => void askDefaults()} disabled={!opened || saving || Boolean(saveBlocked) || confirming !== null}
                 title={saveBlocked ?? "List Specify's default for each question not answered; save them once you confirm"}>
                 Save with defaults
               </button>
@@ -484,13 +520,19 @@ function App() {
         {config && (
           <div className="app-paths">
             {saved && (
-              <span className="app-saved" role="status">
-                {saved.byAgent ? 'Your agent saved' : 'Saved'} <code>{saved.path}</code>{saved.open === null ? '' : `: ${saved.open.length
+              <div className="app-saved" role="status">
+                {saved.byAgent ? 'Your agent saved' : 'Saved'} <code>{saved.path}</code>{saved.assemblyCount === undefined && saved.open !== null && `: ${saved.open.length
                   ? `${plural(saved.open.length, 'question')} ${saved.byAgent ? 'still unanswered' : 'still open'}: ${saved.open.slice(0, 6).join('; ')}${saved.open.length > 6 ? '; …' : ''}`
                   : 'complete'}`}
-              </span>
+                {saved.assemblyCount !== undefined && (saved.open ? (
+                  <details className="app-open-questions">
+                    <summary>{plural(saved.assemblyCount, 'question')} still open</summary>
+                    <ul>{saved.open.map((question, i) => <li key={i}>{question}</li>)}</ul>
+                  </details>
+                ) : ` · ${plural(saved.assemblyCount, 'question')} still open${saved.matching ? '' : '. Specify could not match the questions to individual parts.'}`)}
+              </div>
             )}
-            {config.saveTarget && <span>Save writes <code className="app-target">{config.saveTarget}</code></span>}
+            {!stopped && config.saveTarget && <span>Save writes <code className="app-target">{config.saveTarget}</code></span>}
           </div>
         )}
       </header>
@@ -502,7 +544,7 @@ function App() {
           <button type="button" onClick={() => reshow.current()}>Show the latest answers</button>
         </p>
       )}
-      {confirming && (
+      {confirming && !stopped && (
         <div className="app-defaults" role="dialog" aria-label="Save with defaults">
           {confirming.defaults.length ? (
             <>
@@ -531,7 +573,12 @@ function App() {
           <button type="button" onClick={() => setConfirming(null)}>Cancel</button>
         </div>
       )}
-      {live === false && (
+      {stopped && config ? (
+        <p className="app-offline app-stopped" role="status">
+          Specify has stopped. Run <code>specify-core open …</code> again (or ask your agent to show it).
+          {' '}Your saved file is at <code>{saved?.path ?? config.path}</code>.
+        </p>
+      ) : live === false && (
         <p className="app-offline" role="status">
           Not receiving live updates from the session: reconnecting. Changes your agent makes meanwhile show when it is back.
         </p>
@@ -565,7 +612,7 @@ function App() {
         </nav>
       )}
       <main className="app-main">
-        {!opened && !problem && <p className="app-loading">Opening {config?.name ?? 'the part'}…</p>}
+        {!opened && !problem && !stopped && <p className="app-loading">Opening {config?.name ?? 'the part'}…</p>}
         {compared && (
           <div className="app-diff diff-page" hidden={!showingChanges}>
             <StepDiff before={compared.old} after={compared.next} compared={compared.body} wasmUrl={config?.wasmUrl} />
@@ -577,7 +624,7 @@ function App() {
           <SpecifyReview
             key={opened.session.sessionId}
             engine={opened.engine} session={opened.session} slots={slots} readOnly={readOnly} drawn={opened.drawn}
-            externalAnswers={opened.external.answers} externalReview={opened.external.review} disabled={saving}
+            externalAnswers={opened.external.answers} externalReview={opened.external.review} disabled={saving || stopped}
             focusRequest={focus} showFaces={lit}
             onExport={(action) => action()} inspectionIntent={inspectionIntent}
           />
