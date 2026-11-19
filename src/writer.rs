@@ -887,9 +887,13 @@ fn write_verified(
                     .map(Json::from)
                     .collect();
                 if kept.iter().any(|id| id == crate::process::QUESTION)
-                    && let Some(process) = reconciliation.and_then(|r| r.process.as_ref())
+                    && let Some((i, identity)) =
+                        reconciliation.and_then(|r| r.process_keep_identity.as_ref())
+                    && keep
+                        .get(&part)
+                        .is_some_and(|items| items.contains(&("attributes".into(), *i)))
                 {
-                    payload[resume::KEPT_PROCESS] = process.value.clone();
+                    payload[resume::KEPT_PROCESS] = identity.clone();
                 }
                 if !kept.is_empty() {
                     payload[resume::KEPT] = Json::Array(kept);

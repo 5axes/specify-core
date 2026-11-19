@@ -19,7 +19,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use serde::Serialize;
-use serde_json::{Map, Value};
+use serde_json::{Map, Value, json};
 
 use crate::part::LoadedPart;
 use crate::pmi_scene::Scene;
@@ -63,6 +63,8 @@ pub(crate) struct Reconciled {
     pub present: Map<String, Value>,
     /// The process the file states, with the attribute's provenance.
     pub process: Option<crate::bom::Field>,
+    /// The attribute index and identity for a process Specify may keep as replaceable.
+    pub process_keep_identity: Option<(usize, Value)>,
     /// The process belongs to another tool, even after its conflict has cleared.
     pub foreign_process: bool,
 }
@@ -182,11 +184,13 @@ pub(crate) fn reconcile(
         } else {
             None
         };
-        (
-            unmarked,
-            crate::process::file_pmi(&doc, pmi, &read.provenance.parts[part]),
-            kept_process,
-        )
+        let process =
+            crate::process::file_pmi(&doc, pmi, &read.provenance.parts[part]).map(|(i, field)| {
+                let set = &pmi.attributes[i];
+                let identity = json!({"name": set.name, "items": set.items});
+                (i, field, identity)
+            });
+        (unmarked, process, kept_process)
     };
     let plan = scene.comparison(loaded, analysis, Some(&stored))?;
     let mut truth = crate::revision::against_plan(&plan, &file, faces, &stored, &drift);
@@ -288,7 +292,7 @@ pub(crate) fn reconcile(
     let saved_process = stored.get(question).filter(|_| {
         crate::rules::Ctx::new(analysis).is_ok_and(|ctx| crate::process::applies(&ctx, &stored))
     });
-    let file_process = process.as_ref().map(|(_, field)| &field.value);
+    let file_process = process.as_ref().map(|(_, field, _)| &field.value);
     let process_conflict = saved_process.is_some() && saved_process != file_process;
     if process_conflict {
         conflicts.insert(
@@ -298,10 +302,13 @@ pub(crate) fn reconcile(
                 .map(|text| vec![text.into()]),
         );
     }
-    if let Some((i, mut field)) = process {
+    if let Some((i, mut field, identity)) = process {
         let at = ("attributes".to_string(), i);
-        let kept = kept_process.as_ref() == Some(&field.value);
+        let kept = kept_process.as_ref() == Some(&identity);
         out.foreign_process = field.source == "file" && !kept;
+        if !out.foreign_process {
+            out.process_keep_identity = Some((i, identity));
+        }
         if !out.foreign_process || process_conflict {
             out.contested.insert(at, question.into());
         }

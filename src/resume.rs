@@ -87,7 +87,7 @@ fn without_unknown(out: &mut Resumed) {
 /// carry the decision in the PMI itself, so it is kept beside the answers.
 pub const KEPT: &str = "kept";
 
-/// The value of a kept Specify-authored process UDA. A kept removal has no value here.
+/// The set name and items of a kept Specify-authored process UDA.
 pub(crate) const KEPT_PROCESS: &str = "kept_process";
 
 /// The payload's carry blocks ([`UNRESOLVED`]) and kept removals ([`KEPT`]) as answers'

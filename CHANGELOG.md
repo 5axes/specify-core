@@ -11,7 +11,13 @@ All notable changes to specify-core-rust. The format follows
 - Reopening a STEP file detects manufacturing-process edits and removals against saved
   answers even after the STEP provenance markers have been stripped. CLI and editor
   rewrites preserve unmarked foreign process attributes, including text outside Specify's
-  options. Keeping a process or its removal applies to the state kept at that save.
+  options. A Keep of Specify's process permits later replacement of the UDA with the
+  recorded property-set name and items.
+
+### Known limits
+
+- When another tool strips all of Specify's markers from a replace-written STEP file and
+  leaves no process evidence, rewrites restore saved answers and drop edited items, as in 0.2.0.
 
 ## 0.2.0 (2026-11-19)
 

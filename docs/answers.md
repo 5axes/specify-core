@@ -229,6 +229,8 @@ dropped on rewrite, as they were before ADR P9: a default whose faces another to
 default exists (no question accounts for it). Keeping them needs the writer to match restated
 requirements by meaning rather than by characteristic key, so that what a rewrite states
 again is not written twice.
+When another tool strips all of Specify's markers from a replace-written STEP file and
+leaves no process evidence, rewrites restore saved answers and drop edited items, as in 0.2.0.
 
 When the writer rewrites a reopened part, it replaces Specify's own (provenance-marked)
 requirements from the answers and keeps every other one: PMI another tool added (unmarked)
