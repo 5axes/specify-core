@@ -8,12 +8,13 @@ mod common;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use haecceity::p21::Document;
+use haecceity::p21::{Attribute, Document, Edit, RawEntity};
 use haecceity::pmi::{self, PartId, PartPmi};
 use serde_json::{Map, Value, json};
 use specify_core::api;
 use specify_core::existing::read_existing;
 use specify_core::part::{LoadedPart, load_bytes};
+use specify_core::process;
 
 fn plate() -> PathBuf {
     common::fixtures().join("parts").join("plate.step")
@@ -157,6 +158,127 @@ fn cli_rewrite(bytes: &[u8], name: &str) -> LoadedPart {
         &answers,
     ]);
     load(std::fs::read(output).unwrap())
+}
+
+/// Change the UDA item in place, optionally deleting the provenance on its property link.
+fn edited_process(marked: bool) -> LoadedPart {
+    let mut given = answers("0.05");
+    given.insert(process::QUESTION.into(), json!(process::MACHINED));
+    let original = String::from_utf8(written(&given)).unwrap();
+    let item = |value| {
+        format!(
+            "DESCRIPTIVE_REPRESENTATION_ITEM('{}','{value}')",
+            process::ITEM
+        )
+    };
+    assert_eq!(original.matches(&item(process::MACHINED)).count(), 1);
+    let bytes = original
+        .replace(&item(process::MACHINED), &item(process::CAST))
+        .into_bytes();
+    let doc = Document::parse(bytes).unwrap();
+    let defs = haecceity::step::read_part_definitions(doc.bytes()).unwrap();
+    let read = pmi::read(&doc, &defs).unwrap();
+    let i = read.parts[0]
+        .attributes
+        .iter()
+        .position(|set| set.name == process::PROPERTY)
+        .unwrap();
+    let ids = &read.provenance.parts[0].attributes[i];
+    let markers: Vec<_> = ids.iter().flat_map(|&id| doc.referrers(id)).copied().filter(|&id| {
+        matches!(doc.get(id), Some(RawEntity::Simple {name, attributes, ..})
+            if name == "DESCRIPTION_ATTRIBUTE"
+                && matches!(attributes.first(), Some(Attribute::String(s)) if s == "specify-core:written:v1"))
+    }).collect();
+    assert_eq!(markers.len(), 1);
+    if marked {
+        return load(doc.bytes().to_vec());
+    }
+    let mut edit = Edit::new();
+    edit.remove(markers[0]);
+    load(doc.apply(&edit).unwrap().bytes)
+}
+
+fn assert_process(loaded: &LoadedPart, expected: &str) {
+    let doc = Document::parse(loaded.bytes.to_vec()).unwrap();
+    let defs = haecceity::step::read_part_definitions(doc.bytes()).unwrap();
+    let read = pmi::read(&doc, &defs).unwrap();
+    let sets: Vec<_> = read.parts[0]
+        .attributes
+        .iter()
+        .filter(|set| set.name == process::PROPERTY)
+        .collect();
+    assert_eq!(
+        sets.len(),
+        1,
+        "expected exactly one process UDA with {expected}"
+    );
+    assert_eq!(process::read_pmi(&read.parts[0]).unwrap().value, expected);
+}
+
+fn process_conflict(analysis: &Value) -> Option<&Value> {
+    analysis["resume"]["conflicts"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|conflict| conflict["id"] == process::QUESTION)
+}
+
+#[test]
+fn externally_edited_process_is_a_conflict_on_reopening() {
+    for marked in [true, false] {
+        let loaded = edited_process(marked);
+        assert_process(&loaded, process::CAST);
+        let analysis = api::analyse(&loaded).unwrap();
+        let conflict =
+            process_conflict(&analysis).expect("edited process conflicts with saved answer");
+        assert_eq!(conflict["stored"], process::MACHINED);
+        assert_eq!(conflict["file"], process::CAST);
+        assert_eq!(conflict["foreign"].as_bool().unwrap_or(false), !marked);
+        assert_eq!(analysis["part"]["process"], process::CAST);
+        assert!(
+            analysis["resume"]["answers"]
+                .get(process::QUESTION)
+                .is_none()
+        );
+    }
+}
+
+#[test]
+fn cli_keeps_a_process_edited_with_provenance() {
+    assert_process(
+        &cli_rewrite(&edited_process(true).bytes, "marked-process"),
+        process::CAST,
+    );
+}
+
+#[test]
+fn cli_keeps_a_process_edited_without_provenance() {
+    assert_process(
+        &cli_rewrite(&edited_process(false).bytes, "unmarked-process"),
+        process::CAST,
+    );
+}
+
+#[test]
+fn editor_keeps_a_process_edited_with_provenance() {
+    editor_keeps_edited_process(true);
+}
+
+#[test]
+fn editor_keeps_a_process_edited_without_provenance() {
+    editor_keeps_edited_process(false);
+}
+
+fn editor_keeps_edited_process(marked: bool) {
+    let loaded = edited_process(marked);
+    let analysis = api::analyse(&loaded).unwrap();
+    let mut resumed = map(analysis["resume"]["answers"].clone());
+    resumed.remove(process::QUESTION);
+    let written = preview_write(&loaded, &analysis, &resumed);
+    assert_process(&written, process::CAST);
+    let reopened = api::analyse(&written).unwrap();
+    assert!(process_conflict(&reopened).is_none());
+    assert_eq!(reopened["part"]["process"], process::CAST);
 }
 
 /// Case 1: a bare part Specify wrote (a replace payload, no `pmi_scope`) to which another
