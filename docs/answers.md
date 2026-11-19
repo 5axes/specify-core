@@ -184,9 +184,11 @@ A conflict is **decided** when the current answers answer its question, or list 
   The file's requirement becomes the file's own: the writer writes it without Specify's
   provenance marker, so on reopening it is PMI another tool stated (`existing`, kept, its
   question not asked) for any reader, and every later write, the editor's or the CLI's,
-  keeps it as it is. A removal kept has no requirement to carry the decision, so it is stored
-  beside the answers (the payload's `kept` list, restored as `_specify.keep`), and its
-  question stays unasked on every later save.
+  Every keep is also stored beside the answers (the payload's `kept` list, restored as
+  `_specify.keep`): a removal kept has no requirement to carry it, and a requirement kept
+  stays tied to its question. Answering a kept question later (with any value) clears the
+  keep, and the file's requirement gives way, marked as Specify's or not, so the file holds
+  the new answer's requirement alone.
 
 `review` lists the undecided conflicts as questions (`conflicts`, only when there are some),
 each `{id, kind: "conflict", text, stored, file, choices}`, `text` reading "Saved answer H7,

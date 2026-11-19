@@ -452,10 +452,10 @@ fn analyse_reconciling(
                 let defs = haecceity::step::read_part_definitions(&loaded.bytes)
                     .map_err(|e| refused(&e))?;
                 let reading = existing::read_parsed(loaded, doc, &defs).map_err(|e| refused(&e))?;
-                // Specify's own (marked) requirements are its answers' to state: the rewrite
-                // replaces them, so the ones the answers do not explain are not the file's to
-                // keep (their questions are asked again), unless a conflict stands for them.
-                // The rest is another tool's PMI, shown and kept.
+                // Specify's own (marked) requirements the answers do not explain, and that no
+                // question accounts for, are Specify's to state: the rewrite states the part from
+                // the answers. The rest is another tool's PMI, or the file's answer to a
+                // question (tagged), shown and kept.
                 let mut existing = reading
                     .existing_except(loaded, &r.selection())
                     .map_err(|e| refused(&e))?;
@@ -466,10 +466,13 @@ fn analyse_reconciling(
                 );
                 let mut settings = reading.settings(loaded);
                 let marked = reading.settings_provenance(loaded);
+                let tagged = |key: &str| {
+                    let question = format!("part.{key}");
+                    r.conflicts.iter().any(|c| c.id == question)
+                        || r.file_answered.contains(&question)
+                };
                 settings.retain(|key, _| {
-                    !r.settings.contains(key)
-                        && (!marked.contains_key(key)
-                            || r.conflicts.iter().any(|c| c.id == format!("part.{key}")))
+                    !r.settings.contains(key) && (!marked.contains_key(key) || tagged(key))
                 });
                 analysis.insert("part".into(), Value::Object(settings));
                 let resume = analysis

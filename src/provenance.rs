@@ -275,7 +275,7 @@ pub(crate) fn without_owned(
     read: &haecceity::pmi::PmiRead,
     parts: &[usize],
 ) -> Result<Vec<u8>, String> {
-    without_owned_except(doc, read, parts, &BTreeMap::new())
+    without_owned_except(doc, read, parts, &BTreeMap::new(), &BTreeMap::new())
 }
 
 /// [`without_owned`], keeping the items `keep` names for each part (by haecceity collection
@@ -285,6 +285,7 @@ pub(crate) fn without_owned_except(
     read: &haecceity::pmi::PmiRead,
     parts: &[usize],
     keep: &BTreeMap<usize, BTreeSet<(String, usize)>>,
+    give_way: &BTreeMap<usize, BTreeSet<(String, usize)>>,
 ) -> Result<Vec<u8>, String> {
     let mut seeds = BTreeSet::new();
     let mut protected = BTreeSet::new();
@@ -293,7 +294,11 @@ pub(crate) fn without_owned_except(
         let p = &read.parts[part];
         let prov = &read.provenance.parts[part];
         let kept = keep.get(&part).unwrap_or(&none);
+        let yields = give_way.get(&part).unwrap_or(&none);
         let kept_at = |collection: &str, i: usize| kept.contains(&(collection.to_string(), i));
+        // An item the person decided against (a conflict restored or answered anew) gives way
+        // even when it is not marked as Specify's (kept earlier, so written as the file's own).
+        let yields_at = |collection: &str, i: usize| yields.contains(&(collection.to_string(), i));
         let mut classified = BTreeSet::<u64>::new();
         let mut classify = |ids: &[u64], owned: bool| {
             classified.extend(ids);
@@ -304,12 +309,17 @@ pub(crate) fn without_owned_except(
             }
         };
         for (i, ids) in prov.dimensions.iter().enumerate() {
-            classify(ids, !kept_at("dimensions", i) && dimension(doc, ids));
+            classify(
+                ids,
+                yields_at("dimensions", i) || (!kept_at("dimensions", i) && dimension(doc, ids)),
+            );
         }
         for (i, ids) in prov.tolerances.iter().enumerate() {
             classify(
                 ids,
-                !kept_at("tolerances", i) && p.tolerances[i].description.as_deref() == Some(MARKER),
+                yields_at("tolerances", i)
+                    || (!kept_at("tolerances", i)
+                        && p.tolerances[i].description.as_deref() == Some(MARKER)),
             );
         }
         for (items, kind, collection) in [
@@ -326,12 +336,16 @@ pub(crate) fn without_owned_except(
             (&prov.attributes, "attribute", "attributes"),
         ] {
             for (i, ids) in items.iter().enumerate() {
-                classify(ids, !kept_at(collection, i) && marked(doc, ids, kind));
+                classify(
+                    ids,
+                    yields_at(collection, i) || (!kept_at(collection, i) && marked(doc, ids, kind)),
+                );
             }
         }
         classify(
             &prov.material,
-            !kept_at("material", 0) && marked(doc, &prov.material, "material"),
+            yields_at("material", 0)
+                || (!kept_at("material", 0) && marked(doc, &prov.material, "material")),
         );
         protected.extend(prov.all().into_iter().filter(|id| !classified.contains(id)));
         protected.extend(prov.geometry.iter().flatten());

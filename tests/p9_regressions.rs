@@ -439,3 +439,80 @@ fn a_conflict_kept_through_the_editor_lasts() {
     let second = preview_write(&first, &again, &resumed);
     assert_eq!(positions(&second), [(0.2, false)]);
 }
+
+/// The CLI's write of `answers` on a file: `analyse`, then `write --accept-defaults`.
+fn cli_write(bytes: &[u8], answers: &Map<String, Value>, name: &str) -> LoadedPart {
+    let dir = dir(name);
+    let input = dir.join("in.step");
+    std::fs::write(&input, bytes).unwrap();
+    let analysis = dir.join("analysis.json");
+    cli(&[Path::new("analyse"), Path::new("-o"), &analysis, &input]);
+    let given = dir.join("answers.json");
+    std::fs::write(&given, Value::Object(answers.clone()).to_string()).unwrap();
+    let output = dir.join("out.step");
+    cli(&[
+        Path::new("write"),
+        Path::new("-o"),
+        &output,
+        Path::new("--accept-defaults"),
+        &input,
+        &analysis,
+        &given,
+    ]);
+    load(std::fs::read(output).unwrap())
+}
+
+fn hole_positions(l: &LoadedPart) -> Vec<f64> {
+    read_existing(l)
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.r#type == "Position" && e.faces == [12])
+        .map(|e| e.value.unwrap())
+        .collect()
+}
+
+/// Keep, write, then change one's mind: answering the kept question writes the new value and
+/// the kept requirement gives way, on the editor's path and the CLI's, so the file holds one
+/// requirement with the new value and reopens with no conflict.
+#[test]
+fn answering_a_kept_question_replaces_the_kept_requirement() {
+    let edited = specify_core::part::load(
+        &common::fixtures().join("resume-p9/edited-plate.step.gz"),
+        None,
+    )
+    .unwrap();
+    let hole = "hole.position:holes:12";
+    for editor in [true, false] {
+        let analysis = api::analyse(&edited).unwrap();
+        let mut answers = analysis["resume"]["answers"].as_object().unwrap().clone();
+        answers.insert("_specify".into(), json!({"keep": [hole]}));
+        let kept = if editor {
+            preview_write(&edited, &analysis, &answers)
+        } else {
+            cli_write(&edited.bytes, &answers, "keep")
+        };
+        assert_eq!(hole_positions(&kept), [0.2], "kept (editor: {editor})");
+        // Reopened and answered anew.
+        let reopened = api::analyse(&kept).unwrap();
+        assert!(reopened["resume"].get("conflicts").is_none());
+        let mut answers = reopened["resume"]["answers"].as_object().unwrap().clone();
+        answers.insert(hole.into(), json!("0.1"));
+        let answered = if editor {
+            preview_write(&kept, &reopened, &answers)
+        } else {
+            cli_write(&kept.bytes, &answers, "answer")
+        };
+        assert_eq!(
+            hole_positions(&answered),
+            [0.1],
+            "answered (editor: {editor})"
+        );
+        let again = api::analyse(&answered).unwrap();
+        assert!(
+            again["resume"].get("conflicts").is_none(),
+            "{}",
+            again["resume"]
+        );
+        assert_eq!(again["resume"]["answers"][hole], "0.1");
+    }
+}

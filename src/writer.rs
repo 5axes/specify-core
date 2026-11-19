@@ -669,6 +669,9 @@ fn write_verified(
     // keep is rewritten as before; a replace-written one with something to keep is rewritten
     // as a scoped Add, replacing only Specify's marked requirements.
     let mut keep = std::collections::BTreeMap::new();
+    // The file's items of conflicts the answers now decide (restored, or answered anew): they
+    // give way, marked or not.
+    let mut give_way = std::collections::BTreeMap::new();
     // Replace-written parts taken to a scoped Add only for the Specify-marked PMI they keep.
     let mut for_keep = BTreeSet::new();
     let mut reconciled = std::collections::BTreeMap::new();
@@ -689,6 +692,10 @@ fn write_verified(
                     foreign = provenance::unmarked(&original.doc, &original.read, part)
                         .iter()
                         .any(|at| !r.explained.contains(at));
+                    let yields = r.give_way(&original.read.parts[part], answers.unwrap_or(&empty));
+                    if !yields.is_empty() {
+                        give_way.insert(part, yields);
+                    }
                     let mut kept = kept;
                     kept.extend(foreign_support(&original, part));
                     reconciled.insert(part, r);
@@ -721,7 +728,7 @@ fn write_verified(
     }
     let clean =
         |scoped: &[usize], keep: &std::collections::BTreeMap<usize, BTreeSet<(String, usize)>>| {
-            provenance::without_owned_except(&original.doc, &original.read, scoped, keep)
+            provenance::without_owned_except(&original.doc, &original.read, scoped, keep, &give_way)
                 .map_err(WriteError::Refused)
                 .and_then(|bytes| Source::of(&bytes))
         };
@@ -845,22 +852,12 @@ fn write_verified(
                 if !blocks.is_empty() {
                     payload[resume::UNRESOLVED] = Json::Object(blocks);
                 }
-                // ADR P9: a conflict kept by leaving its requirement removed has no item to
-                // carry the decision, so it is stored beside the answers; one kept by keeping
-                // the file's requirement is carried by that requirement, written unmarked.
-                let changed: BTreeSet<&str> = reconciled
-                    .get(&loaded.binding.part)
-                    .map(|r| {
-                        r.conflicts
-                            .iter()
-                            .filter(|c| c.file.is_some())
-                            .map(|c| c.id.as_str())
-                            .collect()
-                    })
-                    .unwrap_or_default();
+                // ADR P9: conflicts kept are stored beside the answers (a kept requirement is
+                // also written unmarked, as the file's own), so a later answer to the question
+                // still finds the file's requirement it replaces. Answering clears the keep.
                 let kept: Vec<Json> = resume::truth::kept(answers)
                     .into_iter()
-                    .filter(|id| !answers.contains_key(*id) && !changed.contains(id))
+                    .filter(|id| !answers.contains_key(*id))
                     .map(Json::from)
                     .collect();
                 if !kept.is_empty() {

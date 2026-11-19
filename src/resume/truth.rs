@@ -139,7 +139,16 @@ pub(crate) fn reconcile(
     let mut truth = crate::revision::against_plan(&plan, &file, faces, &stored, &drift);
     let mut present = Map::new();
     let mut file_answered: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
-    if let Ok(all) = crate::rules::with_all_defaults(analysis, &stored)
+    // The defaults plan asks every question, those kept earlier too (`_specify.keep` would
+    // leave them unasked), so their requirements can be found in the file.
+    let mut unkept = stored.clone();
+    if let Some(meta) = unkept
+        .get_mut(crate::answer_file::META)
+        .and_then(Value::as_object_mut)
+    {
+        meta.remove(KEEP);
+    }
+    if let Ok(all) = crate::rules::with_all_defaults(analysis, &unkept)
         && all.len() > stored.len()
     {
         let planned = scene.comparison(loaded, analysis, Some(&all))?;
@@ -211,10 +220,14 @@ pub(crate) fn reconcile(
         // otherwise than its default (changed elsewhere, or written from an intent): the file
         // answers it. Not a conflict, and its default is not restated: its requirements are
         // the file's, kept on writing, until the question is answered.
+        // A question the person kept earlier (`_specify.keep`, stored with the answers) is the
+        // file's whatever its marker: the kept requirement was written unmarked.
+        let kept_earlier = kept(&stored);
         for (question, items) in other.changed_defaults {
-            let own = items
-                .iter()
-                .any(|(id, _)| index.get(id).is_some_and(|at| !unmarked.contains(at)));
+            let own = kept_earlier.contains(question.as_str())
+                || items
+                    .iter()
+                    .any(|(id, _)| index.get(id).is_some_and(|at| !unmarked.contains(at)));
             if own && question != crate::process::QUESTION && !present.contains_key(&question) {
                 file_answered.insert(question, items);
             }
@@ -452,8 +465,9 @@ impl Reconciled {
         restated: &BTreeSet<(String, usize)>,
     ) -> BTreeSet<(String, usize)> {
         use haecceity::pmi::NoteOwner;
-        // Only a conflict's file items need keeping here: the rewrite replaces Specify's own
-        // (marked) requirements and protects every other one, which is another tool's.
+        // Only the file's items of an undecided conflict or of a question the file answers
+        // need keeping here: the rewrite replaces Specify's own (marked) requirements and
+        // protects every other one, which is another tool's.
         let keeps = |collection: &str, i: usize| {
             let at = (collection.to_string(), i);
             !self.explained.contains(&at)
@@ -775,4 +789,34 @@ pub(crate) fn recall(loaded: &LoadedPart) -> Option<Option<Reconciled>> {
         .iter()
         .find(|(k, _)| *k == key)
         .map(|(_, r)| r.clone())
+}
+
+impl Reconciled {
+    /// The file's items of the conflicts and file-answered questions `answers` now answer
+    /// (restored, or answered anew), with the attributes on them: they give way on writing,
+    /// marked as Specify's or not.
+    pub(crate) fn give_way(
+        &self,
+        pmi: &haecceity::pmi::PartPmi,
+        answers: &Map<String, Value>,
+    ) -> BTreeSet<(String, usize)> {
+        use haecceity::pmi::NoteOwner;
+        let mut out: BTreeSet<(String, usize)> = self
+            .contested
+            .iter()
+            .filter(|(_, question)| answers.contains_key(*question))
+            .map(|(at, _)| at.clone())
+            .collect();
+        for (i, set) in pmi.attributes.iter().enumerate() {
+            let owner = match set.on {
+                Some(NoteOwner::Dimension(d)) => Some(("dimensions", d.0)),
+                Some(NoteOwner::Tolerance(t)) => Some(("tolerances", t.0)),
+                _ => None,
+            };
+            if owner.is_some_and(|(c, j)| out.contains(&(c.to_string(), j))) {
+                out.insert(("attributes".to_string(), i));
+            }
+        }
+        out
+    }
 }
