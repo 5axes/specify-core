@@ -1,10 +1,13 @@
 import { readCarried } from './carried';
 import { withCharacteristicNumbers, type NumberScene } from './characteristic-numbers';
 import type { IntentReview } from '../types/pmi';
+import { inspectionFromStep } from '../specify/saved-inspection';
+import { rebuildSavedStep } from './saved-step';
 
 interface IntentModule {
   default(): Promise<unknown>;
   review(analysis: string, answers: string): string;
+  pmiScene(bytes: Uint8Array, part?: number): string;
   interpret(analysis: string, answers: string, question: string, text: string): string;
   answerEdit(state: string, answers: string): string;
   tolerancingEdit(state: string, mode: string | undefined, answers: string): string;
@@ -80,7 +83,16 @@ self.onmessage = ({ data }) => {
     try {
       const module = await load();
       let result: unknown = true;
-      if (operation === 'open' || operation === 'review' || operation === 'review-given' || operation === 'settle' || operation === 'write' || operation === 'rematch' || operation === 'scene') {
+      if (operation === 'saved-copy') {
+        result = rebuildSavedStep(module.IntentEngine, args.name, args.bytes, args.parts);
+      } else if (operation === 'file-inspection') {
+        const file = args.part === undefined ? new module.IntentEngine(args.name, args.bytes)
+          : module.IntentEngine.openPart(args.name, args.bytes, args.part);
+        try {
+          const { analysis } = JSON.parse(file.snapshot());
+          result = inspectionFromStep(analysis, JSON.parse(module.pmiScene(args.bytes, args.part)));
+        } finally { file.free(); }
+      } else if (operation === 'open' || operation === 'review' || operation === 'review-given' || operation === 'settle' || operation === 'write' || operation === 'rematch' || operation === 'scene') {
         if (!engine || sourceId !== args.sourceId || part !== args.part || operation === 'open') {
           engine?.free(); engine = undefined;
           engine = args.part === undefined ? new module.IntentEngine(args.name, args.bytes)

@@ -100,6 +100,30 @@ async function downloadFile(page, name, filename) {
 const exportAnswers = async (page, filename = 'part.answers.json') => JSON.parse(readFileSync(await downloadFile(page, 'Answers (JSON)', filename), 'utf8'));
 const workbookSheet = (path, number) => execFileSync('unzip', ['-p', path, `xl/worksheets/sheet${number}.xml`], { encoding: 'utf8' });
 
+async function inspectSaved(page, path) {
+  const name = basename(path).replace(/\.gz$/i, '').replace(/\.(step|stp)$/i, '');
+  await check(page.locator('.app-inspection-source')).toContainText(`from ${basename(path)}`);
+  const csv = readFileSync(await downloadFile(page, 'Inspection list (CSV)', `${name}-characteristics.csv`), 'utf8');
+  const book = await downloadFile(page, 'AS9102 FAI (Excel)', `${name}-AS9102.xlsx`);
+  const form2 = workbookSheet(book, 2);
+  const form3 = workbookSheet(book, 3);
+  const numbers = (analyse(path).characteristics ?? []).map((item) => item.number).sort((a, b) => a - b);
+  const csvNumbers = csv.trimEnd().split('\n').slice(1).map((line) => Number(line.split(',')[0])).filter((n) => n > 0);
+  const faiNumbers = [...form3.matchAll(/<c r="A(\d+)"[^>]*><is><t [^>]*>([^<]+)<\/t>/g)]
+    .filter((match) => Number(match[1]) >= 5).map((match) => Number(match[2]));
+  assert.deepEqual(csvNumbers, numbers, 'CSV numbers are exactly those read back from the saved STEP');
+  assert.deepEqual(faiNumbers, numbers, 'AS9102 numbers are exactly those read back from the saved STEP');
+  assert.doesNotMatch(form3, /Material:/, 'Material belongs on Form 2 only');
+  return { csv, form2, form3 };
+}
+const assertSaveFirst = async (page) => {
+  for (const name of ['Inspection list (CSV)', 'AS9102 FAI (Excel)']) {
+    const button = page.getByRole('button', { name, exact: true });
+    await check(button).toBeDisabled();
+    await check(button).toHaveAttribute('title', 'Save first: the inspection files describe the saved STEP');
+  }
+};
+
 try {
   // Specify: answer, save, read the PMI back.
   {
@@ -111,6 +135,7 @@ try {
     // A file of one part: no part named by the command.
     assert.equal((await (await fetch(`${server.url}config`)).json()).part, null);
     await check(page.locator('.app-target')).toHaveText(specified);
+    await assertSaveFirst(page);
     // Save with the material, which is required, still open is not refused: it writes what is answered
     // (nothing, here), and says what is still open. Many STEP files have no complete answer to everything.
     await page.getByRole('button', { name: 'Save', exact: true }).click();
@@ -162,8 +187,9 @@ try {
     await box.press('Enter');
     await check(page.locator('.app-dirty')).toBeVisible();
     if (shots) await page.screenshot({ path: join(shots, 'specify.png') });
-    // The exports that are files.
-    for (const [name, file] of [['Answers (JSON)', 'part.answers.json'], ['Inspection list (CSV)', 'part-characteristics.csv'], ['AS9102 FAI (Excel)', 'part-AS9102.xlsx']]) {
+    // Inspection exports still describe the saved defaults file while Material is unsaved.
+    await inspectSaved(page, withDefaults);
+    for (const [name, file] of [['Answers (JSON)', 'part.answers.json'], ['Inspection list (CSV)', 'part.specified-2-characteristics.csv'], ['AS9102 FAI (Excel)', 'part.specified-2-AS9102.xlsx']]) {
       const path = await downloadFile(page, name, file);
       if (file.endsWith('.json')) {
         const answers = JSON.parse(readFileSync(path, 'utf8'));
@@ -298,43 +324,49 @@ try {
     await context.close();
     server.stop();
   }
-  // Inspection exports from a partial set of answers include only the stated requirements.
+  // Decision 2026-11-19: local inspection downloads describe the last saved STEP, never live answers.
   {
     const server = await open(specified);
     const { context, page } = await load(server);
+    await assertSaveFirst(page);
     const box = material(page).locator('input');
     await box.fill('Aluminium 6082-T6');
     await box.press('Enter');
+    await page.locator('.pmi-lab-suggestion:has([data-suggestion="part.general_tolerance"])').getByRole('button', { name: 'Keep', exact: true }).click();
     await check(page.locator('.app-dirty')).toBeVisible();
-    const stem = 'part.specified';
-    const inspect = async (page, name) => {
-      const csv = readFileSync(await downloadFile(page, 'Inspection list (CSV)', `${name}-characteristics.csv`), 'utf8');
-      const workbook = await downloadFile(page, 'AS9102 FAI (Excel)', `${name}-AS9102.xlsx`);
-      // Changed number expectation: Material is a setting, with no characteristic ID in STEP.
-      // Display and both exports leave its number empty, including after Save and readback.
-      assert.deepEqual(csv.trimEnd().split('\n').slice(1), [',,Part,Material: Aluminium 6082-T6,,,,,,'], 'the CSV has only the given unnumbered setting');
-      assert.match(workbookSheet(workbook, 2), /MATERIAL Aluminium 6082-T6/);
-      const form3 = workbookSheet(workbook, 3);
-      // Column D includes the repeated part name above the characteristic table.
-      assert.deepEqual([...form3.matchAll(/<c r="D\d+"[^>]*><is><t [^>]*>([^<]+)<\/t>/g)].map((match) => match[1]),
-        [name, 'Requirement', 'Material: Aluminium 6082-T6'], 'Form 3 has only the given characteristic');
-      assert.doesNotMatch(form3, /<c r="A5"/, 'Form 3 leaves the unnumbered setting empty');
-    };
-    await page.getByRole('tab', { name: /^Characteristics/ }).click();
-    const materialRow = page.locator('.pmi-lab-table tr').filter({ hasText: 'Material: Aluminium 6082-T6' });
-    await check(materialRow.getByRole('checkbox', { name: 'Inspect Material: Aluminium 6082-T6', exact: true })).toBeVisible();
-    await inspect(page, stem);
+    await assertSaveFirst(page);
     await page.getByRole('button', { name: 'Save', exact: true }).click();
-    const saved = join(dir, `${stem}.specified.step`);
+    const saved = join(dir, 'part.specified.specified.step');
     await check(page.locator('.app-saved')).toContainText(saved);
+    const original = await inspectSaved(page, saved);
+    assert.match(original.form2, /MATERIAL:? Aluminium 6082-T6/);
+    await check(page.locator('.app-inspection-source')).toContainText('reconstructed from the saved revision');
+    await page.locator('.pmi-lab-panel').getByRole('button', { name: /^Material/ }).click();
+    await box.fill('Brass CW614N');
+    await box.press('Enter');
+    await check(page.locator('.app-dirty')).toBeVisible();
+    assert.deepEqual(await inspectSaved(page, saved), original, 'further edits leave both saved inspection downloads unchanged');
+    const json = await exportAnswers(page, 'part.specified.answers.json');
+    assert.equal(json['part.material'], 'Brass CW614N', 'Answers JSON still exports the current answers');
     await context.close();
     server.stop();
     const readOnly = await open(saved, '--read-only');
     const viewer = await load(readOnly);
-    await check(viewer.page.locator('.pmi-lab-panel')).toContainText('PMI (view only)');
-    await inspect(viewer.page, `${stem}.specified`);
+    assert.deepEqual(await inspectSaved(viewer.page, saved), original, 'read-only exports the actual opened file');
     await viewer.context.close();
     readOnly.stop();
+  }
+  // Stored characteristics absent from an interview reconstruction must remain in the exports.
+  {
+    const spindle = join(dir, 'stored-spindle.step');
+    writeFileSync(spindle, gunzipSync(readFileSync('test/fixtures/spindle_pmi_after.step.gz')));
+    const server = await open(spindle, '--read-only');
+    const { context, page } = await load(server);
+    const stored = await inspectSaved(page, spindle);
+    const numbers = stored.csv.trimEnd().split('\n').slice(1).map((row) => Number(row.split(',')[0]));
+    for (const number of [9, 16, 17]) assert.ok(numbers.includes(number), `stored spindle characteristic #${number}`);
+    await context.close();
+    server.stop();
   }
   // Diff: what changed from OLD to NEW, what needs a decision, and Save writes NEW with the carried answers.
   {

@@ -14,6 +14,7 @@ body { background: #fff; color: #1a1d21; font: 13px/1.45 ui-sans-serif, -apple-s
 .app-dirty { font-size: 12px; color: #a86500; }
 .app-actions { display: flex; align-items: center; gap: 8px; }
 .app-exports { display: flex; flex-wrap: wrap; gap: 6px; }
+.app-inspection-source { flex-basis: 100%; max-width: 44em; color: #707880; font-size: 11.5px; }
 .app button { font: inherit; padding: 5px 10px; border: 1px solid #c4ccd6; border-radius: 4px; background: #fff; color: #1a1d21; cursor: pointer; }
 .app button:disabled { opacity: .5; cursor: default; }
 .app .app-save { background: #2f6fb5; border-color: #2f6fb5; color: #fff; font-weight: 600; padding: 5px 16px; }

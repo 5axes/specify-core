@@ -8,14 +8,15 @@ import '@fontsource/ibm-plex-mono/600.css';
 import '../src/specify/PmiLab.css';
 import './app.css';
 import { createRoot } from 'react-dom/client';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
-  as9102, characteristics, createIntentEngine, drawnFromScene, hasGraphics, noteStatements, SpecifyReview, StepDiff, toCsv, withoutNotesBlock, xlsx,
+  as9102, createIntentEngine, drawnFromScene, hasGraphics, SpecifyReview, StepDiff, toCsv, withoutNotesBlock, xlsx,
   type DrawnPmi, type IntentReview, type PmiAnswers, type PmiLabSession, type PmiQuestion, type SpecifyEngine, type SpecifySlots, type WorkerClient,
 } from '../src/index';
 import { stepBytes } from '../src/model/diff';
-import { defaultsToWrite, groupQuestions } from '../src/specify/review';
+import { defaultsToWrite } from '../src/specify/review';
 import { saveFile } from '../src/specify/SpecifyReview';
+import type { StoredInspection } from '../src/specify/saved-inspection';
 import { changedIds, createSession, sameAnswers, type AnswersSession, type AnswersStore } from './answers';
 import { decisions, type Decision } from './diff-report';
 import { getAnswers, getConfig, getDiff, getFile, keepAlive, listen, type DiffBody, type LocalConfig } from './local';
@@ -90,7 +91,6 @@ async function openPart(worker: WorkerClient, answersSession: AnswersSession, na
     },
     interpret: (_id, given, question, text) => worker.request('interpret', { analysis: snapshot.analysis, answers: given, question, text }),
     preview: async (_id, given) => (await reviewOf(given)).intent,
-    inspection: async (_id, given) => (await worker.request<IntentReview>('review-given', { ...file, answers: given })).intent,
   };
   const session: PmiLabSession = {
     sessionId: sourceId, filename: name, analysis: snapshot.analysis, mesh: snapshot.mesh, answers,
@@ -108,6 +108,10 @@ async function openPart(worker: WorkerClient, answersSession: AnswersSession, na
 const stem = (name: string) => name.replace(/\.gz$/i, '').replace(/\.(step|stp)$/i, '');
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`;
+
+interface InspectionStep { path: string; name: string; bytes: Uint8Array; rebuilt: boolean }
+const inspectionName = (path: string) => path.split(/[\\/]/).pop() ?? path;
+const SAVE_FIRST = 'Save first: the inspection files describe the saved STEP';
 
 /** What the last save wrote, and the questions still open in it, by their prompts. */
 interface SavedLine { path: string; open: string[] | null; byAgent: boolean; assemblyCount?: number; matching?: boolean }
@@ -145,9 +149,15 @@ function App() {
   const worker = useRef<WorkerClient | null>(null);
   const view = useRef<HTMLDivElement>(null);
   const panel = useRef<HTMLDivElement>(null);
-  const exportsBox = useRef<HTMLDivElement>(null);
+  const [inspectionStep, setInspectionStep] = useState<InspectionStep | null>(null);
+  const [inspectionData, setInspectionData] = useState<(StoredInspection & { part: number }) | null>(null);
+  const [inspectionProblem, setInspectionProblem] = useState<string | null>(null);
+  const inspectionLoad = useRef(0);
+  const savedRevision = useRef(-1);
+  const heardSaves = useRef(new Set<string>());
+  const captureSaved = useRef<(saved: { path: string; rev: number }, parts?: Record<string, PmiAnswers>) => void>(() => {});
   const [slots, setSlots] = useState<SpecifySlots | null>(null);
-  useEffect(() => setSlots({ view: view.current!, panel: panel.current!, exports: exportsBox.current! }), []);
+  useEffect(() => setSlots({ view: view.current!, panel: panel.current!, exports: null }), []);
   // Answers from outside the page (an agent's, source "mcp") are shown as they land: the review
   // takes them, the first changed question opens, its faces are lit, and a note says what the
   // agent changed. The note stays until it is dismissed, the person changes something, or the
@@ -184,6 +194,31 @@ function App() {
         first.mode === 'diff' ? getDiff() : null,
       ]);
       const answersSession = createSession(answers.rev, answers.parts);
+      if (first.readOnly) setInspectionStep({ path: first.path, name: first.name, bytes, rebuilt: false });
+      captureSaved.current = (event, snapshot = answersSession.atRevision(event.rev) ?? undefined) => {
+        if (event.rev < savedRevision.current || ended) return;
+        savedRevision.current = event.rev;
+        const load = ++inspectionLoad.current;
+        setInspectionStep(null);
+        setInspectionData(null);
+        setInspectionProblem(null);
+        void (async () => {
+          // file?rev=new serves the saved bytes only for an in-place save. A separate output
+          // has no endpoint in 0.2.0, so replay the exact saved revision with the pinned writer.
+          const rebuilt = event.path !== first.path;
+          let written: Uint8Array;
+          if (!rebuilt) written = await getFile('new').then(stepBytes);
+          else {
+            if (!snapshot) throw new Error('The saved revision is no longer available. Open the saved STEP in read-only mode.');
+            written = await worker.current!.request<Uint8Array>('saved-copy', { name: first.name, bytes, parts: snapshot });
+          }
+          if (!ended && load === inspectionLoad.current) setInspectionStep({
+            path: event.path, name: inspectionName(event.path), bytes: written, rebuilt,
+          });
+        })().catch((error: unknown) => {
+          if (!ended && load === inspectionLoad.current) setInspectionProblem(message(error));
+        });
+      };
       sessionRef.current = answersSession;
       if (ended) answersSession.close();
       unwatch = answersSession.subscribe(() => setDirty(answersSession.dirty()));
@@ -225,6 +260,8 @@ function App() {
         }
       }, (event) => {
         answersSession.markSaved(event.rev);
+        heardSaves.current.add(`${event.rev}:${event.path}`);
+        captureSaved.current(event);
         if (event.source === 'mcp') void agentSaved(event.path);
         heartbeat.refresh();
       }, (up) => {
@@ -392,6 +429,9 @@ function App() {
     try {
       const result = await opened.saver.save({ defaults });
       sessionRef.current?.markSaved(result.rev);
+      // The saved events are ordered by the command. A delayed HTTP reply must not replace a
+      // later save at the same answer revision (for example an agent saving again meanwhile).
+      if (!heardSaves.current.has(`${result.rev}:${result.path}`)) captureSaved.current(result, result.answers);
       if (opened.several && result.missing.length) {
         const line = { path: result.path, open: null, byAgent: false, assemblyCount: result.missing.length, matching: true };
         setSaved(line);
@@ -449,34 +489,30 @@ function App() {
     saveFile(new File([`${JSON.stringify(answers, null, 2)}\n`], `${stem(config.name)}.answers.json`, { type: 'application/json' }));
   };
 
-  const inspectionIntent = async () => {
-    if (!opened || !config || !worker.current) return null;
-    try {
-      const file = fileOf(config.name, opened.bytes, opened.part, opened.several);
-      const review = await worker.current.request<IntentReview>('review-given', { ...file, answers: opened.store.get() });
-      return review.intent;
-    } catch (error) {
-      setProblem(`The inspection file could not be exported: ${message(error)}`);
-      return null;
-    }
-  };
-
-  // Read only, the review's own exports are not shown; the PMI that is set is listed here instead.
-  const readOnlyChars = useMemo(() => {
-    if (!opened || !readOnly) return null;
-    const { review } = opened.external;
-    const titles = new Map(groupQuestions(review.questions).map((g) => [g.key, g.title]));
-    return characteristics(review.intent, opened.session.analysis, titles);
-  }, [opened, readOnly]);
+  // A part's exports are derived only from the retained saved/opened STEP. Live answers and
+  // subsequent edits cannot refresh this snapshot. A different part reads the same saved bytes.
+  useEffect(() => {
+    if (!inspectionStep || !opened || !worker.current) return;
+    let stale = false;
+    setInspectionData(null);
+    setInspectionProblem(null);
+    const file = fileOf(inspectionStep.name, inspectionStep.bytes, opened.part, opened.several);
+    void worker.current.request<StoredInspection>('file-inspection', file).then((data) => {
+      if (!stale) setInspectionData({ ...data, part: opened.part });
+    }, (error: unknown) => { if (!stale) setInspectionProblem(message(error)); });
+    return () => { stale = true; };
+  }, [inspectionStep, opened?.part]);
+  const inspectionReady = inspectionStep !== null && inspectionData !== null && inspectionData.part === opened?.part;
   const downloadCsv = () => {
-    if (!opened || !readOnlyChars || !config) return;
-    saveFile(new File([toCsv(readOnlyChars)], `${stem(config.name)}-characteristics.csv`, { type: 'text/csv' }));
+    if (!inspectionReady || !inspectionStep || !inspectionData) return;
+    saveFile(new File([toCsv(inspectionData.chars)], `${stem(inspectionStep.name)}-characteristics.csv`, { type: 'text/csv' }));
   };
   const downloadFai = () => {
-    if (!opened || !readOnlyChars || !config) return;
-    const book = xlsx(as9102({ name: stem(config.name) }, readOnlyChars, new Set(), noteStatements(opened.external.review.intent, opened.session.analysis)));
-    saveFile(new File([book as BlobPart], `${stem(config.name)}-AS9102.xlsx`, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+    if (!inspectionReady || !inspectionStep || !inspectionData) return;
+    const book = xlsx(as9102({ name: stem(inspectionStep.name) }, inspectionData.chars, new Set(), inspectionData.notes));
+    saveFile(new File([book as BlobPart], `${stem(inspectionStep.name)}-AS9102.xlsx`, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
   };
+  const inspectionTitle = inspectionProblem ?? (!inspectionStep && savedRevision.current < 0 ? SAVE_FIRST : !inspectionReady ? 'Reading the saved STEP…' : undefined);
   /** A decision picked in the diff: its question, in the answers. */
   const decide = (d: Decision) => {
     setTab('answers');
@@ -505,12 +541,14 @@ function App() {
           {dirty && <span className="app-dirty">Unsaved changes</span>}
         </div>
         <div className="app-actions">
-          <div className="app-exports" ref={exportsBox}>
+          <div className="app-exports">
             {opened && <button type="button" onClick={downloadAnswers}>Answers (JSON)</button>}
-            {readOnlyChars && <>
-              <button type="button" onClick={downloadCsv} disabled={!readOnlyChars.length}>Inspection list (CSV)</button>
-              <button type="button" onClick={downloadFai} disabled={!readOnlyChars.length}>AS9102 FAI (Excel)</button>
-            </>}
+            <button type="button" onClick={downloadCsv} disabled={!inspectionReady} title={inspectionTitle}>Inspection list (CSV)</button>
+            <button type="button" onClick={downloadFai} disabled={!inspectionReady} title={inspectionTitle}>AS9102 FAI (Excel)</button>
+            {inspectionStep && <span className="app-inspection-source">
+              from <code>{inspectionStep.name}</code>{inspectionStep.rebuilt && ' (reconstructed from the saved revision; 0.2.0 does not serve saved copies)'}
+            </span>}
+            {inspectionProblem && <span className="app-problem" role="alert">Inspection exports unavailable. {inspectionProblem}</span>}
           </div>
           {config && !readOnly && (
             <>
@@ -631,9 +669,10 @@ function App() {
           <SpecifyReview
             key={opened.session.sessionId}
             engine={opened.engine} session={opened.session} slots={slots} readOnly={readOnly} drawn={opened.drawn}
+            inspectionExports={false}
             externalAnswers={opened.external.answers} externalReview={opened.external.review} disabled={saving || stopped}
             focusRequest={focus} showFaces={lit}
-            onExport={(action) => action()} inspectionIntent={inspectionIntent}
+            onExport={(_action, format) => { if (format === 'xlsx') downloadFai(); else downloadCsv(); }}
           />
         )}
       </main>

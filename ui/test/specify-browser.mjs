@@ -117,7 +117,8 @@ try {
     const path = await download('AS9102 FAI (Excel)');
     const form3 = execFileSync('unzip', ['-p', path, 'xl/worksheets/sheet3.xml'], { encoding: 'utf8' });
     assert.doesNotMatch(form3, /<c r="A5"/, 'unnumbered Material has an empty number cell');
-    assert.match(form3, /Material: Aluminium 6082-T6/);
+    assert.doesNotMatch(form3, /Material: Aluminium 6082-T6/, 'Material belongs only on Form 2');
+    assert.match(execFileSync('unzip', ['-p', path, 'xl/worksheets/sheet2.xml'], { encoding: 'utf8' }), /MATERIAL Aluminium 6082-T6/);
     assert.doesNotMatch(form3, /ISO 2768|Ra 3.2|M4×|M2×/, 'no unapproved part notes or threads');
     await page.close();
   }

@@ -92,18 +92,24 @@ const slots: SpecifySlots = { view: viewElement, panel: panelElement, exports: e
 />
 ```
 
-Display, CSV and AS9102 use a review of exactly the given answers and defaults named in `kept`,
-excluding suggestions still in `toReview`. Every characteristic produced by that review is included.
-`SpecifyEngine.inspection(sessionId, answers)` must return that review with the engine's stored or
-planned numbers. A worker host implements it through `review-given` with the original STEP bytes.
-This method is required because analysis alone cannot allocate new STEP characteristic numbers.
-`inspectionIntent` can override the export review when a host has explicitly obtained approval for
-additional defaults. Returning `null` cancels the download.
+In the local app, **Inspection list (CSV)** and **AS9102 FAI (Excel)** describe only the last saved
+STEP, or the opened STEP in read-only mode. Before the first Save they are disabled and say
+“Save first: the inspection files describe the saved STEP”. After Save the label names the source
+file. Further answer edits do not change either export. Answers (JSON) still exports the answers.
 
-Numbers come from the engine's PMI scene, whose allocator is also used by Save. Existing numbers
-remain stable. Settings such as Material and the general-tolerance class have no individual
-characteristic entity, so their number cells are empty. Instance suffixes identify measurements
-within one numbered pattern requirement.
+`GET file?rev=new` in specify-core 0.2.0 serves the input, updated after an in-place save. It cannot
+serve Save's separate output. For that case the app reconstructs the command's exact saved revision
+with the pinned writer, reads the resulting STEP's semantic PMI, and labels this fallback near the
+buttons. It never substitutes the current answers. Unavailable saved revisions disable exports
+and direct the person to open the saved STEP in read-only mode.
+
+The shared component keeps the original three-method host contract. `SpecifyEngine.inspection`
+is optional. Without it, display and shared-component exports retain the host's preview behaviour.
+`inspectionIntent` remains an optional export override. The local app owns its saved-file buttons and
+suppresses shared preview-download and CSV-inclusion controls with `inspectionExports={false}`.
+
+Stored STEP identifiers supply inspection numbers, including PMI absent from the interview review.
+Material belongs on AS9102 Form 2 only. Form 3 contains numbered characteristics only.
 
 The worker's legacy `write` operation **writes every default**, including defaults absent from
 `args.answers`. Hosts must obtain approval for every default before choosing that operation.

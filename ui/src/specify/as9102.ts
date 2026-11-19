@@ -21,7 +21,9 @@ export interface FaiPart { name: string; number?: string; revision?: string; dra
 /** Forms 1–3, for ``rows`` (the inspection list, less those skipped) and the part's notes. */
 export function as9102(part: FaiPart, rows: readonly Characteristic[], skipped: ReadonlySet<string>,
   notes: readonly { key: string; text: string }[]): Sheet[] {
-  const listed = rows.filter((r) => !skipped.has(inspectKey(r)));
+  // Form 3 identifies actual numbered characteristics. Material and unnumbered settings
+  // belong in their other forms and must never become blank-number requirement rows.
+  const listed = rows.filter((r) => r.n > 0 && r.source !== 'part:material' && !skipped.has(inspectKey(r)));
   // Each form repeats the part it is about, as AS9102's do.
   const heading = (width: number): Cell[][] => [
     ['Part Number', part.number ?? '', 'Part Name', part.name, ...Array(Math.max(0, width - 4)).fill('')],

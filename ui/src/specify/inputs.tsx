@@ -386,10 +386,12 @@ export function SuggestionCard({ c, onKeep, onPick, onMore }: {
  * on demand: there may be a hundred, and few of them matter.
  */
 export function CharacteristicsTable({
-  rows, selected, onSelect, onDownload, skipped, onSkip, onEdit, onCallOut, generalTolerance, calledOut, readOnly = false,
+  rows, selected, onSelect, onDownload, skipped, onSkip, onEdit, onCallOut, generalTolerance, calledOut, readOnly = false, exportable = true,
 }: {
   /** A view of what is set: no tick boxes, edit or call-out column, or CSV. */
   readOnly?: boolean;
+  /** Hosts owning saved-file exports suppress preview downloads and CSV inclusion controls. */
+  exportable?: boolean;
   rows: readonly Characteristic[]; selected: string | null;
   onSelect: (id: string, faces: readonly number[]) => void; onDownload: () => void;
   /** What is left out of the inspection list (``inspectKey``), and leaving out or back. */
@@ -432,7 +434,7 @@ export function CharacteristicsTable({
       onClick={() => { toggle?.(); onSelect(key, faces); }}
       onKeyDown={(e) => { if (e.key === 'Enter') { toggle?.(); onSelect(key, faces); } }}
     >
-      {!readOnly && (
+      {!readOnly && exportable && (
         <td onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
           {balloon && (
             <input
@@ -473,17 +475,17 @@ export function CharacteristicsTable({
         <span>
           {groups.length} characteristic{groups.length === 1 ? '' : 's'}
           {rows.length > groups.length ? `, ${rows.length} features to measure` : ''}: what is specified here, what the general tolerance covers and what the file states.
-          {left > 0 && ` ${left} left out of the CSV.`}
+          {exportable && left > 0 && ` ${left} left out of the CSV.`}
         </span>
-        <span className="btns">
+        {exportable && <span className="btns">
           <button type="button" className="csv" onClick={onDownload} disabled={left === rows.length}>⬇ Download CSV</button>
-        </span>
+        </span>}
         </>}
       </div>
       <table>
         <thead>
           <tr>
-            {!readOnly && <th title="In the inspection list (CSV)">✓</th>}
+            {!readOnly && exportable && <th title="In the inspection list (CSV)">✓</th>}
             <th>#</th><th>Feature</th><th>Characteristic</th><th>Nom.</th><th>Tol.</th><th>Datums</th>
             {!readOnly && <th />}
           </tr>
@@ -514,7 +516,7 @@ export function CharacteristicsTable({
         onClick={toggle}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } }}
       >
-        {!readOnly && (
+        {!readOnly && exportable && (
           <td onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
             <input
               type="checkbox" checked={!out} aria-label="Inspect what the general tolerance covers"

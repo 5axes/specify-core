@@ -22,9 +22,9 @@ import { answerOf, confirmRow, display, groupQuestions, needs, nextNeeding, ques
 import { MODES, type PickMode } from './selection';
 import './PmiLab.css';
 export type SpecifyEngine = Pick<PmiLabEngine, 'questions' | 'interpret' | 'preview'> & {
-  /** Review exactly these answers and the file PMI, using the engine's stored/planned numbers.
-   * A createIntentEngine host implements this through 'review-given', with the STEP bytes. */
-  inspection(sessionId: string, answers: PmiAnswers): Promise<PmiIntent>;
+  /** Optional host-specific review for display and shared-component exports.
+   * The original questions/interpret/preview host contract remains sufficient. */
+  inspection?(sessionId: string, answers: PmiAnswers): Promise<PmiIntent>;
 };
 /** Where the workspace shows Specify: the part in the 3D pane, the questions in the edit pane. */
 export interface SpecifySlots {
@@ -50,7 +50,7 @@ function asError(error: unknown): PmiLabError {
   return { code: 'failed', message: String(error) };
 }
 
-export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, onExport, inspectionIntent, gated, after, onPick, showFaces, tints, externalAnswers, externalReview, disabled, focusRequest, toReview, onKeep, kept, drawn: drawnPmi = null, datums = true, readOnly = false }: {
+export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, onExport, inspectionIntent, inspectionExports = true, gated, after, onPick, showFaces, tints, externalAnswers, externalReview, disabled, focusRequest, toReview, onKeep, kept, drawn: drawnPmi = null, datums = true, readOnly = false }: {
   engine: SpecifyEngine; session: PmiLabSession; slots: SpecifySlots;
   /** The question the queue's selected row is about: what the question slot shows. */
   slotQuestion?: string | null;
@@ -58,9 +58,11 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   onSaved?: (name: string) => void;
   onExport: (action: () => void, format?: 'csv' | 'xlsx') => void;
   /** Gets given/kept intent, or intent whose defaults the host explicitly approved.
-   * Null cancels the export. Otherwise engine.inspection reviews the given/kept answers.
-   * Both routes must return the engine's stored/planned characteristic numbers. */
+   * Null cancels the export. Optional engine.inspection reviews given/kept answers.
+   * Hosts implementing the original three methods retain their preview behaviour. */
   inspectionIntent?: () => Promise<PmiIntent | null>;
+  /** Hide preview-download controls when the host owns saved-file inspection exports. */
+  inspectionExports?: boolean;
   /** Structured exports ask for sign-in first. */
   gated?: boolean;
   /** Shown after the questions: the drawing's own issues, in the same list. */
@@ -85,7 +87,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   /**
    * A PMI viewer: the 3D view and a list of the PMI that is set. Questions, answers, suggestions and the exports
    * are not rendered. Nothing reaches the host's ``engine.questions``, ``engine.interpret`` or ``onKeep``;
-   * ``engine.inspection`` is still called to label the given/kept answers with stable IDs. Default false.
+   * ``engine.preview`` (or optional ``inspection``) supplies labels. Default false.
    */
   readOnly?: boolean;
 }) {
@@ -339,7 +341,9 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   const relabel = useCallback(async (next: PmiAnswers) => {
     const mine = ++previewing.current;
     try {
-      const shown = await live((id) => engine.inspection(id, inspectionAnswers(next, questions, kept, toReview)));
+      const shown = await live((id) => engine.inspection
+        ? engine.inspection(id, inspectionAnswers(next, questions, kept, toReview))
+        : engine.preview(id, next));
       if (mine === previewing.current) setPreview(shown);
     } catch {
       // Labels are a view: a failed refresh keeps the last ones.
@@ -726,7 +730,9 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     try {
       let intent: PmiIntent | null;
       if (inspectionIntent) intent = await inspectionIntent();
-      else intent = await engine.inspection(session.sessionId, inspectionAnswers(answers, questions, kept, toReview));
+      else intent = engine.inspection
+        ? await engine.inspection(session.sessionId, inspectionAnswers(answers, questions, kept, toReview))
+        : preview;
       return intent && { chars: characteristics(intent, session.analysis, titles), skipped, intent };
     } catch (failure) {
       setError({ at: null, problem: asError(failure) });
@@ -1030,6 +1036,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
           {view === 'table' ? (
             <CharacteristicsTable
               rows={chars} selected={selectedChar} onSelect={showChar} onDownload={downloadCsv}
+              exportable={inspectionExports}
               skipped={skipped} onSkip={skip} onEdit={readOnly ? () => null : editChar}
               onCallOut={(row) => (!readOnly && row.source.startsWith('general:')
                 ? () => callOut(Number(row.source.slice('general:'.length)), row.text) : null)}
@@ -1184,7 +1191,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
         ? <PartField locked={readOnly} key={`${q.id}:${JSON.stringify(answers[q.id])}`} q={q} answers={answers} error={errorAt(q.id)} onAnswer={(value) => answer(q, value)} />
         : questionItem(q, g, false)}</div>, slots.question);
     })()}
-    {!readOnly && slots.exports && <>
+    {inspectionExports && !readOnly && slots.exports && <>
       {createPortal(<button type="button" onClick={downloadCsv} disabled={!chars.length} title="Every dimension and tolerance, numbered, with its nominal and limits">
         {gated ? 'Inspection list (CSV) · Sign in' : 'Inspection list (CSV)'}
       </button>, slots.exports)}

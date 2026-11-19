@@ -35,6 +35,8 @@ export interface AnswersSession {
   answers(part: number): PmiAnswers;
   /** Every part's answers at ``rev()``, by part index: the parts a save writes (with a file's only part). */
   parts(): Record<string, PmiAnswers>;
+  /** The exact revision reported by saved, including engine metadata, or null after expiry. */
+  atRevision(rev: number): Record<string, PmiAnswers> | null;
   /** An `answers` event (or a `GET answers` resync, as a "start" event). One rev can carry several
    * events (one per part): an event for a (rev, part) already received is ignored, and false is returned. */
   receive(event: AnswersEvent): boolean;
@@ -83,9 +85,15 @@ export function createSession(rev: number, parts: Record<string, PmiAnswers>, pu
   let state = { rev, parts: { ...parts } };
   // Each revision's answers (as given) by part: what a save of it put on disk.
   const history = new Map<number, Record<string, string>>();
+  const answerHistory = new Map<number, Record<string, PmiAnswers>>();
   const remember = () => {
     history.set(state.rev, Object.fromEntries(Object.entries(state.parts).map(([k, a]) => [k, asGiven(a)])));
-    for (const old of history.keys()) { if (history.size <= HISTORY) break; history.delete(old); }
+    answerHistory.set(state.rev, { ...state.parts });
+    for (const old of history.keys()) {
+      if (history.size <= HISTORY) break;
+      history.delete(old);
+      answerHistory.delete(old);
+    }
   };
   remember();
   // On disk, by part: the file as opened (the session's start, or the part's stored answers when
@@ -116,6 +124,10 @@ export function createSession(rev: number, parts: Record<string, PmiAnswers>, pu
     rev: () => state.rev,
     answers: (part) => state.parts[String(part)] ?? {},
     parts: () => ({ ...state.parts }),
+    atRevision: (rev) => {
+      const answers = answerHistory.get(rev);
+      return answers ? { ...answers } : null;
+    },
     receive(event) {
       if ('parts' in event) {
         known(event.rev, event.parts, true, event.source);
