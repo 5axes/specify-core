@@ -344,6 +344,36 @@ fn a_marked_process_conflict_can_be_replaced_before_or_after_keeping() {
     assert_process(&preview_write(&kept, &reopened, &resumed), process::MOULDED);
 }
 
+#[test]
+fn an_external_edit_after_keeping_an_owned_process_has_its_own_provenance() {
+    let edited = edited_process(true);
+    let analysis = api::analyse(&edited).unwrap();
+    let mut resumed = map(analysis["resume"]["answers"].clone());
+    resumed.insert("_specify".into(), json!({"keep": [process::QUESTION]}));
+    let kept = preview_write(&edited, &analysis, &resumed);
+    assert_process(&kept, process::CAST);
+
+    let text = String::from_utf8(kept.bytes.to_vec()).unwrap();
+    let item = |value| {
+        format!(
+            "DESCRIPTIVE_REPRESENTATION_ITEM('{}','{value}')",
+            process::ITEM
+        )
+    };
+    assert_eq!(text.matches(&item(process::CAST)).count(), 1);
+    let changed = load(
+        text.replace(&item(process::CAST), &item(process::SHEET_METAL))
+            .into_bytes(),
+    );
+    let analysis = api::analyse(&changed).unwrap();
+    let mut resumed = map(analysis["resume"]["answers"].clone());
+    resumed.insert(process::QUESTION.into(), json!(process::MOULDED));
+    assert_process(
+        &preview_write(&changed, &analysis, &resumed),
+        process::SHEET_METAL,
+    );
+}
+
 /// Case 1: a bare part Specify wrote (a replace payload, no `pmi_scope`) to which another
 /// tool added PMI. Reopened, the added PMI is the file's own (`existing`), and writing again,
 /// by the editor or the CLI, keeps it: only Specify's marked requirements are replaced.
