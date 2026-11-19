@@ -845,6 +845,13 @@ fn write_verified(
                 saved.remove(crate::characteristics::CARRY);
                 saved.remove(crate::bom::CARRY);
                 saved.retain(|key, _| !key.starts_with("bom."));
+                // ADR P9: an answer another tool's requirement holds the question against is
+                // not written, so it is not stored either: reopening reads the file's value.
+                if let Some(r) = reconciled.get(&loaded.binding.part) {
+                    for c in r.conflicts.iter().filter(|c| c.foreign) {
+                        saved.remove(&c.id);
+                    }
+                }
                 let mut payload = resume::payload(loaded, &saved).map_err(failed)?;
                 // Carry blocks on questions not asked now (#126) are kept beside the answers,
                 // never inside them: older builds refuse `_specify` among answers.

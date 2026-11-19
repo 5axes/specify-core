@@ -176,9 +176,10 @@ follow the same rule; a setting in conflict keeps the file's value in `part`.
 
 When the file's requirement in conflict is another tool's (not marked as Specify's, and not
 one the person kept), the conflict says so (`foreign: true`): no answer replaces it, not even
-answers saved before the edit that still hold the old value; its question is not asked, the
-file's requirement is written as it is, and the conflict is listed until it is kept (its only
-choice).
+answers saved before the edit that still hold the old value; its question is not asked and
+the file's requirement is written as it is. Keeping is its only choice. Writing also leaves
+the contradicted answer out of the stored answers, so once the file is saved, reopening reads
+the file's requirement as the truth, with no conflict.
 
 Otherwise a conflict is **decided** when the current answers answer its question, or list it
 in `_specify.keep`:

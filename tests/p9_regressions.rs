@@ -648,3 +648,35 @@ fn restoring_after_keeping_replaces_the_kept_requirement() {
         );
     }
 }
+
+/// Saved with the answers from before another tool's edit, the contradicted answer is not
+/// stored: reopening resumes no 0.03, shows the file's 0.05, and lists no conflict.
+#[test]
+fn a_save_does_not_store_an_answer_another_tools_requirement_holds() {
+    let loaded = re_authored_flatness();
+    let saved = cli_write(&loaded.bytes, &answers("0.03"), "saved-over");
+    let again = api::analyse(&saved).unwrap();
+    assert!(
+        again["resume"].get("conflicts").is_none(),
+        "{}",
+        again["resume"]
+    );
+    assert!(
+        again["resume"]["answers"].get("datum.A.flatness").is_none(),
+        "{}",
+        again["resume"]
+    );
+    assert!(
+        again["existing"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|e| e["type"] == "Flatness" && e["value"] == 0.05),
+        "{}",
+        again["existing"]
+    );
+    assert_eq!(
+        flatness(&saved),
+        [json!({"faces": [2], "value": 0.05, "marked": false})]
+    );
+}
