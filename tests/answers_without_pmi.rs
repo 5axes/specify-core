@@ -425,6 +425,96 @@ fn saved_again(loaded: &LoadedPart, analysis: &Value) -> (LoadedPart, Value) {
     (back, again)
 }
 
+#[test]
+fn a_marked_position_tolerance_contradicts_stored_none() {
+    let hole = "hole.position:holes:12";
+    let (mut answers, _) = accepted_all();
+    answers.insert(hole.into(), json!("0.2"));
+    let mut stored = answers.clone();
+    stored.insert(hole.into(), json!("none"));
+    let edited = load(written(&answers, &stored));
+    let positions = |part: &LoadedPart| {
+        specify_core::existing::read_existing(part)
+            .unwrap()
+            .into_iter()
+            .filter(|e| e.r#type == "Position" && e.faces == [12])
+            .map(|e| (e.value.unwrap(), e.provenance.is_some()))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(positions(&edited), [(0.2, true)]);
+
+    let analysis = api::analyse(&edited).unwrap();
+    let resume = &analysis["resume"];
+    let (back, _) = saved_again(&edited, &analysis);
+    assert_eq!(positions(&back), [(0.2, true)], "{resume}");
+    assert!(resume["answers"].get(hole).is_none(), "{resume}");
+    assert!(
+        resume["conflicts"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|c| c["id"] == hole && c["stored"] == "none" && c["file"].is_string())
+            || resume["file"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .any(|id| id == hole),
+        "{resume}"
+    );
+}
+
+#[test]
+fn mixed_provenance_notes_contradict_stored_no_notes() {
+    use haecceity::pmi::{AttributeSet, AttributeValue, PartPmi};
+    let (stored, _) = accepted_all();
+    assert_eq!(stored["part.notes"], json!([]));
+    let mut answers = stored.clone();
+    answers.insert("part.notes".into(), json!(["KEEP DRY"]));
+    let edited = load(with_foreign(
+        written(&answers, &stored),
+        PartPmi {
+            attributes: vec![AttributeSet {
+                name: "semantic text".into(),
+                on: None,
+                items: vec![
+                    (
+                        "general note".into(),
+                        AttributeValue::Text("DEBURR ALL OVER".into()),
+                    ),
+                    ("note index".into(), AttributeValue::Integer(2)),
+                ],
+                description: None,
+                general_property: None,
+            }],
+            ..Default::default()
+        },
+    ));
+    let notes = json!(["KEEP DRY", "DEBURR ALL OVER"]);
+    assert_eq!(
+        specify_core::existing::part_settings(&edited).unwrap()["notes"],
+        notes
+    );
+
+    let analysis = api::analyse(&edited).unwrap();
+    let resume = &analysis["resume"];
+    let (back, _) = saved_again(&edited, &analysis);
+    assert_eq!(
+        specify_core::existing::part_settings(&back).unwrap()["notes"],
+        notes,
+        "{resume}"
+    );
+    assert_eq!(analysis["part"]["notes"], notes);
+    assert!(resume["answers"].get("part.notes").is_none(), "{resume}");
+    assert!(
+        resume["conflicts"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|c| c["id"] == "part.notes" && c["stored"] == json!([]) && c["foreign"] == true),
+        "{resume}"
+    );
+}
+
 /// "No notes" stored, then another tool adds a general note: the file's note contradicts the
 /// stored `[]`. It is shown (`part.notes`), the answer is not resumed, and the note stays in
 /// the file through a save.
