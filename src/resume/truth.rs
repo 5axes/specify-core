@@ -435,10 +435,11 @@ pub(crate) fn reconcile(
             let question = truth.explained_by.get(id)?;
             (at.0 == "tolerances"
                 && !unmarked.contains(at)
-                && rows[id]
-                    .0
-                    .iter()
-                    .any(|face| imported_tolerance_faces.contains(face)))
+                && rows.get(id).is_some_and(|row| {
+                    row.0
+                        .iter()
+                        .any(|face| imported_tolerance_faces.contains(face))
+                }))
             .then(|| (at.1, question.clone()))
         })
         .collect();

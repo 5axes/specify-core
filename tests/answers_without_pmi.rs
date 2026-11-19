@@ -254,6 +254,11 @@ fn foreign_flatness_withholds_stored_none() {
         let analysis = api::analyse(&part).unwrap();
         // Existing foreign flatness already answers the question under #204.
         assert_withheld(&analysis, "datum.A.flatness", false);
+        // The other silent answers, which nothing in the file contradicts, still resume.
+        let answers = analysis["resume"]["answers"].as_object().unwrap();
+        for id in SILENT.iter().filter(|id| **id != "datum.A.flatness") {
+            assert!(answers.contains_key(*id), "{id}: {}", analysis["resume"]);
+        }
         let flatness = flatness_on_a(&analysis["existing"]);
         assert_eq!(flatness.len(), 1, "{}", analysis["existing"]);
         assert_eq!(flatness[0]["value"], 0.05);

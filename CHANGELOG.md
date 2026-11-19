@@ -15,8 +15,9 @@ All notable changes to specify-core-rust. The format follows
   answers follow ordinary file-PMI handling and stay in the file for reevaluation.
   `write --accept-defaults` stores the defaults it takes that write no PMI.
 - Saves preserve edited printed general-tolerance notes and marked tolerances hidden by
-  imported tolerances. If comparison fails, reopening warns and withholds the saved
-  answers while protecting the file's readable PMI.
+  imported tolerances. If comparison fails, reopening withholds the saved answers while
+  protecting the file's readable PMI (with an analysis warning from the CLI, serve, MCP and
+  Python; not yet from WASM or the page's session).
 
 ### WASM API
 

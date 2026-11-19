@@ -195,9 +195,13 @@ cone or floor claimed since).
   withheld answer (`resume.present`, `resume.file`, or `existing`). The question opens again
   if those rules leave it open. Withholding creates no conflict. A save keeps the file's
   requirements and carries the withheld answer for reevaluation on later opens.
-- **When planning or comparison fails**, Specify warns, withholds the saved answers, and
-  treats the readable PMI and part settings as the file's own. A save protects that PMI
-  and carries the withheld answers for reevaluation.
+- **When planning or comparison fails**, Specify withholds the saved answers and treats the
+  readable PMI and part settings as the file's own. A save protects that PMI and carries the
+  withheld answers for reevaluation. The CLI, serve, MCP and Python report an analysis
+  warning; the WASM engine (the editor) and the page's session do not yet, so the page
+  shows only the questions asked again. Known limit: the answer that made comparison fail
+  (a notes list) is carried forward as it is and its question is not asked, so every
+  reopen of that file withholds the saved answers until the notes are answered again.
 - **Different, or only in the answers (removed in the file):** a conflict,
   `resume.conflicts: [{id, stored, file}]` (`file` is the file's notation, `null` when the
   file has none), with an analysis warning each. Until it is decided the file's state is
