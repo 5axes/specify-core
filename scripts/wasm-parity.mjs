@@ -196,6 +196,43 @@ for (const [part, path] of parts) {
   } finally { engine.free(); }
   throwsString(() => new IntentEngine(name, gzipSync(bytes)), /Decompress/);
 }
+
+// The editor sends resumed answers without the conflicted process value.
+{
+  const plate = readFileSync(new URL('tests/fixtures/parts/plate.step', root));
+  const engine = new IntentEngine('plate.step', plate);
+  let original;
+  try {
+    original = Buffer.from(JSON.parse(engine.writePmi('{"part.material":"steel","part.process":"machined"}')).bytes).toString();
+  } finally { engine.free(); }
+  const item = "DESCRIPTIVE_REPRESENTATION_ITEM('manufacturing_process','machined')";
+  assert.ok(original.includes(item));
+  const edited = original.replace(item, "DESCRIPTIVE_REPRESENTATION_ITEM('manufacturing_process','cast')");
+  const [, property] = edited.match(/(#\d+)=PROPERTY_DEFINITION\('specify process',/);
+  const [, link] = edited.match(new RegExp(`(#\\d+)=PROPERTY_DEFINITION_REPRESENTATION\\(${property},`));
+  const marker = new RegExp(`#\\d+=DESCRIPTION_ATTRIBUTE\\('specify-core:written:v1',${link}\\);`);
+  assert.match(edited, marker);
+  for (const [foreign, source] of [[false, edited], [true, edited.replace(marker, '')]]) {
+    const opened = new IntentEngine('edited.step', Buffer.from(source));
+    try {
+      const { analysis } = JSON.parse(opened.snapshot());
+      const conflict = analysis.resume.conflicts.find(c => c.id === 'part.process');
+      assert.equal(conflict.stored, 'machined');
+      assert.equal(conflict.file, 'cast');
+      assert.equal(conflict.foreign ?? false, foreign);
+      assert.ok(!Object.hasOwn(analysis.resume.answers, 'part.process'));
+      const output = Buffer.from(JSON.parse(opened.writePmi(JSON.stringify(analysis.resume.answers))).bytes);
+      const reopened = new IntentEngine('rewritten.step', output);
+      try {
+        const { analysis } = JSON.parse(reopened.snapshot());
+        assert.equal(analysis.part.process, 'cast');
+        assert.ok(!analysis.resume.conflicts?.some(c => c.id === 'part.process'));
+      } finally { reopened.free(); }
+    } finally { opened.free(); }
+  }
+}
+console.log('manufacturing process: external edits with and without provenance survive writePmi');
+
 // #21: the accepted tap's derived depth must survive without a new depth answer,
 // including a save of an alpha.7 file. quiddity-rust#137 adds callouts, General notes and
 // new aspects to the current numbered byte pin. The native thread_depth_help test compares

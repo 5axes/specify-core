@@ -440,7 +440,7 @@ fn analyse_reconciling(
                 serde_json::to_value(existing).map_err(|e| refused(&e))?,
             );
             analysis.insert("part".into(), Value::Object(settings));
-            crate::process::stated_entries(process, None, &mut analysis);
+            crate::process::stated_entries(reading.process().or(process), None, &mut analysis);
         }
     }
     // ADR P9: on reopening, the PMI is the truth. The stored answers are compared with the
@@ -448,18 +448,22 @@ fn analyse_reconciling(
     let mut reconciled = None;
     // A file written before Specify marked its requirements (#22), by replace, keeps its
     // behaviour: all its PMI is its answers', rewritten from them.
-    let marked = || -> bool {
+    let can_reconcile = || -> bool {
         let Ok(doc) = haecceity::p21::Document::parse(loaded.bytes.as_ref().clone()) else {
             return false;
         };
         let Ok(defs) = haecceity::step::read_part_definitions(&loaded.bytes) else {
             return false;
         };
+        let saved_process = analysis
+            .get("resume")
+            .is_some_and(|resume| resume["answers"].get(crate::process::QUESTION).is_some());
         resume::scoped(&doc, loaded.binding.part)
-            || haecceity::pmi::read(&doc, &defs)
-                .is_ok_and(|read| crate::provenance::any_marked(&doc, &read, loaded.binding.part))
+            || haecceity::pmi::read(&doc, &defs).is_ok_and(|read| {
+                crate::provenance::can_reconcile(&doc, &read, loaded.binding.part, saved_process)
+            })
     };
-    if analysis.contains_key("resume") && marked() {
+    if analysis.contains_key("resume") && can_reconcile() {
         let base = Value::Object(analysis.clone());
         match resume::truth::reconcile(loaded, &base, &features) {
             Ok(r) => {
@@ -491,6 +495,7 @@ fn analyse_reconciling(
                     !r.settings.contains(key) && (!marked.contains_key(key) || tagged(key))
                 });
                 analysis.insert("part".into(), Value::Object(settings));
+                crate::process::stated_entries(r.process.clone(), Some(&r.answers), &mut analysis);
                 let resume = analysis
                     .get_mut("resume")
                     .and_then(Value::as_object_mut)
