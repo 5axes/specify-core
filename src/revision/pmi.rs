@@ -849,7 +849,7 @@ pub(crate) fn against_plan(
 pub(crate) fn scene_items(scene: &Value) -> BTreeMap<String, (Vec<usize>, String)> {
     items(scene)
         .into_iter()
-        .map(|item| (item.id, (item.faces, item.text)))
+        .map(|item| (item.id, (item.on_faces, item.text)))
         .collect()
 }
 

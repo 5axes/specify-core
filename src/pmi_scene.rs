@@ -101,6 +101,14 @@ impl Scene {
         (part, unmarked)
     }
 
+    pub(crate) fn legacy_part_attributes(&self) -> bool {
+        self.foreign.is_none()
+            && !self.read.provenance.parts[self.index]
+                .attributes
+                .iter()
+                .any(|ids| crate::provenance::marked(&self.doc, ids, "attribute"))
+    }
+
     /// `None` shows only the file; `Some` shows the current answers. Stored origin/source are authoritative when showing the file.
     pub fn scene(
         &self,
@@ -677,7 +685,7 @@ fn part_metadata(
                 };
                 // Imported entries can use the same index (or state the same scalar
                 // setting twice). Each still has its own value and provenance.
-                let id = if metadata.contains_key(&id) {
+                let id = if semantic.ids[collection][i] != id && metadata.contains_key(&id) {
                     format!("{id}:{i}")
                 } else {
                     id

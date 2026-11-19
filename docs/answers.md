@@ -191,7 +191,9 @@ cone or floor claimed since).
   answers as the writer does. The check is deliberately conservative (asking again is better
   than resuming an answer the file says otherwise): a question about faces is contradicted by
   any unexplained requirement on its faces, regardless of provenance. This includes a marked
-  position tolerance against "none" or another tool's thread on a "general" hole. Specify's
+  position tolerance against "none" or another tool's thread on a "general" hole. A location
+  dimension applies to its target faces, and a datum declaration establishes the frame used to
+  ask about controls. Specify's
   plain location dimensions are explained when the writer's plan restates their characteristic
   keys. The same applies to basic locations of features covered by a position tolerance and
   to locations covered by the file's general tolerance. Older planners represented these with

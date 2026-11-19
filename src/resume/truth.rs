@@ -186,12 +186,17 @@ pub(crate) fn reconcile(
         // answers its question (`resume.present`), which stays answerable, not a suggestion.
         // Only Specify's own (marked) requirements are its defaults: one written unmarked is
         // another tool's, or one the person kept, and is simply the file's (`existing`).
+        // A legacy Replace file predates attribute marks, so an exact default match still
+        // explains its part attribute.
+        let legacy_attributes = scene.legacy_part_attributes();
         for (question, (unchanged, ids)) in other.defaults {
             // The process is read from the file with its own source (an accepted suggestion
             // stays one, `process::read`), so it is not taken as an answer here.
-            let own = ids
-                .iter()
-                .all(|id| index.get(id).is_none_or(|at| !unmarked.contains(at)));
+            let own = ids.iter().all(|id| {
+                index.get(id).is_none_or(|at| {
+                    !unmarked.contains(at) || (at.0 == "attributes" && legacy_attributes)
+                })
+            });
             if unchanged
                 && own
                 && !ids.is_empty()
@@ -269,7 +274,9 @@ pub(crate) fn reconcile(
                     && derived_location(part_pmi, at.1, restated.contains(at), &positioned)
             })
         });
-        for (id, items) in contradicted(analysis, settings, &stored, &silent, &rows, &face_rows) {
+        for (id, items) in contradicted(
+            analysis, settings, &stored, &silent, &rows, &face_rows, &index,
+        ) {
             truth.conflicts.insert(id, items);
         }
     }
@@ -468,6 +475,7 @@ fn contradicted(
     silent: &[&String],
     rows: &BTreeMap<String, (Vec<usize>, String)>,
     face_rows: &BTreeMap<String, (Vec<usize>, String)>,
+    index: &BTreeMap<String, (String, usize)>,
 ) -> BTreeMap<String, Vec<(String, String)>> {
     let mut out = BTreeMap::new();
     if rows.is_empty()
@@ -477,10 +485,12 @@ fn contradicted(
     {
         return out;
     }
-    // The part as Specify asked about it: the file's own PMI does not take questions away,
-    // so each question's faces are known.
+    // Find the original question's faces. Keep the file's measurement frame so a control
+    // on a stated datum is checked on that datum, while other PMI cannot hide its question.
     let mut bare = analysis.clone();
-    bare["existing"] = Value::Array(Vec::new());
+    if let Some(existing) = bare["existing"].as_array_mut() {
+        existing.retain(|item| item["kind"] == "datum");
+    }
     bare["part"] = Value::Object(Map::new());
     let questions = crate::rules::questions(&bare, stored).unwrap_or_default();
     for id in silent {
@@ -521,9 +531,17 @@ fn contradicted(
         if faces.is_empty() {
             continue;
         }
+        let datum_control =
+            id.starts_with("datum.") && (id.ends_with(".flatness") || id.ends_with(".control"));
         let items: Vec<(String, String)> = face_rows
             .iter()
-            .filter(|(_, (on, _))| on.iter().any(|f| faces.contains(f)))
+            .filter(|(row, (on, _))| {
+                // A datum declaration establishes the reference for the question's control.
+                let datum = index
+                    .get(*row)
+                    .is_some_and(|at| matches!(at.0.as_str(), "datums" | "datum_targets"));
+                !(datum_control && datum) && on.iter().any(|f| faces.contains(f))
+            })
             .map(|(row, (_, text))| (row.clone(), text.clone()))
             .collect();
         if !items.is_empty() {
