@@ -78,7 +78,8 @@ The flow is the same everywhere:
 specify-core analyse plate.step -o plate.analysis.json          # features, faces, existing PMI
 specify-core questions plate.analysis.json --open                # what is still unanswered
 echo '{"part.material": "6082-T6", "hole.function:holes:9": "fit:H7"}' > answers.json
-# Export defaults explicitly, with face evidence, before writing:
+# Export the answers, with face evidence, before writing (defaults only as approved,
+# by part with the values seen: --accept-defaults approved.json):
 specify-core questions plate.analysis.json --answers answers.json \
   --resolve-defaults --step plate.step > plate.complete.answers.json
 specify-core write plate.step plate.analysis.json plate.complete.answers.json -o plate-pmi.step
@@ -286,8 +287,9 @@ echo '{"id": 1, "op": "analyse", "step": "part.step"}' | specify-core serve
 ```
 
 - **Ops:** `parts`, `analyse`, `questions`, `preview`, `interpret`, `export_answers` and `write`.
-  `export_answers` takes `step`, `analysis` and `answers`, and returns `result.answers`: a
-  complete map with explicit defaults and geometry evidence; it refuses incomplete sets.
+  `export_answers` takes `step`, `analysis`, `answers` and optional `accept_defaults` (the
+  defaults approved, `{"<part>": {"<id>": value}}`), and returns `result.answers` (what is
+  answered plus those defaults, with geometry evidence), `complete` and `missing`.
   See [answer files](docs/answers.md#export-a-complete-sidecar).
 - `analyse` accepts optional `max_deviation_mm` for the returned mesh (for example `0.05`).
   It must be a finite number of at least 0.001 mm; invalid or unmet bounds return `invalid`.

@@ -14,13 +14,15 @@ keyword or passing `None` preserves the previous output. Non-positive/non-finite
 values and faces that cannot meet the measured bound raise `ValueError`.
 See [mesh tolerance](mesh-tolerance.md) for sampling and refusal semantics.
 
-## Export complete answers
+## Export answers
 
-`api.export_answers(step, analysis, answers)` accepts PMI defaults to a fixed point and
-returns a complete dict with `_specify.evidence` for the selected part. `step` can be a
-path or a `LoadedPart`; the analysis binding selects an assembly part. It writes no STEP.
-Missing required answers or unresolved carry blocks raise `IncompleteError`; stale
-saved evidence or a mismatched analysis raises `ValueError`.
+`api.export_answers(step, analysis, answers, accept_defaults=None)` returns the answers given
+plus exactly the defaults approved in `accept_defaults` (`{"<part>": {"<id>": value}}`, each
+with the value the person saw; ADR P9), with `_specify.evidence` for the selected part. Without
+approvals no default is taken. `step` can be a path or a `LoadedPart`; the analysis binding
+selects an assembly part. It writes no STEP. Open questions and carry blocks do not refuse it
+(blocks stay in `_specify.unresolved`); stale saved evidence, a mismatched analysis, or an
+approval that is not an open question's default as it stands raises `ValueError`.
 
 ```python
 import json

@@ -43,6 +43,19 @@ All notable changes to specify-core-rust. The format follows
 
 ### Changed
 
+- Answer exports no longer take every default (ADR P9: a default becomes intent only when the
+  person approves it). `api::export_answers`, CLI `questions --resolve-defaults`, serve
+  `export_answers`, WASM `exportAnswers` and Python `api.export_answers` export the answers given
+  plus exactly the defaults approved by part, `{"<part>": {"<id>": value}}` with the value the
+  person saw (CLI `--accept-defaults FILE`, serve and Python `accept_defaults`, WASM's second
+  argument); without approvals, no defaults. An approval that is not an open question's
+  default, or whose default has changed, is refused naming the part and question (serve adds
+  `expected` and `current`). Another part's approvals do not apply. Open questions and carry
+  blocks no longer refuse an export: it is written incomplete, blocks kept in
+  `_specify.unresolved`; serve's result adds `complete` and `missing`, and the CLI lists the
+  open questions on stderr. `api::export_answers` now returns `Exported {answers, missing}`;
+  `api::with_approved` is the one approval check, shared with the page's Save and MCP. The
+  editor's Answers (JSON) export changes this way when it pins this release.
 - `specify-core open STEP` serves the Specify app itself on 127.0.0.1 instead of handing the
   file to draftwright.io: the app, the engine, the file and its settings are served under a
   random one-off path, and Specify's Save writes the specified STEP next to the input
@@ -105,6 +118,10 @@ All notable changes to specify-core-rust. The format follows
 
 ### WASM API
 
+- `engine.exportAnswers(answersJson, approvalsJson?)`: exports the answers given plus exactly the
+  defaults in `approvalsJson` (`{"<part>": {"<id>": value}}`; none when absent), never every
+  default (ADR P9). Open questions and carry blocks no longer throw; an approval whose default
+  has changed does.
 - WASM `writePmi`'s report says whether the answers were complete: `complete` and `missing` (the
   required questions still open). An incomplete set is still written, as before.
 - `diff()`'s PMI items gain an optional `detail`: the explanation that used to be appended to a
