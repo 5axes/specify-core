@@ -723,17 +723,20 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     if (next === 'review') picker.current?.highlight(currentQuestion?.faces ?? []);
   };
   // Read when the file is written: an export resumed after sign-in carries edits made meanwhile.
-  const csvRows = useRef({ skipped, titles, answers, questions, kept, toReview });
-  csvRows.current = { skipped, titles, answers, questions, kept, toReview };
+  const exportRows = { chars, skipped, titles, answers, questions, kept, toReview,
+    notes: noteStatements(preview, session.analysis) };
+  const csvRows = useRef(exportRows);
+  csvRows.current = exportRows;
   const inspection = async () => {
-    const { skipped, titles, answers, questions, kept, toReview } = csvRows.current;
+    const { chars, skipped, titles, answers, questions, kept, toReview, notes } = csvRows.current;
     try {
+      // Match the original three-method host: read the latest displayed rows AND notes
+      // when a deferred download runs, including edits made while signing in.
       let intent: PmiIntent | null;
       if (inspectionIntent) intent = await inspectionIntent();
-      else intent = engine.inspection
-        ? await engine.inspection(session.sessionId, inspectionAnswers(answers, questions, kept, toReview))
-        : preview;
-      return intent && { chars: characteristics(intent, session.analysis, titles), skipped, intent };
+      else if (engine.inspection) intent = await engine.inspection(session.sessionId, inspectionAnswers(answers, questions, kept, toReview));
+      else return { chars, skipped, notes };
+      return intent && { chars: characteristics(intent, session.analysis, titles), skipped, notes: noteStatements(intent, session.analysis) };
     } catch (failure) {
       setError({ at: null, problem: asError(failure) });
       return null;
@@ -751,7 +754,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     const data = await inspection();
     if (!data) return;
     const stem = session.filename.replace(/\.(step|stp|p21)$/i, '');
-    const book = xlsx(as9102({ name: stem }, data.chars, data.skipped, noteStatements(data.intent, session.analysis)));
+    const book = xlsx(as9102({ name: stem }, data.chars, data.skipped, data.notes));
     saveFile(new File([book as BlobPart], `${stem}-AS9102.xlsx`, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
     onSaved?.(`${stem}-AS9102.xlsx`);
   }, 'xlsx');

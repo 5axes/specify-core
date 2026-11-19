@@ -61,6 +61,41 @@ try {
     await page.close();
   }
 
+  // A legacy export gated on sign-in must read rows, skips and notes at execution time,
+  // just as origin/main does. Queue both formats, then edit and skip before resuming.
+  {
+    const page = await openPage(false, 'test/fixtures/gramil_shaft_before.step.gz', '#specify-panel .pmi-lab-row-head', '&legacy=1&defer=1');
+    const input = panel(page).locator('[data-question="part.material"] input');
+    await input.fill('Steel');
+    await input.press('Enter');
+    await panel(page).getByRole('tab', { name: /^Characteristics/ }).click();
+    await check(panel(page).locator('.pmi-lab-table')).toContainText('Material: Steel');
+    const exports = page.locator('#specify-exports');
+    await exports.getByRole('button', { name: 'Inspection list (CSV)', exact: true }).click();
+    await exports.getByRole('button', { name: 'AS9102 FAI (Excel)', exact: true }).click();
+    await panel(page).getByRole('tab', { name: 'Review/Edit', exact: true }).click();
+    await panel(page).getByRole('button', { name: /^Material/ }).click();
+    await input.fill('Brass CW614N');
+    await input.press('Enter');
+    await panel(page).getByRole('tab', { name: /^Characteristics/ }).click();
+    await check(panel(page).locator('.pmi-lab-table')).toContainText('Material: Brass CW614N');
+    await panel(page).getByRole('checkbox', { name: 'Inspect 1', exact: true }).uncheck();
+    const resume = async () => {
+      const [file] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Resume download', exact: true }).click()]);
+      return file.path();
+    };
+    const csv = readFileSync(await resume(), 'utf8');
+    assert.match(csv, /12,,Part,Material: Brass CW614N/);
+    assert.doesNotMatch(csv, /Steel|M2×0.4-6H/);
+    const book = await resume();
+    const form2 = execFileSync('unzip', ['-p', book, 'xl/worksheets/sheet2.xml'], { encoding: 'utf8' });
+    const form3 = execFileSync('unzip', ['-p', book, 'xl/worksheets/sheet3.xml'], { encoding: 'utf8' });
+    assert.match(form2, /MATERIAL Brass CW614N/);
+    assert.match(form3, /Material: Brass CW614N/);
+    assert.doesNotMatch(form2 + form3, /Steel|M2×0.4-6H/);
+    await page.close();
+  }
+
   // Editable: the controls the read-only checks look for are there.
   {
     const page = await openPage(false);

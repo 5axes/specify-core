@@ -81,6 +81,8 @@ function SpecifyHost() {
   const [slots, setSlots] = useState<{ view: HTMLElement; panel: HTMLElement; exports: HTMLElement } | null>(null);
   useEffect(() => setSlots({ view: view.current!, panel: panel.current!, exports: exports.current! }), []);
   const [kept, setKept] = useState<readonly string[]>([]);
+  // Sign-in gates can hold an export action while the person continues editing.
+  const deferred = useRef<(() => void)[]>([]);
   const onKeep = (ids: readonly string[]) => { window.__calls.push(`onKeep:${ids.join(',')}`); setKept((was) => [...was, ...ids]); };
   const pick = async (file: File) => {
     const name = file.name.replace(/\.gz$/, '');
@@ -111,11 +113,12 @@ function SpecifyHost() {
       <div id="specify-view" style={{ height: 520 }} ref={view} />
       <div id="specify-panel" ref={panel} />
       <div id="specify-exports" ref={exports} />
+      {query.has('defer') && <button onClick={() => deferred.current.shift()?.()}>Resume download</button>}
       {open && slots && (
         <SpecifyReview
           engine={open.engine} session={open.session} slots={slots} readOnly={readOnly} drawn={open.drawn}
           externalAnswers={noAnswers} externalReview={open.review} disabled={false}
-          onExport={action => action()} {...(hostKeeps ? { onKeep, kept } : {})}
+          onExport={action => { if (query.has('defer')) deferred.current.push(action); else action(); }} {...(hostKeeps ? { onKeep, kept } : {})}
         />
       )}
     </main>

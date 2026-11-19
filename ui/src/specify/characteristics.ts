@@ -14,7 +14,7 @@ import { describeFaces } from './datums.ts';
 import { CHARACTERISTIC, fmt } from './labels.ts';
 
 export interface Characteristic {
-  /** The STEP/engine number, or a sequential legacy balloon. Zero denotes an unnumbered row. */
+  /** The numeric STEP/engine number, or a legacy balloon. Zero for a text ID or no ID. */
   readonly n: number;
   /** Which of the balloon's features it is, from 1; 0 when it has one. */
   readonly sub: number;

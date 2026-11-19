@@ -1,6 +1,21 @@
 import type { PmiAnswers } from '../src/types/pmi';
 import { putAnswers, Refused, type AnswersEvent, type Source } from './local.ts';
 
+// specify-core 0.2.0 docs/answers.md: only these members of the reserved _specify object
+// are part of the sidecar format. Other underscore-prefixed keys are private engine state.
+const SIDECAR_METADATA = new Set(['keep', 'evidence', 'unresolved', 'sources']);
+
+/** Given/kept answers from the validated session, including valid answers not currently asked. */
+export function exportableAnswers(answers: PmiAnswers): PmiAnswers {
+  const exported: Record<string, unknown> = Object.fromEntries(Object.entries(answers).filter(([id]) => !id.startsWith('_')));
+  const metadata = answers['_specify'];
+  if (metadata && typeof metadata === 'object' && !Array.isArray(metadata)) {
+    const publicMetadata = Object.fromEntries(Object.entries(metadata).filter(([key]) => SIDECAR_METADATA.has(key)));
+    if (Object.keys(publicMetadata).length) exported['_specify'] = publicMetadata;
+  }
+  return exported;
+}
+
 export type AnswersSource = Source;
 
 /** One part's answers in the command's session (specify-core docs/open.md, "The session"): the

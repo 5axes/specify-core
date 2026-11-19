@@ -187,7 +187,8 @@ try {
     await check(page.locator('.app-saved')).toContainText(withDefaults);
     // The value the person confirmed is exactly what lands in the file.
     assert.equal(given(analyse(withDefaults).resume?.answers)['part.general_tolerance'], shownTolerance, 'the stored answer is the value listed');
-    const approved = given(await exportAnswers(page));
+    // Inspect the file itself: filtering internal keys here would conceal an export leak.
+    const approved = await exportAnswers(page);
     assert.deepEqual(Object.keys(approved).sort(), listed, 'JSON contains exactly the confirmed defaults');
     assert.equal(approved['part.general_tolerance'], shownTolerance, 'JSON contains the value confirmed');
     await check(page.getByRole('alert')).toHaveCount(0);
@@ -228,6 +229,20 @@ try {
     await page.goto('about:blank');
     first = server;
     await context.close();
+  }
+  // The sidecar keeps documented metadata while removing private engine records. Compare
+  // the downloaded object exactly: filtering its keys here would hide the regression.
+  {
+    const server = await open(part);
+    const { rev } = await (await fetch(`${server.url}answers`)).json();
+    const answers = { 'part.material': 'Steel', _specify: { keep: [], private_state: 'not an answer' },
+      _specify_characteristic_numbers: { schema: 2, high_water: 0, entries: [] } };
+    const put = await fetch(`${server.url}answers`, { method: 'PUT', headers: { 'Content-Type': 'application/json', Origin: server.origin }, body: JSON.stringify({ rev, part: 0, answers }) });
+    assert.equal(put.status, 200);
+    const { context, page } = await load(server);
+    assert.deepEqual(await exportAnswers(page), { 'part.material': 'Steel', _specify: { keep: [] } });
+    await context.close();
+    server.stop();
   }
   // The PMI Specify wrote reads back.
   {

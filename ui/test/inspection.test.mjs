@@ -27,7 +27,7 @@ function assertNumbers(saved) {
   const numbers = saved.analysis.characteristics?.map((row) => row.number).sort((a, b) => a - b) ?? [];
   assert.deepEqual(saved.chars.filter((row) => row.n).map((row) => row.n), numbers, 'every stored number is exported exactly once');
   const csv = toCsv(saved.chars).trimEnd().split('\n').slice(1);
-  assert.deepEqual(csv.map((line) => line.split(',')[0]), saved.chars.map((row) => row.identifier ?? (row.n ? String(row.n) : '')));
+  assert.deepEqual(csv.map((line) => line.split(',')[0]), numbers.map(String), 'CSV numbers match the independent STEP analysis readback');
   const form3 = as9102({ name: 'saved' }, saved.chars, new Set(), saved.notes)[2];
   assert.deepEqual(form3.rows.slice(4).map((row) => row[0]), numbers.map(String));
 }
@@ -163,18 +163,28 @@ test('preview-to-writer parity includes general dimensions, hole depth, thread a
   }
 });
 
-test('stored decimal ID strings with leading zeros survive readback and both exports', (t) => {
-  const original = fixture('spindle_pmi_after').toString();
-  assert.match(original, /ID_ATTRIBUTE\('9',/);
-  const bytes = new TextEncoder().encode(original.replace(/ID_ATTRIBUTE\('9',/g, "ID_ATTRIBUTE('009',"));
-  const saved = readSaved(t, bytes);
-  const stored = saved.chars.find((row) => row.identifier === '009');
-  assert.ok(stored, 'the semantic reader preserves the actual stored string');
-  assert.equal(stored.n, 9);
-  assert.equal(stored.id, '009');
-  assert.ok(toCsv(saved.chars).split('\n').some((line) => line.startsWith('009,')));
-  assert.ok(as9102({ name: 'spindle' }, saved.chars, new Set(), saved.notes)[2].rows.some((row) => row[0] === '009'));
-});
+// These literal expected cells are independent of the exporter's identifier/id fields.
+for (const [identifier, csvCell] of [
+  ['009', '009'], ['A-9', 'A-9'], ['QC.9/β', 'QC.9/β'], ['  A-9  ', '  A-9  '],
+  ['QC, "9"', '"QC, ""9"""'],
+]) {
+  test(`stored identifier ${JSON.stringify(identifier)} survives STEP readback, CSV and Form 3`, (t) => {
+    const original = fixture('spindle_pmi_after').toString();
+    assert.match(original, /ID_ATTRIBUTE\('9',/);
+    const bytes = new TextEncoder().encode(original.replace(/ID_ATTRIBUTE\('9',/g, `ID_ATTRIBUTE('${identifier}',`));
+    const saved = readSaved(t, bytes);
+    const fromStep = saved.scene.pmi.pmi.dimensions.find((entry) => entry.identifier === identifier);
+    assert.ok(fromStep, 'the independent semantic reader returns the literal stored string');
+    const row = saved.chars.find((item) => item.source === fromStep.id);
+    assert.equal(row.n, identifier === '009' ? 9 : 0, 'numeric balloons remain available without constraining stored text IDs');
+    assert.equal(row.id, identifier);
+    assert.equal(row.identifier, identifier);
+    assert.ok(toCsv([row]).split('\n')[1].startsWith(`${csvCell},`), 'CSV preserves the literal identifier with correct quoting');
+    assert.ok(toCsv(saved.chars).split('\n').slice(1).some((line) => line.startsWith(`${csvCell},`)), 'the full inspection export includes the stored identifier');
+    const form3 = as9102({ name: 'spindle' }, saved.chars, new Set(), saved.notes)[2];
+    assert.equal(form3.rows.filter((entry) => entry[0] === identifier).length, 1, 'Form 3 includes the literal stored ID once');
+  });
+}
 
 test('imported existing numbers and numbered pattern measurements retain their IDs', () => {
   const analysis = {

@@ -72,8 +72,8 @@ export function inspectionFromStep(analysis: PmiAnalysis, scene: PmiScene): Stor
     const meta = scene.specify[entry.id];
     // identifier is the ID_ATTRIBUTE actually read from the STEP, including foreign IDs.
     const identifier = entry.identifier ?? (meta?.number === undefined ? '' : String(meta.number));
-    // The writer emits canonical positive u64 IDs, but the semantic reader also preserves
-    // imported decimal strings such as 009. Keep that exact string for both exports.
+    // Preserve every identifier the semantic reader returns, including imported A-9 or 009.
+    // Numeric parsing only orders numeric IDs; it never decides whether an ID is exported.
     const numeric = /^\+?\d+$/.test(identifier) ? BigInt(identifier) : 0n;
     const number = numeric > 0n && numeric <= 18446744073709551615n ? Number(numeric) : 0;
     // A location measures the target; its "from" feature is a separate reference, not
@@ -137,7 +137,7 @@ export function inspectionFromStep(analysis: PmiAnalysis, scene: PmiScene): Stor
     }
     const feature = on.length ? describeFaces(on, analysis) : 'Part';
     chars.push({
-      n: number, sub: 0, numbering: 'step', identifier: number ? identifier : '', id: number ? identifier : `unnumbered:${entry.id}`,
+      n: number, sub: 0, numbering: 'step', identifier, id: identifier || `unnumbered:${entry.id}`,
       source: entry.id, feature, group: feature, faces: on, text: wording,
       nominal, upper, lower, datums, basic,
     });
