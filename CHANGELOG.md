@@ -98,6 +98,16 @@ All notable changes to specify-core-rust. The format follows
 
 ### Fixed
 
+- Answers that write no PMI (a coating or heat treatment of "None", no notes, "position
+  tolerances", a hole of "general" function, no flatness or control on a datum) are no longer
+  asked again on every reopen. Stored with the answers, they resume (`resume.answers`) where
+  the file has nothing to contradict them; whether an answer writes PMI is found by planning
+  it as the writer does. A file that states PMI for such a question (another tool's flatness
+  on datum A's face against a stored "none") contradicts it: a conflict, following ADR P9's
+  rules, never resumed silently. `write --accept-defaults` (and serve's `write` with
+  `accept_defaults`), the person's "accept all", now also stores the defaults it takes that
+  write no PMI; those that write PMI are still read back from the file (`resume.present`), and
+  what is written is unchanged. Approved defaults (the page's Save, MCP) were already stored.
 - Reopening and writing again a file Specify wrote no longer drops PMI (ADR P9): requirements
   another tool added (unmarked), defaults written but never stored as answers, a stored answer
   the file contradicts (until the person decides), and a conflict kept are all kept, through

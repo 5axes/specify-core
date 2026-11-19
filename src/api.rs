@@ -595,6 +595,45 @@ pub fn apply(
     )?)
 }
 
+/// The answers to store when `answers` are written with every default taken (`write
+/// --accept-defaults`, the person's "accept all", ADR P9): `answers`, and each default taken
+/// whose answer writes no PMI, found by planning the answers as the writer does. The file
+/// cannot state those, so reopening resumes them instead of asking them again. A default
+/// that writes PMI is not stored: the file states it (`resume.present`), and it keeps
+/// following the rules. What is written is unchanged.
+pub fn stored_with_defaults(
+    loaded: &LoadedPart,
+    analysis: &Value,
+    answers: &Map<String, Value>,
+) -> Result<Map<String, Value>> {
+    let all = rules::with_all_defaults(analysis, answers)?;
+    let taken: Vec<(&String, &Value)> = all
+        .iter()
+        .filter(|(id, _)| {
+            !answers.contains_key(*id)
+                && !id.starts_with('_')
+                && !id.starts_with("bom.")
+                // The process stays a suggestion when taken (`process::read`).
+                && id.as_str() != crate::process::QUESTION
+        })
+        .collect();
+    if taken.is_empty() {
+        return Ok(answers.clone());
+    }
+    let scene = crate::pmi_scene::Scene::new(loaded).map_err(Error::Analysis)?;
+    let plan = scene
+        .comparison(loaded, analysis, Some(&all))
+        .map_err(Error::Analysis)?;
+    let writes = resume::truth::writing(&plan);
+    let mut out = answers.clone();
+    for (id, value) in taken {
+        if !writes.contains(id) {
+            out.insert(id.clone(), value.clone());
+        }
+    }
+    Ok(out)
+}
+
 /// Complete, editable answer file for this part, without writing STEP. Accepts defaults to
 /// a fixed point and refuses missing answers (including carry blocks). Verify both the
 /// analysis binding and any supplied evidence before attaching fresh evidence: an export

@@ -299,10 +299,18 @@ impl Server {
                     crate::bom::accept_suggestions(analysis, &answers, &mut intent)
                         .map_err(Failure::Invalid)?;
                 }
-                // The answers as given, defaults not filled in: resumed, a default not chosen
-                // stays a default and follows the rules as they then are.
+                // The answers as given, and with every default taken those that write no PMI
+                // (ADR P9): a default that writes PMI is not stored, so it stays a default and
+                // follows the rules as they then are; the file states it.
                 let step = path(request, "step")?;
                 let output = path(request, "output")?;
+                let answers = if defaults {
+                    let index = analysis["binding"]["part"].as_u64().unwrap_or(0) as usize;
+                    let loaded = part::load(&step, Some(index)).map_err(Error::Load)?;
+                    api::stored_with_defaults(&loaded, analysis, &answers)?
+                } else {
+                    answers
+                };
                 let report = api::write_file(&step, &intent, &output, Some(&answers))?;
                 Ok(json!({"report": report.to_dict(), "intent": intent.to_dict()}))
             }
@@ -431,9 +439,23 @@ fn write_parts(request: &Map<String, Value>) -> Handled {
             crate::bom::accept_suggestions(analysis, &answers, &mut intent)
                 .map_err(Failure::Invalid)?;
         }
-        written.push((intent, Some(answers)));
+        written.push((analysis, intent, answers));
     }
     let step = path(request, "step")?;
+    // With every default taken, those that write no PMI are stored too (ADR P9).
+    let written = written
+        .into_iter()
+        .map(|(analysis, intent, answers)| {
+            let answers = if defaults {
+                let index = analysis["binding"]["part"].as_u64().unwrap_or(0) as usize;
+                let loaded = part::load(&step, Some(index)).map_err(Error::Load)?;
+                api::stored_with_defaults(&loaded, analysis, &answers)?
+            } else {
+                answers
+            };
+            Ok((intent, Some(answers)))
+        })
+        .collect::<Result<Vec<_>, Failure>>()?;
     let output = path(request, "output")?;
     let report = api::write_parts(&step, &written, &output)?;
     Ok(json!({

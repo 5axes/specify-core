@@ -845,6 +845,14 @@ pub(crate) fn against_plan(
     )
 }
 
+/// Each requirement of a comparison scene, by scene id: its faces and notation.
+pub(crate) fn scene_items(scene: &Value) -> BTreeMap<String, (Vec<usize>, String)> {
+    items(scene)
+        .into_iter()
+        .map(|item| (item.id, (item.faces, item.text)))
+        .collect()
+}
+
 /// Where a stored answer's requirement may be the file's on other faces: recognition that
 /// changed since the file was written, never an edit of the requirement's faces.
 #[derive(Debug, Default)]

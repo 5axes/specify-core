@@ -175,6 +175,8 @@ pub(crate) fn reconcile(
     let kept_earlier = kept(&stored);
     let plan = scene.comparison(loaded, analysis, Some(&stored))?;
     let mut truth = crate::revision::against_plan(&plan, &file, faces, &stored, &drift);
+    // The questions whose answers the plans state PMI for; any other stored answer writes none.
+    let mut writes = writing(&plan);
     let mut present = Map::new();
     let mut file_answered: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
     // The defaults plan asks every question, those kept earlier too (`_specify.keep` would
@@ -190,6 +192,7 @@ pub(crate) fn reconcile(
         && all.len() > stored.len()
     {
         let planned = scene.comparison(loaded, analysis, Some(&all))?;
+        writes.extend(writing(&planned));
         let other = crate::revision::against_plan(&planned, &file, faces, &stored, &drift);
         truth
             .conflicts
@@ -248,6 +251,35 @@ pub(crate) fn reconcile(
             .map(|(id, _)| id)
             .collect();
         truth.explained.retain(|id| !contested.contains(id));
+    }
+    // A stored answer that writes no PMI has nothing in the file to agree with: it resumes,
+    // unless the file states PMI for its question, which contradicts it.
+    let silent: Vec<&String> = stored
+        .keys()
+        .filter(|id| {
+            !id.starts_with('_')
+                && !writes.contains(*id)
+                && id.as_str() != crate::process::QUESTION
+                && id.as_str() != "part.material"
+                && !kept_earlier.contains(id.as_str())
+                && !truth.conflicts.contains_key(*id)
+        })
+        .collect();
+    if !silent.is_empty() {
+        let contested: BTreeSet<String> = truth
+            .conflicts
+            .values()
+            .chain(file_answered.values())
+            .flatten()
+            .map(|(id, _)| id.clone())
+            .collect();
+        let mut rows = crate::revision::scene_items(&file);
+        rows.retain(|id, _| !truth.explained.contains(id) && !contested.contains(id));
+        for (id, items) in contradicted(
+            loaded, &scene, analysis, &stored, &silent, &rows, &file, &drift,
+        )? {
+            truth.conflicts.insert(id, items);
+        }
     }
     let item = |id: &str| index.get(id).cloned();
     let mut out = Reconciled {
@@ -331,6 +363,115 @@ pub(crate) fn reconcile(
         out.file_answered.push(question);
     }
     out.present = present;
+    Ok(out)
+}
+
+/// The questions whose answers `plan`, a comparison scene of answers, states PMI for: a
+/// requirement or part setting tagged with the question, or the material.
+pub(crate) fn writing(plan: &Value) -> BTreeSet<String> {
+    let mut out: BTreeSet<String> = plan["specify"]
+        .as_object()
+        .into_iter()
+        .flatten()
+        .filter(|(_, meta)| meta["status"] != "existing")
+        .filter_map(|(_, meta)| meta["question"].as_str().map(str::to_owned))
+        .collect();
+    if !plan["pmi"]["pmi"]["material"].is_null() {
+        out.insert("part.material".into());
+    }
+    out
+}
+
+/// Another answer to `question` than `value` that may state PMI: its first other option or
+/// suggestion. None for a question with neither (free text, a list, faces).
+fn alternative(question: &crate::rules::Question, value: &Value) -> Option<Value> {
+    question
+        .options
+        .iter()
+        .map(|o| Value::from(o.as_str()))
+        .chain(question.suggestions.iter().map(|s| s["value"].clone()))
+        .find(|o| !o.is_null() && o != value)
+}
+
+/// Of the stored answers `silent`, which write no PMI, those the file contradicts: the file
+/// states PMI for the question (on its faces, or for the part). Found as the writer would
+/// find it: the question answered otherwise is planned, without the file's own PMI hiding
+/// the question, and that plan's requirements for it are paired with the file's `rows` that
+/// no stored answer explains. Each with the file's requirements for it (scene id, notation).
+#[allow(clippy::too_many_arguments)]
+fn contradicted(
+    loaded: &LoadedPart,
+    scene: &Scene,
+    analysis: &Value,
+    stored: &Map<String, Value>,
+    silent: &[&String],
+    rows: &BTreeMap<String, (Vec<usize>, String)>,
+    file: &Value,
+    drift: &crate::revision::Drift,
+) -> Result<BTreeMap<String, Vec<(String, String)>>, String> {
+    let mut out = BTreeMap::new();
+    if rows.is_empty() {
+        return Ok(out);
+    }
+    // The part as Specify asked about it: the file's own PMI does not take questions away.
+    let mut bare = analysis.clone();
+    bare["existing"] = Value::Array(Vec::new());
+    bare["part"] = Value::Object(Map::new());
+    let Ok(questions) = crate::rules::questions(&bare, stored) else {
+        return Ok(out);
+    };
+    for id in silent {
+        let Some(question) = questions.iter().find(|q| &q.id == *id) else {
+            continue;
+        };
+        // Only where the file has a requirement no answer explains on the question's faces
+        // (or, for a question about the whole part, one on no face).
+        let faces: Vec<usize> = question
+            .faces
+            .iter()
+            .filter_map(|&f| usize::try_from(f).ok())
+            .collect();
+        let near = rows.values().any(|(on, _)| {
+            if faces.is_empty() {
+                on.is_empty()
+            } else {
+                on.iter().any(|f| faces.contains(f))
+            }
+        });
+        if !near {
+            continue;
+        }
+        let Some(value) = alternative(question, &stored[id.as_str()]) else {
+            continue;
+        };
+        let mut answers = stored.clone();
+        answers.insert((*id).clone(), value);
+        let plan = scene.comparison(loaded, &bare, Some(&answers))?;
+        let mut others = stored.clone();
+        others.remove(id.as_str());
+        let mut truth =
+            crate::revision::against_plan(&plan, file, loaded.binding.face_count, &others, drift);
+        let mut items = truth
+            .changed_defaults
+            .remove(id.as_str())
+            .unwrap_or_default();
+        for found in truth
+            .defaults
+            .remove(id.as_str())
+            .map(|(_, ids)| ids)
+            .unwrap_or_default()
+        {
+            if !items.iter().any(|(i, _)| *i == found)
+                && let Some((_, text)) = rows.get(&found)
+            {
+                items.push((found, text.clone()));
+            }
+        }
+        items.retain(|(i, _)| rows.contains_key(i));
+        if !items.is_empty() {
+            out.insert((*id).clone(), items);
+        }
+    }
     Ok(out)
 }
 

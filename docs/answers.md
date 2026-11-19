@@ -165,6 +165,17 @@ cone or floor claimed since).
   requirement is in `existing`, tagged `question: <id>`, the question is not asked, and
   every write keeps it until the question is answered (which gives it way). Specify's own
   requirements that no question accounts for at all are Specify's to state from the answers.
+- **An answer that writes no PMI** (a coating of "None (as machined)", no notes, "position
+  tolerances", a hole of "general" function, no flatness on datum A): the file cannot state
+  it, so the stored answer is what keeps it. It resumes (`resume.answers`) and is not asked
+  again, unless the file states PMI for its question: a requirement no stored answer explains,
+  on the question's faces (or, for a question about the whole part, on none), that the
+  question answered otherwise would write. Whether an answer writes PMI, and what the question
+  would write instead, are found by planning the answers as the writer does (the question's
+  first other option or suggestion; free-text, list and face questions have none). Such a file
+  requirement contradicts the answer: a conflict as below (`file` its notation, `foreign` when
+  it is another tool's), never resumed silently. An answer that wrote PMI the file then
+  removed stays a conflict, "removed in the file".
 - **Different, or only in the answers (removed in the file):** a conflict,
   `resume.conflicts: [{id, stored, file}]` (`file` is the file's notation, `null` when the
   file has none), with an analysis warning each. Until it is decided the file's state is
@@ -203,6 +214,12 @@ file says ⌀10 H8. Keep the file's ⌀10 H8, or restore H7?" or "Saved answer 0
 the file. Restore it, or leave it removed?", and `choices` `[{choice: "keep", label},
 {choice: "restore", label, answer}]`. A front end or agent puts them to the person and never
 decides them itself. Conflicts are not `open` questions: they do not block a write.
+
+Answers that write no PMI are stored whenever they are answers: given, or defaults approved
+(the page's Save, MCP's `save`, `write_pmi` and `export_answers` with `accept_defaults`).
+`write --accept-defaults` (and serve's `write` with `accept_defaults`), the person's "accept
+all", stores the defaults it takes that write no PMI as well; the defaults it takes that write
+PMI are not stored, and reopening reads them from the file as `resume.present`.
 
 **Known limits.** Two kinds of Specify-marked PMI that no stored answer explains are still
 dropped on rewrite, as they were before ADR P9: a default whose faces another tool moved
