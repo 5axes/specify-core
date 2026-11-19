@@ -6,6 +6,35 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+## 0.2.0 (2026-11-19)
+
+Read first:
+
+- **Fixed: rewriting a file Specify wrote no longer drops PMI** (ADR P9; details under Fixed).
+  Before, a rewrite from the editor, `write` or a session dropped PMI another tool had added,
+  and defaults written but never stored as answers. Two cases are still dropped, as before: a
+  default whose faces another tool moved, and Specify-marked PMI written from a raw intent where
+  no default exists.
+- **Preview:** the Specify page (`specify-core open`, `open --diff`) and MCP `show` need the
+  built app until it is bundled: `--app DIR` or `SPECIFY_APP_DIR` (and `--wasm DIR` or
+  `SPECIFY_WASM_DIR` when the engine is not in the app's `wasm/`). For MCP `show`, only the
+  environment variables.
+- **Conflicts with another tool's PMI:** when a requirement another tool wrote contradicts a
+  stored answer, Specify offers only to keep the file's requirement; it never replaces it. A
+  "use my answer" choice comes in the next release.
+- **Asked again on reopening:** defaults taken that write no PMI (no coating, a general hole,
+  no flatness on a datum) leave nothing in the file to read back, so a reopened file asks them
+  again. Answers given and stored are resumed.
+- **Exports take only approved defaults** (`questions --resolve-defaults`, serve, Python, WASM
+  `exportAnswers`): pass the approvals to keep an export complete. The editor's Answers (JSON)
+  export is unchanged until the editor sends approvals.
+- **Upgrading from 0.1.18** (details below): `specify-core open` no longer takes `--site` or
+  `--editor` and no longer hands the file to draftwright.io; MCP `write_pmi` refuses a boolean
+  `accept_defaults` (pass the approved defaults with their values); Rust `api::export_answers`
+  takes approvals and returns `Exported {answers, missing}`; `analyse`'s `resume` gains
+  conflicts and `present`, and a reopened file's `existing` and `part` are no longer empty; the
+  page's Save sends `{rev, acceptDefaults}`, not the STEP's bytes.
+
 ### Added
 
 - docs/rule-sources.md: where each of Specify's defaults and tables comes from (standard,
