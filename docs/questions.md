@@ -36,9 +36,12 @@ building it:
   version, and they state nothing the answer chose.
 - **Answers that write no PMI** (maintainer, 2026-11-19): kept with the stored answers and
   resumed, not asked again, where the file has nothing to contradict them; the file is the
-  truth for everything it can state. Contradiction is the file stating PMI for the question
-  (on its faces, or the part's) that the question answered otherwise would write, found with
-  the file's own PMI not hiding the question; it is then a conflict. `write --accept-defaults`
+  truth for everything it can state. Contradiction is conservative (review, 2026-11-19): any
+  requirement no stored answer explains on the question's faces, of any kind, or for a part
+  setting the file's own unmarked setting stated and different; it is then a conflict. An
+  earlier version planned the question's first other option and paired its requirements,
+  which missed another kind (a thread on a "general" hole) and every free-text or list
+  setting (another tool's general note was lost). `write --accept-defaults`
   stores the no-PMI defaults it takes (an explicit "accept all"); the PMI-writing ones stay
   unstored and read back as `resume.present`, so #204's behaviour for them is unchanged.
 

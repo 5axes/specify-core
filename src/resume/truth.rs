@@ -104,6 +104,7 @@ pub(crate) fn reconcile(
     loaded: &LoadedPart,
     analysis: &Value,
     features: &[crate::features::Feature],
+    settings: &Map<String, Value>,
 ) -> Result<Reconciled, String> {
     let stored = analysis["resume"]["answers"]
         .as_object()
@@ -275,9 +276,7 @@ pub(crate) fn reconcile(
             .collect();
         let mut rows = crate::revision::scene_items(&file);
         rows.retain(|id, _| !truth.explained.contains(id) && !contested.contains(id));
-        for (id, items) in contradicted(
-            loaded, &scene, analysis, &stored, &silent, &rows, &file, &drift,
-        ) {
+        for (id, items) in contradicted(analysis, settings, &stored, &silent, &rows) {
             truth.conflicts.insert(id, items);
         }
     }
@@ -382,95 +381,89 @@ pub(crate) fn writing(plan: &Value) -> BTreeSet<String> {
     out
 }
 
-/// Another answer to `question` than `value` that may state PMI: its first other option or
-/// suggestion. None for a question with neither (free text, a list, faces).
-fn alternative(question: &crate::rules::Question, value: &Value) -> Option<Value> {
-    question
-        .options
-        .iter()
-        .map(|o| Value::from(o.as_str()))
-        .chain(question.suggestions.iter().map(|s| s["value"].clone()))
-        .find(|o| !o.is_null() && o != value)
+/// Whether a part setting's value states nothing: absent, empty text or an empty list.
+fn blank(value: &Value) -> bool {
+    match value {
+        Value::Null => true,
+        Value::String(s) => s.trim().is_empty(),
+        Value::Array(items) => items.is_empty(),
+        _ => false,
+    }
 }
 
-/// Of the stored answers `silent`, which write no PMI, those the file contradicts: the file
-/// states PMI for the question (on its faces, or for the part). Found as the writer would
-/// find it: the question answered otherwise is planned, without the file's own PMI hiding
-/// the question, and that plan's requirements for it are paired with the file's `rows` that
-/// no stored answer explains. Each with the file's requirements for it (scene id, notation).
-#[allow(clippy::too_many_arguments)]
+/// Of the stored answers `silent`, which write no PMI, those the file contradicts, each with
+/// the file's requirements for it (scene id, notation). Conservative: asking again is better
+/// than resuming an answer the file may say otherwise.
+/// - A question about faces: any requirement of the file no stored answer explains (`rows`)
+///   on the question's faces, whatever its kind.
+/// - A part setting (`part.notes`, `part.coating`, ...): the file's setting not marked as
+///   Specify's (`settings`), stated and different from the answer.
 fn contradicted(
-    loaded: &LoadedPart,
-    scene: &Scene,
     analysis: &Value,
+    settings: &Map<String, Value>,
     stored: &Map<String, Value>,
     silent: &[&String],
     rows: &BTreeMap<String, (Vec<usize>, String)>,
-    file: &Value,
-    drift: &crate::revision::Drift,
 ) -> BTreeMap<String, Vec<(String, String)>> {
     let mut out = BTreeMap::new();
-    if rows.is_empty() {
+    fn stated<'a>(settings: &Map<String, Value>, id: &'a str) -> Option<&'a str> {
+        id.starts_with("part.")
+            .then(|| setting(id))
+            .flatten()
+            .filter(|key| settings.get(*key).is_some_and(|v| !blank(v)))
+    }
+    if rows.is_empty() && !silent.iter().any(|id| stated(settings, id).is_some()) {
         return out;
     }
-    // The part as Specify asked about it: the file's own PMI does not take questions away.
+    // The part as Specify asked about it: the file's own PMI does not take questions away,
+    // so each question's faces are known.
     let mut bare = analysis.clone();
     bare["existing"] = Value::Array(Vec::new());
     bare["part"] = Value::Object(Map::new());
-    let Ok(questions) = crate::rules::questions(&bare, stored) else {
-        return out;
-    };
+    let questions = crate::rules::questions(&bare, stored).unwrap_or_default();
     for id in silent {
+        if let Some(key) = stated(settings, id) {
+            let actual = &settings[key];
+            if *actual == stored[id.as_str()] {
+                continue;
+            }
+            let mut items: Vec<(String, String)> = rows
+                .iter()
+                .filter(|(row, _)| setting(row) == Some(key))
+                .map(|(row, (_, text))| (row.clone(), text.clone()))
+                .collect();
+            if items.is_empty() {
+                // No scene item to tag: the setting's value is what the file says.
+                let text = match actual {
+                    Value::String(s) => s.clone(),
+                    Value::Array(list) => list
+                        .iter()
+                        .map(|v| v.as_str().map_or_else(|| v.to_string(), str::to_owned))
+                        .collect::<Vec<_>>()
+                        .join("; "),
+                    other => other.to_string(),
+                };
+                items.push((String::new(), text));
+            }
+            out.insert((*id).clone(), items);
+            continue;
+        }
         let Some(question) = questions.iter().find(|q| &q.id == *id) else {
             continue;
         };
-        // Only where the file has a requirement no answer explains on the question's faces
-        // (or, for a question about the whole part, one on no face).
         let faces: Vec<usize> = question
             .faces
             .iter()
             .filter_map(|&f| usize::try_from(f).ok())
             .collect();
-        let near = rows.values().any(|(on, _)| {
-            if faces.is_empty() {
-                on.is_empty()
-            } else {
-                on.iter().any(|f| faces.contains(f))
-            }
-        });
-        if !near {
+        if faces.is_empty() {
             continue;
         }
-        let Some(value) = alternative(question, &stored[id.as_str()]) else {
-            continue;
-        };
-        let mut answers = stored.clone();
-        answers.insert((*id).clone(), value);
-        // A question the scene cannot plan otherwise has nothing found to contradict it.
-        let Ok(plan) = scene.comparison(loaded, &bare, Some(&answers)) else {
-            continue;
-        };
-        let mut others = stored.clone();
-        others.remove(id.as_str());
-        let mut truth =
-            crate::revision::against_plan(&plan, file, loaded.binding.face_count, &others, drift);
-        let mut items = truth
-            .changed_defaults
-            .remove(id.as_str())
-            .unwrap_or_default();
-        for found in truth
-            .defaults
-            .remove(id.as_str())
-            .map(|(_, ids)| ids)
-            .unwrap_or_default()
-        {
-            if !items.iter().any(|(i, _)| *i == found)
-                && let Some((_, text)) = rows.get(&found)
-            {
-                items.push((found, text.clone()));
-            }
-        }
-        items.retain(|(i, _)| rows.contains_key(i));
+        let items: Vec<(String, String)> = rows
+            .iter()
+            .filter(|(_, (on, _))| on.iter().any(|f| faces.contains(f)))
+            .map(|(row, (_, text))| (row.clone(), text.clone()))
+            .collect();
         if !items.is_empty() {
             out.insert((*id).clone(), items);
         }

@@ -380,3 +380,252 @@ fn an_assembly_part_with_only_approved_defaults_is_written() {
         assert_eq!(answers.get(id), Some(value), "{id}: {}", again["resume"]);
     }
 }
+
+/// `bytes` with `added` written by haecceity's own writer (Add): another tool's PMI, without
+/// Specify's provenance marker.
+fn with_foreign(bytes: Vec<u8>, added: haecceity::pmi::PartPmi) -> Vec<u8> {
+    use haecceity::p21::Document;
+    use haecceity::pmi;
+    let doc = Document::parse(bytes).unwrap();
+    let defs = haecceity::step::read_part_definitions(doc.bytes()).unwrap();
+    let (edit, _) = pmi::write(
+        &doc,
+        &defs,
+        &[(pmi::PartId(0), added)],
+        pmi::write::Mode::Add,
+        pmi::write::PresentationPolicy::RemovePresentation,
+    )
+    .unwrap();
+    doc.apply(&edit).unwrap().bytes
+}
+
+/// The plate written with every default approved: `part.notes: []` and the other silent
+/// answers stored.
+fn accepted_all() -> (Map<String, Value>, Vec<u8>) {
+    let all = specify_core::rules::with_all_defaults(
+        &api::analyse_file(&plate(), None).unwrap(),
+        &material(),
+    )
+    .unwrap();
+    let bytes = written(&all, &all);
+    (all, bytes)
+}
+
+/// The written file reopened, its resumed answers saved as the CLI's `write` saves them, and
+/// reopened again.
+fn saved_again(loaded: &LoadedPart, analysis: &Value) -> (LoadedPart, Value) {
+    let answers = analysis["resume"]["answers"].as_object().unwrap().clone();
+    let intent = api::apply(analysis, &answers, false).unwrap();
+    let back = load(
+        api::write_bytes(loaded.bytes.to_vec(), &[(intent, Some(answers))])
+            .unwrap()
+            .0,
+    );
+    let again = api::analyse(&back).unwrap();
+    (back, again)
+}
+
+/// "No notes" stored, then another tool adds a general note: the file's note contradicts the
+/// stored `[]`. It is shown (`part.notes`), the answer is not resumed, and the note stays in
+/// the file through a save.
+#[test]
+fn another_tools_general_note_contradicts_stored_no_notes() {
+    use haecceity::pmi::{AttributeSet, AttributeValue, PartPmi};
+    let (all, bytes) = accepted_all();
+    assert_eq!(all["part.notes"], json!([]));
+    let note = AttributeSet {
+        name: "semantic text".into(),
+        on: None,
+        items: vec![
+            (
+                "general note".into(),
+                AttributeValue::Text("DEBURR ALL OVER".into()),
+            ),
+            ("note index".into(), AttributeValue::Integer(1)),
+        ],
+        description: None,
+        general_property: None,
+    };
+    let edited = load(with_foreign(
+        bytes,
+        PartPmi {
+            attributes: vec![note],
+            ..Default::default()
+        },
+    ));
+    let analysis = api::analyse(&edited).unwrap();
+    let resume = &analysis["resume"];
+    assert_eq!(
+        analysis["part"]["notes"],
+        json!(["DEBURR ALL OVER"]),
+        "{}",
+        analysis["part"]
+    );
+    let conflicts = resume["conflicts"].as_array().unwrap();
+    assert_eq!(conflicts.len(), 1, "{resume}");
+    assert_eq!(conflicts[0]["id"], "part.notes");
+    assert_eq!(conflicts[0]["stored"], json!([]));
+    assert!(
+        conflicts[0]["file"]
+            .as_str()
+            .unwrap()
+            .contains("DEBURR ALL OVER"),
+        "{conflicts:?}"
+    );
+    assert!(
+        !resume["answers"]
+            .as_object()
+            .unwrap()
+            .contains_key("part.notes")
+    );
+    let (questions, _) = asked(&analysis);
+    assert!(
+        !questions.contains(&"part.notes".to_string()),
+        "{questions:?}"
+    );
+
+    let (back, again) = saved_again(&edited, &analysis);
+    assert_eq!(
+        again["part"]["notes"],
+        json!(["DEBURR ALL OVER"]),
+        "{}",
+        again["part"]
+    );
+    let (back, again) = saved_again(&back, &again);
+    assert_eq!(
+        again["part"]["notes"],
+        json!(["DEBURR ALL OVER"]),
+        "{}",
+        again["part"]
+    );
+    // A session save of it keeps the note too.
+    let dir = scratch("note");
+    let input = dir.join("noted.step");
+    std::fs::write(&input, back.bytes.as_slice()).unwrap();
+    let shared = session_of(&input);
+    let saved =
+        session::save(&shared, None, &Default::default(), "page").unwrap_or_else(|e| panic!("{e}"));
+    let reopened = api::analyse_file(Path::new(&saved.path), None).unwrap();
+    assert_eq!(
+        reopened["part"]["notes"],
+        json!(["DEBURR ALL OVER"]),
+        "{}",
+        reopened["part"]
+    );
+}
+
+/// A "general" hole (no PMI), then another tool adds a thread callout on it: a requirement of
+/// another kind than "general"'s alternatives would write, on the question's faces, still
+/// contradicts the stored answer.
+#[test]
+fn another_tools_thread_on_a_general_hole_contradicts_it() {
+    use haecceity::p21::Document;
+    use haecceity::pmi::{self, PartPmi};
+    let (all, bytes) = accepted_all();
+    assert_eq!(all["hole.function:holes:9"], "general");
+    // A file stating hole 9's size (to name its feature) and hole 12's M5 thread.
+    let mut fitted = all.clone();
+    fitted.insert("hole.function:holes:9".into(), json!("fit:H7"));
+    let source = written(&fitted, &fitted);
+    let defs = haecceity::step::read_part_definitions(&source).unwrap();
+    let read = pmi::read(&Document::parse(source.clone()).unwrap(), &defs).unwrap();
+    let listed = specify_core::existing::read_existing(&load(source.clone())).unwrap();
+    let k = listed
+        .iter()
+        .filter(|e| e.kind == "dimension")
+        .position(|e| e.r#type == "Size_Diameter" && e.faces == [9])
+        .unwrap();
+    let size = read.parts[0]
+        .dimensions
+        .iter()
+        .filter(|d| !matches!(d.tolerance, pmi::DimTolerance::None))
+        .nth(k)
+        .unwrap();
+    let pmi::DimensionKind::Size { feature, .. } = &size.kind else {
+        panic!("not a size: {size:?}");
+    };
+    let mut thread = read.parts[0].threads[0].clone();
+    thread.feature = *feature;
+    thread.partial_area = Some(*feature);
+    thread.runout = None;
+    let edited = load(with_foreign(
+        bytes,
+        PartPmi {
+            features: read.parts[0].features.clone(),
+            threads: vec![thread],
+            ..Default::default()
+        },
+    ));
+    let threads: Vec<_> = specify_core::existing::read_existing(&edited)
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.r#type == "internal thread" && e.faces == [9])
+        .collect();
+    assert_eq!(threads.len(), 1, "{threads:?}");
+    let analysis = api::analyse(&edited).unwrap();
+    let resume = &analysis["resume"];
+    let conflicts = resume["conflicts"].as_array().unwrap();
+    assert!(
+        conflicts.iter().any(|c| c["id"] == "hole.function:holes:9"
+            && c["stored"] == "general"
+            && c["foreign"] == true),
+        "{resume}"
+    );
+    assert!(
+        !resume["answers"]
+            .as_object()
+            .unwrap()
+            .contains_key("hole.function:holes:9")
+    );
+    // Saved, the thread stays.
+    let (back, _) = saved_again(&edited, &analysis);
+    assert_eq!(
+        specify_core::existing::read_existing(&back)
+            .unwrap()
+            .iter()
+            .filter(|e| e.r#type == "internal thread" && e.faces == [9])
+            .count(),
+        1
+    );
+}
+
+/// Another part than the plate, with holes and datums: written with every default approved,
+/// and with `write --accept-defaults`'s stored answers, it reopens with nothing asked again
+/// and no conflict.
+#[test]
+fn another_part_resumes_its_silent_answers() {
+    let input = common::fixtures().join("parts/electronics-enclosure-base.step.gz");
+    let source = specify_core::part::load(&input, None).unwrap();
+    let analysis = api::analyse_file(&input, None).unwrap();
+    assert!(
+        analysis["features"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|f| f["id"].as_str().is_some_and(|id| id.starts_with("holes")))
+    );
+    let given = material();
+    let all = specify_core::rules::with_all_defaults(&analysis, &given).unwrap();
+    assert!(all.keys().any(|id| id.starts_with("datum.")), "{all:?}");
+    let intent = api::apply(&analysis, &given, true).unwrap();
+    let cli = api::stored_with_defaults(&source, &analysis, &given).unwrap();
+    assert!(cli.len() > given.len(), "{cli:?}");
+    for stored in [&all, &cli] {
+        let bytes = api::write_bytes(
+            source.bytes.to_vec(),
+            &[(intent.clone(), Some(stored.clone()))],
+        )
+        .unwrap()
+        .0;
+        let back = load_bytes("enclosure.step", bytes).unwrap();
+        let again = api::analyse(&back).unwrap();
+        let resume = &again["resume"];
+        assert!(resume.get("conflicts").is_none(), "{resume}");
+        let answers = resume["answers"].as_object().unwrap();
+        for id in stored.keys() {
+            assert!(answers.contains_key(id), "{id} is not resumed: {resume}");
+        }
+        let (_, open) = asked(&again);
+        assert!(open.is_empty(), "asked again: {open:?}");
+    }
+}

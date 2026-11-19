@@ -139,7 +139,14 @@ fn no_opt_in_matches_v046_presentation_through_api_and_cli() {
             // With every default taken, the command line also stores those that write no PMI
             // (ADR P9): the same PMI, more stored answers.
             let stored = if defaults {
-                api::stored_with_defaults(&part, &analysis, &answers).unwrap()
+                let stored = api::stored_with_defaults(&part, &analysis, &answers).unwrap();
+                assert_eq!(
+                    stored,
+                    common::accept_all::stored(&path, part.binding.part, &analysis, &answers),
+                    "{fixture} part {}",
+                    part.binding.part
+                );
+                stored
             } else {
                 answers.clone()
             };

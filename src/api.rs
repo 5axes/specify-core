@@ -461,13 +461,18 @@ fn analyse_reconciling(
     };
     if analysis.contains_key("resume") && marked() {
         let base = Value::Object(analysis.clone());
-        match resume::truth::reconcile(loaded, &base, &features) {
+        let doc = haecceity::p21::Document::parse(loaded.bytes.as_ref().clone())
+            .map_err(|e| refused(&e))?;
+        let defs =
+            haecceity::step::read_part_definitions(&loaded.bytes).map_err(|e| refused(&e))?;
+        let reading = existing::read_parsed(loaded, doc, &defs).map_err(|e| refused(&e))?;
+        // The part settings the file states that are not marked as Specify's: another
+        // tool's, which an answer that writes no PMI must agree with.
+        let mut own = reading.settings(loaded);
+        let marked_settings = reading.settings_provenance(loaded);
+        own.retain(|key, _| !marked_settings.contains_key(key));
+        match resume::truth::reconcile(loaded, &base, &features, &own) {
             Ok(r) => {
-                let doc = haecceity::p21::Document::parse(loaded.bytes.as_ref().clone())
-                    .map_err(|e| refused(&e))?;
-                let defs = haecceity::step::read_part_definitions(&loaded.bytes)
-                    .map_err(|e| refused(&e))?;
-                let reading = existing::read_parsed(loaded, doc, &defs).map_err(|e| refused(&e))?;
                 // Specify's own (marked) requirements the answers do not explain, and that no
                 // question accounts for, are Specify's to state: the rewrite states the part from
                 // the answers. The rest is another tool's PMI, or the file's answer to a

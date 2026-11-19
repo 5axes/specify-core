@@ -773,6 +773,11 @@ fn composition(dir: &Path) -> Vec<Difference> {
                     let loaded = specify_core::part::load(&input, Some(part)).unwrap();
                     let stored =
                         api::stored_with_defaults(&loaded, analysis, &object(&base)).unwrap();
+                    assert_eq!(
+                        stored,
+                        common::accept_all::stored(&input, part, analysis, &object(&base)),
+                        "{file} part {part}"
+                    );
                     intents.push((intent, Some(stored)));
                 }
                 Err(e) => {

@@ -187,14 +187,16 @@ cone or floor claimed since).
 - **An answer that writes no PMI** (a coating of "None (as machined)", no notes, "position
   tolerances", a hole of "general" function, no flatness on datum A): the file cannot state
   it, so the stored answer is what keeps it. It resumes (`resume.answers`) and is not asked
-  again, unless the file states PMI for its question: a requirement no stored answer explains,
-  on the question's faces (or, for a question about the whole part, on none), that the
-  question answered otherwise would write. Whether an answer writes PMI, and what the question
-  would write instead, are found by planning the answers as the writer does (the question's
-  first other option or suggestion; free-text, list and face questions have none). Such a file
-  requirement contradicts the answer: a conflict as below (`file` its notation, `foreign` when
-  it is another tool's), never resumed silently. An answer that wrote PMI the file then
-  removed stays a conflict, "removed in the file".
+  again, unless the file contradicts it. Whether an answer writes PMI is found by planning the
+  answers as the writer does. The check is deliberately conservative (asking again is better
+  than resuming an answer the file says otherwise): a question about faces is contradicted by
+  any requirement on its faces that no stored answer explains, of whatever kind (another
+  tool's thread on a "general" hole, its flatness on datum A against "none"); a part setting
+  (notes, coating, heat treatment, ...) by the file's own setting, not marked as Specify's,
+  when it is stated and differs (another tool's general note against "no notes"). A
+  contradicted answer is a conflict as below (`file` the file's notation, `foreign` when it
+  is another tool's), never resumed silently, and the file's PMI is kept on writing. An
+  answer that wrote PMI the file then removed stays a conflict, "removed in the file".
 - **Different, or only in the answers (removed in the file):** a conflict,
   `resume.conflicts: [{id, stored, file}]` (`file` is the file's notation, `null` when the
   file has none), with an analysis warning each. Until it is decided the file's state is
