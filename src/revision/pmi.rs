@@ -798,6 +798,8 @@ pub(crate) struct PlanTruth {
     /// File scene ids the stored answers explain: an answered (or general-tolerance)
     /// requirement of the plan, unchanged in the file.
     pub explained: BTreeSet<String>,
+    /// The stored question responsible for each explained, explicitly answered item.
+    pub explained_by: BTreeMap<String, String>,
     /// Answered questions whose requirement the file changed or removed: the file's
     /// requirements for it (scene id, notation), none when it was removed in the file.
     pub conflicts: BTreeMap<String, Vec<(String, String)>>,
@@ -1055,6 +1057,9 @@ fn classify(
             match (paired, question) {
                 (Some(now), q) if equal(was, now, q) => {
                     truth.explained.insert(now.id.clone());
+                    if let Some(question) = q {
+                        truth.explained_by.insert(now.id.clone(), question.clone());
+                    }
                 }
                 (now, Some(question)) => {
                     differs.insert(question.clone());

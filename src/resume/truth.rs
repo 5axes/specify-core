@@ -58,7 +58,7 @@ pub(crate) struct Reconciled {
     /// The file's items the resumed answers explain, by haecceity collection and index.
     pub explained: BTreeSet<(String, usize)>,
     /// Explained tolerances whose questions may be suppressed by imported PMI.
-    masked_tolerances: BTreeSet<usize>,
+    masked_tolerances: BTreeMap<usize, String>,
     /// The file's items each conflict's question stands for.
     pub contested: BTreeMap<(String, usize), String>,
     /// Part settings (`part` keys) the resumed answers explain.
@@ -315,6 +315,7 @@ pub(crate) fn reconcile(
             .conflicts
             .retain(|question, _| other.conflicts.contains_key(question));
         truth.explained.extend(other.explained);
+        truth.explained_by.extend(other.explained_by);
         // A question both plans contradict keeps the file's items either names.
         for (question, items) in other.conflicts {
             if let Some(mine) = truth.conflicts.get_mut(&question) {
@@ -431,13 +432,14 @@ pub(crate) fn reconcile(
         .iter()
         .filter_map(|id| {
             let at = index.get(id)?;
+            let question = truth.explained_by.get(id)?;
             (at.0 == "tolerances"
                 && !unmarked.contains(at)
                 && rows[id]
                     .0
                     .iter()
                     .any(|face| imported_tolerance_faces.contains(face)))
-            .then_some(at.1)
+            .then(|| (at.1, question.clone()))
         })
         .collect();
     let mut out = Reconciled {
@@ -841,7 +843,11 @@ impl Reconciled {
             let at = (collection.to_string(), i);
             self.retained.contains(&at)
                 || (collection == "tolerances"
-                    && self.masked_tolerances.contains(&i)
+                    && self.masked_tolerances.get(&i).is_some_and(|question| {
+                        self.answers
+                            .get(question)
+                            .is_some_and(|value| answers.get(question) == Some(value))
+                    })
                     && !restated.contains(&at))
                 || (!self.explained.contains(&at)
                     && !restated.contains(&at)
