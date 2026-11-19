@@ -221,8 +221,15 @@ try {
     await check(list).toBeVisible();
     // Changed expectation (Paul's decision, 2026-11-19): every part of the file with a default has its own
     // list, answered or not (it was only the parts with answers, `written.length`), the one not shown too.
-    await check(list.locator('[data-part]')).not.toHaveCount(written.length);
-    assert.ok(await list.locator('[data-part]').count() > written.length, 'parts with no answers are listed too');
+    // Exactly the parts of the fixture that have an open question with a default, as the agent sees them.
+    let partsWithDefaults = 0;
+    for (const { part } of listed.parts) {
+      const doc = (await agent.call('open', { path: asm, part })).doc;
+      const open = (await agent.call('questions', { doc, state: 'open' })).questions;
+      if (open.some(q => q.default !== null && q.default !== undefined)) partsWithDefaults++;
+    }
+    assert.ok(partsWithDefaults > written.length, 'the fixture has parts with no answers that have defaults');
+    await check(list.locator('[data-part]')).toHaveCount(partsWithDefaults);
     const nameB = listed.parts.find(p => p.part === b).name;
     await check(list.locator(`[data-part="${b}"] h4`)).toHaveText(nameB);
     await check(list.locator(`[data-part="${a}"] h4`)).toContainText('(shown)');
@@ -282,7 +289,8 @@ try {
     await check(list.locator(`[data-part="${a}"]`)).toBeVisible();
     await check(list.locator(`[data-part="${b}"] h4`)).toHaveText(nameB);
     await check(list.locator('[data-written]')).toContainText(nameB);
-    await check(list.getByText('No part has an answer yet')).toHaveCount(0);
+    // The old wording is gone, and the written note names part b (it has defaults listed).
+    await check(list.locator('[data-written]')).toContainText('a part with no answers and no default listed is left as it is');
     await list.getByRole('button', { name: 'Cancel' }).click();
     // Once b has an answer it is still listed.
     await agent.call('answer', { doc: docB, set: { 'part.material': 'Brass CW614N' } });
@@ -385,11 +393,21 @@ try {
     // b too (it was a alone, as only a had an answer). The agent's join below is still a stale save.
     await check(list.locator(`[data-part="${a}"]`)).toBeVisible();
     await check(list.locator(`[data-part="${b}"]`)).toBeVisible();
-    // While the save is on its way the agent brings part b in with an answer: the command meets a
-    // save for parts that are no longer the session's (stale, with the session's rev).
+    // b has open questions with defaults. The agent answers one before the person confirms: what
+    // would be written is no longer the list confirmed, so nothing is sent and the list is made again.
+    const docB = (await agent.call('open', { path: asm, part: b })).doc;
+    const [dq] = (await agent.call('questions', { doc: docB, state: 'open' })).questions.filter(q => q.default !== null && q.default !== undefined);
+    await check(list.locator(`[data-part="${b}"] [data-default="${dq.id}"]`)).toHaveCount(1);
+    await agent.call('answer', { doc: docB, set: { [dq.id]: dq.default } });
+    await list.getByRole('button', { name: /^Save with these \d+ defaults$/ }).click();
+    await check(page.getByRole('alert').first()).toContainText('not the ones you confirmed');
+    await check(list.locator(`[data-part="${b}"] h4`)).toHaveText(nameB);
+    await check(list.locator(`[data-part="${b}"] [data-default="${dq.id}"]`)).toHaveCount(0);
+    assert.ok(!existsSync(join(dir, 'asm-stale.specified.step')), 'nothing written when the defaults changed');
+    // While the save is on its way the agent changes b again: the command meets a save at an older
+    // rev (409, with the session's rev), and the page takes the session's answers and lists again.
     await page.route('**/save', async route => {
-      const docB = (await agent.call('open', { path: asm, part: b })).doc;
-      await agent.call('answer', { doc: docB, set: { 'part.material': 'Brass CW614N' } });
+      await agent.call('answer', { doc: docB, set: { 'part.material': 'Bronze CC491K' } });
       const { rev } = await (await fetch(`${shown.url}answers`)).json();
       await route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ error: 'the answers have changed since that rev: show them and save again', rev }) });
     });
@@ -403,7 +421,7 @@ try {
     // Confirmed again, it saves, both parts.
     await list.getByRole('button', { name: /^Save with these \d+ defaults$/ }).click();
     await check(page.locator('.app-saved')).toContainText('asm-stale.specified');
-    assert.equal(given(stored2(join(dir, 'asm-stale.specified.step'), b))['part.material'], 'Brass CW614N');
+    assert.equal(given(stored2(join(dir, 'asm-stale.specified.step'), b))['part.material'], 'Bronze CC491K');
     await context.close();
     agent.stop();
   }
