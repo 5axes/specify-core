@@ -111,7 +111,8 @@ write its PMI. On stdio by default; with --http, Streamable HTTP on 127.0.0.1 wi
 bearer token printed at start. Open documents and their answers are held in memory and lost
 when the server stops, unless a call names an answers_file. The show tool, which opens the
 Specify page on the same answers, is a preview: until the app is bundled it needs SPECIFY_APP_DIR
-(the built app) and SPECIFY_WASM_DIR (the engine's wasm-pack pkg/). See docs/mcp.md.")]
+(the built app), and SPECIFY_WASM_DIR (the engine's wasm-pack pkg/) when the engine is not in
+the app's wasm/. See docs/mcp.md.")]
     Mcp {
         /// serve Streamable HTTP on 127.0.0.1 instead of stdio
         #[arg(long)]

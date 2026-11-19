@@ -134,7 +134,8 @@ claude mcp add specify -- specify-core mcp
 The agent opens the part, answers what you tell it, and calls `show` to open the same Specify
 page on the same answers: your edits in the page are what the agent reads next, and its answers
 appear in the page as it makes them. Either side saves. `show` is a **preview** until the app is
-bundled: it needs `SPECIFY_APP_DIR` and `SPECIFY_WASM_DIR` set for the MCP server. See
+bundled: it needs `SPECIFY_APP_DIR` set for the MCP server (and `SPECIFY_WASM_DIR` when the
+engine is not in the app's `wasm/`). See
 [docs/session.md](docs/session.md) and [docs/mcp.md](docs/mcp.md).
 
 **Shell completion.** `specify-core completions SHELL` prints a completion script for `bash`,
