@@ -330,3 +330,112 @@ fn a_session_save_keeps_pmi_another_tool_added() {
         "Anodise, clear"
     );
 }
+
+/// A case-2 file whose defaulted pattern position another tool changed (0.6 → 0.3), keeping
+/// Specify's marker: the file answers that question (`resume.file`). It is not a conflict,
+/// it is not asked, its default is not restated, and the editor's and the CLI's writes keep
+/// 0.3, written again and again.
+#[test]
+fn a_default_another_tool_changed_is_the_files_answer() {
+    let given = answers("0.05");
+    let text = String::from_utf8(written(&given)).unwrap();
+    // The pattern's position zone, written as Specify writes it.
+    let zone = "LENGTH_MEASURE(0.6)";
+    assert_eq!(text.matches(zone).count(), 1, "one 0.6 zone");
+    let loaded = load(text.replace(zone, "LENGTH_MEASURE(0.3)").into_bytes());
+    let pattern = "hole.position:hole_patterns.grid:6.7.8.10.11.13";
+    let positions = |l: &LoadedPart| -> Vec<f64> {
+        read_existing(l)
+            .unwrap()
+            .into_iter()
+            .filter(|e| e.r#type == "Position" && e.faces.contains(&6))
+            .map(|e| e.value.unwrap())
+            .collect()
+    };
+    assert_eq!(positions(&loaded), [0.3]);
+    let reopened = |l: &LoadedPart| {
+        let analysis = api::analyse(l).unwrap();
+        assert!(
+            analysis["resume"].get("conflicts").is_none(),
+            "{}",
+            analysis["resume"]
+        );
+        assert!(
+            analysis["resume"]["file"]
+                .as_array()
+                .unwrap()
+                .contains(&json!(pattern)),
+            "{}",
+            analysis["resume"]
+        );
+        let resumed = analysis["resume"]["answers"].as_object().unwrap().clone();
+        let review = api::review(&analysis, &resumed).unwrap();
+        assert!(
+            !review["questions"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|q| q["id"] == pattern),
+            "the file's position is not asked"
+        );
+        (analysis, resumed)
+    };
+    let (analysis, resumed) = reopened(&loaded);
+    let editor = preview_write(&loaded, &analysis, &resumed);
+    assert_eq!(positions(&editor), [0.3], "editor write");
+    let (again, resumed) = reopened(&editor);
+    let second = preview_write(&editor, &again, &resumed);
+    assert_eq!(positions(&second), [0.3], "editor write, again");
+    let cli = cli_rewrite(&second.bytes, "file-answer");
+    assert_eq!(positions(&cli), [0.3], "CLI write");
+    reopened(&cli);
+    let cli_again = cli_rewrite(&cli.bytes, "file-answer-again");
+    assert_eq!(positions(&cli_again), [0.3], "CLI write, again");
+}
+
+/// A conflict kept through the editor's write (WASM `writePmi`): the kept requirement is
+/// written as the file's own, and survives a reopening and another editor write.
+#[test]
+fn a_conflict_kept_through_the_editor_lasts() {
+    // A file Specify wrote whose hole position (stored 0.1) was changed to 0.2 elsewhere.
+    let loaded = specify_core::part::load(
+        &common::fixtures().join("resume-p9/edited-plate.step.gz"),
+        None,
+    )
+    .unwrap();
+    let hole = "hole.position:holes:12";
+    let positions = |l: &LoadedPart| -> Vec<(f64, bool)> {
+        read_existing(l)
+            .unwrap()
+            .into_iter()
+            .filter(|e| e.r#type == "Position" && e.faces == [12])
+            .map(|e| (e.value.unwrap(), e.provenance.is_some()))
+            .collect()
+    };
+    let analysis = api::analyse(&loaded).unwrap();
+    assert!(
+        analysis["resume"]["conflicts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|c| c["id"] == hole),
+        "{}",
+        analysis["resume"]
+    );
+    let mut kept = analysis["resume"]["answers"].as_object().unwrap().clone();
+    kept.insert(
+        "_specify".into(),
+        json!({"keep": [hole, "datum.A.flatness"]}),
+    );
+    let first = preview_write(&loaded, &analysis, &kept);
+    assert_eq!(positions(&first), [(0.2, false)]);
+    let again = api::analyse(&first).unwrap();
+    assert!(
+        again["resume"].get("conflicts").is_none(),
+        "{}",
+        again["resume"]
+    );
+    let resumed = again["resume"]["answers"].as_object().unwrap().clone();
+    let second = preview_write(&first, &again, &resumed);
+    assert_eq!(positions(&second), [(0.2, false)]);
+}

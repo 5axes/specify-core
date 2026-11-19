@@ -986,7 +986,13 @@ fn classify(
             match paired {
                 Some(now) if equal(was, now, Some(question)) => entry.1.push(now.id.clone()),
                 _ if derived => {}
-                Some(now) => {
+                // Only the same requirement stated otherwise: the same id, or the same faces
+                // (never a kind fallback pairing one part note with another).
+                Some(now)
+                    if now.id == was.id
+                        || (!was.faces.is_empty()
+                            && was.faces.iter().any(|f| now.faces.contains(f))) =>
+                {
                     // The file states the default's requirement otherwise.
                     entry.0 = false;
                     defaults_differ.insert(question.clone());
@@ -996,7 +1002,7 @@ fn classify(
                         .or_default()
                         .push((now.id.clone(), now.text.clone()));
                 }
-                None => entry.0 = false,
+                _ => entry.0 = false,
             }
         }
         if stated || was.status == "general" {

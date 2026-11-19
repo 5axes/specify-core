@@ -360,7 +360,16 @@ fn additions_do_not_renumber_removals_retire_even_after_an_empty_write_and_value
         &readded,
         &rules::Intent::new(serde_json::to_value(&readded.binding).unwrap()),
     );
-    assert!(numbers(&empty).is_empty());
+    // ADR P9: no stored answer states the part's finish, which the file states otherwise than
+    // its default: the file answers that question, so even an empty write keeps it (#6).
+    // Every other requirement is Specify's to state from the (empty) intent, and goes.
+    assert_eq!(
+        numbers(&empty)
+            .iter()
+            .map(|c| (c.number, c.kind.as_str(), c.faces.is_empty()))
+            .collect::<Vec<_>>(),
+        [(6, "surface_texture", true)]
+    );
     let mut i = rules::Intent::new(serde_json::to_value(&empty.binding).unwrap());
     i.requirements.push(
         json!({"kind":"flatness", "faces":[5], "tolerance":0.02})
@@ -368,7 +377,14 @@ fn additions_do_not_renumber_removals_retire_even_after_an_empty_write_and_value
             .unwrap()
             .clone(),
     );
-    assert_eq!(numbers(&write(&empty, &i))[0].number, 9);
+    assert_eq!(
+        numbers(&write(&empty, &i))
+            .iter()
+            .find(|c| c.faces == [5])
+            .unwrap()
+            .number,
+        9
+    );
 }
 
 #[test]

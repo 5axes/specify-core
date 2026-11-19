@@ -519,16 +519,26 @@ fn all_questions(
     propose: &str,
 ) -> Result<Vec<Question>> {
     let mut out = every_question(ctx, answers, propose)?;
-    // ADR P9: where a reopened file contradicts its stored answer, the file's PMI stands until
-    // the person decides: the question is not asked (the conflict is) until it is answered.
+    // ADR P9: where a reopened file's PMI stands for a question (contradicting its stored
+    // answer, or answering it where no answer did), the question is not asked until answered.
     let conflicts: BTreeSet<&str> = ctx
         .analysis
         .get("resume")
-        .and_then(|r| r.get("conflicts"))
-        .and_then(Value::as_array)
         .into_iter()
-        .flatten()
-        .filter_map(|c| c.get("id").and_then(Value::as_str))
+        .flat_map(|r| {
+            r.get("conflicts")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(|c| c.get("id").and_then(Value::as_str))
+                .chain(
+                    r.get("file")
+                        .and_then(Value::as_array)
+                        .into_iter()
+                        .flatten()
+                        .filter_map(Value::as_str),
+                )
+        })
         .collect();
     // A conflict the person kept (`_specify.keep`, stored with the answers when the file
     // left its requirement removed) stays the file's: its question is not asked either.

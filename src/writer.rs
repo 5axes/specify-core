@@ -669,6 +669,8 @@ fn write_verified(
     // keep is rewritten as before; a replace-written one with something to keep is rewritten
     // as a scoped Add, replacing only Specify's marked requirements.
     let mut keep = std::collections::BTreeMap::new();
+    // Replace-written parts taken to a scoped Add only for the Specify-marked PMI they keep.
+    let mut for_keep = BTreeSet::new();
     let mut reconciled = std::collections::BTreeMap::new();
     let empty = Map::new();
     for (loaded, _, answers) in jobs {
@@ -704,6 +706,9 @@ fn write_verified(
                 // Replace-written, with PMI to keep: only Specify's marked requirements are
                 // replaced, as a scoped Add; unmarked PMI (another tool's) is kept as it is.
                 scoped.push(part);
+                if !foreign {
+                    for_keep.insert(part);
+                }
             } else {
                 // Written before requirements were marked (#22): all its PMI is Specify's,
                 // rewritten by replace as before, so none of it is stated twice.
@@ -747,7 +752,14 @@ fn write_verified(
         narrowed.retain(|_, kept| !kept.is_empty());
         if narrowed != keep {
             keep = narrowed;
-            cleaned = Some(clean(&scoped, &keep)?);
+            // A replace-written part whose kept PMI the rewrite states again (an unchanged
+            // rewrite) is written by replace as before, keeping its bytes when unchanged.
+            scoped.retain(|part| !for_keep.contains(part) || keep.contains_key(part));
+            cleaned = if scoped.is_empty() {
+                None
+            } else {
+                Some(clean(&scoped, &keep)?)
+            };
         }
     }
     let source = cleaned.as_ref().unwrap_or(&original);

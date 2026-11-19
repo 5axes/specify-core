@@ -37,10 +37,6 @@ pub struct Conflict {
     /// What the file states for it (its requirements' notation), `None` when the file has
     /// none: removed in the file.
     pub file: Option<String>,
-    /// `stored` is not a saved answer but the question's default, which the file (written
-    /// with it, not storing it) states otherwise: another tool changed it.
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
-    pub suggested: bool,
 }
 
 /// The stored answers reconciled with the file's PMI.
@@ -55,6 +51,9 @@ pub(crate) struct Reconciled {
     pub contested: BTreeMap<(String, usize), String>,
     /// Part settings (`part` keys) the resumed answers explain.
     pub settings: BTreeSet<String>,
+    /// Questions no stored answer states that the file answers with its own (Specify-marked)
+    /// requirements, otherwise than their defaults would (`resume.file`).
+    pub file_answered: Vec<String>,
     /// Questions not stored as answers whose defaults the file states, with those defaults:
     /// present in the file, so answered by it (`resume.present`).
     pub present: Map<String, Value>,
@@ -139,7 +138,7 @@ pub(crate) fn reconcile(
     let plan = scene.comparison(loaded, analysis, Some(&stored))?;
     let mut truth = crate::revision::against_plan(&plan, &file, faces, &stored, &drift);
     let mut present = Map::new();
-    let suggested: BTreeMap<String, (Value, Vec<(String, String)>)> = BTreeMap::new();
+    let mut file_answered: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
     if let Ok(all) = crate::rules::with_all_defaults(analysis, &stored)
         && all.len() > stored.len()
     {
@@ -208,14 +207,22 @@ pub(crate) fn reconcile(
                 present.insert(question, value.clone());
             }
         }
-        // A default the file states otherwise (changed elsewhere, keeping Specify's marker) is
-        // not raised here (see docs/answers.md): Specify's own requirements the answers do not
-        // explain stay Specify's to state.
-        let _ = other.changed_defaults;
+        // A question no stored answer states whose requirement Specify's own PMI states
+        // otherwise than its default (changed elsewhere, or written from an intent): the file
+        // answers it. Not a conflict, and its default is not restated: its requirements are
+        // the file's, kept on writing, until the question is answered.
+        for (question, items) in other.changed_defaults {
+            let own = items
+                .iter()
+                .any(|(id, _)| index.get(id).is_some_and(|at| !unmarked.contains(at)));
+            if own && question != crate::process::QUESTION && !present.contains_key(&question) {
+                file_answered.insert(question, items);
+            }
+        }
         let contested: BTreeSet<&String> = truth
             .conflicts
             .values()
-            .chain(suggested.values().map(|(_, items)| items))
+            .chain(file_answered.values())
             .flatten()
             .map(|(id, _)| id)
             .collect();
@@ -281,29 +288,19 @@ pub(crate) fn reconcile(
                 id: id.clone(),
                 stored: answer.clone(),
                 file: file.as_ref().map(|texts| texts.join("; ")),
-                suggested: false,
             }),
             None => {
                 out.answers.insert(id.clone(), answer.clone());
             }
         }
     }
-    for (question, (value, items)) in suggested {
-        let mut texts = Vec::new();
-        for (id, text) in &items {
+    for (question, items) in file_answered {
+        for (id, _) in &items {
             if let Some(at) = item(id) {
                 out.contested.insert(at, question.clone());
             }
-            if !text.is_empty() && !texts.contains(text) {
-                texts.push(text.clone());
-            }
         }
-        out.conflicts.push(Conflict {
-            id: question,
-            stored: value,
-            file: Some(texts.join("; ")),
-            suggested: true,
-        });
+        out.file_answered.push(question);
     }
     out.present = present;
     Ok(out)
@@ -313,12 +310,6 @@ pub(crate) fn reconcile(
 pub fn question(conflict: &Conflict) -> Value {
     let stored = short(&conflict.stored);
     let (text, keep) = match &conflict.file {
-        Some(file) if conflict.suggested => (
-            format!(
-                "Suggested {stored}, file says {file}. Keep the file's {file}, or use {stored}?"
-            ),
-            format!("Keep the file's {file}"),
-        ),
         Some(file) => (
             format!(
                 "Saved answer {stored}, file says {file}. Keep the file's {file}, or restore {stored}?"
@@ -330,12 +321,8 @@ pub fn question(conflict: &Conflict) -> Value {
             "Leave it removed".to_string(),
         ),
     };
-    let restore = if conflict.suggested {
-        format!("Use {stored}")
-    } else {
-        format!("Restore {stored}")
-    };
-    let mut out = serde_json::json!({
+    let restore = format!("Restore {stored}");
+    serde_json::json!({
         "id": conflict.id,
         "kind": "conflict",
         "text": text,
@@ -345,11 +332,7 @@ pub fn question(conflict: &Conflict) -> Value {
             {"choice": "keep", "label": keep},
             {"choice": "restore", "label": restore, "answer": conflict.stored},
         ],
-    });
-    if conflict.suggested {
-        out["suggested"] = Value::Bool(true);
-    }
-    out
+    })
 }
 
 /// The conflicts of `analysis` not decided under `answers`.
@@ -364,7 +347,6 @@ pub fn open_conflicts(analysis: &Value, answers: &Map<String, Value>) -> Vec<Con
             id: c.id,
             stored: c.stored,
             file: c.file,
-            suggested: c.suggested,
         })
         .collect()
 }
@@ -374,8 +356,6 @@ struct ConflictIn {
     id: String,
     stored: Value,
     file: Option<String>,
-    #[serde(default)]
-    suggested: bool,
 }
 
 /// Every conflict question of `analysis`, decided or not.
@@ -386,6 +366,21 @@ pub(crate) fn conflict_ids(analysis: &Value) -> BTreeSet<&str> {
         .flatten()
         .filter_map(|c| c["id"].as_str())
         .collect()
+}
+
+/// The questions a reopened file's own PMI stands for until they are answered: its
+/// conflicts and the questions it answers itself (`resume.file`). Not asked; answering one
+/// gives the file's items way.
+pub fn file_questions(analysis: &Value) -> BTreeSet<&str> {
+    let mut out = conflict_ids(analysis);
+    out.extend(
+        analysis["resume"]["file"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str),
+    );
+    out
 }
 
 /// The answers the rules see under `analysis`: `answers`, and for each question they leave
@@ -415,7 +410,7 @@ pub fn restored<'a>(
     analysis: &'a Value,
     answers: &Map<String, Value>,
 ) -> std::borrow::Cow<'a, Value> {
-    let answered: BTreeSet<&str> = conflict_ids(analysis)
+    let answered: BTreeSet<&str> = file_questions(analysis)
         .into_iter()
         .filter(|id| answers.contains_key(*id))
         .collect();

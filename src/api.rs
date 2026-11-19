@@ -477,6 +477,9 @@ fn analyse_reconciling(
                     .and_then(Value::as_object_mut)
                     .ok_or_else(|| refused(&"the resumed answers are not an object"))?;
                 resume.insert("answers".into(), Value::Object(r.answers.clone()));
+                if !r.file_answered.is_empty() {
+                    resume.insert("file".into(), json!(r.file_answered));
+                }
                 if !r.present.is_empty() {
                     resume.insert("present".into(), Value::Object(r.present.clone()));
                 }
@@ -488,11 +491,6 @@ fn analyse_reconciling(
                 }
                 for conflict in &r.conflicts {
                     warnings.push(match &conflict.file {
-                        Some(file) if conflict.suggested => format!(
-                            "default {} ({}) differs from the file's PMI ({file}); the file's \
-                             is kept until decided",
-                            conflict.id, conflict.stored
-                        ),
                         Some(file) => format!(
                             "saved answer {} ({}) differs from the file's PMI ({file}); the \
                              file's is kept until decided",
