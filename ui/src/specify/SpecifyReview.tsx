@@ -45,13 +45,15 @@ function asError(error: unknown): PmiLabError {
   return { code: 'failed', message: String(error) };
 }
 
-export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, onExport, gated, after, onPick, showFaces, tints, externalAnswers, externalReview, disabled, focusRequest, toReview, onKeep, kept, drawn: drawnPmi = null, datums = true, readOnly = false }: {
+export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, onExport, inspectionIntent, gated, after, onPick, showFaces, tints, externalAnswers, externalReview, disabled, focusRequest, toReview, onKeep, kept, drawn: drawnPmi = null, datums = true, readOnly = false }: {
   engine: SpecifyEngine; session: PmiLabSession; slots: SpecifySlots;
   /** The question the queue's selected row is about: what the question slot shows. */
   slotQuestion?: string | null;
   /** A file handed to the browser to save, by name. */
   onSaved?: (name: string) => void;
   onExport: (action: () => void, format?: 'csv' | 'xlsx') => void;
+  /** Gets the intent to use for inspection files at export time. Null cancels the export. */
+  inspectionIntent?: () => Promise<PmiIntent | null>;
   /** Structured exports ask for sign-in first. */
   gated?: boolean;
   /** Shown after the questions: the drawing's own issues, in the same list. */
@@ -709,17 +711,26 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     if (next === 'review') picker.current?.highlight(currentQuestion?.faces ?? []);
   };
   // Read when the file is written: an export resumed after sign-in carries edits made meanwhile.
-  const csvRows = useRef({ chars, skipped }); csvRows.current = { chars, skipped };
-  const downloadCsv = () => onExport(() => {
+  const csvRows = useRef({ chars, skipped, preview, titles }); csvRows.current = { chars, skipped, preview, titles };
+  const inspection = async () => {
+    const { chars, skipped, preview, titles } = csvRows.current;
+    if (!inspectionIntent) return { chars, skipped, intent: preview };
+    const intent = await inspectionIntent();
+    return intent && { chars: characteristics(intent, session.analysis, titles), skipped, intent };
+  };
+  const downloadCsv = () => onExport(async () => {
+    const data = await inspection();
+    if (!data) return;
     const stem = session.filename.replace(/\.(step|stp|p21)$/i, '');
-    saveFile(new File([toCsv(csvRows.current.chars, csvRows.current.skipped)], `${stem}-characteristics.csv`, { type: 'text/csv' }));
+    saveFile(new File([toCsv(data.chars, data.skipped)], `${stem}-characteristics.csv`, { type: 'text/csv' }));
     onSaved?.(`${stem}-characteristics.csv`);
   });
   // The same list as AS9102's Forms 1–3, for a first article inspection report.
-  const faiNotes = useRef(noteStatements(preview, session.analysis)); faiNotes.current = noteStatements(preview, session.analysis);
-  const downloadFai = () => onExport(() => {
+  const downloadFai = () => onExport(async () => {
+    const data = await inspection();
+    if (!data) return;
     const stem = session.filename.replace(/\.(step|stp|p21)$/i, '');
-    const book = xlsx(as9102({ name: stem }, csvRows.current.chars, csvRows.current.skipped, faiNotes.current));
+    const book = xlsx(as9102({ name: stem }, data.chars, data.skipped, noteStatements(data.intent, session.analysis)));
     saveFile(new File([book as BlobPart], `${stem}-AS9102.xlsx`, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
     onSaved?.(`${stem}-AS9102.xlsx`);
   }, 'xlsx');

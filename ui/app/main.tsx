@@ -67,12 +67,13 @@ interface Compared { old: { name: string; bytes: Uint8Array }; next: { name: str
 
 /** Opens the part on the engine with the session's answers: its analysis and mesh, their review,
  * and the PMI as drawn. ``edited``: called on each change the person makes. */
-async function openPart(worker: WorkerClient, answersSession: AnswersSession, name: string, bytes: Uint8Array, at: { part: number; several: boolean }, edited: () => void, indexes: () => readonly number[]): Promise<Opened> {
+async function openPart(worker: WorkerClient, answersSession: AnswersSession, name: string, bytes: Uint8Array, at: { part: number; several: boolean }, readOnly: boolean, edited: () => void, indexes: () => readonly number[]): Promise<Opened> {
   const file = fileOf(name, bytes, at.part, at.several);
   const { sourceId } = file;
   const snapshot = await worker.request<{ analysis: PmiLabSession['analysis']; mesh: PmiLabSession['mesh'] }>('open', file);
   const answers = answersSession.answers(at.part);
-  const review = await worker.request<IntentReview>('review', { ...file, answers });
+  const reviewOf = (given: PmiAnswers) => worker.request<IntentReview>(readOnly ? 'review-given' : 'review', { ...file, answers: given });
+  const review = await reviewOf(answers);
   const store = answersSession.store(at.part, snapshot.analysis.resume?.answers ?? {});
   const shown = { answers };
   const engine: SpecifyEngine = {
@@ -88,7 +89,7 @@ async function openPart(worker: WorkerClient, answersSession: AnswersSession, na
       return asked;
     },
     interpret: (_id, given, question, text) => worker.request('interpret', { analysis: snapshot.analysis, answers: given, question, text }),
-    preview: async (_id, given) => (await worker.request<IntentReview>('review', { ...file, answers: given })).intent,
+    preview: async (_id, given) => (await reviewOf(given)).intent,
   };
   const session: PmiLabSession = {
     sessionId: sourceId, filename: name, analysis: snapshot.analysis, mesh: snapshot.mesh, answers,
@@ -96,7 +97,6 @@ async function openPart(worker: WorkerClient, answersSession: AnswersSession, na
   };
   const scene = drawnFromScene(await worker.request('scene', { ...file, state: { answers } }));
   const drawn = scene.ok ? withoutNotesBlock(scene.value) : null;
-  const reviewOf = (given: PmiAnswers) => worker.request<IntentReview>('review', { ...file, answers: given });
   const defaults = (parts: Record<string, PmiAnswers>) => defaultsOf(worker, name, bytes, at.several, parts, indexes());
   return {
     ...at, session, review, engine, drawn: drawn && hasGraphics(drawn) ? drawn : null, bytes, store, shown,
@@ -183,7 +183,7 @@ function App() {
       const at = { part: several ? (asked ?? withAnswers ?? rows[0]!).part : 0, several };
       setParts(several ? rows : []);
       partIndexes.current = rows.map((r) => r.part);
-      const part = await openPart(worker.current, answersSession, first.name, bytes, at, edited, () => partIndexes.current);
+      const part = await openPart(worker.current, answersSession, first.name, bytes, at, first.readOnly, edited, () => partIndexes.current);
       if (old && diff) {
         const r = diff.report as { verdict?: string; summary?: string };
         setCompared({
@@ -248,7 +248,7 @@ function App() {
     try {
       // The part left keeps its unsaved answers: in the session, and counted as unsaved.
       await opened.store.settled();
-      const next = await openPart(worker.current, answersSession, config.name, opened.bytes, { part: index, several: true }, edited, () => partIndexes.current);
+      const next = await openPart(worker.current, answersSession, config.name, opened.bytes, { part: index, several: true }, config.readOnly, edited, () => partIndexes.current);
       opened.store.close();
       setOpened(next);
       setOther(null); setAgent(null);
@@ -399,20 +399,31 @@ function App() {
     } finally { setSaving(false); }
   };
 
-  // Every answer the STEP is written with, the defaults made explicit: what `specify-core write` takes.
-  const downloadAnswers = async () => {
-    if (!opened || !config || !worker.current) return;
-    const answers = await worker.current.request('answers', {
-      name: config.name, bytes: opened.bytes, sourceId: opened.session.sessionId, ...(opened.several ? { part: opened.part } : {}), answers: opened.store.get(),
-    });
+  // The answers given and kept, including any defaults already approved in the session.
+  const downloadAnswers = () => {
+    if (!opened || !config) return;
+    const answers = opened.store.get();
     saveFile(new File([`${JSON.stringify(answers, null, 2)}\n`], `${stem(config.name)}.answers.json`, { type: 'application/json' }));
+  };
+
+  const inspectionIntent = async () => {
+    if (!opened || !config || !worker.current) return null;
+    try {
+      const file = fileOf(config.name, opened.bytes, opened.part, opened.several);
+      const review = await worker.current.request<IntentReview>('review-given', { ...file, answers: opened.store.get() });
+      return review.intent;
+    } catch (error) {
+      setProblem(`The inspection file could not be exported: ${message(error)}`);
+      return null;
+    }
   };
 
   // Read only, the review's own exports are not shown; the PMI that is set is listed here instead.
   const readOnlyChars = useMemo(() => {
     if (!opened || !readOnly) return null;
-    const titles = new Map(groupQuestions(opened.review.questions).map((g) => [g.key, g.title]));
-    return characteristics(opened.review.intent, opened.session.analysis, titles);
+    const { review } = opened.external;
+    const titles = new Map(groupQuestions(review.questions).map((g) => [g.key, g.title]));
+    return characteristics(review.intent, opened.session.analysis, titles);
   }, [opened, readOnly]);
   const downloadCsv = () => {
     if (!opened || !readOnlyChars || !config) return;
@@ -420,7 +431,7 @@ function App() {
   };
   const downloadFai = () => {
     if (!opened || !readOnlyChars || !config) return;
-    const book = xlsx(as9102({ name: stem(config.name) }, readOnlyChars, new Set(), noteStatements(opened.review.intent, opened.session.analysis)));
+    const book = xlsx(as9102({ name: stem(config.name) }, readOnlyChars, new Set(), noteStatements(opened.external.review.intent, opened.session.analysis)));
     saveFile(new File([book as BlobPart], `${stem(config.name)}-AS9102.xlsx`, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
   };
   /** A decision picked in the diff: its question, in the answers. */
@@ -452,7 +463,7 @@ function App() {
         </div>
         <div className="app-actions">
           <div className="app-exports" ref={exportsBox}>
-            {opened && <button type="button" onClick={() => void downloadAnswers()}>Answers (JSON)</button>}
+            {opened && <button type="button" onClick={downloadAnswers}>Answers (JSON)</button>}
             {readOnlyChars && <>
               <button type="button" onClick={downloadCsv} disabled={!readOnlyChars.length}>Inspection list (CSV)</button>
               <button type="button" onClick={downloadFai} disabled={!readOnlyChars.length}>AS9102 FAI (Excel)</button>
@@ -568,7 +579,7 @@ function App() {
             engine={opened.engine} session={opened.session} slots={slots} readOnly={readOnly} drawn={opened.drawn}
             externalAnswers={opened.external.answers} externalReview={opened.external.review} disabled={saving}
             focusRequest={focus} showFaces={lit}
-            onExport={(action) => action()}
+            onExport={(action) => action()} inspectionIntent={inspectionIntent}
           />
         )}
       </main>

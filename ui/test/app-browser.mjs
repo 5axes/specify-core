@@ -91,6 +91,15 @@ let listed = [];
 const given = answers => Object.fromEntries(Object.entries(answers ?? {}).filter(([id]) => !id.startsWith('_')));
 const analyse = file => JSON.parse(execFileSync(cli, ['analyse', '--output', '-', file], { encoding: 'utf8', maxBuffer: 1 << 28, stdio: ['ignore', 'pipe', 'ignore'] }));
 
+async function downloadFile(page, name, filename) {
+  const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name }).click()]);
+  assert.equal(download.suggestedFilename(), filename);
+  return download.path();
+}
+
+const exportAnswers = async (page, filename = 'part.answers.json') => JSON.parse(readFileSync(await downloadFile(page, 'Answers (JSON)', filename), 'utf8'));
+const workbookSheet = (path, number) => execFileSync('unzip', ['-p', path, `xl/worksheets/sheet${number}.xml`], { encoding: 'utf8' });
+
 try {
   // Specify: answer, save, read the PMI back.
   {
@@ -126,16 +135,21 @@ try {
     await check(list).toHaveCount(0);
     await page.waitForTimeout(500);
     assert.ok(!existsSync(withDefaults), 'nothing written when the list is cancelled');
+    assert.deepEqual(await exportAnswers(page), {}, 'JSON after cancellation contains no unapproved defaults');
     // Confirmed: Save writes beside the file and says where.
     await page.getByRole('button', { name: 'Save with defaults' }).click();
     await check(list.locator('[data-default]').first()).toBeVisible();
     listed = await list.locator('[data-default]').evaluateAll(items => items.map(item => item.getAttribute('data-default')).sort());
     const shownTolerance = (await list.locator('[data-default="part.general_tolerance"] strong').textContent()).trim();
     assert.equal(shownTolerance, 'ISO 2768-m', 'the dialog lists the default the person sees');
+    assert.deepEqual(await exportAnswers(page), {}, 'listing defaults does not make them exportable');
     await list.getByRole('button', { name: /^Save with these \d+ defaults$/ }).click();
     await check(page.locator('.app-saved')).toContainText(withDefaults);
     // The value the person confirmed is exactly what lands in the file.
     assert.equal(given(analyse(withDefaults).resume?.answers)['part.general_tolerance'], shownTolerance, 'the stored answer is the value listed');
+    const approved = given(await exportAnswers(page));
+    assert.deepEqual(Object.keys(approved).sort(), listed, 'JSON contains exactly the confirmed defaults');
+    assert.equal(approved['part.general_tolerance'], shownTolerance, 'JSON contains the value confirmed');
     await check(page.getByRole('alert')).toHaveCount(0);
     assert.ok(existsSync(withDefaults), 'the defaults save written');
     // The command prints it once it has answered: it may come just after the page shows the save.
@@ -150,10 +164,9 @@ try {
     if (shots) await page.screenshot({ path: join(shots, 'specify.png') });
     // The exports that are files.
     for (const [name, file] of [['Answers (JSON)', 'part.answers.json'], ['Inspection list (CSV)', 'part-characteristics.csv'], ['AS9102 FAI (Excel)', 'part-AS9102.xlsx']]) {
-      const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name }).click()]);
-      assert.equal(download.suggestedFilename(), file);
+      const path = await downloadFile(page, name, file);
       if (file.endsWith('.json')) {
-        const answers = JSON.parse(readFileSync(await download.path(), 'utf8'));
+        const answers = JSON.parse(readFileSync(path, 'utf8'));
         assert.equal(answers['part.material'], 'Aluminium 6082-T6', 'the answers file has the answer given');
       }
     }
@@ -284,6 +297,37 @@ try {
     onlyLocal(requests, server.origin);
     await context.close();
     server.stop();
+  }
+  // Inspection exports from a partial set of answers include only the stated requirements.
+  {
+    const server = await open(specified);
+    const { context, page } = await load(server);
+    const box = material(page).locator('input');
+    await box.fill('Aluminium 6082-T6');
+    await box.press('Enter');
+    await check(page.locator('.app-dirty')).toBeVisible();
+    const stem = 'part.specified';
+    const inspect = async (page, name) => {
+      const csv = readFileSync(await downloadFile(page, 'Inspection list (CSV)', `${name}-characteristics.csv`), 'utf8');
+      const workbook = await downloadFile(page, 'AS9102 FAI (Excel)', `${name}-AS9102.xlsx`);
+      assert.deepEqual(csv.trimEnd().split('\n').slice(1), ['1,,Part,Material: Aluminium 6082-T6,,,,,,'], 'the CSV has only the given characteristic');
+      assert.match(workbookSheet(workbook, 2), /MATERIAL Aluminium 6082-T6/);
+      const form3 = workbookSheet(workbook, 3);
+      assert.deepEqual([...form3.matchAll(/<c r="D\d+"[^>]*><is><t [^>]*>([^<]+)<\/t>/g)].map((match) => match[1]),
+        ['Requirement', 'Material: Aluminium 6082-T6'], 'Form 3 has only the given characteristic');
+    };
+    await inspect(page, stem);
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    const saved = join(dir, `${stem}.specified.step`);
+    await check(page.locator('.app-saved')).toContainText(saved);
+    await context.close();
+    server.stop();
+    const readOnly = await open(saved, '--read-only');
+    const viewer = await load(readOnly);
+    await check(viewer.page.locator('.pmi-lab-panel')).toContainText('PMI (view only)');
+    await inspect(viewer.page, `${stem}.specified`);
+    await viewer.context.close();
+    readOnly.stop();
   }
   // Diff: what changed from OLD to NEW, what needs a decision, and Save writes NEW with the carried answers.
   {

@@ -74,7 +74,7 @@ self.onmessage = ({ data }) => {
     try {
       const module = await load();
       let result: unknown = true;
-      if (operation === 'open' || operation === 'review' || operation === 'settle' || operation === 'write' || operation === 'rematch' || operation === 'scene' || operation === 'answers') {
+      if (operation === 'open' || operation === 'review' || operation === 'review-given' || operation === 'settle' || operation === 'write' || operation === 'rematch' || operation === 'scene') {
         if (!engine || sourceId !== args.sourceId || part !== args.part || operation === 'open') {
           engine?.free(); engine = undefined;
           engine = args.part === undefined ? new module.IntentEngine(args.name, args.bytes)
@@ -99,10 +99,10 @@ self.onmessage = ({ data }) => {
             document = withoutBom();
           }
           result = { ...document, bytes: new Uint8Array(document.bytes) };
-        } else if (operation === 'answers') {
-          // Every answer the STEP would be written with, the defaults made explicit: a part's
-          // `<part>.answers.json` for a repository, which `specify-core write` takes as it is.
-          result = JSON.parse(accepted(args.answers));
+        } else if (operation === 'review-given') {
+          // Inspection files use the given answers and the STEP's PMI directly. Filling defaults
+          // even for preview can add part notes, general tolerances and dependent dimensions.
+          result = JSON.parse(engine.review(JSON.stringify(args.answers)));
         } else if (operation === 'settle') {
           const { state } = JSON.parse(engine.settle(JSON.stringify(args.state)));
           result = { review: reviewed(state.answers), state };
