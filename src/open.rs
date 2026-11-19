@@ -6,8 +6,9 @@
 //! operating system's random source), see docs/open.md:
 //!
 //! - `GET <token>/…` the static app (`index.html` at `<token>/`), `GET <token>/wasm/…` the
-//!   engine, `GET <token>/file` the STEP bytes (`?rev=old` OLD's in a diff), `GET
-//!   <token>/config` the app's settings, `GET <token>/diff` a diff's report;
+//!   engine, `GET <token>/file` the STEP bytes (`?rev=old` OLD's in a diff, `?rev=saved` what
+//!   the last save wrote), `GET <token>/config` the app's settings, `GET <token>/diff` a
+//!   diff's report;
 //! - `GET`/`PUT <token>/answers` the session's answers, `GET <token>/events` their changes as
 //!   server-sent events;
 //! - `POST <token>/save` the specified STEP written from the session's answers, next to the
@@ -650,6 +651,7 @@ fn exchange(stream: &mut TcpStream, ctx: &Ctx) {
                     let s = session::lock(&shared.session);
                     Arc::clone(&s.old().expect("diff mode has OLD").bytes)
                 }
+                Some("saved") => return saved_file(stream, ctx),
                 Some(_) => return reply(stream, "404 Not Found", None, b""),
             };
             reply(stream, "200 OK", Some("application/octet-stream"), &bytes);
@@ -924,6 +926,69 @@ fn hung_up(stream: &mut TcpStream) -> bool {
     }
 }
 
+/// `GET <token>/file?rev=saved`: the bytes the session's last successful save wrote, read from
+/// disk now and served only if they still hash to what that save stored; the file's absolute
+/// path in `X-Specify-Path` (docs/open.md, `file`).
+fn saved_file(stream: &mut TcpStream, ctx: &Ctx) {
+    let saved = session::lock(&ctx.shared.session)
+        .last_saved()
+        .map(|(path, sha)| (path.to_path_buf(), sha.to_string()));
+    let Some((path, sha)) = saved else {
+        return refuse(
+            stream,
+            "404 Not Found",
+            "nothing has been saved in this session",
+        );
+    };
+    let shown = path.display().to_string();
+    let bytes = match fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {
+            return reply_json(
+                stream,
+                "404 Not Found",
+                &json!({"error": format!("{shown} no longer exists: it was removed after it was saved"),
+                        "path": shown}),
+            );
+        }
+        Err(e) => {
+            return reply_json(
+                stream,
+                "500 Internal Server Error",
+                &json!({"error": format!("cannot read {shown}: {e}"), "path": shown}),
+            );
+        }
+    };
+    if session::sha256(&bytes) != sha {
+        return reply_json(
+            stream,
+            "409 Conflict",
+            &json!({"error": format!("{shown} has changed on disk since it was saved"),
+                    "path": shown}),
+        );
+    }
+    let header = header_value(&shown);
+    let mut headers: Vec<(&str, &str)> = COMMON.to_vec();
+    headers.push(("Content-Type", "application/octet-stream"));
+    headers.push(("X-Specify-Path", &header));
+    let _ = respond(stream, "200 OK", &headers, &bytes);
+}
+
+/// `text` as a header value: printable ASCII as it is, `%` and every other byte of its UTF-8
+/// percent-encoded (so `decodeURIComponent` gives `text` back, and a path of plain characters
+/// is unchanged).
+fn header_value(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for b in text.bytes() {
+        if (0x20..0x7f).contains(&b) && b != b'%' {
+            out.push(char::from(b));
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    out
+}
+
 /// `POST <token>/save`, from the app's own origin: the session's answers written by the
 /// command (docs/open.md, `save`).
 fn save(stream: &mut TcpStream, ctx: &Ctx, request: &Request, body: Vec<u8>) {
@@ -1183,4 +1248,21 @@ pub fn launch_browser(url: &str) -> io::Result<()> {
         .stderr(Stdio::null())
         .spawn()
         .map(drop)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::header_value;
+
+    #[test]
+    fn header_values_keep_plain_paths_and_encode_the_rest() {
+        assert_eq!(
+            header_value("/a/b c/part.specified-2.step"),
+            "/a/b c/part.specified-2.step"
+        );
+        assert_eq!(
+            header_value("/a/100%/p\u{e9}\r\n.step"),
+            "/a/100%25/p%C3%A9%0D%0A.step"
+        );
+    }
 }

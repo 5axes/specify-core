@@ -62,6 +62,7 @@ at `/`.
 | `GET <token>/wasm/<path>` | the engine: the file at `<path>` in the wasm-pack `pkg/` directory |
 | `GET <token>/file` | the STEP file's bytes, as on disk (gzipped if the file is), `application/octet-stream` |
 | `GET <token>/file?rev=old` | `diff` mode: `OLD`'s bytes; `?rev=new` (or no query) is `NEW`; any other `rev` is 404 |
+| `GET <token>/file?rev=saved` | the bytes the session's last successful save wrote, as on disk now, its absolute path in `X-Specify-Path`, below |
 | `GET <token>/config` | the app's settings, below; also the page's heartbeat |
 | `GET <token>/answers` | the session's answers, below |
 | `PUT <token>/answers` | replace one part's answers in the session, below |
@@ -72,6 +73,20 @@ at `/`.
 
 A query string is ignored, except `rev` on `file`. `file` serves the input as it was opened, or
 as the last `--in-place` save left it. Outside `diff` mode `?rev=old` is 404, and `diff` is 404.
+
+`file?rev=saved` serves the file the session's last successful save wrote (from the page or
+from an AI client's `save`: it is one session), so the page can work from the file as saved
+(`part.specified.step`, `-2`, …, or the input after an `--in-place` save). It works the same in
+every mode, `diff` included:
+
+- before any save in this run it is 404 (`{"error": …}`); `--read-only` never saves, so it is
+  always 404;
+- the bytes are read from disk when asked for and served only if they hash (SHA-256) to what the
+  save stored: a file changed on disk since is 409, one removed is 404, and one that cannot be
+  read is 500, each `{"error": …, "path": …}`; other bytes are never served;
+- `X-Specify-Path` is the file's absolute path as the save's `path` and `saveTarget` give it,
+  with `%` and any byte outside printable ASCII percent-encoded as UTF-8 (`decodeURIComponent`
+  gives the path back; a path of plain characters is unchanged).
 
 ### `config`
 
@@ -328,8 +343,8 @@ page servers stop with it.
 
 - A JSON `{"error": "…"}` body (`application/json`), with the extra fields given above: every
   refusal of `POST <token>/save` and `PUT <token>/answers` (400, 403, 408, 409, 411, 413, 415,
-  422, 500), a refused `events` stream (503) and a `POST <token>/closed` from another origin
-  (403).
+  422, 500), a refused `events` stream (503), a `POST <token>/closed` from another origin
+  (403), and `file?rev=saved` when it serves nothing (404, 409, 500).
 - JSON: `config`, `answers`, `diff`, a successful `save` and `PUT answers` (200).
 - `events`: `text/event-stream`, never closed by the command but at exit.
 - No body (`Content-Length: 0`): `closed` (204), a wrong `Host` (403), a `GET` from another

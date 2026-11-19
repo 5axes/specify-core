@@ -171,6 +171,9 @@ pub struct Session {
     /// In place: SHA-256 of each file this session's saves wrote, so the file is not taken as
     /// changed (recorded before the file is renamed into place).
     written: Vec<String>,
+    /// The file the last successful save wrote (as the save reports its path) and SHA-256 of
+    /// the bytes it stored there (`GET file?rev=saved`).
+    last_saved: Option<(PathBuf, String)>,
     /// The directories saves may write in (MCP's `--allow`); None: anywhere beside the file.
     allowed: Option<Vec<PathBuf>>,
     analyses: BTreeMap<usize, Arc<Value>>,
@@ -192,7 +195,7 @@ pub struct Session {
     pub page: Option<crate::open::Page>,
 }
 
-fn sha256(bytes: &[u8]) -> String {
+pub(crate) fn sha256(bytes: &[u8]) -> String {
     Sha256::digest(bytes)
         .iter()
         .map(|b| format!("{b:02x}"))
@@ -220,6 +223,7 @@ impl Session {
             step: Arc::new(step),
             backup: None,
             written: Vec::new(),
+            last_saved: None,
             allowed: None,
             analyses: BTreeMap::new(),
             answers: BTreeMap::new(),
@@ -489,6 +493,14 @@ impl Session {
             .find(|p| fs::symlink_metadata(p).is_err())
     }
 
+    /// The file the last successful save in this session wrote and SHA-256 of the bytes it
+    /// stored there; None before any save.
+    pub fn last_saved(&self) -> Option<(&Path, &str)> {
+        self.last_saved
+            .as_ref()
+            .map(|(path, sha)| (path.as_path(), sha.as_str()))
+    }
+
     /// The parts a save writes: every part with at least one answer (keys starting with `_`,
     /// metadata such as `_specify`, not counting), and every part this session changed since it
     /// joined, so a clear reaches the file. A part the session did not change and that has no
@@ -715,17 +727,19 @@ pub fn save(
             (text, report.to_dict())
         };
         let cannot = |e: io::Error| SaveError::Failed(format!("cannot save: {e}"));
-        let (path, bytes, stored) = if in_place {
+        let (path, bytes, stored, sha) = if in_place {
             let stored =
                 replace_input(shared, &file.path, gz, &mut backup, text).map_err(cannot)?;
-            (file.path.clone(), stored.len(), Some(stored))
+            let sha = sha256(&stored);
+            (file.path.clone(), stored.len(), Some(stored), sha)
         } else {
             let bytes = text.len();
-            (write_new(&file, &text).map_err(cannot)?, bytes, None)
+            let sha = sha256(&text);
+            (write_new(&file, &text).map_err(cannot)?, bytes, None, sha)
         };
-        Ok((path, bytes, stored, report, missing))
+        Ok((path, bytes, stored, sha, report, missing))
     })();
-    let (path, bytes, stored, mut report, missing) = match written {
+    let (path, bytes, stored, sha, mut report, missing) = match written {
         Ok(w) => w,
         Err(e) => {
             // Nothing was written: the approvals are rolled back (a further rev), unless the
@@ -759,6 +773,7 @@ pub fn save(
         s.backup = backup;
         s.current = Arc::new(stored);
     }
+    s.last_saved = Some((path, sha));
     let data = json!({"path": saved.path, "bytes": saved.bytes, "rev": saved.rev,
                       "source": source});
     s.publish(&event("saved", None, &data));
