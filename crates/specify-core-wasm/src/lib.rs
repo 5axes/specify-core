@@ -76,12 +76,15 @@ export interface AnalysisFace {
   id: number;
   name?: string;
   kind: string;
-  area: number;
-  centroid: [number, number, number];
+  /** Absent when `unmeasured` is true: the face's area and centroid cannot be computed. */
+  area?: number;
+  centroid?: [number, number, number];
   direction?: [number, number, number];
   origin?: [number, number, number];
   radius?: number;
   contact?: unknown;
+  /** True for a face whose area and centroid cannot be computed; it is left out of features and PMI. */
+  unmeasured?: boolean;
 }
 export interface GeometryCarrierExemption {
   part: number;

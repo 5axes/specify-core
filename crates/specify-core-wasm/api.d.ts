@@ -41,8 +41,8 @@ export function start(): void;
 export function tolerancingEdit(state: string, mode: string | null | undefined, answers: string): string;
 
 export interface AnalysisFace {
-  area: number;
-  centroid: [number, number, number];
+  area?: number;
+  centroid?: [number, number, number];
   contact?: unknown;
   direction?: [number, number, number];
   id: number;
@@ -50,6 +50,7 @@ export interface AnalysisFace {
   name?: string;
   origin?: [number, number, number];
   radius?: number;
+  unmeasured?: boolean;
 }
 
 export interface AnswerEvidence {

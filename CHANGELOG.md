@@ -38,6 +38,10 @@ All notable changes to specify-core-rust. The format follows
   options. A Keep of Specify's process permits later replacement of the UDA with the
   recorded property-set name and items.
 
+### WASM API
+
+- `AnalysisFace.area` and `AnalysisFace.centroid` are optional, and `AnalysisFace.unmeasured?: boolean` is added: a face whose area and centroid cannot be computed keeps its place in `analysis.faces` with `unmeasured: true` and no area or centroid. Other faces are unchanged. For pzfreo/quiddity#303.
+
 ### Known limits
 
 - When another tool strips all of Specify's markers from a replace-written STEP file and
