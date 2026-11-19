@@ -849,8 +849,8 @@ pub(crate) fn against_plan(
 /// changed since the file was written, never an edit of the requirement's faces.
 #[derive(Debug, Default)]
 pub(crate) struct Drift {
-    /// Questions whose answers were matched to features recognised anew (`resume.migrated`,
-    /// or all, matched by ID without face evidence).
+    /// Questions whose requirements may sit on other faces: every answer of a file whose
+    /// recognition changed since it was written (answers migrated, or matched by ID).
     pub questions: BTreeSet<String>,
     /// Each face's kind (`analysis.faces[].kind`).
     pub kinds: Vec<String>,

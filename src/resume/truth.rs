@@ -115,16 +115,19 @@ pub(crate) fn reconcile(
     // the file when either plan states its requirements as the file does.
     // Answers matched to features recognised differently since they were stored (migrated,
     // or matched by ID without face evidence): only their requirements may sit on other faces.
+    // Recognition changed since the file was written when its answers were matched without
+    // face evidence or moved to features recognised anew: then any answer's requirement may
+    // sit on the faces the old recognition gave it. In a file today's recognition reproduces,
+    // only a face of another kind (a hole's cone or floor) is drift.
+    let recognised_anew = analysis["resume"]["unverified"].is_string()
+        || analysis["resume"]["migrated"]
+            .as_array()
+            .is_some_and(|m| !m.is_empty());
     let drift = crate::revision::Drift {
-        questions: if analysis["resume"]["unverified"].is_string() {
+        questions: if recognised_anew {
             stored.keys().cloned().collect()
         } else {
-            analysis["resume"]["migrated"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter_map(|pair| pair[1].as_str().map(str::to_owned))
-                .collect()
+            BTreeSet::new()
         },
         kinds: analysis["faces"]
             .as_array()
@@ -171,8 +174,16 @@ pub(crate) fn reconcile(
                 crate::provenance::unmarked(&doc, &read, part)
                     .into_iter()
                     .collect();
-            // Part notes and other attributes another tool stated.
-            for (i, ids) in read.provenance.parts[part].attributes.iter().enumerate() {
+            // Part notes and other attributes another tool stated: told apart only in a file
+            // written since Specify marked its attributes as well as its requirements (an Add
+            // write, `pmi_scope`); in an older replace-written file they are Specify's.
+            let scoped = super::scoped(&doc, part);
+            for (i, ids) in read.provenance.parts[part]
+                .attributes
+                .iter()
+                .enumerate()
+                .filter(|_| scoped)
+            {
                 if !super::is_answers(&read.parts[part].attributes[i])
                     && !crate::provenance::marked(&doc, ids, "attribute")
                 {
