@@ -30,7 +30,7 @@ open questions, once the person has seen the list and agreed:
 ```sh
 specify-core analyse plate_v1.step -o plate.analysis.json
 specify-core questions plate.analysis.json --answers chosen.json --open \
-  | jq '{"0": (map(select(.default != null) | {(.id): .default}) | add)}' > approved.json
+  | jq '{"0": (map(select(.default != null) | {(.id): .default}) | add // {})}' > approved.json
 specify-core questions plate.analysis.json --answers chosen.json \
   --resolve-defaults --step plate_v1.step --accept-defaults approved.json > plate.answers.json
 # write needs a complete set: stderr's "open: …" lists what to answer or approve first.

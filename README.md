@@ -81,7 +81,7 @@ echo '{"part.material": "6082-T6", "hole.function:holes:9": "fit:H7"}' > answers
 # The defaults the person approved, by part, each with the value they saw (here every
 # default offered for the open questions, once the person has seen the list and agreed):
 specify-core questions plate.analysis.json --answers answers.json --open \
-  | jq '{"0": (map(select(.default != null) | {(.id): .default}) | add)}' > approved.json
+  | jq '{"0": (map(select(.default != null) | {(.id): .default}) | add // {})}' > approved.json
 # Export the answers plus those defaults, with face evidence; stderr lists what is still open:
 specify-core questions plate.analysis.json --answers answers.json \
   --resolve-defaults --step plate.step --accept-defaults approved.json > plate.answers.json
