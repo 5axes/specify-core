@@ -130,8 +130,12 @@ try {
     await page.getByRole('button', { name: 'Save with defaults' }).click();
     await check(list.locator('[data-default]').first()).toBeVisible();
     listed = await list.locator('[data-default]').evaluateAll(items => items.map(item => item.getAttribute('data-default')).sort());
+    const shownTolerance = (await list.locator('[data-default="part.general_tolerance"] strong').textContent()).trim();
+    assert.equal(shownTolerance, 'ISO 2768-m', 'the dialog lists the default the person sees');
     await list.getByRole('button', { name: /^Save with these \d+ defaults$/ }).click();
     await check(page.locator('.app-saved')).toContainText(withDefaults);
+    // The value the person confirmed is exactly what lands in the file.
+    assert.equal(given(analyse(withDefaults).resume?.answers)['part.general_tolerance'], shownTolerance, 'the stored answer is the value listed');
     await check(page.getByRole('alert')).toHaveCount(0);
     assert.ok(existsSync(withDefaults), 'the defaults save written');
     // The command prints it once it has answered: it may come just after the page shows the save.

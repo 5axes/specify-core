@@ -323,8 +323,8 @@ try {
     await check(list.getByRole('button', { name: /^Save with these \d+ defaults$/ })).toBeVisible();
     await page.route('**/save', route => route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: 'default changed', part: a, question: id, expected: 'old value', current: 'new value' }) }));
     await list.getByRole('button', { name: /^Save with these \d+ defaults$/ }).click();
-    await check(page.getByRole('alert').first()).toContainText('changed');
-    await check(page.getByRole('alert').first()).toContainText('it is now new value');
+    await check(page.getByRole('alert').first()).toContainText('changed. You confirmed');
+    await check(page.getByRole('alert').first()).toContainText('it is now new value. Nothing was written; check the new list and confirm again.');
     await check(page.getByRole('alert').first()).toContainText('Nothing was written');
     await check(list).toBeVisible();
     await page.unroute('**/save');
