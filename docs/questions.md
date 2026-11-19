@@ -30,22 +30,14 @@ building it:
   every rewrite of a defaulted file had to keep it beside the rewritten PMI, which restated
   datums and planner dimensions (characteristic numbering and datum-letter refusals) and lost
   the byte-identical unchanged rewrite. A default the file states differently is `existing`.
-- **Derived locations.** The dimension planner can merge locations across several supported
-  faces. Reconciliation recognizes Specify-marked, plain linear locations restated by the
-  writer's plan. It also recognizes basic locations of features covered by position and
-  nominal locations covered by the file's general tolerance. Legacy planners used different
-  keys for these dimensions.
-- **Answers that write no PMI** (maintainer, 2026-11-19): kept with the stored answers and
-  resumed, not asked again, where the file has nothing to contradict them; the file is the
-  truth for everything it can state. An unexplained requirement on the question's faces can
-  conflict with a stored answer even if Specify wrote the requirement. For part settings,
-  provenance follows each entry. An unmarked note beside a marked note still conflicts with
-  a stored "no notes" answer, and the file keeps both. An
-  earlier version planned the question's first other option and paired its requirements,
-  which missed another kind (a thread on a "general" hole) and every free-text or list
-  setting (another tool's general note was lost). `write --accept-defaults`
-  stores the no-PMI defaults it takes (an explicit "accept all"); the PMI-writing ones stay
-  unstored and read back as `resume.present`, so #204's behaviour for them is unchanged.
+- **Answers that write no PMI** (maintainer, 2026-11-19). A face question resumes its
+  stored answer only when the file contains no PMI of any kind on its target faces.
+  For datum questions, the target includes both the stored faces and the file's faces
+  for the same letter. Part settings compare the whole value, including every list entry.
+  An empty file value or an exact match allows resumption. A withheld answer goes through
+  the ordinary #204 file-PMI rules, and any question those rules leave open is asked again.
+  Withholding creates no conflict. `write --accept-defaults` stores the defaults it
+  takes that write no PMI. Defaults that write PMI read back as `resume.present`.
 
 
 ## Decision (2026-11-02): limit dimensions and combined ISO 2768 classes

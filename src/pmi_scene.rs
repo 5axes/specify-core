@@ -116,7 +116,7 @@ impl Scene {
         analysis: Option<&Value>,
         answers: Option<&Map<String, Value>>,
     ) -> Result<Value, String> {
-        self.scene_mode(loaded, analysis, answers, false, None)
+        self.scene_mode(loaded, analysis, answers, false)
     }
 
     // Revision comparisons need current semantic notation, never stale As Drawn text.
@@ -126,18 +126,7 @@ impl Scene {
         analysis: &Value,
         answers: Option<&Map<String, Value>>,
     ) -> Result<Value, String> {
-        self.scene_mode(loaded, Some(analysis), answers, true, None)
-    }
-
-    /// Compare with the writer's plan, recording which file items it would restate.
-    pub(crate) fn reopening_plan(
-        &self,
-        loaded: &LoadedPart,
-        analysis: &Value,
-        answers: &Map<String, Value>,
-        restated: &mut BTreeSet<(String, usize)>,
-    ) -> Result<Value, String> {
-        self.scene_mode(loaded, Some(analysis), Some(answers), true, Some(restated))
+        self.scene_mode(loaded, Some(analysis), answers, true)
     }
 
     fn scene_mode(
@@ -146,7 +135,6 @@ impl Scene {
         analysis: Option<&Value>,
         answers: Option<&Map<String, Value>>,
         comparison: bool,
-        restated: Option<&mut BTreeSet<(String, usize)>>,
     ) -> Result<Value, String> {
         let before = &self
             .foreign
@@ -164,12 +152,6 @@ impl Scene {
                 }
             };
             let (semantic, metadata, counts) = self.planned(loaded, analysis, answers, foreign)?;
-            if let Some(restated) = restated {
-                restated.extend(resume::truth::restated(
-                    &self.read.parts[self.index],
-                    &semantic.pmi,
-                ));
-            }
             // Reusing a foreign datum does not author a new item or redraw its callout.
             if foreign
                 && semantic.pmi.material.is_none()
@@ -222,7 +204,7 @@ impl Scene {
             } else if comparison {
                 // Replace plans rebuild Specify requirements; keep CAD requirements even
                 // when the source also contains saved interview answers.
-                let mut file = self.scene_mode(loaded, Some(analysis), None, true, None)?;
+                let mut file = self.scene_mode(loaded, Some(analysis), None, true)?;
                 let existing: std::collections::BTreeSet<String> = file["specify"]
                     .as_object()
                     .ok_or("invalid metadata")?

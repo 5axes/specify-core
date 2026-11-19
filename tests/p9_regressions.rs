@@ -323,13 +323,14 @@ fn a_session_save_keeps_pmi_another_tool_added() {
     };
     let opened = call("open", json!({"path": input}));
     let doc = opened["doc"].clone();
-    // The stored "none" the added flatness contradicts is another tool's conflict, not
-    // resumed (2026-11-19: an answer that writes no PMI resumes only where the file has
-    // nothing to contradict it).
-    let conflicts = opened["conflicts"].as_array().unwrap();
-    assert_eq!(conflicts.len(), 1, "{opened}");
-    assert_eq!(conflicts[0]["id"], "datum.A.flatness");
-    assert_eq!(conflicts[0]["foreign"], true);
+    // The imported flatness withholds "none" and follows ordinary file-PMI handling.
+    let analysis = api::analyse(&loaded).unwrap();
+    assert!(
+        analysis["resume"]["answers"]
+            .get("datum.A.flatness")
+            .is_none()
+    );
+    assert!(opened.get("conflicts").is_none(), "{opened}");
     call(
         "answer",
         json!({"doc": doc, "set": {"part.coating": "Anodise, clear"}}),

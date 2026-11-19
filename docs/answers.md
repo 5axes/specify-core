@@ -184,25 +184,16 @@ cone or floor claimed since).
   requirement is in `existing`, tagged `question: <id>`, the question is not asked, and
   every write keeps it until the question is answered (which gives it way). Specify's own
   requirements that no question accounts for at all are Specify's to state from the answers.
-- **An answer that writes no PMI** (a coating of "None (as machined)", no notes, "position
-  tolerances", a hole of "general" function, no flatness on datum A): the file cannot state
-  it, so the stored answer is what keeps it. It resumes (`resume.answers`) and is not asked
-  again, unless the file contradicts it. Whether an answer writes PMI is found by planning the
-  answers as the writer does. The check is deliberately conservative (asking again is better
-  than resuming an answer the file says otherwise): a question about faces is contradicted by
-  any unexplained requirement on its faces, regardless of provenance. This includes a marked
-  position tolerance against "none" or another tool's thread on a "general" hole. A location
-  dimension applies to its target faces, and a datum declaration establishes the frame used to
-  ask about controls. Specify's
-  plain location dimensions are explained when the writer's plan restates their characteristic
-  keys. The same applies to basic locations of features covered by a position tolerance and
-  to locations covered by the file's general tolerance. Older planners represented these with
-  different keys. A stated part setting (notes, coating, heat treatment, ...) contradicts the
-  stored answer when it differs. Provenance is checked per entry, so another tool's general note
-  can contradict "no notes" even alongside a Specify-marked note. Both notes stay in the file.
-  A contradicted answer is a conflict as below (`file` gives the notation and `foreign`
-  identifies a conflict involving another tool's PMI). An answer whose PMI the file removed
-  stays a conflict with `file: null`.
+- **An answer that writes no PMI** resumes only when the file has nothing in the answer's
+  scope. For a face question, any PMI on its target faces prevents resumption, regardless
+  of who wrote it. A location dimension's target faces are the faces it locates. For a datum
+  question, check both the stored datum's faces and the file's faces for the same letter.
+  A part setting resumes when the file's value is empty or exactly equals the whole stored
+  value. An additional note can therefore prevent resumption even when every stored note
+  matches. The ordinary file-PMI rules handle a withheld answer
+  (`resume.present`, `resume.file`, or `existing`). The question opens again if those rules
+  leave it open, and withholding adds no conflict. A save keeps the file's requirements and
+  can carry a withheld answer in the STEP payload for the same check on later opens.
 - **Different, or only in the answers (removed in the file):** a conflict,
   `resume.conflicts: [{id, stored, file}]` (`file` is the file's notation, `null` when the
   file has none), with an analysis warning each. Until it is decided the file's state is
@@ -210,10 +201,7 @@ cone or floor claimed since).
   `question: <id>`; the stored answer is not resumed and the question is not asked.
 
 Part settings (material, general tolerance, finish, coating, heat treatment, edges, notes)
-follow the same rule. A setting in conflict keeps the file's value in `part`. An unexplained
-entry from another tool can conflict with a stored list even when the other entries match.
-After a save drops a contradicted answer, the file continues to answer the setting with its
-marked entries, including notes for which the default writes no PMI.
+use the file's value in `part` when the file answers the question or the setting is in conflict.
 
 When the file's requirement in conflict is another tool's (not marked as Specify's, and not
 one the person kept), the conflict says so (`foreign: true`): no answer replaces it, not even
@@ -251,8 +239,8 @@ Answers that write no PMI are stored whenever they are answers: given, or defaul
 all", stores the defaults it takes that write no PMI as well; the defaults it takes that write
 PMI are not stored, and reopening reads them from the file as `resume.present`.
 
-**Known limits.** Two kinds of Specify-marked PMI that no stored answer explains are still
-dropped on rewrite, as they were before ADR P9: a default whose faces another tool moved
+**Known limits.** Outside the scope of withheld answers, ADR P9 still has two cases where
+Specify-marked PMI can be dropped on rewrite: a default whose faces another tool moved
 (it no longer pairs with its default), and a requirement written from a raw intent where no
 default exists (no question accounts for it). Keeping them needs the writer to match restated
 requirements by meaning rather than by characteristic key, so that what a rewrite states
@@ -260,7 +248,7 @@ again is not written twice.
 
 When the writer rewrites a reopened part, it replaces Specify's own (provenance-marked)
 requirements from the answers and keeps every other one: PMI another tool added (unmarked)
-and, until decided, a conflict's file items (restoring gives them way). A part written by
+PMI in the scope of withheld answers, and a conflict's file items until decided. A part written by
 replace that holds such PMI is rewritten as a scoped Add (`pmi_scope`), so only its marked
 requirements are replaced; with nothing to keep the write is as before (a replace, and an
 unchanged rewrite keeps the file's bytes). A file written before Specify marked its

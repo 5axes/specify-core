@@ -1,8 +1,5 @@
-//! Answers that write no PMI (ADR P9, maintainer's decision 2026-11-19): the file cannot state
-//! them, so they are kept with the stored answers and resumed on reopening, not asked again,
-//! where the file has nothing to contradict them. A file stating PMI for such a question
-//! contradicts the answer: it follows the P9 conflict rules (docs/answers.md, "Reopening a
-//! file Specify wrote").
+//! Reopening skips stored answers where the file already has PMI in their scope. Ordinary
+//! file reconciliation handles the question, and the file's PMI survives saving.
 
 mod common;
 
@@ -248,79 +245,27 @@ fn flatness_on_a(existing: &Value) -> Vec<&Value> {
         .collect()
 }
 
-/// "none" stored for datum A's flatness, then another tool adds a flatness on A's face: the
-/// answer is not resumed as "none". It is a conflict with another tool's requirement, whose
-/// only choice is keeping it; the file's flatness is shown and kept, and the question is not
-/// asked. Saved, the contradicted answer is not stored: reopening reads the file's flatness.
 #[test]
-fn a_file_stating_pmi_for_a_silent_answer_contradicts_it() {
-    let all = specify_core::rules::with_all_defaults(
-        &api::analyse_file(&plate(), None).unwrap(),
-        &material(),
-    )
-    .unwrap();
+fn foreign_flatness_withholds_stored_none() {
+    let (all, bytes) = accepted_all();
     assert_eq!(all["datum.A.flatness"], "none");
-    let edited = load(with_foreign_flatness(written(&all, &all)));
-    let analysis = api::analyse(&edited).unwrap();
-    let resume = &analysis["resume"];
-    let conflicts = resume["conflicts"].as_array().unwrap();
-    assert_eq!(conflicts.len(), 1, "{resume}");
-    assert_eq!(conflicts[0]["id"], "datum.A.flatness");
-    assert_eq!(conflicts[0]["stored"], "none");
-    assert!(
-        conflicts[0]["file"].as_str().unwrap().contains("0.05"),
-        "{conflicts:?}"
-    );
-    assert_eq!(conflicts[0]["foreign"], true);
-    assert!(
-        !resume["answers"]
-            .as_object()
-            .unwrap()
-            .contains_key("datum.A.flatness"),
-        "{resume}"
-    );
-    // The other silent answers still resume.
-    for id in SILENT.iter().filter(|id| **id != "datum.A.flatness") {
+    let mut part = load(with_foreign_flatness(bytes));
+    for _ in 0..2 {
+        let analysis = api::analyse(&part).unwrap();
+        // Existing foreign flatness already answers the question under #204.
+        assert_withheld(&analysis, "datum.A.flatness", false);
+        let flatness = flatness_on_a(&analysis["existing"]);
+        assert_eq!(flatness.len(), 1, "{}", analysis["existing"]);
+        assert_eq!(flatness[0]["value"], 0.05);
+        assert!(flatness[0].get("question").is_none());
+        (part, _) = saved_again(&part, &analysis);
         assert!(
-            resume["answers"].as_object().unwrap().contains_key(*id),
-            "{id}: {resume}"
+            specify_core::existing::read_existing(&part)
+                .unwrap()
+                .iter()
+                .any(|e| { e.r#type == "Flatness" && e.faces == [2] && e.value == Some(0.05) })
         );
     }
-    let flatness = flatness_on_a(&analysis["existing"]);
-    assert_eq!(flatness.len(), 1, "{}", analysis["existing"]);
-    assert_eq!(flatness[0]["question"], "datum.A.flatness");
-    let (questions, _) = asked(&analysis);
-    assert!(!questions.contains(&"datum.A.flatness".to_string()));
-    let answers = resume["answers"].as_object().unwrap().clone();
-    let review = api::review(&analysis, &answers).unwrap();
-    assert_eq!(review["conflicts"][0]["id"], "datum.A.flatness");
-    assert_eq!(
-        review["conflicts"][0]["choices"].as_array().unwrap().len(),
-        1
-    );
-
-    // Saved: the flatness stays, and the contradicted "none" is not stored.
-    let intent = api::apply(&analysis, &answers, false).unwrap();
-    let back = load(
-        api::write_bytes(edited.bytes.to_vec(), &[(intent, Some(answers.clone()))])
-            .unwrap()
-            .0,
-    );
-    let again = api::analyse(&back).unwrap();
-    assert!(
-        again["resume"].get("conflicts").is_none(),
-        "{}",
-        again["resume"]
-    );
-    assert!(
-        !again["resume"]["answers"]
-            .as_object()
-            .unwrap()
-            .contains_key("datum.A.flatness")
-    );
-    assert_eq!(flatness_on_a(&again["existing"]).len(), 1);
-    let (questions, _) = asked(&again);
-    assert!(!questions.contains(&"datum.A.flatness".to_string()));
 }
 
 /// An answer that wrote PMI whose PMI was then removed in the file is still a conflict,
@@ -411,12 +356,65 @@ fn accepted_all() -> (Map<String, Value>, Vec<u8>) {
     (all, bytes)
 }
 
-/// The written file reopened, its resumed answers saved as the CLI's `write` saves them, and
-/// reopened again.
+#[test]
+fn silent_answers_resume_on_clean_plate_and_enclosure_faces() {
+    for path in [
+        plate(),
+        common::fixtures().join("parts/electronics-enclosure-base.step.gz"),
+    ] {
+        let part = specify_core::part::load(&path, None).unwrap();
+        let analysis = api::analyse(&part).unwrap();
+        let mut answers = material();
+        let hole = api::questions(&analysis, &answers)
+            .unwrap()
+            .into_iter()
+            .find(|q| q.id.starts_with("hole.function:"))
+            .expect("the clean part has a hole function question");
+        answers.insert(hole.id.clone(), json!("general"));
+        answers.insert("part.coating".into(), json!("None (as machined)"));
+        answers.insert("part.heat_treatment".into(), json!("None"));
+        answers.insert("part.notes".into(), json!([]));
+        let intent = api::preview(&analysis, &answers).unwrap();
+        let (bytes, _) =
+            api::write_bytes(part.bytes.to_vec(), &[(intent, Some(answers.clone()))]).unwrap();
+        let back = load_bytes("clean.step", bytes).unwrap();
+        assert!(
+            specify_core::existing::read_existing(&back)
+                .unwrap()
+                .is_empty()
+        );
+        let again = api::analyse(&back).unwrap();
+        assert_eq!(again["resume"]["answers"], json!(answers));
+        assert!(again["resume"].get("conflicts").is_none());
+        for id in answers.keys() {
+            assert!(!asked(&again).1.contains(id), "{id}");
+        }
+    }
+}
+
+fn assert_withheld(analysis: &Value, id: &str, open: bool) {
+    let resume = &analysis["resume"];
+    assert!(resume["answers"].get(id).is_none(), "{id}: {resume}");
+    assert!(
+        !resume["conflicts"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|c| c["id"] == id),
+        "{id}: {resume}"
+    );
+    assert_eq!(
+        asked(analysis).1.iter().any(|q| q == id),
+        open,
+        "{id}: {resume}"
+    );
+}
+
+/// Reopen and save as the editor does, leaving newly open questions unanswered.
 fn saved_again(loaded: &LoadedPart, analysis: &Value) -> (LoadedPart, Value) {
     let answers = analysis["resume"]["answers"].as_object().unwrap().clone();
-    let intent = api::apply(analysis, &answers, false)
-        .unwrap_or_else(|e| panic!("{e}\n{}", analysis["resume"]));
+    let intent =
+        api::preview(analysis, &answers).unwrap_or_else(|e| panic!("{e}\n{}", analysis["resume"]));
     let back = load(
         api::write_bytes(loaded.bytes.to_vec(), &[(intent, Some(answers))])
             .unwrap()
@@ -477,6 +475,8 @@ fn edited_location_survives_two_saves(old: i32, new: i32, basic: bool, question:
     assert!(location_measure(&part, f64::from(new), basic).is_some());
     for _ in 0..2 {
         let analysis = api::analyse(&part).unwrap();
+        // The basic case has file position PMI. The nominal location leaves function open.
+        assert_withheld(&analysis, question, !basic);
         (part, _) = saved_again(&part, &analysis);
         assert!(
             location_measure(&part, f64::from(new), basic).is_some(),
@@ -503,6 +503,7 @@ fn flatness_on_the_files_moved_datum_survives_two_saves() {
     assert!(has_flatness(&part));
     for _ in 0..2 {
         let analysis = api::analyse(&part).unwrap();
+        assert_withheld(&analysis, "datum.A.flatness", false);
         (part, _) = saved_again(&part, &analysis);
         assert!(has_flatness(&part), "lost flatness on the file's datum");
     }
@@ -522,6 +523,7 @@ fn an_extra_marked_note_survives_two_saves() {
     );
     for _ in 0..2 {
         let analysis = api::analyse(&part).unwrap();
+        assert_withheld(&analysis, "part.notes", false);
         (part, _) = saved_again(&part, &analysis);
         assert_eq!(
             specify_core::existing::part_settings(&part).unwrap()["notes"],
@@ -552,19 +554,14 @@ fn a_marked_position_tolerance_contradicts_stored_none() {
     let resume = &analysis["resume"];
     let (back, again) = saved_again(&edited, &analysis);
     assert_eq!(positions(&back), [(0.2, true)], "{resume}");
-    assert!(resume["answers"].get(hole).is_none(), "{resume}");
+    // The marked position answers the question as file PMI under #204.
+    assert_withheld(&analysis, hole, false);
     assert!(
-        resume["conflicts"]
+        resume["file"]
             .as_array()
-            .into_iter()
-            .flatten()
-            .any(|c| c["id"] == hole && c["stored"] == "none" && c["file"].is_string())
-            || resume["file"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .any(|id| id == hole),
-        "{resume}"
+            .unwrap()
+            .iter()
+            .any(|id| id == hole)
     );
     let (back, _) = saved_again(&back, &again);
     assert_eq!(positions(&back), [(0.2, true)]);
@@ -578,16 +575,8 @@ fn a_marked_note_contradicts_stored_no_notes() {
     answers.insert("part.notes".into(), notes.clone());
     let edited = load(written(&answers, &stored));
     let analysis = api::analyse(&edited).unwrap();
-    let resume = &analysis["resume"];
-    assert!(resume["answers"].get("part.notes").is_none(), "{resume}");
-    assert!(
-        resume["conflicts"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .any(|c| c["id"] == "part.notes" && c["stored"] == json!([])),
-        "{resume}"
-    );
+    // The file's complete notes answer the setting under #204.
+    assert_withheld(&analysis, "part.notes", false);
     let (back, again) = saved_again(&edited, &analysis);
     assert_eq!(
         specify_core::existing::part_settings(&back).unwrap()["notes"],
@@ -632,15 +621,8 @@ fn mixed_provenance_notes_contradict_the_stored_list() {
             "{resume}"
         );
         assert_eq!(analysis["part"]["notes"], notes);
-        assert!(resume["answers"].get("part.notes").is_none(), "{resume}");
-        assert!(
-            resume["conflicts"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .any(|c| c["id"] == "part.notes" && c["stored"] == old && c["foreign"] == true),
-            "{resume}"
-        );
+        // Both notes are file entries, so the setting is already answered under #204.
+        assert_withheld(&analysis, "part.notes", false);
         assert_eq!(again["part"]["notes"], notes, "{}", again["resume"]);
         let (back, _) = saved_again(&back, &again);
         assert_eq!(
@@ -684,36 +666,14 @@ fn another_tools_general_note_contradicts_stored_no_notes() {
     assert_eq!(all["part.notes"], json!([]));
     let edited = load(with_general_note(bytes, "DEBURR ALL OVER", 1));
     let analysis = api::analyse(&edited).unwrap();
-    let resume = &analysis["resume"];
     assert_eq!(
         analysis["part"]["notes"],
         json!(["DEBURR ALL OVER"]),
         "{}",
         analysis["part"]
     );
-    let conflicts = resume["conflicts"].as_array().unwrap();
-    assert_eq!(conflicts.len(), 1, "{resume}");
-    assert_eq!(conflicts[0]["id"], "part.notes");
-    assert_eq!(conflicts[0]["stored"], json!([]));
-    assert!(
-        conflicts[0]["file"]
-            .as_str()
-            .unwrap()
-            .contains("DEBURR ALL OVER"),
-        "{conflicts:?}"
-    );
-    assert!(
-        !resume["answers"]
-            .as_object()
-            .unwrap()
-            .contains_key("part.notes")
-    );
-    let (questions, _) = asked(&analysis);
-    assert!(
-        !questions.contains(&"part.notes".to_string()),
-        "{questions:?}"
-    );
-
+    // The imported note fills the part setting under #204.
+    assert_withheld(&analysis, "part.notes", false);
     let (back, again) = saved_again(&edited, &analysis);
     assert_eq!(
         again["part"]["notes"],
@@ -792,31 +752,21 @@ fn another_tools_thread_on_a_general_hole_contradicts_it() {
         .filter(|e| e.r#type == "internal thread" && e.faces == [9])
         .collect();
     assert_eq!(threads.len(), 1, "{threads:?}");
-    let analysis = api::analyse(&edited).unwrap();
-    let resume = &analysis["resume"];
-    let conflicts = resume["conflicts"].as_array().unwrap();
-    assert!(
-        conflicts.iter().any(|c| c["id"] == "hole.function:holes:9"
-            && c["stored"] == "general"
-            && c["foreign"] == true),
-        "{resume}"
-    );
-    assert!(
-        !resume["answers"]
-            .as_object()
-            .unwrap()
-            .contains_key("hole.function:holes:9")
-    );
-    // Saved, the thread stays.
-    let (back, _) = saved_again(&edited, &analysis);
-    assert_eq!(
-        specify_core::existing::read_existing(&back)
-            .unwrap()
-            .iter()
-            .filter(|e| e.r#type == "internal thread" && e.faces == [9])
-            .count(),
-        1
-    );
+    let mut part = edited;
+    for _ in 0..2 {
+        let analysis = api::analyse(&part).unwrap();
+        // The imported thread already establishes the hole's function under #204.
+        assert_withheld(&analysis, "hole.function:holes:9", false);
+        (part, _) = saved_again(&part, &analysis);
+        assert_eq!(
+            specify_core::existing::read_existing(&part)
+                .unwrap()
+                .iter()
+                .filter(|e| e.r#type == "internal thread" && e.faces == [9])
+                .count(),
+            1
+        );
+    }
 }
 
 /// Another part than the plate, with holes and datums: written with every default approved,

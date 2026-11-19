@@ -477,7 +477,7 @@ fn analyse_reconciling(
             haecceity::step::read_part_definitions(&loaded.bytes).map_err(|e| refused(&e))?;
         let reading = existing::read_parsed(loaded, doc, &defs).map_err(|e| refused(&e))?;
         let mut settings = reading.settings(loaded);
-        match resume::truth::reconcile(loaded, &base, &features, &settings) {
+        match resume::truth::reconcile(loaded, &base, &features, &settings, &reading) {
             Ok(r) => {
                 // Specify's own (marked) requirements the answers do not explain, and that no
                 // question accounts for, are Specify's to state: the rewrite states the part from
@@ -489,9 +489,34 @@ fn analyse_reconciling(
                 // A legacy Replace file with marks on part attributes alone keeps the
                 // interview's old face-PMI view. Still reconcile its settings and preserve
                 // every unmarked requirement on writing, including face PMI.
-                existing.retain(|e| {
+                let visible = |e: &existing::ExistingPmi| {
                     e.question.is_some() || (!attributes_only && e.provenance.is_none())
+                };
+                if r.retained.is_empty() {
+                    existing.retain(visible);
+                } else {
+                    let mut ordinary = r.selection();
+                    ordinary.skip.extend(r.retained.iter().cloned());
+                    let hidden: Vec<_> = reading
+                        .existing_except(loaded, &ordinary)
+                        .map_err(|e| refused(&e))?
+                        .into_iter()
+                        .filter(|e| !visible(e))
+                        .collect();
+                    existing.retain(|e| !hidden.contains(e));
+                }
+                let retained_dimensions = crate::dimensioning::stated_where(reading.model(), |i| {
+                    r.retained.contains(&("dimensions".into(), i))
                 });
+                if !retained_dimensions.is_empty() {
+                    let stated = analysis
+                        .entry("dimensioning_stated")
+                        .or_insert_with(|| json!([]));
+                    stated
+                        .as_array_mut()
+                        .expect("stated dimensions are a list")
+                        .extend(retained_dimensions.into_iter().map(Value::Object));
+                }
                 analysis.insert(
                     "existing".into(),
                     serde_json::to_value(existing).map_err(|e| refused(&e))?,

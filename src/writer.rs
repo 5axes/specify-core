@@ -747,7 +747,16 @@ fn write_verified(
             let (Some(kept), Some(r)) = (narrowed.get_mut(&part), reconciled.get(&part)) else {
                 continue;
             };
-            let (planned, _) = part_pmi(loaded, intent, &first_clean.read.parts[part], Mode::Add)?;
+            let retained = crate::dimensioning::stated_where(&original.read.parts[part], |i| {
+                r.retained.contains(&("dimensions".into(), i))
+            });
+            let (planned, _) = part_pmi(
+                loaded,
+                intent,
+                &first_clean.read.parts[part],
+                Mode::Add,
+                &retained,
+            )?;
             let restated = resume::truth::restated(&original.read.parts[part], &planned);
             *kept = r.kept_items(
                 &original.read.parts[part],
@@ -832,7 +841,14 @@ fn write_verified(
     for (&(loaded, intent, answers), &mode) in jobs.iter().zip(&modes) {
         // The binding was checked against these same bytes' parts; Source::of verifies reader counts.
         let before = &source.read.parts[loaded.binding.part];
-        let (mut pmi, mut lines) = part_pmi(loaded, intent, before, mode)?;
+        let retained = reconciled
+            .get(&loaded.binding.part)
+            .map_or_else(Vec::new, |r| {
+                crate::dimensioning::stated_where(&original.read.parts[loaded.binding.part], |i| {
+                    r.retained.contains(&("dimensions".into(), i))
+                })
+            });
+        let (mut pmi, mut lines) = part_pmi(loaded, intent, before, mode, &retained)?;
         if let Some(bom) = intent.part.get("bom").and_then(Json::as_object) {
             for (key, value) in bom {
                 lines.written.push(format!("BOM {key} {value}"));
@@ -848,6 +864,13 @@ fn write_verified(
                 // ADR P9: an answer another tool's requirement holds the question against is
                 // not written, so it is not stored either: reopening reads the file's value.
                 if let Some(r) = reconciled.get(&loaded.binding.part) {
+                    // Keep a withheld answer dormant. On the next reopen, the same file
+                    // PMI still prevents it from becoming an active answer.
+                    for (id, value) in &r.withheld {
+                        if !saved.contains_key(id) {
+                            saved.insert(id.clone(), value.clone());
+                        }
+                    }
                     for c in r.conflicts.iter().filter(|c| c.foreign) {
                         saved.remove(&c.id);
                     }
@@ -2506,8 +2529,16 @@ fn part_pmi(
     intent: &Intent,
     before: &PartPmi,
     mode: Mode,
+    retained_dimensions: &[Map<String, Json>],
 ) -> Result<(PartPmi, Lines), WriteError> {
-    part_pmi_observed(loaded, intent, before, mode, &mut |_, _, _| {})
+    part_pmi_observed(
+        loaded,
+        intent,
+        before,
+        mode,
+        retained_dimensions,
+        &mut |_, _, _| {},
+    )
 }
 
 pub(crate) fn scene_model(
@@ -2517,7 +2548,7 @@ pub(crate) fn scene_model(
     mode: Mode,
     observe: &mut impl FnMut(&str, usize, &Map<String, Json>),
 ) -> Result<PartPmi, WriteError> {
-    part_pmi_observed(loaded, intent, before, mode, observe).map(|(p, _)| p)
+    part_pmi_observed(loaded, intent, before, mode, &[], observe).map(|(p, _)| p)
 }
 
 // Add mode retains imported thread manufacturing attributes. They already carry
@@ -2556,6 +2587,7 @@ fn part_pmi_observed(
     intent: &Intent,
     before: &PartPmi,
     mode: Mode,
+    retained_dimensions: &[Map<String, Json>],
     observe: &mut impl FnMut(&str, usize, &Map<String, Json>),
 ) -> Result<(PartPmi, Lines), WriteError> {
     // Old JSON analyses/intents lack the typed planner input. Upgrade only rule-generated
@@ -2794,6 +2826,17 @@ fn part_pmi_observed(
             continue;
         }
         let kind = req.get("kind").and_then(Json::as_str).unwrap_or("");
+        // A retained file dimension takes precedence over a generated dimension
+        // for the same measurement, including when their nominal values differ.
+        if matches!(kind, "location" | "size")
+            && retained_dimensions.iter().any(|old| {
+                ["kind", "faces", "reference", "size_kind"]
+                    .iter()
+                    .all(|key| req.get(*key) == old.get(*key))
+            })
+        {
+            continue;
+        }
         let under_general = truthy(req.get("general"));
         if let Some((from, to, nominal)) = legacy_depth_span(&loaded.part, req)
             && depth_spans.iter().any(|(a, b, n)| {

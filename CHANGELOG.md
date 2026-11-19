@@ -8,23 +8,18 @@ All notable changes to specify-core-rust. The format follows
 
 ### Fixed
 
-- Answers that write no PMI (a coating or heat treatment of "None", no notes, "position
-  tolerances", a hole of "general" function, no flatness or control on a datum) are no longer
-  asked again on every reopen. Stored with the answers, they resume (`resume.answers`) where
-  the file has nothing to contradict them; whether an answer writes PMI is found by planning
-  it as the writer does. Unexplained PMI on the question's faces conflicts even when Specify
-  marked it, such as a position tolerance against "none". Derived locations remain compatible
-  with legacy files. Part settings compare provenance per entry, so an unmarked general note
-  alongside a marked one conflicts with "no notes" and both notes survive a save.
-  `write --accept-defaults` (and serve's `write` with
-  `accept_defaults`), the person's "accept all", now also stores the defaults it takes that
-  write no PMI. Defaults that write PMI are read back from the file (`resume.present`).
-  The page's Save and MCP already stored approved defaults.
+- Reopening resumes stored no-PMI face answers only when the target faces carry no
+  PMI, regardless of authorship. Datum questions check both the stored datum and the
+  file's datum with the same letter. A part setting resumes when the whole file value
+  is empty or equals the stored value. This protects edited locations, datum controls,
+  and complete note lists. Withheld answers follow ordinary file-PMI handling, and
+  questions left open can be asked again. `write --accept-defaults` stores the defaults
+  it takes that write no PMI. Defaults that write PMI read back as `resume.present`.
 
 ### WASM API
 
-- `IntentEngine.review` reports conflicts with marked PMI and mixed-provenance part notes
-  on reopen. `IntentEngine.writePmi` keeps the file's requirements when saving those conflicts.
+- `IntentEngine.review` withholds stored no-PMI answers where the file states PMI.
+  `IntentEngine.writePmi` retains those file requirements on save.
 
 ## 0.2.0 (2026-11-19)
 
