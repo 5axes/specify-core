@@ -61,7 +61,7 @@ export function as9102(part: FaiPart, rows: readonly Characteristic[], skipped: 
       ['Form 3: Characteristic Accountability, Verification and Compatibility Evaluation', '', '', '', '', '', '', ''],
       ...heading(8),
       ['Char. No.', 'Reference Location', 'Characteristic Designator', 'Requirement', 'Results', 'Designed / Qualified Tooling', 'Nonconformance Number', 'Limits / Comments'],
-      ...listed.map((c) => [c.id, c.feature, '', c.text, '', '', '', [limits(c), c.datums ? `datums ${c.datums.split('|').join(' ')}` : '', c.basic ? 'basic' : ''].filter(Boolean).join('; ')]),
+      ...listed.map((c) => [c.n ? c.id : '', c.feature, '', c.text, '', '', '', [limits(c), c.datums ? `datums ${c.datums.split('|').join(' ')}` : '', c.basic ? 'basic' : ''].filter(Boolean).join('; ')]),
     ],
   };
   return [form1, form2, form3];

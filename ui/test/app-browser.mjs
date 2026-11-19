@@ -307,23 +307,23 @@ try {
     await box.press('Enter');
     await check(page.locator('.app-dirty')).toBeVisible();
     const stem = 'part.specified';
-    const inspect = async (page, name, balloon) => {
+    const inspect = async (page, name) => {
       const csv = readFileSync(await downloadFile(page, 'Inspection list (CSV)', `${name}-characteristics.csv`), 'utf8');
       const workbook = await downloadFile(page, 'AS9102 FAI (Excel)', `${name}-AS9102.xlsx`);
-      // P9 filtering must preserve the displayed balloon. The editable preview places Material
-      // at 12, while this read-only file has just one stated characteristic, numbered 1.
-      assert.deepEqual(csv.trimEnd().split('\n').slice(1), [`${balloon},,Part,Material: Aluminium 6082-T6,,,,,,`], 'the CSV has only the given characteristic, with its displayed number');
+      // Changed number expectation: Material is a setting, with no characteristic ID in STEP.
+      // Display and both exports leave its number empty, including after Save and readback.
+      assert.deepEqual(csv.trimEnd().split('\n').slice(1), [',,Part,Material: Aluminium 6082-T6,,,,,,'], 'the CSV has only the given unnumbered setting');
       assert.match(workbookSheet(workbook, 2), /MATERIAL Aluminium 6082-T6/);
       const form3 = workbookSheet(workbook, 3);
       // Column D includes the repeated part name above the characteristic table.
       assert.deepEqual([...form3.matchAll(/<c r="D\d+"[^>]*><is><t [^>]*>([^<]+)<\/t>/g)].map((match) => match[1]),
         [name, 'Requirement', 'Material: Aluminium 6082-T6'], 'Form 3 has only the given characteristic');
-      assert.match(form3, new RegExp(`<c r="A5"[^>]*><is><t [^>]*>${balloon}</t>`), 'Form 3 preserves the displayed balloon');
+      assert.doesNotMatch(form3, /<c r="A5"/, 'Form 3 leaves the unnumbered setting empty');
     };
     await page.getByRole('tab', { name: /^Characteristics/ }).click();
     const materialRow = page.locator('.pmi-lab-table tr').filter({ hasText: 'Material: Aluminium 6082-T6' });
-    await check(materialRow.getByRole('checkbox', { name: 'Inspect 12', exact: true })).toBeVisible();
-    await inspect(page, stem, 12);
+    await check(materialRow.getByRole('checkbox', { name: 'Inspect Material: Aluminium 6082-T6', exact: true })).toBeVisible();
+    await inspect(page, stem);
     await page.getByRole('button', { name: 'Save', exact: true }).click();
     const saved = join(dir, `${stem}.specified.step`);
     await check(page.locator('.app-saved')).toContainText(saved);
@@ -332,7 +332,7 @@ try {
     const readOnly = await open(saved, '--read-only');
     const viewer = await load(readOnly);
     await check(viewer.page.locator('.pmi-lab-panel')).toContainText('PMI (view only)');
-    await inspect(viewer.page, `${stem}.specified`, 1);
+    await inspect(viewer.page, `${stem}.specified`);
     await viewer.context.close();
     readOnly.stop();
   }

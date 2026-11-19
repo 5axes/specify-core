@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { keepAlive } from '../app/local.ts';
 import { createSession } from '../app/answers.ts';
+import { sessionSaver } from '../app/save.ts';
 
 const config = { name: 'part.step', saveTarget: '/tmp/part.specified.step' };
 const flush = async () => { for (let n = 0; n < 20; n++) await Promise.resolve(); };
@@ -88,13 +89,38 @@ test('a stopped command continues probing and a later success restores Save elig
   await clock.advance(1_000);
   heartbeat.refresh();
   await clock.advance(23_000);
-  assert.deepEqual(statuses, [], '25 seconds since the last successful response have not elapsed');
+  assert.deepEqual(statuses, [], 'the full failure window has not elapsed');
+  await clock.advance(1_000);
+  // Changed timing: the idle time before the first failed probe cannot consume its grace period.
+  assert.deepEqual(statuses, [], '24 seconds since the first failed probe');
   await clock.advance(1_000);
   assert.deepEqual(statuses, [true]);
   state.mode = 'ok';
   await clock.advance(4_000);
   assert.deepEqual(statuses, [true, false], 'recovery clears the stopped state');
   assert.equal(configs.length, 2);
+});
+
+test('one failed 30-second heartbeat cannot disable Save before a full 25-second failure window', async (t) => {
+  const clock = browser(t);
+  const { state } = command(t);
+  const statuses = [];
+  const heartbeat = keepAlive(() => {}, (stopped) => statuses.push(stopped), () => {});
+  clock.cleanup(heartbeat.stop);
+  heartbeat.refresh();
+  await flush();
+  state.mode = 'offline';
+  await clock.advance(30_000);
+  assert.deepEqual(statuses, [], 'the first failed heartbeat only starts the grace period');
+  state.mode = 'ok';
+  await clock.advance(4_000);
+  assert.deepEqual(statuses, [], 'one transient failure never disabled Save');
+  state.mode = 'offline';
+  await clock.advance(30_000);
+  await clock.advance(24_000);
+  assert.deepEqual(statuses, []);
+  await clock.advance(1_000);
+  assert.deepEqual(statuses, [true], 'sustained failure consumes a complete 25-second window');
 });
 
 test('sustained HTTP 503 responses keep the command alive', async (t) => {
@@ -207,4 +233,36 @@ test('pagehide aborts PUTs across parts and cancels queued retries before the cl
   a.set({ material: 'Copper' }, a.get());
   await clock.advance(60_000);
   assert.deepEqual(events, ['PUT', 'PUT', 'abort', 'abort', 'closed'], 'no queued PUT or heartbeat follows closed');
+});
+
+test('pagehide cancels an in-flight Save before sending closed', async (t) => {
+  const clock = browser(t);
+  const events = [];
+  let signal;
+  t.mock.method(globalThis, 'fetch', (_url, init) => new Promise((_resolve, reject) => {
+    assert.equal(init.method, 'POST');
+    signal = init.signal;
+    events.push('save');
+    signal.addEventListener('abort', () => {
+      events.push('abort save');
+      reject(signal.reason);
+    }, { once: true });
+  }));
+  const session = createSession(0, { 0: {} });
+  const store = session.store(0);
+  const heartbeat = keepAlive(() => {}, () => {}, () => session.close());
+  clock.cleanup(heartbeat.stop);
+  const saving = sessionSaver(store, session, () => ({}), async () => []).save({ defaults: [] });
+  const cancelled = assert.rejects(saving, { name: 'AbortError' });
+  await flush();
+  t.mock.method(navigator, 'sendBeacon', () => {
+    assert.equal(signal.aborted, true);
+    events.push('closed');
+    return true;
+  });
+  clock.window.dispatchEvent(Object.assign(new Event('pagehide'), { persisted: true }));
+  assert.equal(signal.aborted, false, 'bfcache keeps an active Save');
+  clock.window.dispatchEvent(Object.assign(new Event('pagehide'), { persisted: false }));
+  await cancelled;
+  assert.deepEqual(events, ['save', 'abort save', 'closed']);
 });

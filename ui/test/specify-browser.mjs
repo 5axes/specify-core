@@ -17,8 +17,8 @@ async function openPage(readOnly, file = 'test/fixtures/spindle_pmi_before.step.
   await page.goto(`${base}/?specify=1${readOnly ? '&readOnly=1' : ''}${query}`);
   await page.locator('#specify-file').setInputFiles(file);
   await check(page.locator(ready).first()).toBeVisible();
-  // The start effect's preview has been asked for.
-  await check.poll(() => page.evaluate(() => window.__calls.includes('preview'))).toBe(true);
+  // The engine inspection now supplies the display's authoritative characteristic numbers.
+  await check.poll(() => page.evaluate(() => window.__calls.includes('inspection'))).toBe(true);
   return page;
 }
 const calls = page => page.evaluate(() => [...window.__calls]);
@@ -96,8 +96,8 @@ try {
     await check(panel(page).locator('.pmi-lab-suggestion')).toHaveCount(0);
     await page.close();
   }
-  // No inspection callback: the shared component filters unapproved defaults and preserves the
-  // displayed balloon in both exports, using its own given-answer review.
+  // No export override: the shared component uses the host engine inspection for every given
+  // requirement. Material has no numbered STEP entity, so its displayed and exported ID is empty.
   {
     const page = await openPage(false, 'test/fixtures/gramil_shaft_before.step.gz');
     const material = panel(page).locator('[data-question="part.material"] input');
@@ -105,7 +105,7 @@ try {
     await material.press('Enter');
     await panel(page).getByRole('tab', { name: /^Characteristics/ }).click();
     const row = panel(page).locator('.pmi-lab-table tr').filter({ hasText: 'Material: Aluminium 6082-T6' });
-    await check(row.getByRole('checkbox', { name: 'Inspect 12', exact: true })).toBeVisible();
+    await check(row.getByRole('checkbox', { name: 'Inspect Material: Aluminium 6082-T6', exact: true })).toBeVisible();
     const download = async (name) => {
       const [file] = await Promise.all([
         page.waitForEvent('download'), page.locator('#specify-exports').getByRole('button', { name, exact: true }).click(),
@@ -113,10 +113,10 @@ try {
       return file.path();
     };
     const csv = readFileSync(await download('Inspection list (CSV)'), 'utf8');
-    assert.deepEqual(csv.trimEnd().split('\n').slice(1), ['12,,Part,Material: Aluminium 6082-T6,,,,,,']);
+    assert.deepEqual(csv.trimEnd().split('\n').slice(1), [',,Part,Material: Aluminium 6082-T6,,,,,,']);
     const path = await download('AS9102 FAI (Excel)');
     const form3 = execFileSync('unzip', ['-p', path, 'xl/worksheets/sheet3.xml'], { encoding: 'utf8' });
-    assert.match(form3, /<c r="A5"[^>]*><is><t [^>]*>12<\/t>/);
+    assert.doesNotMatch(form3, /<c r="A5"/, 'unnumbered Material has an empty number cell');
     assert.match(form3, /Material: Aluminium 6082-T6/);
     assert.doesNotMatch(form3, /ISO 2768|Ra 3.2|M4×|M2×/, 'no unapproved part notes or threads');
     await page.close();
@@ -211,16 +211,17 @@ try {
     await row.click();
     await check(row).toHaveClass(/\bon\b/);
     // A label on the part selects its characteristic's row; a datum chosen is marked.
-    const second = table.locator('tbody tr').nth(1);
+    const position = table.locator('tbody tr').filter({ hasText: /⌖.*0.2/ }).first();
     await page.locator('#specify-view .pmi-in').filter({ hasText: '0.2' }).first().click();
-    await check(second).toHaveClass(/\bon\b/);
+    await check(position).toHaveClass(/\bon\b/);
     await panel(page).getByRole('button', { name: 'Datum B' }).click();
     await check(panel(page).locator('.pmi-lab-datums .chip.on')).toHaveCount(1);
     await check(table.locator('tbody tr.on')).toHaveCount(0);
     await page.waitForTimeout(500);
     const made = await calls(page);
-    assert.ok(!made.some(call => call !== 'preview'), `only previews reach the engine: ${made}`);
-    assert.ok(made.includes('preview'), 'the answers given are labelled');
+    // Changed API expectation: inspection replaces preview to obtain writer-assigned IDs.
+    assert.ok(!made.some(call => call !== 'inspection'), `only inspections reach the engine: ${made}`);
+    assert.ok(made.includes('inspection'), 'the answers given are labelled with engine IDs');
     await page.close();
   }
   assert.deepEqual(problems, [], 'no page errors');

@@ -8,6 +8,42 @@ import { acceptedDefaults, defaultParts, DefaultRefused, DefaultsChanged, FileCh
 
 const none = async () => [];
 
+test('closing while Save waits for pending answers prevents the deferred POST', async () => {
+  let started;
+  const began = new Promise((resolve) => { started = resolve; });
+  const session = createSession(0, { 0: {} }, (_rev, _part, _answers, signal) => new Promise((_resolve, reject) => {
+    signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+    started();
+  }));
+  const store = session.store(0);
+  store.set({ material: 'Steel' }, {});
+  await began;
+  const posts = [];
+  const saving = sessionSaver(store, session, () => store.get(), none, async (...args) => posts.push(args)).save({ defaults: [] });
+  const cancelled = assert.rejects(saving, { name: 'AbortError' });
+  session.close();
+  await cancelled;
+  assert.deepEqual(posts, []);
+});
+
+test('closing while Save reviews confirmed defaults prevents the deferred POST', async () => {
+  const session = createSession(0, { 0: {} });
+  const store = session.store(0);
+  const defaults = [{ part: 0, id: 'edges', prompt: 'Edges?', value: '0.2', raw: '0.2' }];
+  let finish;
+  let started;
+  const began = new Promise((resolve) => { started = resolve; });
+  const review = () => new Promise((resolve) => { finish = resolve; started(); });
+  const posts = [];
+  const saving = sessionSaver(store, session, () => ({}), review, async (...args) => posts.push(args)).save({ defaults });
+  const cancelled = assert.rejects(saving, { name: 'AbortError' });
+  await began;
+  session.close();
+  finish(defaults);
+  await cancelled;
+  assert.deepEqual(posts, []);
+});
+
 test('assembly missing IDs retain part order, including a part that was cleared', () => {
   const empty = { open: ['material', 'finish'], labels: ['A material', 'A finish'], required: false };
   const answered = { open: ['finish'], labels: ['B finish'], required: true };

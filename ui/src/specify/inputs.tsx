@@ -415,6 +415,7 @@ export function CharacteristicsTable({
   }, [selected]);
   const n = (v: number | null, sign = false) => (v === null ? '' : `${sign && v > 0 ? '+' : ''}${fmt(v)}`);
   const groups = byBalloon(rows);
+  const firstGeneral = groups.findIndex((group) => group[0]?.source.startsWith('general:'));
   const left = rows.filter((r) => skipped.has(inspectKey(r))).length;
   // A balloon is inspected or not as a whole; ``balloon`` is given on its first row.
   const line = (
@@ -435,7 +436,7 @@ export function CharacteristicsTable({
         <td onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
           {balloon && (
             <input
-              type="checkbox" checked={!out} aria-label={`Inspect ${r.n}`} title="In the inspection list (CSV)"
+              type="checkbox" checked={!out} aria-label={r.n ? `Inspect ${r.n}` : `Inspect ${r.text}`} title="In the inspection list (CSV)"
               onChange={(e) => onSkip(keys, !e.target.checked)}
             />
           )}
@@ -492,7 +493,7 @@ export function CharacteristicsTable({
             const [head] = g;
             if (!head) return [];
             const general = head.source.startsWith('general:');
-            const first = general && !groups[gi - 1]?.[0]?.source.startsWith('general:');
+            const first = general && gi === firstGeneral;
             const summary = first ? [generalRow(groups.filter((x) => x[0]?.source.startsWith('general:')))] : [];
             if (general && !showGeneral) return summary;
             return [...summary, ...balloonRows(g, head)];
@@ -532,7 +533,7 @@ export function CharacteristicsTable({
   }
 
   function balloonRows(g: readonly Characteristic[], head: Characteristic) {
-    if (g.length === 1) return [line(head.id, head, { bal: <span className="bal">{head.id}</span>, feature: head.feature }, head.faces, undefined, g)];
+    if (g.length === 1) return [line(head.id, head, { bal: <span className="bal">{head.n ? head.id : '—'}</span>, feature: head.feature }, head.faces, undefined, g)];
     const isOpen = open.has(head.n);
     // What the rows share is said once; a run of basic dimensions is counted.
     const same = g.every((r) => r.text === head.text);

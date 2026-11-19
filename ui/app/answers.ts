@@ -29,6 +29,8 @@ export interface AnswersStore {
 /** The command's session as this page knows it: every part's answers at ``rev()``, and what is on
  * disk, so unsaved answers are judged for the whole file, whichever part is shown. */
 export interface AnswersSession {
+  /** Cancelled before the close beacon, shared by answer PUTs and Save POSTs. */
+  readonly signal: AbortSignal;
   rev(): number;
   answers(part: number): PmiAnswers;
   /** Every part's answers at ``rev()``, by part index: the parts a save writes (with a file's only part). */
@@ -110,6 +112,7 @@ export function createSession(rev: number, parts: Record<string, PmiAnswers>, pu
   };
 
   const session: AnswersSession = {
+    signal: requests.signal,
     rev: () => state.rev,
     answers: (part) => state.parts[String(part)] ?? {},
     parts: () => ({ ...state.parts }),

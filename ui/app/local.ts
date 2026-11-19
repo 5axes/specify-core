@@ -92,8 +92,8 @@ export type AcceptDefaults = Record<string, Record<string, unknown>>;
  * or (--in-place) the file changed on disk; 400 `{error, part, question}` when a default listed is
  * not an open question with a default there, plus `expected` (the value sent) and `current` (the
  * default now) when its value is no longer that default. A failed write rolls its approvals back. */
-export const save = (rev: number, acceptDefaults: AcceptDefaults) => json<Saved>(fetch('save', {
-  method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rev, acceptDefaults }),
+export const save = (rev: number, acceptDefaults: AcceptDefaults, signal?: AbortSignal) => json<Saved>(fetch('save', {
+  method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rev, acceptDefaults }), signal,
 }));
 
 /** Diff mode: the command's comparison, exactly what WASM `diff()` returns with the PMI scenes
@@ -131,14 +131,14 @@ export function listen(onAnswers: (event: AnswersEvent) => void, onSaved: (event
 }
 
 /** Heartbeat every 30 s, retrying unreachable or busy commands every 4 s. A command is stopped
- * after 25 s without a successful HTTP response. Continue probing so the page can recover.
+ * after a full 25 s failure window. Every HTTP response clears that window. Keep probing to recover.
  * A visible page returning, or a timer gap over 10 s, starts a new observation window. */
 export function keepAlive(onConfig: (config: LocalConfig) => void, onStopped: (stopped: boolean) => void, onClose: () => void) {
   let closed = false;
   let stopped = false;
-  let lastSuccess = Date.now();
-  let lastTick = lastSuccess;
-  let nextProbe = lastSuccess + 30_000;
+  let failedSince: number | null = null;
+  let lastTick = Date.now();
+  let nextProbe = lastTick + 30_000;
   let active: { controller: AbortController; started: number } | null = null;
   let refreshPending = false;
   let streamProbe = 0;
@@ -148,7 +148,7 @@ export function keepAlive(onConfig: (config: LocalConfig) => void, onStopped: (s
     onStopped(value);
   };
   const resumed = (now: number) => {
-    lastSuccess = now;
+    failedSince = null;
     nextProbe = now;
     // Give an in-flight probe a fresh response window too. A stale timer must never abort a
     // healthy request made after wake, or disable Save before that request answers.
@@ -164,17 +164,20 @@ export function keepAlive(onConfig: (config: LocalConfig) => void, onStopped: (s
   const probe = () => {
     const now = observeTime();
     if (closed || active) return;
-    const request = { controller: new AbortController(), started: now };
+    const request = { controller: new AbortController(), started: now, reached: false };
     active = request;
     const finished = (alive: boolean, config?: LocalConfig) => {
       const at = observeTime();
       if (closed || active !== request) return;
       active = null;
       if (alive) {
-        lastSuccess = at;
+        failedSince = null;
         status(false);
         if (config) onConfig(config);
-      } else if (at - lastSuccess >= 25_000) status(true);
+      } else if (!request.reached) {
+        failedSince ??= request.started;
+        if (at - failedSince >= 25_000) status(true);
+      }
       nextProbe = at + (config ? 30_000 : 4_000);
       if (refreshPending) {
         refreshPending = false;
@@ -184,13 +187,16 @@ export function keepAlive(onConfig: (config: LocalConfig) => void, onStopped: (s
     getConfig(request.controller.signal, () => {
       if (closed || active !== request) return;
       // Headers alone prove reachability, including 503 or a response whose body cannot be read.
-      lastSuccess = observeTime();
+      observeTime();
+      request.reached = true;
+      failedSince = null;
       status(false);
     }).then((config) => finished(true, config), () => finished(false));
   };
   const tick = () => {
     const now = observeTime();
     if (active && now - active.started >= 5_000) active.controller.abort();
+    if (!active && failedSince !== null && now - failedSince >= 25_000) status(true);
     if (!active && now >= nextProbe) probe();
   };
   // Navigation can cancel SSE before pagehide runs. Defer this connection until pagehide can

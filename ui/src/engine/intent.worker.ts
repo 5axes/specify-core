@@ -1,4 +1,6 @@
 import { readCarried } from './carried';
+import { withCharacteristicNumbers, type NumberScene } from './characteristic-numbers';
+import type { IntentReview } from '../types/pmi';
 
 interface IntentModule {
   default(): Promise<unknown>;
@@ -35,6 +37,11 @@ const accepted = (answers: unknown) => engine!.acceptDefaults(JSON.stringify(ans
 function reviewed(answers: Record<string, unknown>) {
   const review = markDefaults(JSON.parse(engine!.review(accepted(answers))), answers);
   return { ...review, open: JSON.parse(engine!.review(JSON.stringify(answers))).open };
+}
+function inspectionReview(answers: Record<string, unknown>): IntentReview {
+  const review = JSON.parse(engine!.review(JSON.stringify(answers))) as IntentReview;
+  const scene = JSON.parse(engine!.pmiScene(JSON.stringify({ answers }))) as NumberScene;
+  return { ...review, intent: withCharacteristicNumbers(review.intent, scene) };
 }
 function markDefaults<T>(review: T, answers: Record<string, unknown>): T {
   const mark = (value: unknown): void => {
@@ -104,7 +111,7 @@ self.onmessage = ({ data }) => {
         } else if (operation === 'review-given') {
           // Inspection files use the given answers and the STEP's PMI directly. Filling defaults
           // even for preview can add part notes, general tolerances and dependent dimensions.
-          result = JSON.parse(engine.review(JSON.stringify(args.answers)));
+          result = inspectionReview(args.answers);
         } else if (operation === 'settle') {
           const { state } = JSON.parse(engine.settle(JSON.stringify(args.state)));
           result = { review: reviewed(state.answers), state };
@@ -118,8 +125,8 @@ self.onmessage = ({ data }) => {
           result = JSON.parse(engine.rematchAnswers(JSON.stringify(args.answers), args.evidence ? JSON.stringify(args.evidence) : null, args.automatic ? JSON.stringify(args.automatic) : null));
         } else result = operation === 'open' ? { ...JSON.parse(engine.snapshot()), evidence: JSON.parse(engine.evidence()) } : reviewed(args.answers);
       } else if (operation === 'review-analysis-given') {
-        // Shared component inspection fallback: a pure review of given/kept answers. This works
-        // from analysis alone, so the host need not provide the original STEP bytes.
+        // Pure analysis-only review, without allocation geometry. Inspection hosts use
+        // review-given with STEP bytes to obtain the writer's stable characteristic numbers.
         result = JSON.parse(module.review(JSON.stringify(args.analysis), JSON.stringify(args.answers)));
       } else if (operation === 'parts') {
         result = JSON.parse(module.IntentEngine.parts(args.name, args.bytes));

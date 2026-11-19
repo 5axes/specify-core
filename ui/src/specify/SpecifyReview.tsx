@@ -9,13 +9,11 @@ import { appliedByRule, chosenForYou, type Chosen } from './chosen';
 import { datumChips, freeLetter, removal } from './datums';
 import { defaultShowing, drawnShown, drawnViews, partCentre, type DrawnPmi } from './drawn';
 import { optionHint } from './hints';
-import { balloonsBySource, type Characteristic, characteristics, noteStatements, ranges, toCsv } from './characteristics';
+import { balloonsBySource, type Characteristic, byBalloon, characteristics, noteStatements, ranges, toCsv } from './characteristics';
 import { as9102 } from './as9102';
 import { xlsx } from '../model/xlsx';
 import { readOnlyEngine } from './read-only';
-import { createIntentEngine } from '../engine/intent-engine';
-import type { WorkerClient } from '../engine/rpc';
-import { inspectionAnswers, inspectionCharacteristics } from './inspection';
+import { inspectionAnswers } from './inspection';
 import { CharacteristicsTable, ExtraEditor, PurposeChoice, SpecBox, SuggestBox, SuggestionCard, TOLERANCE_PICKS, type ExtraDraft } from './inputs';
 import type { PmiLabel } from './labels';
 import type { Picker } from './picker';
@@ -23,7 +21,11 @@ import { createReviewView } from './review-view';
 import { answerOf, confirmRow, display, groupQuestions, needs, nextNeeding, questionForFace, rowState, summary, type QuestionGroup } from './review';
 import { MODES, type PickMode } from './selection';
 import './PmiLab.css';
-export type SpecifyEngine = Pick<PmiLabEngine, 'questions' | 'interpret' | 'preview'>;
+export type SpecifyEngine = Pick<PmiLabEngine, 'questions' | 'interpret' | 'preview'> & {
+  /** Review exactly these answers and the file PMI, using the engine's stored/planned numbers.
+   * A createIntentEngine host implements this through 'review-given', with the STEP bytes. */
+  inspection(sessionId: string, answers: PmiAnswers): Promise<PmiIntent>;
+};
 /** Where the workspace shows Specify: the part in the 3D pane, the questions in the edit pane. */
 export interface SpecifySlots {
   view: HTMLElement; panel: HTMLElement; exports: HTMLElement | null;
@@ -56,8 +58,8 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   onSaved?: (name: string) => void;
   onExport: (action: () => void, format?: 'csv' | 'xlsx') => void;
   /** Gets given/kept intent, or intent whose defaults the host explicitly approved.
-   * Null cancels the export. Without this callback, the bundled engine reviews given/kept
-   * answers without accepting other defaults. Displayed characteristic IDs are preserved. */
+   * Null cancels the export. Otherwise engine.inspection reviews the given/kept answers.
+   * Both routes must return the engine's stored/planned characteristic numbers. */
   inspectionIntent?: () => Promise<PmiIntent | null>;
   /** Structured exports ask for sign-in first. */
   gated?: boolean;
@@ -83,12 +85,12 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   /**
    * A PMI viewer: the 3D view and a list of the PMI that is set. Questions, answers, suggestions and the exports
    * are not rendered. Nothing reaches the host's ``engine.questions``, ``engine.interpret`` or ``onKeep``;
-   * ``engine.preview`` is still called, to label the answers given. Default false.
+   * ``engine.inspection`` is still called to label the given/kept answers with stable IDs. Default false.
    */
   readOnly?: boolean;
 }) {
   const host = engine;
-  const readOnlyHost = useMemo(() => readOnlyEngine(host), [host]);
+  const readOnlyHost = useMemo(() => ({ ...readOnlyEngine(host), inspection: host.inspection }), [host]);
   engine = readOnly ? readOnlyHost : host;
   const stage = useRef<HTMLDivElement>(null);
   const picker = useRef<Picker | null>(null);
@@ -99,9 +101,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   const [current, setCurrent] = useState<string | null>(null);
   // A refusal is shown by what was refused: a question's id, or null for the panel.
   const [error, setError] = useState<{ at: string | null; problem: PmiLabError } | null>(null);
-  const [preview, setPreview] = useState<PmiIntent | null>(externalReview.intent);
-  const inspectionWorker = useRef<WorkerClient | null>(null);
-  useEffect(() => () => inspectionWorker.current?.dispose(), []);
+  const [preview, setPreview] = useState<PmiIntent | null>(null);
   const [selection, setSelection] = useState<number[]>([]);
   const [mode, setMode] = useState<PickMode>('face');
   const [status, setStatus] = useState('');
@@ -332,7 +332,6 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     setAnswers(externalAnswers);
     setQuestions(externalReview.questions);
     setProblems(externalReview.problems);
-    setPreview(externalReview.intent);
     setTyped((typed) => Object.fromEntries(Object.entries(typed).filter(([id, read]) => externalAnswers[id] === read.value)));
   }, [externalAnswers, externalReview]);
 
@@ -340,12 +339,13 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   const relabel = useCallback(async (next: PmiAnswers) => {
     const mine = ++previewing.current;
     try {
-      const shown = await live((id) => engine.preview(id, next));
+      const shown = await live((id) => engine.inspection(id, inspectionAnswers(next, questions, kept, toReview)));
       if (mine === previewing.current) setPreview(shown);
     } catch {
       // Labels are a view: a failed refresh keeps the last ones.
     }
-  }, [engine, live]);
+  }, [engine, live, questions, kept, toReview]);
+  useEffect(() => { void relabel(answers); }, [answers, relabel]);
 
   // Once per part opened -- never again on a re-render, which would throw away
   // what has been answered since. Reached through ``startWith``, set below.
@@ -389,7 +389,6 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
       setQuestions(asked.questions);
       setProblems(asked.problems ?? []);
       setCurrent(focus(groupQuestions(asked.questions)));
-      void relabel(next);
       return true;
     } catch (failure) {
       setError({ at, problem: asError(failure) });
@@ -433,6 +432,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   const setChips = readOnly
     ? chips.filter((c) => c.existing || preview?.datums.find((d) => d.letter === c.letter)?.default !== true) : [];
   const setRows = readOnly ? chars.filter((r) => {
+    if (r.source.startsWith('datum:')) return true;
     if (r.source.startsWith('req:')) return preview?.requirements[Number(r.source.slice('req:'.length))]?.default !== true;
     if (r.source.startsWith('existing:') || r.source.startsWith('general:')) return true;
     if (r.source.startsWith('part:')) return partSet(r.source.slice('part:'.length));
@@ -621,7 +621,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
         picker.current?.highlight([face]);
         const row = setRows.find((r) => r.faces.includes(face));
         setSelectedDatum(null);
-        setSelectedChar(row ? `${row.n}` : null);
+        setSelectedChar(row ? (row.n ? `${row.n}` : row.id) : null);
         onPick?.([face]);
         return;
       }
@@ -649,8 +649,9 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
       onPick?.(label.faces);
       stayPut.current = view !== 'table' && !readOnly && Boolean(label.question) && label.question !== current;
       if (view === 'table' || readOnly) {
-        const n = balloons.get(label.id.split(':').slice(0, 2).join(':'))?.[0];
-        if (n !== undefined) setSelectedChar(`${n}`);
+        const source = label.id.split(':').slice(0, 2).join(':');
+        const row = chars.find((row) => row.source === source);
+        if (row) setSelectedChar(row.n ? `${row.n}` : row.id);
       } else if (label.question?.startsWith('extra.')) editExtra(label.question);
       else if (label.question && label.question !== current) setCurrent(label.question);
       else if (label.group === 'general') {
@@ -688,7 +689,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
 
   // The balloon numbers of what a row specifies, beside its title.
   const rowBalloons = (g: QuestionGroup) => {
-    const numbers = chars.filter((c) => g.questions.some((q) => q.id === c.question)).map((c) => c.n);
+    const numbers = chars.filter((c) => c.n && g.questions.some((q) => q.id === c.question)).map((c) => c.n);
     return numbers.length ? <span className="bal" title="Balloon numbers">{ranges(numbers)}</span> : null;
   };
   const skip = (keys: readonly string[], out: boolean) => setSkipped((was) => {
@@ -718,23 +719,15 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     if (next === 'review') picker.current?.highlight(currentQuestion?.faces ?? []);
   };
   // Read when the file is written: an export resumed after sign-in carries edits made meanwhile.
-  const csvRows = useRef({ chars, skipped, titles, answers, questions, kept, toReview });
-  csvRows.current = { chars, skipped, titles, answers, questions, kept, toReview };
+  const csvRows = useRef({ skipped, titles, answers, questions, kept, toReview });
+  csvRows.current = { skipped, titles, answers, questions, kept, toReview };
   const inspection = async () => {
-    const { chars, skipped, titles, answers, questions, kept, toReview } = csvRows.current;
+    const { skipped, titles, answers, questions, kept, toReview } = csvRows.current;
     try {
       let intent: PmiIntent | null;
       if (inspectionIntent) intent = await inspectionIntent();
-      else {
-        inspectionWorker.current ??= createIntentEngine();
-        const review = await inspectionWorker.current.request<IntentReview>('review-analysis-given', {
-          analysis: session.analysis, answers: inspectionAnswers(answers, questions, kept, toReview),
-        });
-        intent = review.intent;
-      }
-      return intent && {
-        chars: inspectionCharacteristics(chars, characteristics(intent, session.analysis, titles)), skipped, intent,
-      };
+      else intent = await engine.inspection(session.sessionId, inspectionAnswers(answers, questions, kept, toReview));
+      return intent && { chars: characteristics(intent, session.analysis, titles), skipped, intent };
     } catch (failure) {
       setError({ at: null, problem: asError(failure) });
       return null;
@@ -994,7 +987,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
               type="button" role="tab" aria-selected={view === 'table'} className={view === 'table' ? 'on' : ''}
               onClick={() => switchView('table')}
             >
-              Characteristics ({chars[chars.length - 1]?.n ?? 0})
+              Characteristics ({byBalloon(chars).length})
             </button>
           </div>
           {view === 'review' && (chosen.length > 0 || problems.length > 0) && (

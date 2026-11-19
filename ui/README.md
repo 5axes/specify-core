@@ -92,15 +92,29 @@ const slots: SpecifySlots = { view: viewElement, panel: panelElement, exports: e
 />
 ```
 
-CSV and AS9102 exports use the given answers and the defaults named in `kept`, and exclude
-suggestions still in `toReview`. They retain the displayed characteristic IDs when filtering.
-The default export path reviews those answers with the bundled engine. Hosts serving their own
-engine can supply `inspectionIntent`, returning intent built from given/kept answers and any defaults
-the host explicitly listed and obtained approval for. Returning `null` cancels the download.
+Display, CSV and AS9102 use a review of exactly the given answers and defaults named in `kept`,
+excluding suggestions still in `toReview`. Every characteristic produced by that review is included.
+`SpecifyEngine.inspection(sessionId, answers)` must return that review with the engine's stored or
+planned numbers. A worker host implements it through `review-given` with the original STEP bytes.
+This method is required because analysis alone cannot allocate new STEP characteristic numbers.
+`inspectionIntent` can override the export review when a host has explicitly obtained approval for
+additional defaults. Returning `null` cancels the download.
+
+Numbers come from the engine's PMI scene, whose allocator is also used by Save. Existing numbers
+remain stable. Settings such as Material and the general-tolerance class have no individual
+characteristic entity, so their number cells are empty. Instance suffixes identify measurements
+within one numbered pattern requirement.
 
 The worker's legacy `write` operation **writes every default**, including defaults absent from
 `args.answers`. Hosts must obtain approval for every default before choosing that operation.
 The local Specify app saves through the command's session API with the approved defaults.
+
+On non-persisted `pagehide`, the local app cancels pending answer requests and saves before sending
+`closed`. Cancellation prevents queued work from starting and avoids waiting for a slow write during
+unload. An already dispatched request may have reached the command before the browser aborts it.
+The specify-core 0.2.0 `closed` endpoint starts a 90-second idle countdown. It does not revoke the
+session or reject later saves. Any later request, including a save, cancels that countdown. Browser
+cancellation therefore cannot guarantee command-side arrival order or retract an accepted save.
 
 ### Read-only mode
 

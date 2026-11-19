@@ -90,6 +90,7 @@ async function openPart(worker: WorkerClient, answersSession: AnswersSession, na
     },
     interpret: (_id, given, question, text) => worker.request('interpret', { analysis: snapshot.analysis, answers: given, question, text }),
     preview: async (_id, given) => (await reviewOf(given)).intent,
+    inspection: async (_id, given) => (await worker.request<IntentReview>('review-given', { ...file, answers: given })).intent,
   };
   const session: PmiLabSession = {
     sessionId: sourceId, filename: name, analysis: snapshot.analysis, mesh: snapshot.mesh, answers,
@@ -400,6 +401,7 @@ function App() {
       }
       refreshConfig.current();
     } catch (error) {
+      if (sessionRef.current?.signal.aborted) return;
       // A failed write rolls its approvals back in the session: whatever the page was told while
       // they were applied is replaced by the session as it is now, so none shows as applied.
       if (!(error instanceof NotShown || error instanceof DefaultsChanged)) {

@@ -75,21 +75,26 @@ export function sameDefaults(a: readonly Default[], b: readonly Default[]): bool
  * ``shown()``: the answers the page shows, so a save never writes answers the person has not seen.
  * ``defaultsOf(parts)``: the defaults a save with defaults would write for the session's answers
  * ``parts`` (every part's, by index): those of every part the save writes. */
-export function sessionSaver(store: AnswersStore, session: Pick<AnswersSession, 'parts'>, shown: () => PmiAnswers, defaultsOf: (parts: Record<string, PmiAnswers>) => Promise<Default[]>, write = post): Saver {
+export function sessionSaver(store: AnswersStore, session: Pick<AnswersSession, 'parts' | 'signal'>, shown: () => PmiAnswers, defaultsOf: (parts: Record<string, PmiAnswers>) => Promise<Default[]>, write = post): Saver {
   return {
     async save({ defaults }) {
+      session.signal.throwIfAborted();
       const rev = await store.settled();
+      session.signal.throwIfAborted();
       const answers = store.get();
       const parts = session.parts();
       if (given(answers) !== given(shown())) throw new NotShown('the answers changed just now');
       // The whole set, part by part, value by value: any default added, gone or changed (an agent
       // answered meanwhile) means a list the person has not confirmed.
       if (defaults.length && !sameDefaults(await defaultsOf(parts), defaults)) throw new DefaultsChanged('the defaults to write changed');
+      // Pagehide may have run while PUTs or the defaults review were pending. It cancels this
+      // signal before closed, preventing a deferred POST and aborting an in-flight request.
+      session.signal.throwIfAborted();
       try {
         // Exactly the defaults the person confirmed, each on the part it was listed for; checked
         // above for every part at this rev (a later rev is a 409).
         const approved = acceptedDefaults(defaults);
-        const saved = await write(rev, approved);
+        const saved = await write(rev, approved, session.signal);
         const answers = { ...parts };
         for (const [part, values] of Object.entries(approved)) answers[part] = { ...answers[part], ...values };
         return { ...saved, answers };
