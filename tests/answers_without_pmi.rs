@@ -426,6 +426,110 @@ fn saved_again(loaded: &LoadedPart, analysis: &Value) -> (LoadedPart, Value) {
     (back, again)
 }
 
+/// Locate the nominal measure through the dimension's own STEP provenance.
+fn location_measure(part: &LoadedPart, mm: f64, basic: bool) -> Option<std::ops::Range<usize>> {
+    use haecceity::p21::Document;
+    use haecceity::pmi::{self, DimTolerance, DimensionKind, Quantity};
+    let doc = Document::parse(part.bytes.to_vec()).unwrap();
+    let defs = haecceity::step::read_part_definitions(&part.bytes).unwrap();
+    let read = pmi::read(&doc, &defs).unwrap();
+    let (i, _) = read.parts[0].dimensions.iter().enumerate().find(|(_, d)| {
+        matches!(d.kind, DimensionKind::Location { .. })
+            && d.tolerance == if basic { DimTolerance::Basic } else { DimTolerance::None }
+            && matches!(d.nominal.as_ref().map(|v| &v.quantity), Some(Quantity::Length(n)) if n.mm() == mm)
+    })?;
+    read.provenance.parts[0].dimensions[i]
+        .iter()
+        .find_map(|&id| {
+            let span = doc.span(id)?;
+            let record = std::str::from_utf8(&part.bytes[span.clone()]).unwrap();
+            (record.contains("MEASURE_WITH_UNIT") && record.contains("'nominal value'"))
+                .then_some(span)
+        })
+}
+
+#[test]
+fn edited_marked_basic_location_survives_two_saves() {
+    edited_location_survives_two_saves(95, 97, true, "hole.position:holes:12");
+}
+
+#[test]
+fn edited_marked_nominal_location_survives_two_saves() {
+    edited_location_survives_two_saves(50, 52, false, "hole.function:holes:9");
+}
+
+fn edited_location_survives_two_saves(old: i32, new: i32, basic: bool, question: &str) {
+    let (mut stored, _) = accepted_all();
+    let answers = stored.clone();
+    if basic {
+        stored.insert(question.into(), json!("none"));
+    }
+    let source = load(written(&answers, &stored));
+    let span = location_measure(&source, f64::from(old), basic).unwrap();
+    let mut text = String::from_utf8(source.bytes.to_vec()).unwrap();
+    let record = text[span.clone()].replace(
+        &format!("LENGTH_MEASURE({old}.)"),
+        &format!("LENGTH_MEASURE({new}.)"),
+    );
+    assert_ne!(text[span.clone()], record);
+    text.replace_range(span, &record);
+    let mut part = load(text.into_bytes());
+    assert!(location_measure(&part, f64::from(new), basic).is_some());
+    for _ in 0..2 {
+        let analysis = api::analyse(&part).unwrap();
+        (part, _) = saved_again(&part, &analysis);
+        assert!(
+            location_measure(&part, f64::from(new), basic).is_some(),
+            "lost {new} mm on saving {question}"
+        );
+    }
+}
+
+#[test]
+fn flatness_on_the_files_moved_datum_survives_two_saves() {
+    let (stored, _) = accepted_all();
+    assert_eq!(stored["datum.A"], json!([2]));
+    assert_eq!(stored["datum.A.flatness"], "none");
+    let mut answers = stored.clone();
+    answers.insert("datum.A".into(), json!([4]));
+    answers.insert("datum.A.flatness".into(), json!("0.05"));
+    let mut part = load(written(&answers, &stored));
+    let has_flatness = |part: &LoadedPart| {
+        specify_core::existing::read_existing(part)
+            .unwrap()
+            .iter()
+            .any(|e| e.r#type == "Flatness" && e.faces == [4] && e.value == Some(0.05))
+    };
+    assert!(has_flatness(&part));
+    for _ in 0..2 {
+        let analysis = api::analyse(&part).unwrap();
+        (part, _) = saved_again(&part, &analysis);
+        assert!(has_flatness(&part), "lost flatness on the file's datum");
+    }
+}
+
+#[test]
+fn an_extra_marked_note_survives_two_saves() {
+    let (mut stored, _) = accepted_all();
+    stored.insert("part.notes".into(), json!(["KEEP DRY"]));
+    let mut answers = stored.clone();
+    let notes = json!(["KEEP DRY", "DEBURR ALL OVER"]);
+    answers.insert("part.notes".into(), notes.clone());
+    let mut part = load(written(&answers, &stored));
+    assert_eq!(
+        specify_core::existing::part_settings_provenance(&part).unwrap()["notes"],
+        json!(["specify-core:written:v1", "specify-core:written:v1"])
+    );
+    for _ in 0..2 {
+        let analysis = api::analyse(&part).unwrap();
+        (part, _) = saved_again(&part, &analysis);
+        assert_eq!(
+            specify_core::existing::part_settings(&part).unwrap()["notes"],
+            notes
+        );
+    }
+}
+
 #[test]
 fn a_marked_position_tolerance_contradicts_stored_none() {
     let hole = "hole.position:holes:12";
