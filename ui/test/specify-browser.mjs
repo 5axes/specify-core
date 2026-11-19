@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { chromium, expect } from '@playwright/test';
 // <SpecifyReview> in the harness page (test/harness, ?specify=1) on the spindle: editable, then readOnly.
 // The harness's engine records each call the component makes of it on window.__calls. Run by
@@ -95,6 +96,31 @@ try {
     await check(panel(page).locator('.pmi-lab-suggestion')).toHaveCount(0);
     await page.close();
   }
+  // No inspection callback: the shared component filters unapproved defaults and preserves the
+  // displayed balloon in both exports, using its own given-answer review.
+  {
+    const page = await openPage(false, 'test/fixtures/gramil_shaft_before.step.gz');
+    const material = panel(page).locator('[data-question="part.material"] input');
+    await material.fill('Aluminium 6082-T6');
+    await material.press('Enter');
+    await panel(page).getByRole('tab', { name: /^Characteristics/ }).click();
+    const row = panel(page).locator('.pmi-lab-table tr').filter({ hasText: 'Material: Aluminium 6082-T6' });
+    await check(row.getByRole('checkbox', { name: 'Inspect 12', exact: true })).toBeVisible();
+    const download = async (name) => {
+      const [file] = await Promise.all([
+        page.waitForEvent('download'), page.locator('#specify-exports').getByRole('button', { name, exact: true }).click(),
+      ]);
+      return file.path();
+    };
+    const csv = readFileSync(await download('Inspection list (CSV)'), 'utf8');
+    assert.deepEqual(csv.trimEnd().split('\n').slice(1), ['12,,Part,Material: Aluminium 6082-T6,,,,,,']);
+    const path = await download('AS9102 FAI (Excel)');
+    const form3 = execFileSync('unzip', ['-p', path, 'xl/worksheets/sheet3.xml'], { encoding: 'utf8' });
+    assert.match(form3, /<c r="A5"[^>]*><is><t [^>]*>12<\/t>/);
+    assert.match(form3, /Material: Aluminium 6082-T6/);
+    assert.doesNotMatch(form3, /ISO 2768|Ra 3.2|M4×|M2×/, 'no unapproved part notes or threads');
+    await page.close();
+  }
   // A host that keeps suggestions itself (the editor: onKeep, and kept for the ticks): Keep goes to
   // the host and nothing is answered; the question the host lists as kept is ticked in its row.
   {
@@ -110,6 +136,14 @@ try {
     // On the question kept: what the Ø3.3 hole is for.
     assert.match(await panel(page).locator('.pmi-lab-tick').evaluate(el => el.closest('.pmi-lab-item')?.textContent ?? ''), /What is the Ø3\.3 hole for\?/);
     assert.ok(!(await calls(page)).slice(before).includes('questions'), 'the host keeps it: no answer is committed');
+    const [file] = await Promise.all([
+      page.waitForEvent('download'),
+      page.locator('#specify-exports').getByRole('button', { name: 'Inspection list (CSV)', exact: true }).click(),
+    ]);
+    const csv = readFileSync(await file.path(), 'utf8');
+    assert.equal(csv.trimEnd().split('\n').length, 2, 'only the one explicitly kept thread is exported');
+    assert.match(csv, /M4×0.7-6H/);
+    assert.doesNotMatch(csv, /ISO 2768|Ra 3.2|M2×/);
     await page.close();
   }
   // Read only: a PMI viewer. The spindle Specify wrote (semantic PMI linked to graphical PMI) shows what is

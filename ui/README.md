@@ -92,6 +92,16 @@ const slots: SpecifySlots = { view: viewElement, panel: panelElement, exports: e
 />
 ```
 
+CSV and AS9102 exports use the given answers and the defaults named in `kept`, and exclude
+suggestions still in `toReview`. They retain the displayed characteristic IDs when filtering.
+The default export path reviews those answers with the bundled engine. Hosts serving their own
+engine can supply `inspectionIntent`, returning intent built from given/kept answers and any defaults
+the host explicitly listed and obtained approval for. Returning `null` cancels the download.
+
+The worker's legacy `write` operation **writes every default**, including defaults absent from
+`args.answers`. Hosts must obtain approval for every default before choosing that operation.
+The local Specify app saves through the command's session API with the approved defaults.
+
 ### Read-only mode
 
 `<SpecifyReview readOnly />` (default `false`) is a PMI viewer: the 3D view with the PMI that is set, and a list of it.

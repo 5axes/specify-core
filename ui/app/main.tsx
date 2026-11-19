@@ -166,12 +166,14 @@ function App() {
       const first = await getConfig();
       setConfig(first);
       document.title = `${first.name} — Specify`;
-      const heartbeat = keepAlive(setConfig, () => {
+      const heartbeat = keepAlive(setConfig, (stopped) => {
+        if (stopped) setConfirming(null);
+        setStopped(stopped);
+      }, () => {
         ended = true;
         unlisten();
-        setConfirming(null);
-        setStopped(true);
-      }, () => unlisten());
+        sessionRef.current?.close();
+      });
       stop = heartbeat.stop;
       refreshConfig.current = heartbeat.refresh;
       worker.current = createIntentEngine({ wasmUrl: first.wasmUrl });
@@ -182,6 +184,7 @@ function App() {
       ]);
       const answersSession = createSession(answers.rev, answers.parts);
       sessionRef.current = answersSession;
+      if (ended) answersSession.close();
       unwatch = answersSession.subscribe(() => setDirty(answersSession.dirty()));
       // An assembly's parts: the page shows one at a time, first the first the session has answers for.
       const listed = (await worker.current.request<PartRow[]>('parts', { name: first.name, bytes })).map(({ part, name, written }) => ({ part, name, written: written === true }));
@@ -241,7 +244,7 @@ function App() {
         if (snapshot) answersSession.fileAnswers(row.part, snapshot.analysis.resume?.answers ?? {});
       }
     })().catch((error: unknown) => setProblem(message(error)));
-    return () => { stop(); unlisten(); unwatch(); worker.current?.dispose(); };
+    return () => { stop(); unlisten(); unwatch(); sessionRef.current?.close(); worker.current?.dispose(); };
   }, []);
 
   useEffect(() => {

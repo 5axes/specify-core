@@ -25,10 +25,9 @@ let part: number | undefined;
 // The open file has parts but no assembly to write a parts list to (Specify refused once).
 const noAssemblyFiles = new Set<string>();
 
-// The editor draws and writes Specify's defaults, listed for review (agreed 2026-10-16). From
-// specify-core alpha.6 an unanswered default is not written unless accepted, so every review and
-// write accepts them; an intent item is a default again when the person has not answered it, and
-// its question stays open, as the engine leaves it.
+// Legacy 'review' previews defaults as suggestions, marking unanswered intent items as defaults
+// and keeping their questions open. Legacy 'write' WRITES EVERY DEFAULT without checking approvals.
+// 'review-given' and 'review-analysis-given' review only the answers supplied.
 // Specify's refusal to write a BOM into a file with no assembly structure: its code from specify-core
 // #156 (bom_no_assembly), and the wording of 0.1.12 and 0.1.13 before it.
 const noAssemblyRefusal = (error: unknown) => /bom_no_assembly|requires an assembly product definition|has no assembly structure/.test(String(error));
@@ -82,6 +81,9 @@ self.onmessage = ({ data }) => {
           sourceId = args.sourceId; part = args.part;
         }
         if (operation === 'write') {
+          // Legacy 'write' API: WRITES EVERY DEFAULT, including defaults absent from args.answers.
+          // Hosts must obtain approval for every default before choosing this operation.
+          // The local Specify app saves through the command's approved-defaults session API.
           // A part of an assembly is written with its parts-list row: Specify's suggestions for what
           // was not answered, and every part numbered. A file of several parts not placed in an
           // assembly (no assembly product definition) has no parts list to write them to: Specify
@@ -115,6 +117,10 @@ self.onmessage = ({ data }) => {
         } else if (operation === 'rematch') {
           result = JSON.parse(engine.rematchAnswers(JSON.stringify(args.answers), args.evidence ? JSON.stringify(args.evidence) : null, args.automatic ? JSON.stringify(args.automatic) : null));
         } else result = operation === 'open' ? { ...JSON.parse(engine.snapshot()), evidence: JSON.parse(engine.evidence()) } : reviewed(args.answers);
+      } else if (operation === 'review-analysis-given') {
+        // Shared component inspection fallback: a pure review of given/kept answers. This works
+        // from analysis alone, so the host need not provide the original STEP bytes.
+        result = JSON.parse(module.review(JSON.stringify(args.analysis), JSON.stringify(args.answers)));
       } else if (operation === 'parts') {
         result = JSON.parse(module.IntentEngine.parts(args.name, args.bytes));
       } else if (operation === 'part-mesh') {

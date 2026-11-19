@@ -52,6 +52,24 @@ test('a page change is sent at the session\'s rev; on a 409 it is reapplied over
   assert.deepEqual(seen.at(-1)[0], s.answers);
 });
 
+test('a stale answer response arriving after page close cannot start another PUT', async () => {
+  const calls = [];
+  let refuse;
+  const session = createSession(0, { 0: {} }, (rev, part, answers, signal) => {
+    calls.push({ rev, part, answers, signal });
+    return new Promise((_resolve, reject) => { refuse = reject; });
+  });
+  const store = session.store(0);
+  store.set({ material: 'Steel' }, {});
+  await Promise.resolve();
+  session.close();
+  assert.equal(calls[0].signal.aborted, true);
+  refuse(new Refused('stale', 409, { rev: 1, parts: { 0: { edges: 'Break 0.2' } } }));
+  await store.settled();
+  assert.equal(calls.length, 1, 'the stale-response retry is cancelled');
+  assert.deepEqual(session.parts(), { 0: {} }, 'a late response does not alter the closed session');
+});
+
 test('events: an agent\'s change lands, the page\'s own echo changes nothing, another part is ignored', async () => {
   const s = session(3, { a: 1 });
   const store = createSessionStore(0, 3, { a: 1 }, { a: 1 }, s.put);

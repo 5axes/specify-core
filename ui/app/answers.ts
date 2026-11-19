@@ -49,6 +49,8 @@ export interface AnswersSession {
   dirty(): boolean;
   /** Called on every change that can change ``dirty()``. */
   subscribe(listener: () => void): () => void;
+  /** The page is leaving. Abort every in-flight PUT and prevent queued changes or retries. */
+  close(): void;
 }
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
@@ -75,6 +77,7 @@ const NONE = asGiven({});
 const HISTORY = 500;
 
 export function createSession(rev: number, parts: Record<string, PmiAnswers>, put = putAnswers): AnswersSession {
+  const requests = new AbortController();
   let state = { rev, parts: { ...parts } };
   // Each revision's answers (as given) by part: what a save of it put on disk.
   const history = new Map<number, Record<string, string>>();
@@ -98,7 +101,7 @@ export function createSession(rev: number, parts: Record<string, PmiAnswers>, pu
 
   /** The session at ``at`` holds ``changes``: every part's answers (``all``), or the parts changed. */
   const known = (at: number, changes: Record<string, PmiAnswers>, all: boolean, source: AnswersSource) => {
-    if (at < state.rev) return;
+    if (requests.signal.aborted || at < state.rev) return;
     state = { rev: at, parts: all ? { ...changes } : { ...state.parts, ...changes } };
     remember();
     if (awaited !== null && at >= awaited) { onDisk = history.get(at)!; awaited = null; }
@@ -143,6 +146,7 @@ export function createSession(rev: number, parts: Record<string, PmiAnswers>, pu
 
       /** Sends the oldest pending change, onto the answers the session holds now (others' kept). */
       const send = async () => {
+        if (requests.signal.aborted) return;
         const change = pending[0]!;
         for (let attempt = 0; attempt < 8; attempt++) {
           const at = state.rev;
@@ -150,11 +154,12 @@ export function createSession(rev: number, parts: Record<string, PmiAnswers>, pu
           const wanted = reapply(base, change.before, change.after);
           if (sameAnswers(wanted, base)) return; // The session has it already.
           try {
-            const { rev: next } = await put(at, part, wanted);
+            const { rev: next } = await put(at, part, wanted, requests.signal);
             // At ``next`` the session holds ``wanted`` for this part, and the others as at ``at``.
             known(next, { [key]: wanted }, false, 'page');
             return;
           } catch (error) {
+            if (requests.signal.aborted) return;
             if (!(error instanceof Refused) || error.status !== 409 || typeof error.body.rev !== 'number' || !error.body.parts) throw error;
             // Someone else changed the answers: they are shown, and the change is reapplied over them.
             known(error.body.rev, error.body.parts as Record<string, PmiAnswers>, true, lastSource);
@@ -167,7 +172,7 @@ export function createSession(rev: number, parts: Record<string, PmiAnswers>, pu
         part,
         get: () => current,
         set(answers, base) {
-          if (sameAnswers(answers, base)) return;
+          if (requests.signal.aborted || sameAnswers(answers, base)) return;
           pending.push({ before: base, after: answers });
           update('page');
           changed();
@@ -205,6 +210,7 @@ export function createSession(rev: number, parts: Record<string, PmiAnswers>, pu
       return [...new Set([...Object.keys(now), ...Object.keys(onDisk)])].some((k) => (now[k] ?? NONE) !== (onDisk[k] ?? NONE));
     },
     subscribe(listener) { watchers.add(listener); return () => { watchers.delete(listener); }; },
+    close() { requests.abort(); },
   };
   return session;
 }

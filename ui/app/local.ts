@@ -63,7 +63,9 @@ async function json<T>(request: Promise<Response>): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-export const getConfig = (signal?: AbortSignal) => json<LocalConfig>(fetch('config', { cache: 'no-store', signal }));
+export const getConfig = (signal?: AbortSignal, onResponse?: () => void) => json<LocalConfig>(
+  fetch('config', { cache: 'no-store', signal }).then((response) => { onResponse?.(); return response; }),
+);
 
 /** The STEP as on disk (gzipped if the file is); in diff mode ``old`` is OLD's. */
 export async function getFile(rev: 'old' | 'new' = 'new'): Promise<Blob> {
@@ -76,8 +78,8 @@ export const getAnswers = () => json<SessionAnswers>(fetch('answers', { cache: '
 
 /** Replaces part ``part``'s answers if the session is still at ``rev``: the new rev. A 409 is
  * thrown as `Refused` with the current ``rev`` and ``parts``. */
-export const putAnswers = (rev: number, part: number, answers: PmiAnswers) => json<{ rev: number }>(fetch('answers', {
-  method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rev, part, answers }),
+export const putAnswers = (rev: number, part: number, answers: PmiAnswers, signal?: AbortSignal) => json<{ rev: number }>(fetch('answers', {
+  method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rev, part, answers }), signal,
 }));
 
 /** The defaults the person approved, each with the value they saw, by part index:
@@ -128,64 +130,97 @@ export function listen(onAnswers: (event: AnswersEvent) => void, onSaved: (event
   return () => { stopped = true; window.clearTimeout(timer); source?.close(); };
 }
 
-/** Heartbeat every 30 s, with an early probe when SSE fails. A refused stream (e.g. all four
- * slots taken) is recoverable while config still answers. Retry failed probes for 25 s. */
-export function keepAlive(onConfig: (config: LocalConfig) => void, onStopped: () => void, onClose: () => void) {
-  const requests = new AbortController();
+/** Heartbeat every 30 s, retrying unreachable or busy commands every 4 s. A command is stopped
+ * after 25 s without a successful HTTP response. Continue probing so the page can recover.
+ * A visible page returning, or a timer gap over 10 s, starts a new observation window. */
+export function keepAlive(onConfig: (config: LocalConfig) => void, onStopped: (stopped: boolean) => void, onClose: () => void) {
+  let closed = false;
   let stopped = false;
-  let checking = false;
+  let lastSuccess = Date.now();
+  let lastTick = lastSuccess;
+  let nextProbe = lastSuccess + 30_000;
+  let active: { controller: AbortController; started: number } | null = null;
   let refreshPending = false;
-  let deadline = 0;
-  let retry = 0;
   let streamProbe = 0;
+  const status = (value: boolean) => {
+    if (stopped === value) return;
+    stopped = value;
+    onStopped(value);
+  };
+  const resumed = (now: number) => {
+    lastSuccess = now;
+    nextProbe = now;
+    // Give an in-flight probe a fresh response window too. A stale timer must never abort a
+    // healthy request made after wake, or disable Save before that request answers.
+    if (active) active.started = now;
+    lastTick = now;
+  };
+  const observeTime = () => {
+    const now = Date.now();
+    if (now < lastTick || now - lastTick > 10_000) resumed(now);
+    lastTick = now;
+    return now;
+  };
   const probe = () => {
-    if (stopped || checking) return;
-    checking = true;
-    getConfig(AbortSignal.any([requests.signal, AbortSignal.timeout(5_000)])).then((config) => {
-      checking = false;
-      if (stopped) return;
-      window.clearTimeout(deadline);
-      window.clearTimeout(retry);
-      deadline = 0;
-      onConfig(config);
+    const now = observeTime();
+    if (closed || active) return;
+    const request = { controller: new AbortController(), started: now };
+    active = request;
+    const finished = (alive: boolean, config?: LocalConfig) => {
+      const at = observeTime();
+      if (closed || active !== request) return;
+      active = null;
+      if (alive) {
+        lastSuccess = at;
+        status(false);
+        if (config) onConfig(config);
+      } else if (at - lastSuccess >= 25_000) status(true);
+      nextProbe = at + (config ? 30_000 : 4_000);
       if (refreshPending) {
         refreshPending = false;
         probe();
       }
-    }, () => {
-      checking = false;
-      if (stopped) return;
-      if (!deadline) deadline = window.setTimeout(() => { stop(); onStopped(); }, 25_000);
-      window.clearTimeout(retry);
-      retry = window.setTimeout(probe, 4_000);
-    });
+    };
+    getConfig(request.controller.signal, () => {
+      if (closed || active !== request) return;
+      // Headers alone prove reachability, including 503 or a response whose body cannot be read.
+      lastSuccess = observeTime();
+      status(false);
+    }).then((config) => finished(true, config), () => finished(false));
   };
-  // Navigation can cancel SSE before pagehide runs. Let the page cancel this probe before
-  // starting a connection that could race its close beacon.
+  const tick = () => {
+    const now = observeTime();
+    if (active && now - active.started >= 5_000) active.controller.abort();
+    if (!active && now >= nextProbe) probe();
+  };
+  // Navigation can cancel SSE before pagehide runs. Defer this connection until pagehide can
+  // cancel it, so it cannot arrive after the close beacon.
   const streamLost = () => {
-    if (stopped || streamProbe) return;
+    if (closed || streamProbe) return;
     streamProbe = window.setTimeout(() => { streamProbe = 0; probe(); }, 250);
   };
-  // A save needs config from after the write, even if a heartbeat was already in flight.
-  const refresh = () => { if (checking) refreshPending = true; else probe(); };
-  const timer = window.setInterval(probe, 30_000);
-  // A page entering the back/forward cache can come back.
+  const refresh = () => { if (active) refreshPending = true; else probe(); };
+  const visible = () => {
+    if (document.visibilityState !== 'visible' || closed) return;
+    resumed(Date.now());
+    probe();
+  };
+  const timer = window.setInterval(tick, 1_000);
   const gone = (event: PageTransitionEvent) => {
     if (event.persisted) return;
-    // The command cancels its close deadline if a new request follows this beacon.
     stop();
     onClose();
     navigator.sendBeacon('closed');
   };
   window.addEventListener('pagehide', gone);
+  document.addEventListener('visibilitychange', visible);
   const stop = () => {
-    stopped = true;
-    requests.abort();
+    closed = true;
+    active?.controller.abort();
     window.clearInterval(timer);
-    window.clearTimeout(deadline);
-    window.clearTimeout(retry);
     window.clearTimeout(streamProbe);
     window.removeEventListener('pagehide', gone);
+    document.removeEventListener('visibilitychange', visible);
   };
   return { streamLost, refresh, stop };
 }

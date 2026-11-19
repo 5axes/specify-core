@@ -13,6 +13,9 @@ import { balloonsBySource, type Characteristic, characteristics, noteStatements,
 import { as9102 } from './as9102';
 import { xlsx } from '../model/xlsx';
 import { readOnlyEngine } from './read-only';
+import { createIntentEngine } from '../engine/intent-engine';
+import type { WorkerClient } from '../engine/rpc';
+import { inspectionAnswers, inspectionCharacteristics } from './inspection';
 import { CharacteristicsTable, ExtraEditor, PurposeChoice, SpecBox, SuggestBox, SuggestionCard, TOLERANCE_PICKS, type ExtraDraft } from './inputs';
 import type { PmiLabel } from './labels';
 import type { Picker } from './picker';
@@ -52,7 +55,9 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   /** A file handed to the browser to save, by name. */
   onSaved?: (name: string) => void;
   onExport: (action: () => void, format?: 'csv' | 'xlsx') => void;
-  /** Gets the intent to use for inspection files at export time. Null cancels the export. */
+  /** Gets given/kept intent, or intent whose defaults the host explicitly approved.
+   * Null cancels the export. Without this callback, the bundled engine reviews given/kept
+   * answers without accepting other defaults. Displayed characteristic IDs are preserved. */
   inspectionIntent?: () => Promise<PmiIntent | null>;
   /** Structured exports ask for sign-in first. */
   gated?: boolean;
@@ -95,6 +100,8 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   // A refusal is shown by what was refused: a question's id, or null for the panel.
   const [error, setError] = useState<{ at: string | null; problem: PmiLabError } | null>(null);
   const [preview, setPreview] = useState<PmiIntent | null>(externalReview.intent);
+  const inspectionWorker = useRef<WorkerClient | null>(null);
+  useEffect(() => () => inspectionWorker.current?.dispose(), []);
   const [selection, setSelection] = useState<number[]>([]);
   const [mode, setMode] = useState<PickMode>('face');
   const [status, setStatus] = useState('');
@@ -711,12 +718,27 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     if (next === 'review') picker.current?.highlight(currentQuestion?.faces ?? []);
   };
   // Read when the file is written: an export resumed after sign-in carries edits made meanwhile.
-  const csvRows = useRef({ chars, skipped, preview, titles }); csvRows.current = { chars, skipped, preview, titles };
+  const csvRows = useRef({ chars, skipped, titles, answers, questions, kept, toReview });
+  csvRows.current = { chars, skipped, titles, answers, questions, kept, toReview };
   const inspection = async () => {
-    const { chars, skipped, preview, titles } = csvRows.current;
-    if (!inspectionIntent) return { chars, skipped, intent: preview };
-    const intent = await inspectionIntent();
-    return intent && { chars: characteristics(intent, session.analysis, titles), skipped, intent };
+    const { chars, skipped, titles, answers, questions, kept, toReview } = csvRows.current;
+    try {
+      let intent: PmiIntent | null;
+      if (inspectionIntent) intent = await inspectionIntent();
+      else {
+        inspectionWorker.current ??= createIntentEngine();
+        const review = await inspectionWorker.current.request<IntentReview>('review-analysis-given', {
+          analysis: session.analysis, answers: inspectionAnswers(answers, questions, kept, toReview),
+        });
+        intent = review.intent;
+      }
+      return intent && {
+        chars: inspectionCharacteristics(chars, characteristics(intent, session.analysis, titles)), skipped, intent,
+      };
+    } catch (failure) {
+      setError({ at: null, problem: asError(failure) });
+      return null;
+    }
   };
   const downloadCsv = () => onExport(async () => {
     const data = await inspection();
