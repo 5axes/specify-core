@@ -10,6 +10,9 @@
       /* The panel's pane is fixed over the whole page, as the view's is: only its panel is to be seen and hit. */
       #specify-panel .pmi-lab { background: transparent; pointer-events: none; }
       #specify-panel .pmi-lab-panel { pointer-events: auto; }
+      /* Host controls must sit above the fixed review panes, not behind the view's canvas. */
+      #specify-actions { position: fixed; left: 12px; bottom: 12px; z-index: 20; display: flex; gap: 8px; }
+      #specify-exports { display: flex; gap: 8px; }
     </style>
   </head>
   <body>

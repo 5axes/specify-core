@@ -7,12 +7,13 @@ import { addedOf, CALL_OUTS, describe, kindsFor, MAY_HAVE_DATUM, nextKey } from 
 import { codeOf } from './choose';
 import { appliedByRule, chosenForYou, type Chosen } from './chosen';
 import { datumChips, freeLetter, removal } from './datums';
-import { drawnShown, drawnViews, hasFileGraphics, partCentre, type DrawnPmi } from './drawn';
+import { defaultShowing, drawnShown, drawnViews, partCentre, type DrawnPmi } from './drawn';
 import { optionHint } from './hints';
-import { balloonsBySource, type Characteristic, characteristics, noteStatements, ranges, toCsv } from './characteristics';
+import { balloonsBySource, type Characteristic, byBalloon, characteristics, noteStatements, ranges, toCsv } from './characteristics';
 import { as9102 } from './as9102';
 import { xlsx } from '../model/xlsx';
 import { readOnlyEngine } from './read-only';
+import { inspectionAnswers } from './inspection';
 import { CharacteristicsTable, ExtraEditor, PurposeChoice, SpecBox, SuggestBox, SuggestionCard, TOLERANCE_PICKS, type ExtraDraft } from './inputs';
 import type { PmiLabel } from './labels';
 import type { Picker } from './picker';
@@ -20,7 +21,11 @@ import { createReviewView } from './review-view';
 import { answerOf, confirmRow, display, groupQuestions, needs, nextNeeding, questionForFace, rowState, summary, type QuestionGroup } from './review';
 import { MODES, type PickMode } from './selection';
 import './PmiLab.css';
-export type SpecifyEngine = Pick<PmiLabEngine, 'questions' | 'interpret' | 'preview'>;
+export type SpecifyEngine = Pick<PmiLabEngine, 'questions' | 'interpret' | 'preview'> & {
+  /** Optional host-specific review requested only when an inspection export runs.
+   * Display always uses preview; the original three-method host contract remains sufficient. */
+  inspection?(sessionId: string, answers: PmiAnswers): Promise<PmiIntent>;
+};
 /** Where the workspace shows Specify: the part in the 3D pane, the questions in the edit pane. */
 export interface SpecifySlots {
   view: HTMLElement; panel: HTMLElement; exports: HTMLElement | null;
@@ -45,13 +50,19 @@ function asError(error: unknown): PmiLabError {
   return { code: 'failed', message: String(error) };
 }
 
-export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, onExport, gated, after, onPick, showFaces, tints, externalAnswers, externalReview, disabled, focusRequest, toReview, onKeep, drawn: drawnPmi = null, datums = true, readOnly = false }: {
+export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, onExport, inspectionIntent, inspectionExports = true, gated, after, onPick, showFaces, tints, externalAnswers, externalReview, disabled, focusRequest, toReview, onKeep, kept, drawn: drawnPmi = null, datums = true, readOnly = false }: {
   engine: SpecifyEngine; session: PmiLabSession; slots: SpecifySlots;
   /** The question the queue's selected row is about: what the question slot shows. */
   slotQuestion?: string | null;
   /** A file handed to the browser to save, by name. */
   onSaved?: (name: string) => void;
   onExport: (action: () => void, format?: 'csv' | 'xlsx') => void;
+  /** Gets given/kept intent, or intent whose defaults the host explicitly approved.
+   * Null cancels the export. Optional engine.inspection reviews given/kept answers.
+   * Hosts implementing the original three methods retain their preview behaviour. */
+  inspectionIntent?: () => Promise<PmiIntent | null>;
+  /** Hide preview-download controls when the host owns saved-file inspection exports. */
+  inspectionExports?: boolean;
   /** Structured exports ask for sign-in first. */
   gated?: boolean;
   /** Shown after the questions: the drawing's own issues, in the same list. */
@@ -67,6 +78,8 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   toReview?: readonly string[];
   /** Keeps suggestions as they stand, the editor's way: accepted, as in its list, not answered. */
   onKeep?: (ids: readonly string[]) => void;
+  /** Questions kept as suggested without being answered (the editor's accepted): shown with a tick, like an answer. */
+  kept?: readonly string[];
   /** The PMI as drawn (Specify's pmiScene, less its notes block), when it has any graphics. */
   drawn?: DrawnPmi | null;
   /** Datum labels shown on the part: not until tolerancing is chosen (drawing-first plan). */
@@ -74,7 +87,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   /**
    * A PMI viewer: the 3D view and a list of the PMI that is set. Questions, answers, suggestions and the exports
    * are not rendered. Nothing reaches the host's ``engine.questions``, ``engine.interpret`` or ``onKeep``;
-   * ``engine.preview`` is still called, to label the answers given. Default false.
+   * ``engine.preview`` supplies labels. Default false.
    */
   readOnly?: boolean;
 }) {
@@ -103,10 +116,10 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     labels: true, defaults: true, existing: true, general: false, farSide: true,
   });
   // View PMI, when the scene has graphics: as our labels (Semantic), as drawn (Graphical, key
-  // 'drawn'), or both. Until one is chosen, Graphical when the file has its own graphical PMI,
-  // Semantic otherwise. The choice lasts while the part is open; it is not saved.
+  // 'drawn'), or both. Until one is chosen, Graphical when the file has its own graphical PMI
+  // (a file Specify wrote included), Semantic otherwise. The choice lasts while the part is open; it is not saved.
   const [chosenShowing, setShowing] = useState<'semantic' | 'drawn' | 'both' | null>(null);
-  const showing = chosenShowing ?? (drawnPmi && hasFileGraphics(drawnPmi) ? 'drawn' : 'semantic');
+  const showing = chosenShowing ?? defaultShowing(drawnPmi, Boolean(session.analysis.resume));
   // A face clicked that no question is about shows what the general tolerance says of it.
   const [peek, setPeek] = useState<number | null>(null);
   // Set by a label clicked: the question it opens is turned to without moving the view.
@@ -329,6 +342,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   const relabel = useCallback(async (next: PmiAnswers) => {
     const mine = ++previewing.current;
     try {
+      // Keep display traffic on the original preview contract. Inspection is lazy below.
       const shown = await live((id) => engine.preview(id, next));
       if (mine === previewing.current) setPreview(shown);
     } catch {
@@ -352,7 +366,8 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
       return;
     }
     if (saved && Object.keys(saved).length > 0) {
-      setResumed(true);
+      // Said only of answers the STEP carries: a host's own (an agent's, the browser's) are not "saved with".
+      setResumed(Object.keys(session.analysis.resume?.answers ?? {}).length > 0);
       void start.commit(null, saved, (asked) =>
         nextNeeding(asked.filter((g) => g.key !== 'part'), saved));
       return;
@@ -421,6 +436,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   const setChips = readOnly
     ? chips.filter((c) => c.existing || preview?.datums.find((d) => d.letter === c.letter)?.default !== true) : [];
   const setRows = readOnly ? chars.filter((r) => {
+    if (r.source.startsWith('datum:')) return true;
     if (r.source.startsWith('req:')) return preview?.requirements[Number(r.source.slice('req:'.length))]?.default !== true;
     if (r.source.startsWith('existing:') || r.source.startsWith('general:')) return true;
     if (r.source.startsWith('part:')) return partSet(r.source.slice('part:'.length));
@@ -526,6 +542,8 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   const chosen = toReview ? chosenForYou(questions, answers, session.analysis, toReview).filter((c) => toReview.includes(c.id))
     : chosenForYou(questions, answers, session.analysis);
   const chosenById = new Map(chosen.map((c) => [c.id, c]));
+  // Keep all asked for: its list is shown until it is confirmed or cancelled.
+  const [keepingAll, setKeepingAll] = useState(false);
   const applied = appliedByRule(preview);
   const card = (c: Chosen) => (
     <SuggestionCard
@@ -607,7 +625,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
         picker.current?.highlight([face]);
         const row = setRows.find((r) => r.faces.includes(face));
         setSelectedDatum(null);
-        setSelectedChar(row ? `${row.n}` : null);
+        setSelectedChar(row ? (row.n ? `${row.n}` : row.id) : null);
         onPick?.([face]);
         return;
       }
@@ -635,8 +653,9 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
       onPick?.(label.faces);
       stayPut.current = view !== 'table' && !readOnly && Boolean(label.question) && label.question !== current;
       if (view === 'table' || readOnly) {
-        const n = balloons.get(label.id.split(':').slice(0, 2).join(':'))?.[0];
-        if (n !== undefined) setSelectedChar(`${n}`);
+        const source = label.id.split(':').slice(0, 2).join(':');
+        const row = chars.find((row) => row.source === source);
+        if (row) setSelectedChar(row.n ? `${row.n}` : row.id);
       } else if (label.question?.startsWith('extra.')) editExtra(label.question);
       else if (label.question && label.question !== current) setCurrent(label.question);
       else if (label.group === 'general') {
@@ -674,7 +693,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
 
   // The balloon numbers of what a row specifies, beside its title.
   const rowBalloons = (g: QuestionGroup) => {
-    const numbers = chars.filter((c) => g.questions.some((q) => q.id === c.question)).map((c) => c.n);
+    const numbers = chars.filter((c) => c.n && g.questions.some((q) => q.id === c.question)).map((c) => c.n);
     return numbers.length ? <span className="bal" title="Balloon numbers">{ranges(numbers)}</span> : null;
   };
   const skip = (keys: readonly string[], out: boolean) => setSkipped((was) => {
@@ -704,24 +723,47 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     if (next === 'review') picker.current?.highlight(currentQuestion?.faces ?? []);
   };
   // Read when the file is written: an export resumed after sign-in carries edits made meanwhile.
-  const csvRows = useRef({ chars, skipped }); csvRows.current = { chars, skipped };
-  const downloadCsv = () => onExport(() => {
+  const exportRows = { chars, skipped, titles, answers, questions, kept, toReview,
+    notes: noteStatements(preview, session.analysis) };
+  const csvRows = useRef(exportRows);
+  csvRows.current = exportRows;
+  const inspection = async () => {
+    const { chars, skipped, titles, answers, questions, kept, toReview, notes } = csvRows.current;
+    try {
+      // Match the original three-method host: read the latest displayed rows AND notes
+      // when a deferred download runs, including edits made while signing in.
+      let intent: PmiIntent | null;
+      if (inspectionIntent) intent = await inspectionIntent();
+      else if (engine.inspection) intent = await engine.inspection(session.sessionId, inspectionAnswers(answers, questions, kept, toReview));
+      else return { chars, skipped, notes };
+      return intent && { chars: characteristics(intent, session.analysis, titles), skipped, notes: noteStatements(intent, session.analysis) };
+    } catch (failure) {
+      setError({ at: null, problem: asError(failure) });
+      return null;
+    }
+  };
+  const downloadCsv = () => onExport(async () => {
+    const data = await inspection();
+    if (!data) return;
     const stem = session.filename.replace(/\.(step|stp|p21)$/i, '');
-    saveFile(new File([toCsv(csvRows.current.chars, csvRows.current.skipped)], `${stem}-characteristics.csv`, { type: 'text/csv' }));
+    saveFile(new File([toCsv(data.chars, data.skipped)], `${stem}-characteristics.csv`, { type: 'text/csv' }));
     onSaved?.(`${stem}-characteristics.csv`);
   });
   // The same list as AS9102's Forms 1–3, for a first article inspection report.
-  const faiNotes = useRef(noteStatements(preview, session.analysis)); faiNotes.current = noteStatements(preview, session.analysis);
-  const downloadFai = () => onExport(() => {
+  const downloadFai = () => onExport(async () => {
+    const data = await inspection();
+    if (!data) return;
     const stem = session.filename.replace(/\.(step|stp|p21)$/i, '');
-    const book = xlsx(as9102({ name: stem }, csvRows.current.chars, csvRows.current.skipped, faiNotes.current));
+    const book = xlsx(as9102({ name: stem }, data.chars, data.skipped, data.notes));
     saveFile(new File([book as BlobPart], `${stem}-AS9102.xlsx`, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
     onSaved?.(`${stem}-AS9102.xlsx`);
   }, 'xlsx');
 
   // A row: its head and summary, a check to confirm, and when open its questions.
+  // A tick is for what the person (or their agent) answered or kept; a suggestion not yet kept has none.
+  const isKept = (q: PmiQuestion) => q.id in answers || Boolean(kept?.includes(q.id));
   const questionItem = (q: PmiQuestion, g: QuestionGroup, titled = true) => (
-    <QuestionItem titled={titled}
+    <QuestionItem titled={titled} kept={isKept(q)}
       key={`${q.id}:${JSON.stringify(answers[q.id])}`} q={q} answers={answers} active={q.id === current}
       selection={selection} mode={mode} error={errorAt(q.id)} typed={typed[q.id] ?? null}
       locked={readOnly} onSpec={(text) => spec(q, text)}
@@ -954,7 +996,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
               type="button" role="tab" aria-selected={view === 'table'} className={view === 'table' ? 'on' : ''}
               onClick={() => switchView('table')}
             >
-              Characteristics ({chars[chars.length - 1]?.n ?? 0})
+              Characteristics ({byBalloon(chars).length})
             </button>
           </div>
           {view === 'review' && (chosen.length > 0 || problems.length > 0) && (
@@ -962,9 +1004,9 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
               {chosen.length > 0 && !readOnly && (
                 <span>{chosen.length} suggestion{chosen.length === 1 ? '' : 's'}</span>
               )}
-              {chosen.length > 1 && !readOnly && (
-                <button type="button" className="ok" onClick={() => keepChosen(chosen.map((c) => c.id))}>
-                  ✓ Keep all
+              {chosen.length > 1 && !readOnly && !keepingAll && (
+                <button type="button" className="ok" onClick={() => setKeepingAll(true)}>
+                  Keep all
                 </button>
               )}
               {problems.length > 0 && (
@@ -981,11 +1023,23 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
               </label>
             </div>
           )}
+          {/* Keep all keeps only what the person has seen: the whole list first, then a confirmation (ADR P9). */}
+          {view === 'review' && keepingAll && chosen.length > 1 && !readOnly && (
+            <div className="pmi-lab-keep-all" role="group" aria-label="Keep all suggestions">
+              <p>Keep these {chosen.length} suggestions? Each is written as a requirement.</p>
+              <ul>{chosen.map((c) => <li key={c.id} data-keep={c.id}>{c.what}</li>)}</ul>
+              <button type="button" className="ok" onClick={() => { setKeepingAll(false); keepChosen(chosen.map((c) => c.id)); }}>
+                Keep these {chosen.length}
+              </button>{' '}
+              <button type="button" onClick={() => setKeepingAll(false)}>Cancel</button>
+            </div>
+          )}
         </header>
         <fieldset className="pmi-lab-rows" ref={rowsBox} disabled={disabled}>
           {view === 'table' ? (
             <CharacteristicsTable
               rows={chars} selected={selectedChar} onSelect={showChar} onDownload={downloadCsv}
+              exportable={inspectionExports}
               skipped={skipped} onSkip={skip} onEdit={readOnly ? () => null : editChar}
               onCallOut={(row) => (!readOnly && row.source.startsWith('general:')
                 ? () => callOut(Number(row.source.slice('general:'.length)), row.text) : null)}
@@ -1015,7 +1069,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
                 }
                 if (c && !readOnly) return card(c);
                 if (onlySuggestions) return null;
-                return <FoldedLine key={q.id} name={PART_FIELD[q.id] ?? q.prompt} value={partValue(q, answers)} onOpen={() => toggle(q.id)} />;
+                return <FoldedLine key={q.id} kept={isKept(q)} name={PART_FIELD[q.id] ?? q.prompt} value={partValue(q, answers)} onOpen={() => toggle(q.id)} />;
               })}
               {notes.length > 0 && (unfolded === 'notes' || unfolded?.startsWith('note:') ? (
                 <div className="pmi-lab-notes">
@@ -1029,7 +1083,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
                     />
                   ) : (
                     <FoldedLine
-                      key={q.id} name={PART_FIELD[q.id] ?? q.prompt} value={partValue(q, answers)}
+                      key={q.id} kept={isKept(q)} name={PART_FIELD[q.id] ?? q.prompt} value={partValue(q, answers)}
                       onOpen={() => setUnfolded(`note:${q.id}`)}
                     />
                   )))}
@@ -1140,7 +1194,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
         ? <PartField locked={readOnly} key={`${q.id}:${JSON.stringify(answers[q.id])}`} q={q} answers={answers} error={errorAt(q.id)} onAnswer={(value) => answer(q, value)} />
         : questionItem(q, g, false)}</div>, slots.question);
     })()}
-    {!readOnly && slots.exports && <>
+    {inspectionExports && !readOnly && slots.exports && <>
       {createPortal(<button type="button" onClick={downloadCsv} disabled={!chars.length} title="Every dimension and tolerance, numbered, with its nominal and limits">
         {gated ? 'Inspection list (CSV) · Sign in' : 'Inspection list (CSV)'}
       </button>, slots.exports)}
@@ -1165,13 +1219,18 @@ export function saveFile(file: File): void {
 }
 
 /** A setting folded to one line: its name and value; a tap unfolds it. */
-function FoldedLine({ name, value, onOpen }: { name: string; value: string; onOpen: () => void }) {
+function FoldedLine({ name, value, onOpen, kept = false }: { name: string; value: string; onOpen: () => void; kept?: boolean }) {
   return (
     <button type="button" className="pmi-lab-line" aria-expanded={false} onClick={onOpen}>
       <span className="name"><Chevron open={false} />{name}</span>
-      <span className="value">{value}</span>
+      <span className="value">{kept && <Tick />}{value}</span>
     </button>
   );
+}
+
+/** The mark of an answer given or a suggestion kept; never shown for a suggestion that has not been kept. */
+function Tick() {
+  return <span className="pmi-lab-tick" role="img" aria-label="answered">✓</span>;
 }
 
 /** ▸ folded, ▾ open: every row says which it is and that a tap changes it. */
@@ -1262,10 +1321,12 @@ function shortValue(q: PmiQuestion, value: unknown): string {
 
 function QuestionItem({
   q, answers, active, selection, mode, error, typed, onOpen, onAnswer, onSpec, onConfirm, onReset, onMode,
-  onDefaultSelection, titled = true, locked = false,
+  onDefaultSelection, titled = true, kept = false, locked = false,
 }: {
   /** Read only: the answer controls are shown disabled, the editing ones hidden. */
   locked?: boolean;
+  /** Answered, or kept as suggested: ticked. */
+  kept?: boolean;
   /** Whether it shows its prompt: not under a queue row that already does. */
   titled?: boolean;
   q: PmiQuestion; answers: PmiAnswers; active: boolean; selection: number[]; mode: PickMode;
@@ -1287,7 +1348,7 @@ function QuestionItem({
     return (
       <button type="button" className={`pmi-lab-item${need ? ` ${need}` : ''}`} onClick={onOpen} data-question={q.id}>
         <span className="prompt">{q.prompt}{optional}</span>
-        <span className="value">{shortValue(q, answerOf(q, answers))} ›</span>
+        <span className="value">{kept && <Tick />}{shortValue(q, answerOf(q, answers))} ›</span>
       </button>
     );
   }
@@ -1295,6 +1356,7 @@ function QuestionItem({
     <div className={`pmi-lab-item on${need ? ` ${need}` : ''}`} data-question={q.id}>
       <div className="prompt">
         {titled && <>{q.prompt}{optional}</>}
+        {kept && <Tick />}
         {q.id in answers && q.default !== null && !locked && (
           <button type="button" className="reset" onClick={onReset}>Reset to default</button>
         )}
@@ -1302,7 +1364,7 @@ function QuestionItem({
       {q.reason && need === 'check' && (
         <div className="reason">
           {q.reason}{' '}
-          {!locked && <button type="button" className="ok" onClick={onConfirm}>✓ Looks right</button>}
+          {!locked && <button type="button" className="ok" onClick={onConfirm}>Looks right</button>}
         </div>
       )}
       <div className="why">{q.why}</div>

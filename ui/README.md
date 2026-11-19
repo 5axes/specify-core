@@ -92,6 +92,40 @@ const slots: SpecifySlots = { view: viewElement, panel: panelElement, exports: e
 />
 ```
 
+Hosts without characteristic-number metadata retain the original sequential preview balloons and
+CSV/AS9102 contents. STEP-aware previews and saved-file inspections explicitly mark their rows
+as using STEP numbering, including unnumbered settings.
+
+In the local app, **Inspection list (CSV)** and **AS9102 FAI (Excel)** describe only the last saved
+STEP, or the opened STEP in read-only mode. Before the first Save they are disabled and say
+“Save first: the inspection files describe the saved STEP”. After an in-place Save the label names
+the source file. Further answer edits do not change either export. Answers (JSON) still exports the answers.
+
+`GET file?rev=new` in specify-core 0.2.0 serves the input, updated after an in-place save. It cannot
+serve Save's separate output. After saving a separate copy, inspection exports stay disabled and
+show a copyable command with the real path: `specify-core open '<saved copy>' --read-only`.
+Only bytes served by the session are analysed; the app never reconstructs a saved file.
+
+The shared component keeps the original three-method host contract. `SpecifyEngine.inspection`
+is optional and called only when an inspection export runs. Display always uses `engine.preview`;
+keeping suggestions and receiving host reviews never requests inspection. Without `inspection`,
+shared-component exports retain the host's preview behaviour. `inspectionIntent` remains an optional
+export override. The local app owns its saved-file buttons and suppresses shared preview-download and CSV-inclusion controls with `inspectionExports={false}`.
+
+Stored STEP identifiers supply inspection numbers, including PMI absent from the interview review.
+Material belongs on AS9102 Form 2 only. Form 3 contains numbered characteristics only.
+
+The worker's legacy `write` operation **writes every default**, including defaults absent from
+`args.answers`. Hosts must obtain approval for every default before choosing that operation.
+The local Specify app saves through the command's session API with the approved defaults.
+
+On non-persisted `pagehide`, the local app cancels pending answer requests and saves before sending
+`closed`. Cancellation prevents queued work from starting and avoids waiting for a slow write during
+unload. An already dispatched request may have reached the command before the browser aborts it.
+The specify-core 0.2.0 `closed` endpoint starts a 90-second idle countdown. It does not revoke the
+session or reject later saves. Any later request, including a save, cancels that countdown. Browser
+cancellation therefore cannot guarantee command-side arrival order or retract an accepted save.
+
 ### Read-only mode
 
 `<SpecifyReview readOnly />` (default `false`) is a PMI viewer: the 3D view with the PMI that is set, and a list of it.
@@ -115,6 +149,46 @@ calling yours, and `preview` passes through; use it for your own read-only code 
 
 The helpers `characteristics`, `as9102`, `xlsx`, the diff and PMI-diff functions and the `types/pmi` types are
 exported too; see `src/index.ts`.
+
+## The local app (`specify-core open`, or an agent's `show`)
+
+`app/` is Specify on your own computer: the page served on 127.0.0.1 under the contract in specify-core's
+`docs/open.md` and `docs/session.md`. An AI agent with Specify as its MCP server (`specify-core mcp`) opens a part,
+answers what it was told and calls `show`; by hand, `specify-core open part.step` (or `open --diff old.step
+new.step`) serves the same page. The answers live in the command's session: the page sends its changes there
+(`PUT answers`, reapplied on a 409) and hears everyone else's (`GET events`); an agent's answer lands in the open
+page with "Updated by your agent", its question opened and its faces lit. Save asks the command to write the
+specified STEP (beside it as `part.specified.step`), the same file the agent's `save` writes. Save never refuses for
+questions still open (many AP242 files have no complete answer to everything): it writes the answers given and says
+which questions are still open. Specify's defaults are written only when approved (ADR P9): Save with defaults first lists every default it would write, by question and value, and saves only once the person confirms that list; Keep all likewise lists what it will keep first.
+
+Read only (`--read-only`) shows the part's PMI. In diff mode the page shows what changed (StepDiff), lists what the
+command's comparison leaves to decide (requirements not carried, carried ones to check, new questions), each
+opening its question in the new revision's requirements, and Save writes the new revision with the carried
+answers. An assembly is shown a part at a time. It offers the answers JSON, inspection list (CSV) and AS9102
+workbook as downloads; it has no account, AI chat or analytics, stores nothing in the browser, and requests nothing
+but its own origin; IBM Plex Mono is bundled.
+
+`npm run build:app` builds it into `dist-app/` (relative URLs, no inline scripts; the engine is not included: the
+command serves its own at `config.wasmUrl`). Each release attaches it as `specify-ui-app-<version>.tgz` (the app's
+files at the archive's root) with a `.sha256` and a build provenance attestation (`gh attestation verify
+specify-ui-app-<version>.tgz --repo pzfreo/specify-ui`). To try it: `specify-core open --app dist-app --wasm public/wasm/intent part.step`.
+
+The build also writes `specify-ui-app.json` at the root of `dist-app/` and the app archive:
+`{"name":"specify-ui-app","version":"<package.json version>","api":1}`. The manifest lets specify-core
+verify the app it downloads. `api` is the session API, defined once as `SESSION_API` in
+`app/session-api.ts`, shared by the manifest and the page's compatibility check. The page refuses
+to load a review when `config.api` differs, naming both versions and asking for an update.
+An absent `config.api` remains compatible with specify-core 0.2.0.
+
+`npm run test:app` builds it and drives it in Chromium under the real command (`SPECIFY_CORE`, default
+`specify-core` on `PATH`; it needs the session contract): `test/app-browser.mjs` by hand (answer, save, read the PMI
+back with `specify-core analyse`, resume, read only, diff on the enclosure fixtures, an `--in-place` save over a
+file changed on disk, the event stream refused and regained) and `test/app-agent.mjs` as an agent (`specify-core
+mcp` over stdio: open, answer, `show`, the page's edit seen by `changes`, both saves, an assembly, a symbolic link,
+a diff). Both check that no request leaves 127.0.0.1. The release workflow runs it against the Linux binary of the
+specify-core release `engines.lock.json` pins before it attaches the app. It takes about three minutes (it waits for the heartbeat and for the
+command to stop after `closed`).
 
 ## Development
 

@@ -21,7 +21,12 @@ export interface FaiPart { name: string; number?: string; revision?: string; dra
 /** Forms 1–3, for ``rows`` (the inspection list, less those skipped) and the part's notes. */
 export function as9102(part: FaiPart, rows: readonly Characteristic[], skipped: ReadonlySet<string>,
   notes: readonly { key: string; text: string }[]): Sheet[] {
-  const listed = rows.filter((r) => !skipped.has(inspectKey(r)));
+  // STEP-aware rows use only stored/planned IDs; Material belongs on Form 2. Legacy hosts
+  // retain origin/main's complete preview list, including sequentially ballooned part notes.
+  const listed = rows.filter((r) => {
+    const hasId = r.identifier !== undefined ? r.identifier !== '' : r.n > 0;
+    return !skipped.has(inspectKey(r)) && (r.numbering !== 'step' || (hasId && r.source !== 'part:material'));
+  });
   // Each form repeats the part it is about, as AS9102's do.
   const heading = (width: number): Cell[][] => [
     ['Part Number', part.number ?? '', 'Part Name', part.name, ...Array(Math.max(0, width - 4)).fill('')],

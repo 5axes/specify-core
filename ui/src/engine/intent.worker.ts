@@ -1,8 +1,12 @@
 import { readCarried } from './carried';
+import { withCharacteristicNumbers, type NumberScene } from './characteristic-numbers';
+import type { IntentReview } from '../types/pmi';
+import { inspectionFromStep } from '../specify/saved-inspection';
 
 interface IntentModule {
   default(): Promise<unknown>;
   review(analysis: string, answers: string): string;
+  pmiScene(bytes: Uint8Array, part?: number): string;
   interpret(analysis: string, answers: string, question: string, text: string): string;
   answerEdit(state: string, answers: string): string;
   tolerancingEdit(state: string, mode: string | undefined, answers: string): string;
@@ -25,10 +29,9 @@ let part: number | undefined;
 // The open file has parts but no assembly to write a parts list to (Specify refused once).
 const noAssemblyFiles = new Set<string>();
 
-// The editor draws and writes Specify's defaults, listed for review (agreed 2026-10-16). From
-// specify-core alpha.6 an unanswered default is not written unless accepted, so every review and
-// write accepts them; an intent item is a default again when the person has not answered it, and
-// its question stays open, as the engine leaves it.
+// Legacy 'review' previews defaults as suggestions, marking unanswered intent items as defaults
+// and keeping their questions open. Legacy 'write' WRITES EVERY DEFAULT without checking approvals.
+// 'review-given' and 'review-analysis-given' review only the answers supplied.
 // Specify's refusal to write a BOM into a file with no assembly structure: its code from specify-core
 // #156 (bom_no_assembly), and the wording of 0.1.12 and 0.1.13 before it.
 const noAssemblyRefusal = (error: unknown) => /bom_no_assembly|requires an assembly product definition|has no assembly structure/.test(String(error));
@@ -36,6 +39,11 @@ const accepted = (answers: unknown) => engine!.acceptDefaults(JSON.stringify(ans
 function reviewed(answers: Record<string, unknown>) {
   const review = markDefaults(JSON.parse(engine!.review(accepted(answers))), answers);
   return { ...review, open: JSON.parse(engine!.review(JSON.stringify(answers))).open };
+}
+function inspectionReview(answers: Record<string, unknown>): IntentReview {
+  const review = JSON.parse(engine!.review(JSON.stringify(answers))) as IntentReview;
+  const scene = JSON.parse(engine!.pmiScene(JSON.stringify({ answers }))) as NumberScene;
+  return { ...review, intent: withCharacteristicNumbers(review.intent, scene) };
 }
 function markDefaults<T>(review: T, answers: Record<string, unknown>): T {
   const mark = (value: unknown): void => {
@@ -74,7 +82,14 @@ self.onmessage = ({ data }) => {
     try {
       const module = await load();
       let result: unknown = true;
-      if (operation === 'open' || operation === 'review' || operation === 'settle' || operation === 'write' || operation === 'rematch' || operation === 'scene' || operation === 'answers') {
+      if (operation === 'file-inspection') {
+        const file = args.part === undefined ? new module.IntentEngine(args.name, args.bytes)
+          : module.IntentEngine.openPart(args.name, args.bytes, args.part);
+        try {
+          const { analysis } = JSON.parse(file.snapshot());
+          result = inspectionFromStep(analysis, JSON.parse(module.pmiScene(args.bytes, args.part)));
+        } finally { file.free(); }
+      } else if (operation === 'open' || operation === 'review' || operation === 'review-given' || operation === 'settle' || operation === 'write' || operation === 'rematch' || operation === 'scene') {
         if (!engine || sourceId !== args.sourceId || part !== args.part || operation === 'open') {
           engine?.free(); engine = undefined;
           engine = args.part === undefined ? new module.IntentEngine(args.name, args.bytes)
@@ -82,6 +97,9 @@ self.onmessage = ({ data }) => {
           sourceId = args.sourceId; part = args.part;
         }
         if (operation === 'write') {
+          // Legacy 'write' API: WRITES EVERY DEFAULT, including defaults absent from args.answers.
+          // Hosts must obtain approval for every default before choosing this operation.
+          // The local Specify app saves through the command's approved-defaults session API.
           // A part of an assembly is written with its parts-list row: Specify's suggestions for what
           // was not answered, and every part numbered. A file of several parts not placed in an
           // assembly (no assembly product definition) has no parts list to write them to: Specify
@@ -99,10 +117,10 @@ self.onmessage = ({ data }) => {
             document = withoutBom();
           }
           result = { ...document, bytes: new Uint8Array(document.bytes) };
-        } else if (operation === 'answers') {
-          // Every answer the STEP would be written with, the defaults made explicit: a part's
-          // `<part>.answers.json` for a repository, which `specify-core write` takes as it is.
-          result = JSON.parse(accepted(args.answers));
+        } else if (operation === 'review-given') {
+          // Inspection files use the given answers and the STEP's PMI directly. Filling defaults
+          // even for preview can add part notes, general tolerances and dependent dimensions.
+          result = inspectionReview(args.answers);
         } else if (operation === 'settle') {
           const { state } = JSON.parse(engine.settle(JSON.stringify(args.state)));
           result = { review: reviewed(state.answers), state };
@@ -115,6 +133,10 @@ self.onmessage = ({ data }) => {
         } else if (operation === 'rematch') {
           result = JSON.parse(engine.rematchAnswers(JSON.stringify(args.answers), args.evidence ? JSON.stringify(args.evidence) : null, args.automatic ? JSON.stringify(args.automatic) : null));
         } else result = operation === 'open' ? { ...JSON.parse(engine.snapshot()), evidence: JSON.parse(engine.evidence()) } : reviewed(args.answers);
+      } else if (operation === 'review-analysis-given') {
+        // Pure analysis-only review, without allocation geometry. Inspection hosts use
+        // review-given with STEP bytes to obtain the writer's stable characteristic numbers.
+        result = JSON.parse(module.review(JSON.stringify(args.analysis), JSON.stringify(args.answers)));
       } else if (operation === 'parts') {
         result = JSON.parse(module.IntentEngine.parts(args.name, args.bytes));
       } else if (operation === 'part-mesh') {

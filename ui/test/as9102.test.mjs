@@ -4,6 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { toCsv } from '../src/specify/characteristics.ts';
 import { as9102 } from '../src/specify/as9102.ts';
 import { xlsx, workbookFiles } from '../src/model/xlsx.ts';
 
@@ -32,6 +33,14 @@ test('Forms 1–3: the part, its materials, each characteristic with its require
   ], 'skipped rows are left out; results are the inspector\'s');
 });
 
+// Explicit STEP metadata selects saved-file rules; legacy rows keep origin/main's contents.
+test('Form 3 has numbered characteristics only, while Material appears on Form 2', () => {
+  const material = row(0, 'Material: Steel', { source: 'part:material', numbering: 'step' });
+  const note = row(0, 'An unnumbered note', { numbering: 'step' });
+  const [, form2, form3] = as9102({ name: 'part' }, [material, note, row(9, 'Stored dimension')], new Set(), [{ key: 'part:material', text: 'MATERIAL Steel' }]);
+  assert.deepEqual(form2.rows[4], ['MATERIAL Steel', '', '', '', '', '']);
+  assert.deepEqual(form3.rows.slice(4).map((row) => [row[0], row[3]]), [['9', 'Stored dimension']]);
+});
 test('the workbook is a valid .xlsx: a zip every part of which is well-formed XML', () => {
   const dir = mkdtempSync(join(tmpdir(), 'as9102-'));
   const path = join(dir, 'fai.xlsx');
@@ -44,4 +53,34 @@ print(sorted(z.namelist()))`, path]).toString();
   for (const part of ['[Content_Types].xml', 'xl/workbook.xml', 'xl/worksheets/sheet3.xml', 'xl/styles.xml']) assert.ok(out.includes(part), part);
   assert.ok(workbookFiles([{ name: 'S', rows: [['a <b> & "c"', 1.5]] }])[5][1].includes('a &lt;b&gt; &amp; &quot;c&quot;'));
   assert.ok(!workbookFiles([{ name: 'S', rows: [['x\uffffy\u0001']] }])[5][1].match(/[\uffff\u0001]/), 'characters XML cannot hold are dropped');
+});
+
+test('stored IDs round-trip CR, LF, CRLF, tabs, commas and quotes through CSV and XLSX', () => {
+  const ids = ['A\r9', 'A\n9', 'A\r\n9', 'A\t9', 'A,9', 'A"9', 'A\r\n\t,"9"'];
+  const chars = ids.map((id, i) => row(0, 'Stored requirement', { id, identifier: id, numbering: 'step', source: `stored:${i}` }));
+  const csv = toCsv(chars);
+  assert.ok(csv.includes('"A\r9",'), 'RFC 4180 quotes CR even without LF, comma or quote');
+  const sheets = as9102({ name: 'part' }, chars, new Set(), []);
+  const xml = workbookFiles(sheets).find(([name]) => name === 'xl/worksheets/sheet3.xml')[1];
+  assert.ok(xml.includes('A&#13;9'));
+  assert.ok(xml.includes('A&#13;\n9'), 'CRLF retains both characters');
+  assert.ok(xml.includes('A\t9'), 'tabs remain in cell text');
+  const dir = mkdtempSync(join(tmpdir(), 'inspection-controls-'));
+  const csvPath = join(dir, 'inspection.csv');
+  const xlsxPath = join(dir, 'inspection.xlsx');
+  writeFileSync(csvPath, csv);
+  writeFileSync(xlsxPath, xlsx(sheets));
+  // Independent parsers catch CSV record splitting and XML's normalization of bare CR.
+  const parsed = JSON.parse(execFileSync('python3', ['-I', '-c', `
+import csv, json, sys, zipfile, xml.etree.ElementTree as ET
+with open(sys.argv[1], encoding='utf-8', newline='') as f:
+    records = list(csv.reader(f, strict=True))
+assert all(len(record) == 10 for record in records)
+with zipfile.ZipFile(sys.argv[2]) as z:
+    root = ET.fromstring(z.read('xl/worksheets/sheet3.xml'))
+ns = {'s': 'http://schemas.openxmlformats.org/spreadsheetml/2006/main'}
+ids = [cell.find('s:is/s:t', ns).text for cell in root.findall('.//s:c', ns)
+       if cell.attrib['r'].startswith('A') and int(cell.attrib['r'][1:]) >= 5]
+print(json.dumps({'csv': [row[0] for row in records[1:]], 'xlsx': ids}))`, csvPath, xlsxPath], { encoding: 'utf8' }));
+  assert.deepEqual(parsed, { csv: ids, xlsx: ids });
 });

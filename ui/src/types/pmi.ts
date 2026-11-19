@@ -32,6 +32,8 @@ export interface PmiFeature {
 
 /** PMI the uploaded file already states; a note is a thread or knurl pmi-assist wrote. */
 export interface PmiExisting {
+  /** Stable ID_ATTRIBUTE read from this requirement in the STEP. */
+  readonly number?: number;
   readonly kind: 'dimension' | 'geometric_tolerance' | 'datum' | 'note';
   readonly type: string;
   readonly faces?: readonly number[];
@@ -164,6 +166,8 @@ export interface PmiExtra {
 
 /** One datum or requirement of the intent; its fields depend on its kind. */
 export interface PmiIntentItem {
+  /** The stored or engine-planned characteristic number. Absent when no entity is numbered. */
+  readonly number?: number;
   readonly kind?: string;
   readonly faces: readonly number[];
   readonly question?: string;
@@ -175,6 +179,8 @@ export interface PmiIntentItem {
 }
 
 export interface PmiIntent {
+  /** Numbered part requirements such as surface finish. Material and text notes are unnumbered. */
+  readonly partNumbers?: Readonly<Record<string, number>>;
   readonly part: Readonly<Record<string, string>>;
   readonly datums: readonly (PmiIntentItem & { readonly letter: string })[];
   readonly requirements: readonly PmiIntentItem[];

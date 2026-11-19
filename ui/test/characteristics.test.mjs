@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { characteristics } from '../src/specify/characteristics.ts';
+import { characteristics, byBalloon, balloonsBySource, toCsv } from '../src/specify/characteristics.ts';
+
+import { as9102 } from '../src/specify/as9102.ts';
 
 // Two ⌀20 holes in a pattern, as Specify's analysis lists them (CTC-01's shape).
 const analysis = {
@@ -96,4 +98,36 @@ test("the part's notes are stated as a drawing's notes block states them", async
   assert.deepEqual(typed.map(n => n.text), ['ANODISE 10µm, SEAL 1 h', 'FIT H7/g6 EDGES']);
   // The answers given win over the file's.
   assert.equal(noteStatements({ part: { edges: 'No edge note' } }, { part }).some(n => n.question === 'part.edges'), false);
+});
+
+// These are origin/main's sequential balloons, pattern/basic grouping and Form 3 contents.
+// No number metadata is added: existing three-method hosts must keep these expectations.
+test('a three-method host preserves origin/main preview balloons, CSV and Form 3', async () => {
+  const preview = { ...intent([
+    { kind: 'size', feature: 'hole_patterns.set:1.2', faces: [1, 2], nominal: 20, upper: 0.1 },
+    { kind: 'location', feature: 'holes:1', faces: [1], distance: 30, basic: true },
+    { kind: 'location', feature: 'holes:2', faces: [2], distance: 40, basic: true },
+  ]), datums: [{ letter: 'A', faces: [1] }], part: { material: 'Steel' } };
+  const stored = { ...analysis, existing: [
+    { kind: 'datum', type: 'A', faces: [1] },
+    { kind: 'dimension', type: 'Size_Diameter', faces: [1], value: 20 },
+  ] };
+  const host = {
+    questions: async () => ({ questions: [], intent: preview }),
+    interpret: async (_id, _answers, _question, text) => ({ value: text }),
+    preview: async () => preview,
+  };
+  assert.deepEqual(Object.keys(host), ['questions', 'interpret', 'preview']);
+  const rows = characteristics(await host.preview('part', {}), stored, new Map());
+  assert.deepEqual(rows.map((row) => [row.source, row.n, row.sub, row.id]), [
+    ['req:0', 1, 1, '1.1'], ['req:0', 1, 2, '1.2'],
+    ['req:1', 2, 1, '2.1'], ['req:2', 2, 2, '2.2'],
+    ['existing:1', 3, 0, '3'], ['part:material', 4, 0, '4'],
+  ]);
+  assert.deepEqual(byBalloon(rows).map((group) => group.map((row) => row.id)), [['1.1', '1.2'], ['2.1', '2.2'], ['3'], ['4']]);
+  assert.deepEqual([...balloonsBySource(rows)], [['req:0', [1]], ['req:1', [2]], ['req:2', [2]], ['existing:1', [3]], ['part:material', [4]]]);
+  assert.deepEqual(toCsv(rows).trimEnd().split('\n').slice(1).map((line) => line.split(',').slice(0, 2)), [['1', '1'], ['1', '2'], ['2', '1'], ['2', '2'], ['3', ''], ['4', '']]);
+  assert.deepEqual(as9102({ name: 'legacy' }, rows, new Set(), [])[2].rows.slice(4).map((row) => [row[0], row[3]]), [
+    ['1.1', '⌀20'], ['1.2', '⌀20'], ['2.1', '30 (basic)'], ['2.2', '40 (basic)'], ['3', '⌀20'], ['4', 'Material: Steel'],
+  ]);
 });

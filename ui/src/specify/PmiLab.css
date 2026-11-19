@@ -280,6 +280,9 @@
 .pmi-lab .pmi-lab-suggestion .ok, .pmi-lab .pmi-lab-review .ok {
   background: #e9f6ee; border-color: #9fd3b3; color: #14632f; font-weight: 600; }
 .pmi-lab .pmi-lab-suggestion .more { border-style: dashed; color: #5d5470; }
+.pmi-lab-suggestion .suggested { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 4px; font-size: 12.5px; color: #4a4360; }
+.pmi-lab .pmi-lab-suggestion .keep { background: #fff; border-color: #7b5cc4; color: #4b2f93; font-weight: 600; }
+.pmi-lab-tick { color: #14632f; font-weight: 700; margin-right: 4px; }
 .pmi-lab-review { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; font-size: 12px;
   color: #5d5470; }
 .pmi-lab-review button { font-size: 12px; padding: 1px 8px; }
@@ -402,3 +405,6 @@ fieldset.pmi-lab-rows { min-width: 0; margin: 0; padding: 0; border: 0; }
 /* The viewer's toolbar and tools panel, folded away until "More view tools". */
 .cad-tools-hidden .tcv_cad_toolbar, .cad-tools-hidden .tcv_cad_navigation { display: none !important; }
 .pmi-lab-none { margin: 0; padding: 10px 12px; color: #5a626b; font-size: 12.5px; }
+.pmi-lab-keep-all { margin-top: 6px; padding: 6px 8px; border: 1px solid #c9dccf; border-radius: 4px; background: #f3f9f5; font-size: 12px; }
+.pmi-lab-keep-all p { margin: 0 0 4px; }
+.pmi-lab-keep-all ul { margin: 0 0 6px; padding-left: 18px; max-height: 180px; overflow: auto; }

@@ -1,10 +1,20 @@
 {
   "intent": {
     "repository": "pzfreo/specify-core",
-    "tag": "v0.1.18",
-    "revision": "0e78908cbc70d12ef5981489b11bef449cdc9c16",
-    "asset": "specify-core-wasm-0.1.18.tgz",
-    "sha256": "e562de579b7467a909082516e35a9b0484806dc5ae3d4b4514d7705c1fb47724",
+    "tag": "v0.2.0",
+    "revision": "46417d07e91a36bff622c0a31d88816d8ef7c2a0",
+    "asset": "specify-core-wasm-0.2.0.tgz",
+    "sha256": "b084405ffc1b301b984cc1e0b05aa7fe1ba7ce8ec577227c3da68f13c856fd73",
     "module": "specify_core_wasm"
+  },
+  "command": {
+    "repository": "pzfreo/specify-core",
+    "tag": "v0.2.0",
+    "assets": {
+      "x86_64-unknown-linux-gnu": {
+        "asset": "specify-core-v0.2.0-x86_64-unknown-linux-gnu.tar.gz",
+        "sha256": "ef588ab854758c3d8f988ce7f07f1f1ab51fc472d80527bb6753af4cbb40bbb7"
+      }
+    }
   }
 }

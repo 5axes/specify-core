@@ -10,7 +10,8 @@ import { stepBytes } from '../../src/model/diff';
 declare global {
   interface Window {
     __events: string[];
-    /** The Specify host's calls from SpecifyReview ('questions' | 'interpret' | 'preview' | 'onKeep'), when ?specify=1. */
+    /** The Specify host's calls from SpecifyReview ('questions' | 'interpret' | 'preview' | 'inspection', and
+     * 'onKeep:<ids>' with &keep=host), when ?specify=1. */
     __calls: string[];
     __parts: (string | null)[];
     __setAnswers(answers: unknown): void;
@@ -64,6 +65,9 @@ function Harness() {
 // records each call the component makes of it on window.__calls.
 const query = new URLSearchParams(location.search);
 const readOnly = query.get('readOnly') === '1';
+// &keep=host: the host keeps suggestions itself, as the editor does (onKeep, and kept for the ticks);
+// otherwise SpecifyReview keeps one by answering it with its default, as the local app does.
+const hostKeeps = query.get('keep') === 'host';
 
 const noAnswers = {};
 
@@ -76,6 +80,10 @@ function SpecifyHost() {
   const exports = useRef<HTMLDivElement>(null);
   const [slots, setSlots] = useState<{ view: HTMLElement; panel: HTMLElement; exports: HTMLElement } | null>(null);
   useEffect(() => setSlots({ view: view.current!, panel: panel.current!, exports: exports.current! }), []);
+  const [kept, setKept] = useState<readonly string[]>([]);
+  // Sign-in gates can hold an export action while the person continues editing.
+  const deferred = useRef<(() => void)[]>([]);
+  const onKeep = (ids: readonly string[]) => { window.__calls.push(`onKeep:${ids.join(',')}`); setKept((was) => [...was, ...ids]); };
   const pick = async (file: File) => {
     const name = file.name.replace(/\.gz$/, '');
     const bytes = await stepBytes(file);
@@ -90,6 +98,7 @@ function SpecifyHost() {
         return worker.request<any>('interpret', { analysis: snapshot.analysis, answers, question, text });
       },
       preview: async (_id: string, answers: unknown) => { window.__calls.push('preview'); return (await call('review', answers)).intent; },
+      ...(!query.has('legacy') ? { inspection: async (_id: string, answers: unknown) => { window.__calls.push('inspection'); return (await call('review-given', answers)).intent; } } : {}),
     };
     const session = { sessionId: sourceId, filename: name, analysis: snapshot.analysis, mesh: snapshot.mesh, questions: review.questions, problems: review.problems };
     // The PMI as drawn, as the editor asks for it: the worker's call, not the host engine's.
@@ -103,12 +112,15 @@ function SpecifyHost() {
       <input id="specify-file" type="file" onChange={event => { const chosen = event.target.files?.[0]; if (chosen) void pick(chosen); }} />
       <div id="specify-view" style={{ height: 520 }} ref={view} />
       <div id="specify-panel" ref={panel} />
-      <div id="specify-exports" ref={exports} />
+      <div id="specify-actions">
+        <div id="specify-exports" ref={exports} />
+        {query.has('defer') && <button onClick={() => deferred.current.shift()?.()}>Resume download</button>}
+      </div>
       {open && slots && (
         <SpecifyReview
           engine={open.engine} session={open.session} slots={slots} readOnly={readOnly} drawn={open.drawn}
           externalAnswers={noAnswers} externalReview={open.review} disabled={false}
-          onExport={action => action()} onKeep={() => window.__calls.push('onKeep')}
+          onExport={action => { if (query.has('defer')) deferred.current.push(action); else action(); }} {...(hostKeeps ? { onKeep, kept } : {})}
         />
       )}
     </main>
