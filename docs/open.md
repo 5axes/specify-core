@@ -402,8 +402,9 @@ page servers stop with it.
   applies to local apps that have the manifest. Older local builds without it give a warning
   and continue.
 
-MCP `show` reads the overrides from the server process's environment. With the placeholder
-pin in `app.lock.json`, use `--app DIR` or set `SPECIFY_APP_DIR` until a release app is pinned.
+MCP `show` reads the overrides from the server process's environment. A build whose
+`app.lock.json` still holds the placeholder pin (`v0.0.0`, a development build) has no app to
+download: use `--app DIR` or set `SPECIFY_APP_DIR`.
 
 The first uncached use needs a network connection and reports downloads on stderr. Specify
 publishes each verified download to the cache with a `.sha256` marker and a `.files.json`
