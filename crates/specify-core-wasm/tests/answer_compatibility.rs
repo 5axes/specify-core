@@ -117,3 +117,60 @@ fn carried_refusals_survive_wasm_defaults_review_and_write() {
             .contains("stale answers")
     );
 }
+
+/// ADR P9: the session's export takes exactly the defaults approved for its part, with the
+/// values the person saw, as `api::export_answers` does; none without approvals.
+#[test]
+fn export_takes_only_the_defaults_approved_for_its_part() {
+    let bytes = include_bytes!("../../../tests/fixtures/parts/plate.step");
+    let loaded = part::load_bytes("plate.step", bytes.to_vec()).unwrap();
+    let analysis = api::analyse(&loaded).unwrap();
+    let session = Session::open("plate.step", bytes).unwrap();
+    let given = Map::from_iter([("part.material".to_string(), json!("steel"))]);
+    let default = api::questions(&analysis, &given)
+        .unwrap()
+        .into_iter()
+        .find(|q| q.id == "part.general_tolerance")
+        .and_then(|q| q.default)
+        .unwrap();
+    let approve = |part: usize, value: serde_json::Value| {
+        api::Approved::from([(
+            part,
+            Map::from_iter([("part.general_tolerance".to_string(), value)]),
+        )])
+    };
+    let without = |mut m: Map<String, serde_json::Value>| {
+        m.remove("_specify");
+        m
+    };
+    let none = session
+        .export_answers(&given, &api::Approved::new())
+        .unwrap();
+    assert_eq!(without(none.clone()), given);
+    let one = session
+        .export_answers(&given, &approve(0, default.clone()))
+        .unwrap();
+    let mut expected = given.clone();
+    expected.insert("part.general_tolerance".into(), default.clone());
+    assert_eq!(without(one.clone()), expected);
+    assert_eq!(
+        one,
+        api::export_answers(&loaded, &analysis, &given, &approve(0, default.clone()))
+            .unwrap()
+            .answers
+    );
+    let refused = session
+        .export_answers(&given, &approve(0, json!("changed")))
+        .unwrap_err();
+    assert!(
+        refused.contains("part 0: part.general_tolerance's default is now"),
+        "{refused}"
+    );
+    assert_eq!(
+        session
+            .export_answers(&given, &approve(1, default))
+            .unwrap(),
+        none,
+        "another part's approval does not apply"
+    );
+}

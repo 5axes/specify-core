@@ -7,7 +7,7 @@
 //! specify-core analyse STEP -o ANALYSIS [--part K]
 //! specify-core mesh STEP -o MESH [--part K] [--max-deviation-mm MM]
 //! specify-core questions ANALYSIS [--answers ANSWERS] [--open]
-//!                        [--resolve-defaults --step STEP]
+//!                        [--resolve-defaults --step STEP [--accept-defaults FILE]]
 //! specify-core write STEP ANALYSIS ANSWERS [ANALYSIS ANSWERS ...] -o OUT
 //!                    [--accept-defaults] [--bom] [--intent INTENT]
 //! specify-core diff OLD NEW -o DIR [--answers ANSWERS] [--part K] [--title TITLE]
@@ -109,7 +109,10 @@ A Model Context Protocol server (revisions 2026-07-28 and 2025-11-25) for an LLM
 as Claude Code or Claude Desktop: tools to open a part, answer its questions, review and
 write its PMI. On stdio by default; with --http, Streamable HTTP on 127.0.0.1 with a random
 bearer token printed at start. Open documents and their answers are held in memory and lost
-when the server stops, unless a call names an answers_file. See docs/mcp.md.")]
+when the server stops, unless a call names an answers_file. The show tool, which opens the
+Specify page on the same answers, is a preview: until the app is bundled it needs SPECIFY_APP_DIR
+(the built app), and SPECIFY_WASM_DIR (the engine's wasm-pack pkg/) when the engine is not in
+the app's wasm/. See docs/mcp.md.")]
     Mcp {
         /// serve Streamable HTTP on 127.0.0.1 instead of stdio
         #[arg(long)]
@@ -143,12 +146,15 @@ when the server stops, unless a call names an answers_file. See docs/mcp.md.")]
         /// only unanswered questions
         #[arg(long)]
         open: bool,
-        /// export complete answers with defaults and face evidence as JSON
+        /// export the answers given, the defaults approved in --accept-defaults and face evidence as JSON; never every default, open questions stay open (listed on stderr)
         #[arg(long)]
         resolve_defaults: bool,
         /// matching STEP part for export (required with --resolve-defaults)
         #[arg(long)]
         step: Option<PathBuf>,
+        /// with --resolve-defaults: JSON file of the defaults the person approved, by part, each with the value they saw: {"<part>": {"<id>": value}}. A default whose value has changed is refused
+        #[arg(long, value_name = "FILE")]
+        accept_defaults: Option<PathBuf>,
         /// add each default's source: the rule behind it (docs/rule-sources.md)
         #[arg(long)]
         sources: bool,
@@ -209,8 +215,8 @@ With --diff OLD NEW the page shows what changed from OLD and starts from the ans
 to NEW (as `specify-core diff` carries them); Save writes NEW. Stops 90 seconds after the last
 page is closed, or after 30 minutes without a request.
 
-The app is not bundled yet: pass --app DIR (or set SPECIFY_APP_DIR) to the built app and
---wasm DIR (or SPECIFY_WASM_DIR) to the engine's wasm-pack pkg/ directory.")]
+Preview: the app is not bundled yet. Pass --app DIR (or set SPECIFY_APP_DIR) to the built app
+and --wasm DIR (or SPECIFY_WASM_DIR) to the engine's wasm-pack pkg/ directory.")]
     Open {
         /// a .step or .stp file, or either gzipped
         #[arg(required_unless_present = "diff", conflicts_with = "diff")]
@@ -411,6 +417,7 @@ fn run(cmd: Cmd, out: &mut impl Write) -> Result<(), Exit> {
             open,
             resolve_defaults,
             step,
+            accept_defaults,
             sources,
         } => {
             let analysis = read_json(&analysis)?;
@@ -433,15 +440,30 @@ fn run(cmd: Cmd, out: &mut impl Write) -> Result<(), Exit> {
                 })?;
                 let index = analysis["binding"]["part"].as_u64().unwrap_or(0) as usize;
                 let loaded = part::load(&step, Some(index)).map_err(Exit::error)?;
-                let exported = api::export_answers(&loaded, &analysis, &answers)
+                let approved = match accept_defaults {
+                    Some(path) => api::approvals(&read_json(&path)?).ok_or_else(|| {
+                        Exit::new(2, format!("--accept-defaults: {}", api::APPROVALS_FORM))
+                    })?,
+                    None => api::Approved::new(),
+                };
+                let exported = api::export_answers(&loaded, &analysis, &answers, &approved)
                     .map_err(|e| Exit::new(2, e.to_string()))?;
+                if !exported.complete() {
+                    eprintln!("open: {}", exported.missing.join(", "));
+                }
                 return print(
                     out,
-                    &serde_json::to_string_pretty(&exported).map_err(Exit::error)?,
+                    &serde_json::to_string_pretty(&exported.answers).map_err(Exit::error)?,
                 );
             }
             if step.is_some() {
                 return Err(Exit::new(2, "--step requires --resolve-defaults"));
+            }
+            if accept_defaults.is_some() {
+                return Err(Exit::new(
+                    2,
+                    "--accept-defaults requires --resolve-defaults",
+                ));
             }
             let qs = api::questions(&analysis, &answers).map_err(refused)?;
             let shown: Vec<Value> = if open {
@@ -621,6 +643,7 @@ fn write(
         Error::Load(_) | Error::Write(WriteError::Invalid(_)) | Error::Rules(_) => {
             Exit::new(2, format!("cannot write: {e}"))
         }
+        Error::Unapproved(_) => Exit::new(2, format!("cannot write: {e}")),
         Error::Write(_) | Error::Analysis(_) => {
             Exit::new(1, format!("write failed, {output_arg} left as it was: {e}"))
         }

@@ -53,7 +53,7 @@ One engine, one set of answers and files, whichever way you call it:
 | **In the browser** | nothing: [draftwright.io/specify](https://draftwright.io/specify) and [draftwright.io/diff](https://draftwright.io/diff) | |
 | **Command line** | `uv tool install specify-core` (or `pipx install specify-core`), a [release](https://github.com/pzfreo/specify-core/releases) binary, `cargo install specify-core`, or `cargo build --release` | [install](#install-the-command-line), [use](#command-line) |
 | **Python** | `pip install specify-core` (CPython 3.11+, no dependencies) | [below](#python), [package README](crates/specify-core-py/README.md) |
-| **Rust** | `specify-core = "0.1.18"` (crates.io) | [below](#rust), [docs/library.md](docs/library.md) |
+| **Rust** | `specify-core = "0.2.0"` (crates.io) | [below](#rust), [docs/library.md](docs/library.md) |
 | **Browser** (WebAssembly) | `@draftwright/specify-core-wasm` (npm), or `specify-core-wasm-<version>.tgz` on each release | [docs/wasm.md](docs/wasm.md) |
 | **Host process** (JSON lines) | `specify-core serve` | [below](#host-process) |
 | **LLM client** (MCP: Claude Code, Claude Desktop) | `specify-core mcp` (stdio) or `specify-core mcp --http` | [docs/mcp.md](docs/mcp.md) |
@@ -78,13 +78,20 @@ The flow is the same everywhere:
 specify-core analyse plate.step -o plate.analysis.json          # features, faces, existing PMI
 specify-core questions plate.analysis.json --open                # what is still unanswered
 echo '{"part.material": "6082-T6", "hole.function:holes:9": "fit:H7"}' > answers.json
-# Export defaults explicitly, with face evidence, before writing:
+# The defaults the person approved, by part, each with the value they saw (here every
+# default offered for the open questions, once the person has seen the list and agreed):
+specify-core questions plate.analysis.json --answers answers.json --open \
+  | jq '{"0": (map(select(.default != null) | {(.id): .default}) | add // {})}' > approved.json
+# Export the answers plus those defaults, with face evidence; stderr lists what is still open:
 specify-core questions plate.analysis.json --answers answers.json \
-  --resolve-defaults --step plate.step > plate.complete.answers.json
-specify-core write plate.step plate.analysis.json plate.complete.answers.json -o plate-pmi.step
+  --resolve-defaults --step plate.step --accept-defaults approved.json > plate.answers.json
+specify-core write plate.step plate.analysis.json plate.answers.json -o plate-pmi.step
 ```
 
-`write` refuses until every question has an answer, or `--accept-defaults` supplies the rest.
+An export takes no default the person did not approve (ADR P9), so without `--accept-defaults`
+it is usually incomplete. `write` still needs a complete set: answer the open questions, or
+approve their defaults in the approvals file, and export again. `write` refuses until every
+question has an answer, or its own `--accept-defaults` supplies the rest.
 It prints a JSON report with `output`, `written`, `not_written` and `warnings`. `not_written`
 gives each reason, including an answer whose question is not asked given the other answers
 ([answers](docs/answers.md#answers-to-questions-not-asked)).
@@ -114,7 +121,7 @@ original once as `plate.step.bak`, and `--read-only` refuses answer changes and 
 `specify-core diff` carries to the new revision (`--answers FILE` for the old answers); Save
 writes the new one. `--port N` picks the port and `--no-browser` only prints the address. The
 command stops 90 seconds after the last page is closed, or after 30 minutes without a request.
-The app is not bundled yet: pass `--app DIR` (or set `SPECIFY_APP_DIR`) to the built Specify app
+**Preview:** the app is not bundled yet. Pass `--app DIR` (or set `SPECIFY_APP_DIR`) to the built Specify app
 and `--wasm DIR` (or `SPECIFY_WASM_DIR`) to the engine's wasm-pack `pkg/` directory. See
 [docs/open.md](docs/open.md).
 
@@ -126,8 +133,10 @@ claude mcp add specify -- specify-core mcp
 
 The agent opens the part, answers what you tell it, and calls `show` to open the same Specify
 page on the same answers: your edits in the page are what the agent reads next, and its answers
-appear in the page as it makes them. Either side saves. See [docs/session.md](docs/session.md)
-and [docs/mcp.md](docs/mcp.md).
+appear in the page as it makes them. Either side saves. `show` is a **preview** until the app is
+bundled: it needs `SPECIFY_APP_DIR` set for the MCP server (and `SPECIFY_WASM_DIR` when the
+engine is not in the app's `wasm/`). See
+[docs/session.md](docs/session.md) and [docs/mcp.md](docs/mcp.md).
 
 **Shell completion.** `specify-core completions SHELL` prints a completion script for `bash`,
 `zsh`, `fish`, `powershell` or `elvish`:
@@ -266,7 +275,7 @@ Each [release](https://github.com/pzfreo/specify-core/releases) has the command 
 (x86_64), macOS (Apple silicon) and Windows (x86_64), each with a SHA-256 checksum:
 
 ```bash
-v=v0.1.18; t=aarch64-apple-darwin   # or x86_64-unknown-linux-gnu
+v=v0.2.0; t=aarch64-apple-darwin   # or x86_64-unknown-linux-gnu
 gh release download $v -R pzfreo/specify-core -p "specify-core-$v-$t.tar.gz*"
 shasum -a 256 -c specify-core-$v-$t.tar.gz.sha256 && tar -xzf specify-core-$v-$t.tar.gz
 ./specify-core-$v-$t/specify-core --help
@@ -286,9 +295,10 @@ echo '{"id": 1, "op": "analyse", "step": "part.step"}' | specify-core serve
 ```
 
 - **Ops:** `parts`, `analyse`, `questions`, `preview`, `interpret`, `export_answers` and `write`.
-  `export_answers` takes `step`, `analysis` and `answers`, and returns `result.answers`: a
-  complete map with explicit defaults and geometry evidence; it refuses incomplete sets.
-  See [answer files](docs/answers.md#export-a-complete-sidecar).
+  `export_answers` takes `step`, `analysis`, `answers` and optional `accept_defaults` (the
+  defaults approved, `{"<part>": {"<id>": value}}`), and returns `result.answers` (what is
+  answered plus those defaults, with geometry evidence), `complete` and `missing`.
+  See [answer files](docs/answers.md#export-a-sidecar).
 - `analyse` accepts optional `max_deviation_mm` for the returned mesh (for example `0.05`).
   It must be a finite number of at least 0.001 mm; invalid or unmet bounds return `invalid`.
   Omission or `null` preserves the default mesh. See [mesh tolerance](docs/mesh-tolerance.md).
@@ -311,7 +321,7 @@ Every file is read back and checked before it is kept.
 
 ## Status
 
-**0.1.18** (2026-11-17). Until 1.0:
+**0.2.0** (2026-11-19). Until 1.0:
 - a minor release (0.2, 0.3) may change the command line, the JSON formats or answer ids, and its
   [CHANGELOG](CHANGELOG.md) entry says how to upgrade;
 - a patch release doesn't.

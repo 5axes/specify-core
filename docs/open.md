@@ -86,7 +86,7 @@ as the last `--in-place` save left it. Outside `diff` mode `?rev=old` is 404, an
   "readOnly": false,
   "wasmUrl": "wasm/specify_core_wasm.js",
   "saveTarget": "/home/me/parts/part.specified.step",
-  "specifyCore": "0.1.19"
+  "specifyCore": "0.2.0"
 }
 ```
 

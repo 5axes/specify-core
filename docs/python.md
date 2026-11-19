@@ -14,23 +14,32 @@ keyword or passing `None` preserves the previous output. Non-positive/non-finite
 values and faces that cannot meet the measured bound raise `ValueError`.
 See [mesh tolerance](mesh-tolerance.md) for sampling and refusal semantics.
 
-## Export complete answers
+## Export answers
 
-`api.export_answers(step, analysis, answers)` accepts PMI defaults to a fixed point and
-returns a complete dict with `_specify.evidence` for the selected part. `step` can be a
-path or a `LoadedPart`; the analysis binding selects an assembly part. It writes no STEP.
-Missing required answers or unresolved carry blocks raise `IncompleteError`; stale
-saved evidence or a mismatched analysis raises `ValueError`.
+`api.export_answers(step, analysis, answers, accept_defaults=None)` returns the answers given
+plus exactly the defaults approved in `accept_defaults` (`{"<part>": {"<id>": value}}`, each
+with the value the person saw; ADR P9), with `_specify.evidence` for the selected part. Without
+approvals no default is taken. `step` can be a path or a `LoadedPart`; the analysis binding
+selects an assembly part. It writes no STEP. Open questions and carry blocks do not refuse it
+(blocks stay in `_specify.unresolved`); stale saved evidence, a mismatched analysis, or an
+approval that is not an open question's default as it stands raises `ValueError`.
+
+`api.apply` (and so `api.write`) still needs a complete set: answer the open questions, or
+approve their defaults. Here every default offered is approved, once the person has seen them:
 
 ```python
 import json
 from pathlib import Path
 from specify_core import api
+from specify_core.rules import with_all_defaults
 
 analysis = api.analyse("plate_v1.step")
-complete = api.export_answers("plate_v1.step", analysis, {"part.material": "6061-T6"})
-Path("plate.answers.json").write_text(json.dumps(complete, indent=2) + "\n", encoding="utf-8")
-api.write("plate_v1.step", api.apply(analysis, complete), "plate.pmi.step", answers=complete)
+given = {"part.material": "6061-T6"}
+defaults = with_all_defaults(analysis, given)
+approved = {"0": {k: v for k, v in defaults.items() if k not in given}}
+answers = api.export_answers("plate_v1.step", analysis, given, approved)
+Path("plate.answers.json").write_text(json.dumps(answers, indent=2) + "\n", encoding="utf-8")
+api.write("plate_v1.step", api.apply(analysis, answers), "plate.pmi.step", answers=answers)
 ```
 
 Keys are sorted recursively; arrays keep their order. The resulting map is accepted by

@@ -23,9 +23,14 @@
 //!  "output": "/path/out.step", "accept_defaults": true}
 //! -> the report and the intent; the answers are stored in the file
 //! -> {"id": 4, "ok": false, "error": {"code": "incomplete", "message": ..., "missing": [...]}}
-//! Complete answer export, before writing (result.answers is an ordinary answer map):
-//! {"id": 8, "op": "export_answers", "step": "/path/part.step",
-//!  "analysis": {...}, "answers": {"part.material": "steel"}}
+//! Answer export, before writing (result.answers is an ordinary answer map): the answers
+//! given plus exactly the defaults approved in the optional "accept_defaults", by part with
+//! the value the person saw (ADR P9; none when absent); open questions stay open:
+//! {"id": 8, "op": "export_answers", "step": "/path/part.step", "analysis": {...},
+//!  "answers": {"part.material": "steel"}, "accept_defaults": {"0": {"part.finish": "Ra 3.2"}}}
+//! -> {"id": 8, "ok": true, "result": {"answers": {...}, "complete": false, "missing": [...]}}
+//!    an approval no longer the default: {"code": "invalid", "message": ..., "part": 0,
+//!    "question": id, "expected": approved, "current": default now}
 //!
 //! {"id": 7, "op": "write", "step": ..., "output": ..., "accept_defaults": true,
 //!  "parts": [{"analysis": ..., "answers": ...}, ...]}
@@ -77,7 +82,12 @@ const KEEP: usize = 2;
 enum Failure {
     Incomplete(IncompleteError),
     Invalid(String),
-    Failed { message: String, trace: String },
+    /// An approved default refused: `invalid`, naming it (and both values when they differ).
+    Unapproved(api::Unapproved),
+    Failed {
+        message: String,
+        trace: String,
+    },
 }
 
 impl From<Error> for Failure {
@@ -89,6 +99,7 @@ impl From<Error> for Failure {
             Error::Rules(rules::Error::Invalid(m)) => Failure::Invalid(m),
             Error::Load(e) => Failure::Invalid(e.to_string()),
             Error::Write(WriteError::Invalid(m)) => Failure::Invalid(m),
+            Error::Unapproved(u) => Failure::Unapproved(u),
             other => Failure::Failed {
                 message: other.to_string(),
                 trace: format!("{other:?}"),
@@ -278,7 +289,18 @@ impl Server {
                 let step = path(request, "step")?;
                 let index = analysis["binding"]["part"].as_u64().unwrap_or(0) as usize;
                 let loaded = part::load(&step, Some(index)).map_err(Error::Load)?;
-                Ok(json!({"answers": api::export_answers(&loaded, analysis, &answers)?}))
+                // Only the defaults approved, by part (ADR P9); none when absent.
+                let approved = match request.get("accept_defaults") {
+                    None | Some(Value::Null) => api::Approved::new(),
+                    Some(v) => api::approvals(v).ok_or_else(|| {
+                        Failure::Invalid(format!("accept_defaults: {}", api::APPROVALS_FORM))
+                    })?,
+                };
+                let exported = api::export_answers(&loaded, analysis, &answers, &approved)?;
+                Ok(
+                    json!({"answers": exported.answers, "complete": exported.complete(),
+                          "missing": exported.missing}),
+                )
             }
             Some("interpret") => interpret(request, analysis, &answers),
             Some("preview") => {
@@ -527,6 +549,16 @@ fn error(failure: Failure) -> Value {
             Value::Object(out)
         }
         Failure::Invalid(message) => json!({"code": "invalid", "message": message}),
+        Failure::Unapproved(u) => {
+            let mut out = json!({"code": "invalid", "message": u.message, "part": u.part,
+                                 "question": u.question});
+            if let Some(values) = u.values {
+                let (expected, current) = *values;
+                out["expected"] = expected;
+                out["current"] = current;
+            }
+            out
+        }
         Failure::Failed { message, trace } => {
             json!({"code": "failed", "message": message, "trace": trace})
         }

@@ -6,6 +6,48 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+### Fixed
+
+- Answers that write no PMI (a coating or heat treatment of "None", no notes, "position
+  tolerances", a hole of "general" function, no flatness or control on a datum) are no longer
+  asked again on every reopen. Stored with the answers, they resume (`resume.answers`) where
+  the file has nothing to contradict them; whether an answer writes PMI is found by planning
+  it as the writer does. A file that states PMI for such a question (another tool's flatness
+  on datum A's face against a stored "none") contradicts it: a conflict, following ADR P9's
+  rules, never resumed silently. `write --accept-defaults` (and serve's `write` with
+  `accept_defaults`), the person's "accept all", now also stores the defaults it takes that
+  write no PMI; those that write PMI are still read back from the file (`resume.present`), and
+  what is written is unchanged. Approved defaults (the page's Save, MCP) were already stored.
+
+## 0.2.0 (2026-11-19)
+
+Read first:
+
+- **Fixed: rewriting a file Specify wrote no longer drops PMI** (ADR P9; details under Fixed).
+  Before, a rewrite from the editor, `write` or a session dropped PMI another tool had added,
+  and defaults written but never stored as answers. Two cases are still dropped, as before: a
+  default whose faces another tool moved, and Specify-marked PMI written from a raw intent where
+  no default exists.
+- **Preview:** the Specify page (`specify-core open`, `open --diff`) and MCP `show` need the
+  built app until it is bundled: `--app DIR` or `SPECIFY_APP_DIR` (and `--wasm DIR` or
+  `SPECIFY_WASM_DIR` when the engine is not in the app's `wasm/`). For MCP `show`, only the
+  environment variables.
+- **Conflicts with another tool's PMI:** when a requirement another tool wrote contradicts a
+  stored answer, Specify offers only to keep the file's requirement; it never replaces it. A
+  "use my answer" choice comes in the next release.
+- **Asked again on reopening:** defaults taken that write no PMI (no coating, a general hole,
+  no flatness on a datum) leave nothing in the file to read back, so a reopened file asks them
+  again. Answers given and stored are resumed.
+- **Exports take only approved defaults** (`questions --resolve-defaults`, serve, Python, WASM
+  `exportAnswers`): pass the approvals to keep an export complete. The editor's Answers (JSON)
+  export is unchanged until the editor sends approvals.
+- **Upgrading from 0.1.18** (details below): `specify-core open` no longer takes `--site` or
+  `--editor` and no longer hands the file to draftwright.io; MCP `write_pmi` refuses a boolean
+  `accept_defaults` (pass the approved defaults with their values); Rust `api::export_answers`
+  takes approvals and returns `Exported {answers, missing}`; `analyse`'s `resume` gains
+  conflicts and `present`, and a reopened file's `existing` and `part` are no longer empty; the
+  page's Save sends `{rev, acceptDefaults}`, not the STEP's bytes.
+
 ### Added
 
 - docs/rule-sources.md: where each of Specify's defaults and tables comes from (standard,
@@ -43,6 +85,21 @@ All notable changes to specify-core-rust. The format follows
 
 ### Changed
 
+- Answer exports no longer take every default (ADR P9: a default becomes intent only when the
+  person approves it). `api::export_answers`, CLI `questions --resolve-defaults`, serve
+  `export_answers`, WASM `exportAnswers` and Python `api.export_answers` export the answers given
+  plus exactly the defaults approved by part, `{"<part>": {"<id>": value}}` with the value the
+  person saw (CLI `--accept-defaults FILE`, serve and Python `accept_defaults`, WASM's second
+  argument); without approvals, no defaults. An approval that is not an open question's
+  default, or whose default has changed, is refused naming the part and question (serve adds
+  `expected` and `current`). Another part's approvals do not apply. Open questions and carry
+  blocks no longer refuse an export: it is written incomplete, blocks kept in
+  `_specify.unresolved`; serve's result adds `complete` and `missing`, and the CLI lists the
+  open questions on stderr. `api::export_answers` now returns `Exported {answers, missing}`;
+  `api::with_approved` is the one approval check, shared with the page's Save and MCP.
+  `exportAnswers` now needs approvals for defaults; the editor's Answers (JSON) export, which
+  uses `acceptDefaults`, still includes every default until the editor moves to
+  `exportAnswers` with approvals.
 - On reopening a file Specify wrote, the PMI is the truth (ADR P9 §3): `analyse` reads the
   file's PMI and part settings first and compares them item by item with what the stored
   answers would write (the revision diff's PMI item matching, every face its own). Answers
@@ -98,16 +155,6 @@ All notable changes to specify-core-rust. The format follows
 
 ### Fixed
 
-- Answers that write no PMI (a coating or heat treatment of "None", no notes, "position
-  tolerances", a hole of "general" function, no flatness or control on a datum) are no longer
-  asked again on every reopen. Stored with the answers, they resume (`resume.answers`) where
-  the file has nothing to contradict them; whether an answer writes PMI is found by planning
-  it as the writer does. A file that states PMI for such a question (another tool's flatness
-  on datum A's face against a stored "none") contradicts it: a conflict, following ADR P9's
-  rules, never resumed silently. `write --accept-defaults` (and serve's `write` with
-  `accept_defaults`), the person's "accept all", now also stores the defaults it takes that
-  write no PMI; those that write PMI are still read back from the file (`resume.present`), and
-  what is written is unchanged. Approved defaults (the page's Save, MCP) were already stored.
 - Reopening and writing again a file Specify wrote no longer drops PMI (ADR P9): requirements
   another tool added (unmarked), defaults written but never stored as answers, a stored answer
   the file contradicts (until the person decides), and a conflict kept are all kept, through
@@ -143,6 +190,10 @@ All notable changes to specify-core-rust. The format follows
 
 ### WASM API
 
+- `engine.exportAnswers(answersJson, approvalsJson?)`: exports the answers given plus exactly the
+  defaults in `approvalsJson` (`{"<part>": {"<id>": value}}`; none when absent), never every
+  default (ADR P9). Open questions and carry blocks no longer throw; an approval whose default
+  has changed does.
 - WASM `writePmi`'s report says whether the answers were complete: `complete` and `missing` (the
   required questions still open). An incomplete set is still written, as before.
 - `diff()`'s PMI items gain an optional `detail`: the explanation that used to be appended to a

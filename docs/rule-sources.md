@@ -164,7 +164,8 @@ default on the corpus and fixture analyses has one. Where it appears:
   default (an accepted default; an answer typed equal to the default is traced too).
 - **Answers export:** `_specify.sources` in `questions --resolve-defaults`, serve
   `export_answers`, `api::export_answers`, WASM `exportAnswers`, Python and the MCP
-  `export_answers` tool, on the same terms. It is output only: ignored when the map is read
+  `export_answers` tool, on the same terms (an export takes only the defaults approved, ADR
+  P9, so those are the defaults it traces). It is output only: ignored when the map is read
   back and recomputed on each export. `diff` does not carry it.
 - **Not in the STEP.** The source is not written into the file.
 
