@@ -98,6 +98,13 @@ All notable changes to specify-core-rust. The format follows
 
 ### Fixed
 
+- Reopening and writing again a file Specify wrote no longer drops PMI (ADR P9): requirements
+  another tool added (unmarked), defaults written but never stored as answers, a stored answer
+  the file contradicts (until the person decides), and a conflict kept are all kept, through
+  the CLI's `write`, WASM `writePmi`, a session save and MCP; another tool's requirement in
+  conflict stands against any answer, saved answers included. Known limits, both also lost
+  before this change: a default whose faces another tool moved, and Specify-marked PMI
+  written from a raw intent where no default exists, are still dropped on rewrite.
 - `diff` on a symmetric part, where the old part fits the new one turned (180° say) as well as
   it lies, broke the tie by the file's frame without saying so. It still matches in the file's
   frame, now a stated rule in docs/diff.md, and says so: report.md's "Matched in the file's

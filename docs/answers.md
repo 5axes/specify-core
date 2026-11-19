@@ -203,6 +203,13 @@ the file. Restore it, or leave it removed?", and `choices` `[{choice: "keep", la
 {choice: "restore", label, answer}]`. A front end or agent puts them to the person and never
 decides them itself. Conflicts are not `open` questions: they do not block a write.
 
+**Known limits.** Two kinds of Specify-marked PMI that no stored answer explains are still
+dropped on rewrite, as they were before ADR P9: a default whose faces another tool moved
+(it no longer pairs with its default), and a requirement written from a raw intent where no
+default exists (no question accounts for it). Keeping them needs the writer to match restated
+requirements by meaning rather than by characteristic key, so that what a rewrite states
+again is not written twice.
+
 When the writer rewrites a reopened part, it replaces Specify's own (provenance-marked)
 requirements from the answers and keeps every other one: PMI another tool added (unmarked)
 and, until decided, a conflict's file items (restoring gives them way). A part written by
