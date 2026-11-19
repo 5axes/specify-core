@@ -77,6 +77,7 @@ as the last `--in-place` save left it. Outside `diff` mode `?rev=old` is 404, an
 
 ```json
 {
+  "api": 1,
   "mode": "specify",
   "name": "part.step",
   "path": "/home/me/parts/part.step",
@@ -90,6 +91,9 @@ as the last `--in-place` save left it. Outside `diff` mode `?rev=old` is 404, an
 }
 ```
 
+- `api`: the version of this contract, an integer: 1 is 0.2.0's. It changes only in a minor
+  release, when the contract changes in a way an app built for the old one cannot follow; an
+  app checks it and says plainly which version it needs.
 - `mode`: `"specify"`, `"read-only"` or `"diff"` (above).
 - `name`: the file's name (`NEW`'s in `diff` mode).
 - `path`: the opened file's absolute path (`NEW`'s in `diff` mode), as given, not resolved
