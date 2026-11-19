@@ -214,6 +214,15 @@ pub(crate) fn reconcile(
     if let Some((_, defaults)) = &all_planned {
         writes.extend(writing(defaults));
     }
+    // A full-thread answer supplies a depth to its hole function's thread PMI.
+    // The thread can already be present in the file, so its override may have no
+    // standalone row in this plan.
+    writes.extend(
+        stored
+            .keys()
+            .filter(|id| id.starts_with("hole.full_thread:"))
+            .cloned(),
+    );
     occupied.retain(|id, _| {
         !kept(&stored).contains(id.as_str())
             && (!writes.contains(id) || setting(id).is_some())
@@ -428,26 +437,6 @@ pub(crate) fn writing(plan: &Value) -> BTreeSet<String> {
         .filter(|(_, meta)| meta["status"] != "existing")
         .filter_map(|(_, meta)| meta["question"].as_str().map(str::to_owned))
         .collect();
-    // The optional full-thread answer is written into the thread's manufacturing
-    // attributes, whose scene question belongs to the hole function.
-    for row in plan["pmi"]["pmi"]["attributes"]
-        .as_array()
-        .into_iter()
-        .flatten()
-    {
-        let meta = &plan["specify"][&row["id"].as_str().unwrap_or_default()];
-        if meta["status"] != "existing"
-            && row["value"]["name"] == "thread manufacturing"
-            && row["value"]["items"]
-                .as_array()
-                .is_some_and(|items| items.iter().any(|item| item[0] == "minimum full thread"))
-            && let Some(feature) = meta["question"]
-                .as_str()
-                .and_then(|id| id.strip_prefix("hole.function:"))
-        {
-            out.insert(format!("hole.full_thread:{feature}"));
-        }
-    }
     if !plan["pmi"]["pmi"]["material"].is_null() {
         out.insert("part.material".into());
     }
