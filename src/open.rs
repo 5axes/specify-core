@@ -66,6 +66,11 @@ pub const MAX_CONNECTIONS: usize = 16;
 /// The engine's entry point, relative to the app (`config.wasmUrl`).
 pub const WASM_URL: &str = "wasm/specify_core_wasm.js";
 
+/// The version of this page contract (docs/open.md), given as `config.api`. It changes only in
+/// a minor release, when the contract changes in a way an app built for the old one cannot
+/// follow; 1 is 0.2.0's contract.
+pub const API_VERSION: u32 = 1;
+
 /// The page's Content-Security-Policy: everything from this server only, the engine compiled
 /// with `'wasm-unsafe-eval'`, inline styles (which UI libraries set), `data:` fonts and
 /// `data:`/`blob:` images and downloads allowed.
@@ -666,6 +671,7 @@ fn exchange(stream: &mut TcpStream, ctx: &Ctx) {
             };
             let old = s.old();
             let config = json!({
+                "api": API_VERSION,
                 "mode": shared.mode,
                 "name": s.file().name,
                 "path": s.file().path.display().to_string(),

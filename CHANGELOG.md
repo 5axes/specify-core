@@ -6,6 +6,12 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
+### Added
+
+- The page's `config` gives `api`, the version of the page contract (docs/open.md): 1, the
+  contract of 0.2.0. It changes only in a minor release, so an app can check it is built for
+  the command serving it.
+
 ### Fixed
 
 - Reopening a STEP file detects manufacturing-process edits and removals against saved
