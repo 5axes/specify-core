@@ -1,5 +1,40 @@
 # Questions for the maintainer
 
+## Decision (2026-11-18): reopening a file Specify wrote, the PMI is the truth (ADR P9 §3)
+
+Stored answers resume only where the file's PMI agrees; the file's additions are `existing`,
+and a stored answer the file changed or removed is `resume.conflicts: [{id, stored, file}]`
+(`file: null` when removed), with an analysis warning each. Built as described in
+[answers](answers.md#reopening-a-file-specify-wrote-the-pmi-is-the-truth). Decisions made in
+building it:
+
+- **Shape of the question.** `review` (and WASM `review`, MCP `open`/`questions`) adds
+  `conflicts`, only when there are undecided ones: each `{id, kind: "conflict", text, stored,
+  file, choices: [{choice: "keep", label}, {choice: "restore", label, answer}]}`. They are not
+  in `questions` or `open`, so they never block a write; the question they stand for is not
+  asked until decided.
+- **How a decision is recorded.** Restore = answer the question (with `stored`); keep = list
+  the id in the answers' `_specify.keep`. Either decides it. A kept requirement is written
+  without Specify's provenance marker, so it stays the file's own on every reopening; a kept
+  removal (no requirement to unmark) is stored in the payload's `kept` list instead.
+- **What is compared.** The stored answers' preview and, when that disagrees, their plan with
+  every default taken (files written with defaults merge requirements, e.g. one location
+  dimension to a hole and a pattern): an answer resumes when either plan states its
+  requirements as the file does.
+- **Defaults written but not stored** (every file written with accepted defaults before P9's
+  approved defaults) read back as present, not open questions and not conflicts, but in
+  `resume.present: {id: value}` (the rules take each as the question's answer unless the
+  answers give one) rather than in `existing` as the brief proposed. Tried first as
+  `existing`: a defaulted requirement then became foreign PMI whose question is no longer
+  asked, so it could not be changed (`a_resumed_files_thread_can_be_answered_away`), and
+  every rewrite of a defaulted file had to keep it beside the rewritten PMI, which restated
+  datums and planner dimensions (characteristic numbering and datum-letter refusals) and lost
+  the byte-identical unchanged rewrite. A default the file states differently is `existing`.
+- **Derived basic locations.** The dimension planner's basic location dimensions for an
+  answered question explain the file's equal ones but never make a conflict: how they merge
+  (one location to a hole and a pattern) varies with the other answers and the planner's
+  version, and they state nothing the answer chose.
+
 
 ## Decision (2026-11-02): limit dimensions and combined ISO 2768 classes
 

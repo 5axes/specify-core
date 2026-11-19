@@ -454,6 +454,8 @@ impl Intent {
 /// in ± mode and when every feature uses the general tolerance. Datums the person changes
 /// or removes remain questions; a file's own frame is retained.
 pub fn questions(analysis: &Value, answers: &Map<String, Value>) -> Result<Vec<Question>> {
+    let answers = &*crate::resume::truth::answered(analysis, answers);
+    let analysis = &*crate::resume::truth::restored(analysis, answers);
     carry_review(questions_in(&Ctx::new(analysis)?, answers)?, answers)
 }
 
@@ -463,6 +465,8 @@ pub fn questions_proposing(
     answers: &Map<String, Value>,
     propose: &str,
 ) -> Result<Vec<Question>> {
+    let answers = &*crate::resume::truth::answered(analysis, answers);
+    let analysis = &*crate::resume::truth::restored(analysis, answers);
     carry_review(
         all_questions(&Ctx::new(analysis)?, answers, propose)?,
         answers,
@@ -510,6 +514,57 @@ pub(crate) fn answer<'v>(
 
 /// `_questions`.
 fn all_questions(
+    ctx: &Ctx<'_>,
+    answers: &Map<String, Value>,
+    propose: &str,
+) -> Result<Vec<Question>> {
+    let mut out = every_question(ctx, answers, propose)?;
+    // ADR P9: where a reopened file's PMI stands for a question (contradicting its stored
+    // answer, or answering it where no answer did), the question is not asked until answered.
+    let conflicts: BTreeSet<&str> = ctx
+        .analysis
+        .get("resume")
+        .into_iter()
+        .flat_map(|r| {
+            r.get("conflicts")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .filter_map(|c| c.get("id").and_then(Value::as_str))
+                .chain(
+                    r.get("file")
+                        .and_then(Value::as_array)
+                        .into_iter()
+                        .flatten()
+                        .filter_map(Value::as_str),
+                )
+        })
+        .collect();
+    // A conflict the person kept (`_specify.keep`, stored with the answers when the file
+    // left its requirement removed) stays the file's: its question is not asked either.
+    let kept = crate::resume::truth::kept(answers);
+    // Another tool's requirement in conflict with a stored answer stands, answered or not.
+    let foreign: BTreeSet<&str> = ctx
+        .analysis
+        .get("resume")
+        .and_then(|r| r.get("conflicts"))
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|c| c.get("foreign") == Some(&Value::Bool(true)))
+        .filter_map(|c| c.get("id").and_then(Value::as_str))
+        .collect();
+    if !conflicts.is_empty() || !kept.is_empty() {
+        out.retain(|q| {
+            !foreign.contains(q.id.as_str())
+                && ((!conflicts.contains(q.id.as_str()) && !kept.contains(q.id.as_str()))
+                    || answers.contains_key(&q.id))
+        });
+    }
+    Ok(out)
+}
+
+fn every_question(
     ctx: &Ctx<'_>,
     answers: &Map<String, Value>,
     propose: &str,
@@ -1076,6 +1131,8 @@ pub fn with_all_defaults(
     answers: &Map<String, Value>,
 ) -> Result<Map<String, Value>> {
     crate::answer_file::validate(answers).map_err(Error::Invalid)?;
+    let answers = &*crate::resume::truth::answered(analysis, answers);
+    let analysis = &*crate::resume::truth::restored(analysis, answers);
     let (merged, qs) = settled(&Ctx::new(analysis)?, answers)?;
     // Defaults never answer a block; it refuses once its question is asked (#126).
     crate::answer_file::require_resolved_where(answers, |id| asks(&qs, id))?;
@@ -1108,6 +1165,8 @@ fn settled(
 /// Turn a complete set of answers into intent. Refuses while any question is open.
 pub fn apply(analysis: &Value, answers: &Map<String, Value>) -> Result<Intent> {
     crate::answer_file::validate(answers).map_err(Error::Invalid)?;
+    let answers = &*crate::resume::truth::answered(analysis, answers);
+    let analysis = &*crate::resume::truth::restored(analysis, answers);
     let ctx = Ctx::new(analysis)?;
     let qs = questions_in(&ctx, answers)?;
     crate::answer_file::require_resolved_where(answers, |id| asks(&qs, id))?;
@@ -1131,6 +1190,8 @@ pub fn unasked_rows(
     analysis: &Value,
     answers: &Map<String, Value>,
 ) -> Result<Vec<Map<String, Value>>> {
+    let answers = &*crate::resume::truth::answered(analysis, answers);
+    let analysis = &*crate::resume::truth::restored(analysis, answers);
     let ctx = Ctx::new(analysis)?;
     let qs = questions_in(&ctx, answers)?;
     unasked(&ctx, answers, &qs)
@@ -1168,6 +1229,8 @@ pub fn apply_with_defaults(
 /// full-thread question overrides that depth only when answered.
 /// Items keep the `default` field for front ends, always false for an answered question.
 pub fn preview(analysis: &Value, answers: &Map<String, Value>) -> Result<Intent> {
+    let answers = &*crate::resume::truth::answered(analysis, answers);
+    let analysis = &*crate::resume::truth::restored(analysis, answers);
     let ctx = Ctx::new(analysis)?;
     let qs = questions_in(&ctx, answers)?;
     let mut intent = intent(&ctx, answers, &qs, IntentMode::Preview)?;

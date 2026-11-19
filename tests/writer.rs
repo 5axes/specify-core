@@ -76,10 +76,13 @@ fn reanalysed(base: &Value, loaded: &LoadedPart) -> Value {
     let mut out = base.clone();
     out["binding"] = serde_json::to_value(&loaded.binding).unwrap();
     match answers_for(loaded).unwrap() {
-        Some(a) => {
-            out["existing"] = json!([]);
-            out["part"] = json!({});
-            out["resume"] = json!({ "answers": a });
+        Some(_) => {
+            // As `api.analyse` composes it: reopened, the file's PMI is read first (ADR P9);
+            // the answers it agrees with resume, and any other tool's PMI is `existing`.
+            let real = specify_core::api::analyse(loaded).unwrap();
+            for key in ["existing", "part", "resume"] {
+                out[key] = real[key].clone();
+            }
         }
         None => {
             out["existing"] = serde_json::to_value(read_existing(loaded).unwrap()).unwrap();

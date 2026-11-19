@@ -354,6 +354,26 @@ fn items(p: &PartPmi, prov: Option<&PartProvenance>, doc: Option<&Document>) -> 
     out
 }
 
+/// Each numbered requirement of `p` (datums, dimensions, tolerances, surface textures,
+/// threads, knurls) by haecceity collection and index, with its characteristic key as text:
+/// the identity two requirements share when one restates the other.
+pub(crate) fn keyed(p: &PartPmi) -> Vec<((&'static str, usize), String)> {
+    let lengths = [
+        ("datums", p.datums.len()),
+        ("dimensions", p.dimensions.len()),
+        ("tolerances", p.tolerances.len()),
+        ("surface_textures", p.surface_textures.len()),
+        ("threads", p.threads.len()),
+        ("knurls", p.knurls.len()),
+    ];
+    let at = lengths
+        .into_iter()
+        .flat_map(|(collection, len)| (0..len).map(move |i| (collection, i)));
+    at.zip(items(p, None, None))
+        .map(|(at, item)| (at, serde_json::to_string(&item.key).unwrap_or_default()))
+        .collect()
+}
+
 /// The pinned reader does not consume ids on thread/knurl definition shapes. Strip just
 /// these inverse annotations before its replace planner checks for outside references.
 pub(crate) fn before_replace(doc: &Document, parts: &[PartProvenance]) -> Edit {

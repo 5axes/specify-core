@@ -339,7 +339,9 @@ fn a_pre_alpha_browser_export_resumes_its_answers() {
     assert_eq!(resume["answers"], expected);
     assert!(resume["unresolved"].is_null(), "{resume}");
     assert!(resume["unverified"].as_str().unwrap().contains("schema 1"));
-    assert_eq!(analysis["existing"], json!([]));
+    // ADR P9: the file's PMI is read on reopening; what its answers do not explain (the
+    // browser's basic locations, merged as that build merged them) is `existing`, not `[]`.
+    assert!(resume.get("conflicts").is_none(), "{resume}");
     assert_eq!(warnings.len(), 1, "{warnings:?}");
     let resumed = resume["answers"].as_object().unwrap();
     let review = api::review(&analysis, resumed).unwrap();

@@ -94,10 +94,13 @@ fn reanalysed(base: &Value, loaded: &LoadedPart) -> Value {
     let mut out = base.clone();
     out["binding"] = serde_json::to_value(&loaded.binding).unwrap();
     match answers_for(loaded).unwrap() {
-        Some(a) => {
-            out["existing"] = json!([]);
-            out["part"] = json!({});
-            out["resume"] = json!({ "answers": a });
+        Some(_) => {
+            // As `api.analyse` composes it: reopened, the file's PMI is read first (ADR P9);
+            // the answers it agrees with resume, and any other tool's PMI is `existing`.
+            let real = specify_core::api::analyse(loaded).unwrap();
+            for key in ["existing", "part", "resume"] {
+                out[key] = real[key].clone();
+            }
         }
         None => {
             out["existing"] = serde_json::to_value(read_existing(loaded).unwrap()).unwrap();
@@ -143,7 +146,9 @@ fn a_written_file_resumes_its_answers_and_is_rewritten_not_added_to() {
     let loaded = load(&first, None).unwrap();
     assert_eq!(answers_for(&loaded).unwrap(), given.as_object().cloned());
     let again = reanalysed(&base, &loaded);
-    assert_eq!(again["resume"], json!({ "answers": given }));
+    // ADR P9: the defaults the file states are `resume.present`, beside the answers.
+    assert_eq!(again["resume"]["answers"], given);
+    assert!(again["resume"].get("conflicts").is_none());
     assert_eq!(again["existing"], json!([]));
 
     // Changed and written again: the PMI is the new answers', once.
@@ -507,7 +512,9 @@ fn each_schema_is_checked_against_its_own_fingerprint() {
         fingerprint(&loaded).unwrap(),
     );
     let mut payload = Value::Object(stored(text.as_bytes()).remove(&0).unwrap());
-    payload["answers"]["datum.A"] = json!([0]);
+    // The datum the file's PMI states (its default, written): ADR P9 resumes an answer only
+    // where the PMI agrees, and a datum on another face would be a conflict.
+    payload["answers"]["datum.A"] = json!([2]);
     for (schema, faces, resumes, verified) in [
         (1, &v1, true, true),
         (1, &v2, true, false),
@@ -528,7 +535,7 @@ fn each_schema_is_checked_against_its_own_fingerprint() {
         assert_eq!(resume.is_object(), resumes, "schema {schema}: {resume}");
         if resumes {
             // Verified or matched by ID, the datum is applied.
-            assert_eq!(resume["answers"]["datum.A"], json!([0]));
+            assert_eq!(resume["answers"]["datum.A"], json!([2]));
             assert!(resume["unresolved"].is_null(), "schema {schema}: {resume}");
             assert_eq!(resume["answers"]["part.material"], "steel");
         }

@@ -512,7 +512,7 @@ fn named_parts_keep_questions_defaults_locations_and_written_pmi_under_rigid_mot
 }
 
 #[test]
-fn unresolved_saved_answers_reach_review_and_leave_questions_open() {
+fn unresolved_saved_answers_reach_review_and_the_file_answers_the_current_question() {
     let loaded = part::load(&fixture("resume-alpha6/pin.step.gz"), None).unwrap();
     let mut payload = json!(resume::stored(&loaded.bytes)[&0]);
     let key = payload["answers"]
@@ -569,9 +569,18 @@ fn unresolved_saved_answers_reach_review_and_leave_questions_open() {
     )
     .unwrap();
     // The unanswered current question includes the floor; the orphan retains its saved key.
+    // ADR P9: the file still states the hole's requirement as its default would, so the
+    // question is answered by the file (`resume.present`), not open.
     assert_eq!(key, "hole.function:holes:3");
     assert!(
-        review["open"]
+        analysis["resume"]["present"]
+            .get("hole.function:holes:3.5")
+            .is_some(),
+        "{}",
+        analysis["resume"]
+    );
+    assert!(
+        !review["open"]
             .as_array()
             .unwrap()
             .contains(&json!("hole.function:holes:3.5"))
