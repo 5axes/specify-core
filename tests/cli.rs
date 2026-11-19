@@ -531,7 +531,7 @@ fn refusal(e: &Error, output: &str) -> (i32, String) {
     match e {
         Error::Rules(rules::Error::Incomplete(e)) => (2, format!("incomplete: {e}\n")),
         Error::Rules(rules::Error::Invalid(m)) => (2, format!("invalid answer: {m}\n")),
-        Error::Load(_) | Error::Write(WriteError::Invalid(_)) => {
+        Error::Load(_) | Error::Write(WriteError::Invalid(_)) | Error::Unapproved(_) => {
             (2, format!("cannot write: {e}\n"))
         }
         Error::Write(_) | Error::Analysis(_) => {

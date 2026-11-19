@@ -84,16 +84,22 @@ def apply(
 
 
 def export_answers(
-    step: str | Path | LoadedPart, analysis: dict[str, Any], answers: dict[str, Any]
+    step: str | Path | LoadedPart,
+    analysis: dict[str, Any],
+    answers: dict[str, Any],
+    accept_defaults: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Complete answer map with defaults explicit and ``_specify.evidence`` for this part.
+    """Answer map with ``_specify.evidence`` for this part: the answers given, plus exactly the
+    defaults in ``accept_defaults`` (``{"<part>": {"<id>": value}}``, each with the value the
+    person saw; none when omitted). Never every default (ADR P9); open questions stay open.
 
-    Does not write STEP. Raises IncompleteError for unanswered required questions
-    or carry blocks, and ValueError for stale evidence or a mismatched analysis.
+    Does not write STEP. Raises ValueError for stale evidence, a mismatched analysis, or an
+    approved default that is not an open question's default as it now stands.
     Serialize with ``json.dumps(result, indent=2) + "\\n"`` for a stable sidecar.
     """
+    approved = None if accept_defaults is None else json.dumps(accept_defaults)
     return json.loads(_native.export_answers(
-        _step(step), json.dumps(analysis), json.dumps(answers)
+        _step(step), json.dumps(analysis), json.dumps(answers), approved
     ))
 
 

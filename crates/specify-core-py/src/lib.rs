@@ -43,7 +43,8 @@ fn raised(error: Error) -> PyErr {
     match error {
         Error::Load(_)
         | Error::Rules(rules::Error::Invalid(_))
-        | Error::Write(WriteError::Invalid(_)) => PyValueError::new_err(error.to_string()),
+        | Error::Write(WriteError::Invalid(_))
+        | Error::Unapproved(_) => PyValueError::new_err(error.to_string()),
         _ => PyRuntimeError::new_err(error.to_string()),
     }
 }
@@ -304,16 +305,26 @@ fn pmi_scene(
     .map_err(PyValueError::new_err)
 }
 
-/// Complete answer file, with defaults explicit and evidence checked against the part.
+/// Answer file of the answers given and exactly the defaults in `accept_defaults` (JSON,
+/// `{"<part>": {"<id>": value}}`; none when absent; ADR P9), with evidence checked against
+/// the part. Open questions stay open.
 #[pyfunction]
+#[pyo3(signature = (step, analysis, answers, accept_defaults=None))]
 fn export_answers(
     py: Python<'_>,
     step: &Bound<'_, PyAny>,
     analysis: &str,
     answers: &str,
+    accept_defaults: Option<&str>,
 ) -> PyResult<String> {
     let analysis = parse("analysis", analysis)?;
     let answers = answers_of(answers)?;
+    let approved = match accept_defaults {
+        Some(text) => api::approvals(&parse("accept_defaults", text)?).ok_or_else(|| {
+            PyValueError::new_err(format!("accept_defaults: {}", api::APPROVALS_FORM))
+        })?,
+        None => api::Approved::new(),
+    };
     let index = analysis["binding"]["part"].as_u64().unwrap_or(0) as usize;
     let owned;
     let handle = match loaded(step, None)? {
@@ -323,8 +334,8 @@ fn export_answers(
             &owned
         }
     };
-    py.detach(|| api::export_answers(&handle.loaded, &analysis, &answers))
-        .map(|answers| Value::Object(answers).to_string())
+    py.detach(|| api::export_answers(&handle.loaded, &analysis, &answers, &approved))
+        .map(|exported| Value::Object(exported.answers).to_string())
         .map_err(raised)
 }
 

@@ -7,7 +7,7 @@
 //! specify-core analyse STEP -o ANALYSIS [--part K]
 //! specify-core mesh STEP -o MESH [--part K] [--max-deviation-mm MM]
 //! specify-core questions ANALYSIS [--answers ANSWERS] [--open]
-//!                        [--resolve-defaults --step STEP]
+//!                        [--resolve-defaults --step STEP [--accept-defaults FILE]]
 //! specify-core write STEP ANALYSIS ANSWERS [ANALYSIS ANSWERS ...] -o OUT
 //!                    [--accept-defaults] [--bom] [--intent INTENT]
 //! specify-core diff OLD NEW -o DIR [--answers ANSWERS] [--part K] [--title TITLE]
@@ -143,12 +143,15 @@ when the server stops, unless a call names an answers_file. See docs/mcp.md.")]
         /// only unanswered questions
         #[arg(long)]
         open: bool,
-        /// export complete answers with defaults and face evidence as JSON
+        /// export the answers given, the defaults approved in --accept-defaults and face evidence as JSON; never every default, open questions stay open (listed on stderr)
         #[arg(long)]
         resolve_defaults: bool,
         /// matching STEP part for export (required with --resolve-defaults)
         #[arg(long)]
         step: Option<PathBuf>,
+        /// with --resolve-defaults: JSON file of the defaults the person approved, by part, each with the value they saw: {"<part>": {"<id>": value}}. A default whose value has changed is refused
+        #[arg(long, value_name = "FILE")]
+        accept_defaults: Option<PathBuf>,
         /// add each default's source: the rule behind it (docs/rule-sources.md)
         #[arg(long)]
         sources: bool,
@@ -411,6 +414,7 @@ fn run(cmd: Cmd, out: &mut impl Write) -> Result<(), Exit> {
             open,
             resolve_defaults,
             step,
+            accept_defaults,
             sources,
         } => {
             let analysis = read_json(&analysis)?;
@@ -433,15 +437,30 @@ fn run(cmd: Cmd, out: &mut impl Write) -> Result<(), Exit> {
                 })?;
                 let index = analysis["binding"]["part"].as_u64().unwrap_or(0) as usize;
                 let loaded = part::load(&step, Some(index)).map_err(Exit::error)?;
-                let exported = api::export_answers(&loaded, &analysis, &answers)
+                let approved = match accept_defaults {
+                    Some(path) => api::approvals(&read_json(&path)?).ok_or_else(|| {
+                        Exit::new(2, format!("--accept-defaults: {}", api::APPROVALS_FORM))
+                    })?,
+                    None => api::Approved::new(),
+                };
+                let exported = api::export_answers(&loaded, &analysis, &answers, &approved)
                     .map_err(|e| Exit::new(2, e.to_string()))?;
+                if !exported.complete() {
+                    eprintln!("open: {}", exported.missing.join(", "));
+                }
                 return print(
                     out,
-                    &serde_json::to_string_pretty(&exported).map_err(Exit::error)?,
+                    &serde_json::to_string_pretty(&exported.answers).map_err(Exit::error)?,
                 );
             }
             if step.is_some() {
                 return Err(Exit::new(2, "--step requires --resolve-defaults"));
+            }
+            if accept_defaults.is_some() {
+                return Err(Exit::new(
+                    2,
+                    "--accept-defaults requires --resolve-defaults",
+                ));
             }
             let qs = api::questions(&analysis, &answers).map_err(refused)?;
             let shown: Vec<Value> = if open {
@@ -610,6 +629,7 @@ fn write(
         Error::Load(_) | Error::Write(WriteError::Invalid(_)) | Error::Rules(_) => {
             Exit::new(2, format!("cannot write: {e}"))
         }
+        Error::Unapproved(_) => Exit::new(2, format!("cannot write: {e}")),
         Error::Write(_) | Error::Analysis(_) => {
             Exit::new(1, format!("write failed, {output_arg} left as it was: {e}"))
         }

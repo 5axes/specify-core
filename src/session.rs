@@ -879,18 +879,7 @@ pub fn intent_for(
     }
 }
 
-/// Approved defaults by part: each question id with the default value the person saw.
-pub type Approved = BTreeMap<usize, Map<String, Value>>;
-
-/// Approved defaults as the page and MCP give them: `{"<part index>": {"<question id>":
-/// <value>, ...}}` (`{}` for none). None for anything else.
-pub fn approvals(value: &Value) -> Option<Approved> {
-    value
-        .as_object()?
-        .iter()
-        .map(|(k, ids)| Some((k.parse().ok()?, ids.as_object()?.clone())))
-        .collect()
-}
+pub use crate::api::{Approved, approvals};
 
 /// A JSON object's entries in order, duplicate keys kept (a `Map` keeps only the last).
 pub struct Entries<T>(pub Vec<(String, T)>);
@@ -963,56 +952,23 @@ fn approve(
     Ok(out)
 }
 
-/// Part `part`'s `answers` with the defaults `approved` for it taken, all checked first
-/// against the defaults as they stand with `answers` (ADR P9): each id must be an open
-/// question with a default, and its value that default (the one the person saw), else refused
-/// naming it. Taken together, so no approval changes another's value. `save`, and MCP's
-/// `write_pmi` and `export_answers`.
+/// [`api::with_approved`], refused as a save is: an approval as [`SaveError::Question`].
+/// `save`, and MCP's `write_pmi` and `export_answers`.
 pub fn with_approved(
     analysis: &Value,
     answers: &Map<String, Value>,
     part: usize,
     approved: &Map<String, Value>,
 ) -> Result<Map<String, Value>, SaveError> {
-    if approved.is_empty() {
-        return Ok(answers.clone());
-    }
-    let qs = api::questions(analysis, answers).map_err(|e| SaveError::Refused(e.to_string()))?;
-    let open = rules::open_questions(&qs, answers);
-    for (id, value) in approved {
-        let current = open
-            .iter()
-            .find(|q| q.id == *id)
-            .and_then(|q| q.default.clone());
-        match current {
-            None => {
-                return Err(SaveError::Question {
-                    message: format!(
-                        "part {part}: {id} is not an open question with a default: approve \
-                         only the defaults offered"
-                    ),
-                    part,
-                    question: id.clone(),
-                    values: None,
-                });
-            }
-            Some(current) if current != *value => {
-                return Err(SaveError::Question {
-                    message: format!(
-                        "part {part}: {id}'s default is now {current}, not the {value} \
-                         approved: show it and approve again"
-                    ),
-                    part,
-                    question: id.clone(),
-                    values: Some(Box::new((value.clone(), current))),
-                });
-            }
-            Some(_) => {}
-        }
-    }
-    let mut taken = answers.clone();
-    taken.extend(approved.clone());
-    Ok(taken)
+    api::with_approved(analysis, answers, part, approved).map_err(|e| match e {
+        Error::Unapproved(u) => SaveError::Question {
+            message: u.message,
+            part: u.part,
+            question: u.question,
+            values: u.values,
+        },
+        other => SaveError::Refused(other.to_string()),
+    })
 }
 
 /// A report without its PMI scenes (`report.pmi.scenes`, and each part's in an assembly).

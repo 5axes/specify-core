@@ -255,7 +255,26 @@ fn an_answers_export_traces_its_accepted_defaults() {
         json!({"part.material": "6061-T6", "part.surface_finish": "Ra 1.6"}),
     )
     .unwrap();
-    let exported = api::export_answers(&loaded, &analysis, &given).unwrap();
+    // The defaults traced are those approved (ADR P9), with the values offered.
+    let offered = api::questions(&analysis, &given).unwrap();
+    let default = |id: &str| {
+        offered
+            .iter()
+            .find(|q| q.id == id)
+            .and_then(|q| q.default.clone())
+            .unwrap()
+    };
+    let approved = api::Approved::from([(
+        0,
+        serde_json::from_value(json!({
+            "part.general_tolerance": default("part.general_tolerance"),
+            "datum.A": default("datum.A"),
+        }))
+        .unwrap(),
+    )]);
+    let exported = api::export_answers(&loaded, &analysis, &given, &approved)
+        .unwrap()
+        .answers;
     let sources = exported["_specify"]["sources"].as_object().unwrap();
     assert_eq!(
         sources["part.general_tolerance"]["rule"],
@@ -269,6 +288,8 @@ fn an_answers_export_traces_its_accepted_defaults() {
     for id in sources.keys() {
         assert!(exported.contains_key(id), "{id}");
     }
-    let again = api::export_answers(&loaded, &analysis, &exported).unwrap();
+    let again = api::export_answers(&loaded, &analysis, &exported, &api::Approved::new())
+        .unwrap()
+        .answers;
     assert_eq!(again, exported, "re-exporting is idempotent");
 }

@@ -648,8 +648,8 @@ fn a_process_answer_is_checked_and_round_trips_through_the_answer_file() {
     let qs = api::questions(&analysis, &given).unwrap();
     assert!(!ids(&qs).contains(&"part.surface_finish"));
     assert!(ids(&qs).contains(&"part.edges"));
-    let exported = api::export_answers(&loaded, &analysis, &given).unwrap();
-    assert_eq!(exported[process::QUESTION], json!("cast"));
+    let exported = api::export_answers(&loaded, &analysis, &given, &api::Approved::new()).unwrap();
+    assert_eq!(exported.answers[process::QUESTION], json!("cast"));
 }
 
 /// The surface textures written in `bytes` for part `None`, as the kernel reads them.

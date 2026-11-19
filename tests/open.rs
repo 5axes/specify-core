@@ -2057,7 +2057,14 @@ fn a_part_with_only_metadata_answers_keeps_its_pmi() {
     let loaded = specify_core::part::load(&plate, None).unwrap();
     let given: Map<String, Value> =
         serde_json::from_value(json!({"part.material": "6061-T6"})).unwrap();
-    let mut stored = specify_core::api::export_answers(&loaded, &analysis, &given).unwrap();
+    let mut stored = specify_core::api::export_answers(
+        &loaded,
+        &analysis,
+        &given,
+        &specify_core::api::Approved::new(),
+    )
+    .unwrap()
+    .answers;
     // Only the metadata, as a boolean-era save with every default taken stores it.
     stored.retain(|k, _| k.starts_with('_'));
     assert!(!stored.is_empty());

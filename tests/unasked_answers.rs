@@ -139,7 +139,14 @@ fn a_preview_write_lists_it_and_keeps_the_answer() {
 fn export_keeps_an_unasked_answer() {
     let analysis = api::analyse_file(&plate(), None).unwrap();
     let loaded = specify_core::part::load(&plate(), None).unwrap();
-    let saved = api::export_answers(&loaded, &analysis, &revised("± dimensions")).unwrap();
+    let saved = api::export_answers(
+        &loaded,
+        &analysis,
+        &revised("± dimensions"),
+        &api::Approved::new(),
+    )
+    .unwrap()
+    .answers;
     assert_eq!(saved["datum.A.flatness"], "0.05");
     assert_eq!(saved["hole.position:holes:12"], "0.1");
 }
@@ -179,7 +186,9 @@ fn the_library_refuses_an_unknown_id() {
     );
     let loaded = specify_core::part::load(&plate(), None).unwrap();
     assert_eq!(
-        message(api::export_answers(&loaded, &analysis, &answers).unwrap_err()),
+        message(
+            api::export_answers(&loaded, &analysis, &answers, &api::Approved::new()).unwrap_err()
+        ),
         UNKNOWN
     );
     // Added requirements and reserved members remain answers.
@@ -307,7 +316,9 @@ fn a_carry_block_on_an_unasked_question_is_reported_not_refused() {
     assert!(report.not_written.contains(&line.to_string()));
     // The export keeps the block, so it applies again if the question returns.
     let loaded = specify_core::part::load(&plate(), None).unwrap();
-    let saved = api::export_answers(&loaded, &analysis, &answers).unwrap();
+    let saved = api::export_answers(&loaded, &analysis, &answers, &api::Approved::new())
+        .unwrap()
+        .answers;
     assert_eq!(
         saved["_specify"]["unresolved"]["datum.A.flatness"],
         "its datum datum.A is unresolved"
