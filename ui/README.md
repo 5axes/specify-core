@@ -9,6 +9,21 @@ Two React components for the browser, on [specify-core-wasm](https://github.com/
 
 There is no drawing engine here; drawings are Draftwright's.
 
+## Upgrading from 0.1
+
+0.2.0 breaks 0.1 hosts in two ways:
+
+- **Engine:** it needs `@draftwright/specify-core-wasm` **0.2.0** (pinned in `engines.lock.json`), whose API is
+  not compatible with 0.1.x.
+- **Exports follow ADR P9:** the Answers (JSON) export holds only the answers given, kept or confirmed. Inspection
+  exports never include an unapproved default.
+
+A host that implements only the original three engine methods keeps its 0.1 display and exports otherwise.
+`SpecifyEngine.inspection` is optional.
+
+New in 0.2.0: the local app (`specify-core open` / an agent's `show`), released as `specify-ui-app-<version>.tgz`
+with its `specify-ui-app.json` manifest (see "The local app").
+
 ## Install
 
 ```sh
