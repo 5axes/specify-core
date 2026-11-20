@@ -175,7 +175,7 @@ fn datum_and_position(loaded: &LoadedPart) -> Intent {
     let plane = faces
         .iter()
         .filter(|f| f.kind == "plane")
-        .max_by(|a, b| a.area.total_cmp(&b.area))
+        .max_by(|a, b| a.area.unwrap().total_cmp(&b.area.unwrap()))
         .unwrap();
     let bore = faces.iter().find(|f| f.kind == "cylinder").unwrap();
     let mut intent = Intent::new(serde_json::to_value(&loaded.binding).unwrap());

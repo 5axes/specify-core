@@ -28,6 +28,28 @@ pub(crate) fn input(part: &haecceity::Part) -> Result<Input, String> {
     Input::from_recognition(part, vec![], Policy::default())
 }
 
+/// quiddity's reason for no planner frame when a face's area cannot be computed (the solid's
+/// volume needs every face).
+const UNMEASURED_FRAME: &str = "dimensioning frame: unmeasured-face";
+
+/// Whether `reason` (an [`input`] error) is only that.
+pub(crate) fn is_unmeasured_frame(reason: &str) -> bool {
+    reason == UNMEASURED_FRAME
+}
+
+/// What the report and the review say when dimensions are not planned for that reason.
+pub(crate) fn unplanned_note(loaded: &crate::part::LoadedPart) -> String {
+    let faces: Vec<String> = crate::features::unmeasured_faces(loaded)
+        .iter()
+        .map(usize::to_string)
+        .collect();
+    format!(
+        "dimensions not planned: the part frame needs every face's area (face {} cannot be \
+         measured)",
+        faces.join(", ")
+    )
+}
+
 fn ids(r: &Map<String, Value>, key: &str) -> Vec<usize> {
     r.get(key)
         .and_then(Value::as_array)
