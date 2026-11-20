@@ -11,6 +11,7 @@ import type { PmiMesh, PmiVec } from '../types/pmi';
 
 import { createOrientationCube } from './orientation-cube';
 import { lightGroup } from './cad-highlight.ts';
+import { edgesOf, hostViewOf, type DefaultView } from './default-view';
 
 /** A leaf of the tree: some faces of a mesh, in one colour. */
 export interface CadLeaf {
@@ -70,6 +71,8 @@ export interface CadView {
   dolly(factor: number): void;
   /** Whether the person has moved the view since it opened. */
   moved(): boolean;
+  /** Hears each time the person turns or zooms the view. */
+  onMoved(listener: () => void): void;
   /** What the orientation cube frames besides the part when it turns the view: the drawn
    * callouts, say. */
   alsoFrame(also: () => THREE.Box3 | null): void;
@@ -153,10 +156,12 @@ function shapeOf(leaf: CadLeaf, soup: ReturnType<typeof soupOf>) {
  */
 export function createCadView(
   container: HTMLElement, nodes: CadNode[],
-  { onPick, control = 'orbit', tools = true }: { onPick?: (path: string) => void; control?: 'orbit' | 'trackball';
-    /** Whether the viewer shows its toolbar and tools panel; ``showTools`` changes it later. */ tools?: boolean } = {},
+  { onPick, control = 'orbit', tools = true, bounds }: { onPick?: (path: string) => void; control?: 'orbit' | 'trackball';
+    /** Whether the viewer shows its toolbar and tools panel; ``showTools`` changes it later. */ tools?: boolean;
+    /** What the view frames, besides the leaves it opens with: leaves added later. */ bounds?: readonly [PmiVec, PmiVec] } = {},
 ): CadView {
   const box = new THREE.Box3();
+  if (bounds) for (const corner of bounds) box.expandByPoint(new THREE.Vector3(...corner));
   // Each leaf drawn, by path, with what a ray needs to find its faces.
   const drawn = new Map<string, { mesh: THREE.Mesh; faceOf: number[] }>();
   // The groups in the tree, by path.
@@ -257,7 +262,8 @@ export function createCadView(
   const overlayHost = canvas.parentElement as HTMLElement;
   if (getComputedStyle(overlayHost).position === 'static') overlayHost.style.position = 'relative';
   let moved = false;
-  const press = () => { moved = true; };
+  const movedListeners: (() => void)[] = [];
+  const press = () => { moved = true; for (const f of movedListeners) f(); };
   canvas.addEventListener('pointerdown', press);
   canvas.addEventListener('wheel', press, { passive: true });
   const frames: (() => void)[] = [];
@@ -293,7 +299,7 @@ export function createCadView(
     if (!p || Math.hypot(event.clientX - p.x, event.clientY - p.y) > 4) return;
     const direction = cubeAt(event);
     if (!direction) return;
-    moved = true;
+    press();
     // Z up, unless looking along it; then the back of the part is at the top.
     const up: PmiVec = Math.abs(direction[2]) / Math.hypot(...direction) > 0.9 ? [0, 1, 0] : [0, 0, 1];
     const also = alsoFramed();
@@ -404,6 +410,7 @@ export function createCadView(
     },
     dolly(factor) { viewer.setCameraZoom(Math.min(40, Math.max(0.05, viewer.getCameraZoom() / factor)), false); },
     moved: () => moved,
+    onMoved(listener) { movedListeners.push(listener); },
     alsoFrame(also) { alsoFramed = also; },
     showTools(on) { container.classList.toggle('cad-tools-hidden', !on); fit(); },
     collapse() { viewer.collapseNodes(CollapseState.ROOT, false); },
@@ -433,6 +440,7 @@ export function createCadView(
     dispose() {
       cancelAnimationFrame(ticking);
       frames.length = 0;
+      movedListeners.length = 0;
       canvas.removeEventListener('pointerdown', press);
       canvas.removeEventListener('wheel', press);
       cubeCanvas.removeEventListener('pointerdown', onCubeDown);
@@ -453,4 +461,19 @@ export function createCadView(
     },
   };
   return view;
+}
+
+/**
+ * The package's own view of part ``part`` (its faces in ``mesh``) in ``container``: the HostView the
+ * components use when the host gives none (default-view.ts). ``bounds`` is what it frames, the
+ * part's box by default.
+ */
+export function createDefaultView(
+  container: HTMLElement,
+  { part, mesh, bounds = mesh.bbox, ...options }: {
+    part: number; mesh: PmiMesh; bounds?: readonly [PmiVec, PmiVec];
+    onPick?: (path: string) => void; control?: 'orbit' | 'trackball'; tools?: boolean;
+  },
+): DefaultView {
+  return hostViewOf(createCadView(container, [edgesOf(mesh)], { ...options, bounds }), { part, mesh });
 }

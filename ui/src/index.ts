@@ -12,3 +12,6 @@ export { xlsx, workbookFiles, zip, type Cell, type Sheet } from './model/xlsx';
 export * from './model/diff-pmi';
 export * from './model/diff';
 export type * from './types/pmi';
+export type {
+  Box, CameraState, FaceIds, FaceRef, FaceStyle, FaceSample, HostPointerEvent, HostView, HostViewInfo, Mat4, MeshOptions, Vec3,
+} from './specify/host-view';

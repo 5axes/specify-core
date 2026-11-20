@@ -2,8 +2,10 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import * as THREE from 'three';
 import type { WorkerClient } from '../engine/rpc';
 import { createIntentEngine } from '../engine/intent-engine';
-import { createLook, type LookAt } from '../specify/look';
-import { createCadView, pathOf, type CadNode, type CadView } from '../specify/cad-view';
+import { createLook, viewpointOf, type LookAt } from '../specify/look';
+import { createDefaultView, pathOf } from '../specify/cad-view';
+import type { DefaultView } from '../specify/default-view';
+import { subMesh, type HostPointerEvent, type HostView, type Mat4, type MeshOptions, type Vec3 } from '../specify/host-view';
 import type { PmiMesh } from '../types/pmi';
 import { changeOf, drawsItem, facesOf, movedPmi, type DiffPmi, type PmiChange } from '../model/diff-pmi';
 import { createDiffDrawn, PMI_COLOUR, type DiffDrawn } from '../specify/diff-drawn';
@@ -26,7 +28,8 @@ interface View {
 }
 /** A comparison's report: its verdict and summary, and its PMI section with the two scenes it compared. */
 interface Report { verdict: string; summary: string; pmi?: DiffPmi }
-interface Diffed { report: Report; markdown: string; view: View }
+/** ``part``: Specify's index of the part drawn, in the new file (or the old, for a removed part); 0 by default. */
+interface Diffed { report: Report; markdown: string; view: View; part?: number }
 /** Each revision's PMI scene, as the diff compared them, read for one comparison, or why it could not be. */
 interface Scenes { for: Diffed; now: DrawnPmi | null; was: DrawnPmi | null; problem: string }
 /**
@@ -76,28 +79,6 @@ function occluderOf(mesh: PmiMesh) {
   return { mesh: new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ side: THREE.DoubleSide })), faceOf };
 }
 
-interface Drawn {
-  view: CadView;
-  /**
-   * Shows the old part's faces, Before: every line's with ``all``, else only the line in hand's
-   * and a removal's, whose Before is all there is to see. Near the new faces they would
-   * otherwise streak through them everywhere.
-   */
-  showBefore(all: boolean, line: number | null): void;
-  /** Lights a line's faces, or none. */
-  light(line: number | null): void;
-  /** The line a face under the pointer is in, if any. */
-  changeAt(x: number, y: number): number | null;
-  /** Turns to a line's faces, through the part if they are all gone from it; none, back to solid. */
-  lookAt(line: number | null): void;
-  /**
-   * Lights a PMI item's faces, on the new part, or the old part's if it has none there; none,
-   * nothing. With ``turn``, turns to them too: how an item with no callout is shown.
-   */
-  lightFaces(faces: { old: number[]; new: number[] } | null, turn?: boolean): void;
-  dispose(): void;
-}
-
 // The tree is the report: each "What changed" line a node named by its feature, its faces on
 // the new part coloured by kind and its faces Before, the old part's, moved to where the new
 // part is. Faces no line names are left at the top.
@@ -125,8 +106,47 @@ function lineNames(changes: Change[]) {
 }
 const hex = (c: THREE.Color) => `#${c.getHexString()}`;
 
-/** ``onLine`` hears a line picked in the viewer's tree. */
-function draw(container: HTMLElement, view: View, onLine: (line: number) => void): Drawn {
+interface Drawn {
+  view: HostView;
+  /** The package's own view, when the part is drawn in it: what the PMI is drawn over. */
+  own: DefaultView | null;
+  /** Whether the person has turned or zoomed the view since it opened. */
+  moved(): boolean;
+  /**
+   * Shows the old part's faces, Before: every line's with ``all``, else only the line in hand's
+   * and a removal's, whose Before is all there is to see. Near the new faces they would
+   * otherwise streak through them everywhere.
+   */
+  showBefore(all: boolean, line: number | null): void;
+  /** Lights a line's faces, or none. */
+  light(line: number | null): void;
+  /** The line a face pointed at is in, if any. */
+  changeAt(event: HostPointerEvent): number | null;
+  /** Turns to a line's faces, through the part if they are all gone from it; none, back to solid. */
+  lookAt(line: number | null): void;
+  /**
+   * Lights a PMI item's faces, on the new part, or the old part's if it has none there; none,
+   * nothing. With ``turn``, turns to them too: how an item with no callout is shown.
+   */
+  lightFaces(faces: { old: number[]; new: number[] } | null, turn?: boolean): void;
+  dispose(): void;
+}
+
+/** A rigid motion as a column-major matrix. */
+const matrixOf = (motion: Motion): Mat4 | undefined => (motion ? [
+  motion.rotation[0]![0]!, motion.rotation[1]![0]!, motion.rotation[2]![0]!, 0,
+  motion.rotation[0]![1]!, motion.rotation[1]![1]!, motion.rotation[2]![1]!, 0,
+  motion.rotation[0]![2]!, motion.rotation[1]![2]!, motion.rotation[2]![2]!, 0,
+  motion.translation[0]!, motion.translation[1]!, motion.translation[2]!, 1,
+] : undefined);
+const SEE_THROUGH = 0.5;
+
+/**
+ * The comparison drawn in ``given``, the host's view, or in the package's own in ``container``.
+ * ``part`` is Specify's index of the new part. ``onLine`` hears a line picked in the default
+ * view's tree.
+ */
+function draw(container: HTMLElement, view: View, part: number, given: HostView | null, onLine: (line: number) => void): Drawn {
   const names = lineNames(view.changes);
   const lineName = (i: number) => names[i]!;
   const kindOf = (face: number) => view.faces[face] ?? null;
@@ -138,71 +158,129 @@ function draw(container: HTMLElement, view: View, onLine: (line: number) => void
   };
   const newLine = lineOf('new');
   const oldLine = lineOf('old');
+  const transform = matrixOf(view.motion);
   const moved = (p: [number, number, number]) => place(p, view.motion) as [number, number, number];
-  const after = (faces: number[], edges = false) => KINDS.map(([name, colour, kind]) => ({
-    name, mesh: view.new, faces: faces.filter(f => kindOf(f) === kind), colour: hex(COLOURS[colour]), edges: edges && kind === null,
-  }));
-  const before = (faces: number[], name = BEFORE) => ({ name, mesh: view.old, faces, colour: hex(COLOURS.gone), alpha: 0.35, place: moved });
+  const kindRow = (face: number) => KINDS.find(([, , kind]) => kind === kindOf(face))!;
+  // A face's layer: its line's node and its kind; faces no line names at the top, unchanged,
+  // or under Other changes.
+  const layerOf = (face: number) => {
+    const [name] = kindRow(face);
+    const line = newLine.get(face);
+    if (line !== undefined) return `${lineName(line)}/${name}`;
+    return name === 'Unchanged' ? name : `Other changes/${name}`;
+  };
   const newFaces = view.new.faces.map((_, f) => f);
-  const loose = newFaces.filter(f => !newLine.has(f));
-  const nodes: CadNode[] = [
-    ...view.changes.map((_, i) => ({
-      name: lineName(i),
-      leaves: [...after(newFaces.filter(f => newLine.get(f) === i)), before(view.gone.filter(f => oldLine.get(f) === i))],
-    })),
-    after(loose, true)[0]!,
-    { name: 'Other changes', leaves: after(loose).slice(1) },
-    before(view.gone.filter(f => !oldLine.has(f)), GONE),
-  ];
-  // A line's node and each of its leaves, by path.
+  // The layers in the tree's order: each line's, then the faces no line names.
+  const byLayer = new Map<string, { faces: number[]; colour: keyof typeof COLOURS; line: number | null }>();
+  for (const [i] of view.changes.entries()) {
+    for (const [name, colour] of KINDS) byLayer.set(`${lineName(i)}/${name}`, { faces: [], colour, line: i });
+  }
+  byLayer.set('Unchanged', { faces: [], colour: 'plain', line: null });
+  for (const [name, colour] of KINDS.slice(1)) byLayer.set(`Other changes/${name}`, { faces: [], colour, line: null });
+  for (const f of newFaces) byLayer.get(layerOf(f))!.faces.push(f);
+  // The old part's faces each line's Before shows, and those no line names.
+  const goneOf = (line: number) => view.gone.filter(f => (line < 0 ? !oldLine.has(f) : oldLine.get(f) === line));
+  const beforeId = (line: number) => (line < 0 ? GONE : `${lineName(line)}/${BEFORE}`);
+  // A line's node and each of its leaves, by tree path; a Before, by its id.
   const lineAt = new Map<string, number>(view.changes.flatMap((_, i) => [
     [pathOf(lineName(i)), i] as const,
     ...[...KINDS.map(([name]) => name), BEFORE].map(leaf => [pathOf(lineName(i), leaf), i] as const),
   ]));
+  const beforeLine = new Map(view.changes.map((_, i) => [beforeId(i), i]));
+
+  // What the default view frames: the new part and the old part's gone faces, where they are drawn.
+  const bounds = new THREE.Box3(new THREE.Vector3(...view.new.bbox[0]), new THREE.Vector3(...view.new.bbox[1]));
+  for (const f of view.gone) {
+    const [start, count] = view.old.faces[f] ?? [0, 0];
+    for (let k = 3 * start; k < 3 * (start + count); k++) {
+      const v = view.old.indices[k]!;
+      bounds.expandByPoint(new THREE.Vector3(...moved([view.old.positions[3 * v]!, view.old.positions[3 * v + 1]!, view.old.positions[3 * v + 2]!])));
+    }
+  }
   // The trackball, as the Specify view has: turning square to a callout sets the way up its plane
   // reads, which an orbit control (up held at +Z) would undo, leaving a callout whose up is -Z
   // upside down.
-  const cad = createCadView(container, nodes, {
-    control: 'trackball',
+  const own = given ? null : createDefaultView(container, {
+    part, mesh: view.new, control: 'trackball',
+    bounds: [bounds.min.toArray(), bounds.max.toArray()],
     onPick: path => { const line = lineAt.get(path); if (line !== undefined) onLine(line); },
   });
+  const hv = (given ?? own)!;
+  hv.showParts([part]);
+  // A host that cannot draw meshes shows no Before.
+  let meshes = true;
+  const added = new Map<string, number>();
+  const addMesh = (id: string, faces: number[], opts: MeshOptions) => {
+    if (!meshes || !faces.length) { removeMesh(id); return; }
+    hv.addMesh(id, subMesh(view.old, faces), { ...(transform ? { transform } : {}), ...opts });
+    added.set(id, faces.length);
+  };
+  const removeMesh = (id: string) => { if (added.delete(id)) hv.removeMesh(id); };
+  void hv.info().then(info => {
+    meshes = info.canDrawMeshes;
+    if (!meshes) for (const id of [...added.keys()]) removeMesh(id);
+  });
+
+  // The line in hand is lit: its faces, and its Before where shown, in LIT.
+  let lit: number | null = null;
+  const style = (layer: string) => {
+    const { faces, colour, line } = byLayer.get(layer)!;
+    if (!faces.length) { hv.clearStyles(layer); return; }
+    hv.styleFaces(layer, [{ faces: faces.map(face => ({ part, face })), colour: line !== null && line === lit ? LIT : hex(COLOURS[colour]) }]);
+  };
+  for (const layer of byLayer.keys()) if (byLayer.get(layer)!.faces.length) style(layer);
   // Which Befores are shown, by line (-1, the faces no line names), as last set.
   const shown = new Map<number, boolean>();
+  const showGone = (line: number) => {
+    if (!shown.get(line)) { removeMesh(beforeId(line)); return; }
+    addMesh(beforeId(line), goneOf(line), { colour: line >= 0 && line === lit ? LIT : hex(COLOURS.gone), opacity: 0.35 });
+  };
 
-  const part = occluderOf(view.new);
-  const lookNew: LookAt = createLook(cad, { mesh: view.new, occluder: part.mesh, faceOf: t => part.faceOf[t] ?? null });
-  const oldMoved = { ...view.old, positions: view.old.positions.flatMap((_, i, p) => (i % 3 ? [] : place([p[i]!, p[i + 1]!, p[i + 2]!], view.motion))) };
-  const lookOld: LookAt = createLook(cad, { mesh: oldMoved, occluder: part.mesh, faceOf: () => null });
-  // The viewer's transparency: from the start when a line has nothing left on the new part, a
-  // removed hole say, whose faces are inside what the new part filled in; else while one is picked.
+  const occluder = occluderOf(view.new);
+  const diagonal = bounds.getSize(new THREE.Vector3()).length() || 1;
+  const viewpoint = viewpointOf(hv, diagonal);
+  const lookNew: LookAt = createLook(viewpoint, { mesh: view.new, occluder: occluder.mesh, faceOf: t => occluder.faceOf[t] ?? null });
+  const oldMoved = { ...view.old, positions: view.old.positions.flatMap((_, i, p) => (i % 3 ? [] : moved([p[i]!, p[i + 1]!, p[i + 2]!]))) };
+  const lookOld: LookAt = createLook(viewpoint, { mesh: oldMoved, occluder: occluder.mesh, faceOf: () => null });
+  // See-through: from the start when a line has nothing left on the new part, a removed hole
+  // say, whose faces are inside what the new part filled in; else while one is picked.
   const removal = (c: Change) => c.new.length === 0 && c.old.length > 0;
   const always = view.changes.some(removal);
   let through = always;
-  if (always) cad.transparent(true);
+  if (always) hv.setOpacity(SEE_THROUGH);
   let itemFaces = '';
+  let userMoved = false;
+  const stopMoved = hv.onUserMoved(() => { userMoved = true; });
 
   return {
-    view: cad,
+    view: hv,
+    own,
+    moved: () => userMoved,
     showBefore(all, line) {
       view.changes.forEach((c, i) => {
         const visible = all || i === line || removal(c);
-        if (shown.get(i) !== visible) { shown.set(i, visible); cad.show(pathOf(lineName(i), BEFORE), visible); }
+        if (shown.get(i) !== visible) { shown.set(i, visible); showGone(i); }
       });
-      if (shown.get(-1) !== all) { shown.set(-1, all); cad.show(pathOf(GONE), all); }
+      if (shown.get(-1) !== all) { shown.set(-1, all); showGone(-1); }
     },
-    light: line => cad.light(line === null ? null : pathOf(lineName(line))),
-    // The nearest face with a line: a gone face seen through the part counts.
-    changeAt(x, y) {
-      for (const hit of cad.facesAt(x, y)) {
-        const line = lineAt.get(hit.path);
-        if (line !== undefined) return line;
+    light(line) {
+      if (line === lit) return;
+      const was = lit;
+      lit = line;
+      for (const l of [was, line]) {
+        if (l === null) continue;
+        for (const [name] of KINDS) if (byLayer.get(`${lineName(l)}/${name}`)!.faces.length) style(`${lineName(l)}/${name}`);
+        if (shown.get(l)) showGone(l);
       }
-      return null;
+    },
+    changeAt(event) {
+      if (event.mesh !== undefined) return beforeLine.get(event.mesh) ?? null;
+      return event.hit && event.hit.part === part ? newLine.get(event.hit.face) ?? null : null;
     },
     lookAt(line) {
       const change = line === null ? null : view.changes[line]!;
       const hides = always || (!!change && removal(change));
-      if (hides !== through) { through = hides; cad.transparent(hides); }
+      if (hides !== through) { through = hides; hv.setOpacity(hides ? SEE_THROUGH : 1); }
       if (!change) return;
       if (change.new.length) lookNew(change.new, { close: true });
       else if (change.old.length) lookOld(change.old, { close: true });
@@ -212,15 +290,24 @@ function draw(container: HTMLElement, view: View, onLine: (line: number) => void
       const key = JSON.stringify(on);
       if (key !== itemFaces) {
         itemFaces = key;
-        cad.replace(null,
-          { name: ITEM, mesh: view.new, faces: on.new, colour: LIT },
-          { name: ITEM_BEFORE, mesh: view.old, faces: on.old, colour: LIT, alpha: 0.6, place: moved });
+        if (on.new.length) hv.styleFaces(ITEM, [{ faces: on.new.map(face => ({ part, face })), colour: LIT }]);
+        else hv.clearStyles(ITEM);
+        addMesh(ITEM_BEFORE, on.old, { colour: LIT, opacity: 0.6 });
       }
       if (!turn) return;
       if (on.new.length) lookNew(on.new, { close: true });
       else if (on.old.length) lookOld(on.old, { close: true });
     },
-    dispose() { cad.dispose(); part.mesh.geometry.dispose(); },
+    dispose() {
+      stopMoved();
+      viewpoint.dispose();
+      occluder.mesh.geometry.dispose();
+      if (own) { own.dispose(); return; }
+      // The host's view is the host's: only what the comparison put on it is taken off.
+      for (const layer of byLayer.keys()) hv.clearStyles(layer);
+      hv.clearStyles(ITEM);
+      for (const id of [...added.keys()]) removeMesh(id);
+    },
   };
 }
 
@@ -279,11 +366,13 @@ export interface StepDiffProps {
    *  A cross-origin URL needs the host's CSP `script-src` (and `connect-src` for the .wasm) to allow it.
    *  Read only when the component mounts; a later change has no effect. */
   wasmUrl?: string;
+  /** The host's own 3D view to draw the part in (docs/host-view.md); by default the package's. */
+  view?: HostView | null;
 }
 
 const NO_ANSWERS = {};
 
-export default function StepDiff({ before, after, answers = NO_ANSWERS, compared, part: wanted, onPart, onEvent, header, hostError, wasmUrl }: StepDiffProps) {
+export default function StepDiff({ before, after, answers = NO_ANSWERS, compared, part: wanted, onPart, onEvent, header, hostError, wasmUrl, view: hostView = null }: StepDiffProps) {
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
   // What the 3D view draws: a part's comparison, or an assembly's open part's.
@@ -339,8 +428,8 @@ export default function StepDiff({ before, after, answers = NO_ANSWERS, compared
    * gone), drawn from the mesh the assembly's view read, so any part can be looked at alone.
    */
   const partDiff = async (row: PartRow, both: { old: StepFile; next: StepFile }): Promise<Diffed> => {
-    if (row.view) return { report: row.report!, markdown: row.markdown!, view: row.view };
     const [file, at] = row.new ? [both.next, row.new.part] : [both.old, row.old!.part];
+    if (row.view) return { report: row.report!, markdown: row.markdown!, view: row.view, part: at };
     const mesh = meshes.current.get(row.name)
       ?? await engine.current!.request<PmiMesh>('part-mesh', { name: file.name, bytes: file.bytes, part: at });
     meshes.current.set(row.name, mesh);
@@ -351,6 +440,7 @@ export default function StepDiff({ before, after, answers = NO_ANSWERS, compared
       quantity: `The same part, ${counts}.`,
     }[row.status] ?? 'Unchanged.';
     return {
+      part: at,
       report: { verdict: 'ok', summary, ...row.report?.pmi ? { pmi: row.report.pmi } : {} }, markdown: '',
       view: {
         new: mesh, old: mesh, motion: null, changes: [],
@@ -415,52 +505,41 @@ export default function StepDiff({ before, after, answers = NO_ANSWERS, compared
 
   useEffect(() => {
     if (!diffed || !stage.current) return;
-    const d = draw(stage.current, diffed.view, line => {
+    const d = draw(stage.current, diffed.view, diffed.part ?? 0, hostView, line => {
       choose(line);
       drawn.current?.lookAt(line);
       report.current?.querySelector(`[data-change="${line}"]`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     });
     drawn.current = d;
-    // A press that stays put is a click; one that moves turns the part. The face is the one
-    // pressed on: pressing focuses the canvas, which can scroll it under the pointer.
-    const canvas = d.view.canvas;
-    const at = (e: PointerEvent) => { const r = canvas.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top] as const; };
-    let down: { x: number; y: number; line: number | null; pmi: string | null } | null = null;
     // A callout drawn over the part is nearer than any face.
-    const pmiAt = (e: PointerEvent) => pmiDrawn.current?.hit(...at(e)) ?? null;
-    const onDown = (e: PointerEvent) => { down = { x: e.screenX, y: e.screenY, line: d.changeAt(...at(e)), pmi: pmiAt(e) }; };
-    const onMove = (e: PointerEvent) => {
-      if (e.buttons !== 0) return;
-      // Over a callout: a hand, its notation as haecceity names it, and its row lit.
-      const item = pmiAt(e);
-      canvas.style.cursor = item === null ? '' : 'pointer';
-      canvas.title = item === null ? '' : pmiDrawn.current?.name(item) ?? '';
-      setPointedPmi(item);
-      setPointed(item === null ? d.changeAt(...at(e)) : null);
-    };
-    const onLeave = () => { setPointed(null); setPointedPmi(null); };
-    const onUp = (e: PointerEvent) => {
-      const press = down;
-      down = null;
-      if (!press || Math.hypot(e.screenX - press.x, e.screenY - press.y) > 4) return;
-      if (press.pmi !== null) {
-        setPickedPmi(press.pmi);
-        pmiList.current?.querySelector(`[data-pmi="${CSS.escape(press.pmi)}"]`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    const pmiAt = (x: number, y: number) => pmiDrawn.current?.hit(x, y) ?? null;
+    const canvas = d.own?.cad.canvas;
+    const stop = d.view.onPointer(e => {
+      if (e.type === 'leave') { setPointed(null); setPointedPmi(null); return; }
+      if (e.type === 'hover') {
+        // Over a callout: a hand, its notation as haecceity names it, and its row lit.
+        const item = pmiAt(e.x, e.y);
+        if (canvas) {
+          canvas.style.cursor = item === null ? '' : 'pointer';
+          canvas.title = item === null ? '' : pmiDrawn.current?.name(item) ?? '';
+        }
+        setPointedPmi(item);
+        setPointed(item === null ? d.changeAt(e) : null);
         return;
       }
-      choose(press.line);
-      if (press.line !== null) report.current?.querySelector(`[data-change="${press.line}"]`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-    };
-    canvas.addEventListener('pointerdown', onDown);
-    canvas.addEventListener('pointermove', onMove);
-    canvas.addEventListener('pointerleave', onLeave);
-    canvas.addEventListener('pointerup', onUp);
-    return () => {
-      canvas.removeEventListener('pointerdown', onDown); canvas.removeEventListener('pointermove', onMove);
-      canvas.removeEventListener('pointerleave', onLeave); canvas.removeEventListener('pointerup', onUp);
-      d.dispose(); drawn.current = null;
-    };
-  }, [diffed]);
+      if (e.type !== 'click') return;
+      const item = pmiAt(e.x, e.y);
+      if (item !== null) {
+        setPickedPmi(item);
+        pmiList.current?.querySelector(`[data-pmi="${CSS.escape(item)}"]`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        return;
+      }
+      const line = d.changeAt(e);
+      choose(line);
+      if (line !== null) report.current?.querySelector(`[data-change="${line}"]`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    });
+    return () => { stop(); d.dispose(); drawn.current = null; };
+  }, [diffed, hostView]);
 
   const current = pointed ?? picked;
   useEffect(() => { drawn.current?.showBefore(showGone, current); }, [showGone, current, diffed]);
@@ -495,8 +574,10 @@ export default function StepDiff({ before, after, answers = NO_ANSWERS, compared
   // The PMI drawn on the part once both scenes are read, framed with it unless it has been turned.
   const changes = diffed?.report.pmi?.items ?? [];
   useEffect(() => {
-    const cad = drawn.current?.view;
-    if (!cad || !diffed || scenes?.for !== diffed || (!scenes.now && !scenes.was)) return;
+    // Drawn over the package's own view; over a host's, not yet (docs/host-view.md).
+    const d = drawn.current;
+    const cad = d?.own?.cad;
+    if (!d || !cad || !diffed || scenes?.for !== diffed || (!scenes.now && !scenes.was)) return;
     const { now, removed, was } = changeOf(diffed.report.pmi?.items ?? []);
     const [min, max] = diffed.view.new.bbox;
     const layers = createDiffDrawn(cad, {
@@ -507,7 +588,8 @@ export default function StepDiff({ before, after, answers = NO_ANSWERS, compared
     pmiDrawn.current = layers;
     layers.filter({ default: pmiShow.defaults, existing: pmiShow.existing, general: pmiShow.general }, pmiShow.farSide);
     layers.setVisible(pmiShow.on);
-    if (!cad.moved()) cad.fit(layers.bounds());
+    const bounds = layers.bounds();
+    if (!d.moved()) d.view.fit(bounds ? { also: { min: bounds.min.toArray() as Vec3, max: bounds.max.toArray() as Vec3 } } : undefined);
     return () => { layers.dispose(); pmiDrawn.current = null; };
   }, [scenes]);
   useEffect(() => {

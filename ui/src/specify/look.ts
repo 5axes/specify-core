@@ -5,6 +5,8 @@ import * as THREE from 'three';
 
 import type { PmiMesh, PmiVec } from '../types/pmi';
 
+import type { HostView, Vec3 } from './host-view';
+
 /** What a look turns: a view's camera, the part's size, and a way to stand. */
 export interface Viewpoint {
   readonly camera: THREE.Camera;
@@ -154,5 +156,34 @@ export function createLook(nav: Viewpoint, { mesh, occluder, faceOf, faceInfo }:
     const size = around.getSize(new THREE.Vector3()).length();
     around.expandByScalar(Math.max(0, (CLOSE_CONTEXT * nav.diagonal - size) / 2));
     nav.lookFrom(view.direction, around);
+  };
+}
+
+/**
+ * A HostView as what a look turns: its camera's position from ``onCamera`` (in the STEP file's
+ * frame), and ``lookFrom`` through the interface. ``dispose`` stops listening.
+ */
+export function viewpointOf(view: HostView, diagonal: number): Viewpoint & { dispose(): void } {
+  const camera = new THREE.PerspectiveCamera();
+  let stepFromWorld: THREE.Matrix4 | null = null;
+  let eye: Vec3 | null = null;
+  const place = () => {
+    if (!eye) return;
+    camera.position.set(...eye);
+    if (stepFromWorld) camera.position.applyMatrix4(stepFromWorld);
+  };
+  let live = true;
+  void view.info().then((info) => {
+    if (!live || !info.worldFromStep) return;
+    stepFromWorld = new THREE.Matrix4().fromArray(info.worldFromStep).invert();
+    place();
+  });
+  const stop = view.onCamera((state) => { eye = state.eye; place(); });
+  return {
+    camera, diagonal,
+    lookFrom(direction, around) {
+      view.lookFrom([...direction] as Vec3, around ? { frame: { min: around.min.toArray() as Vec3, max: around.max.toArray() as Vec3 } } : undefined);
+    },
+    dispose() { live = false; stop(); },
   };
 }
