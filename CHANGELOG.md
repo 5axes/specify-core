@@ -40,6 +40,20 @@ Read first:
 
 ### Fixed
 
+- A face whose area and centroid cannot be computed (a cylinder bounded by one closed circle,
+  as some converters write a degenerate face) no longer refuses the whole part. Its entry in
+  `faces` keeps its place (position = `id`) with no `area` or `centroid` and
+  `unmeasured: true`; it is left out of every feature that uses it (and of a hole pattern with
+  such a member, whatever quiddity reports for it), so of the questions, anchors, diff face
+  changes and written PMI. The analysis reports it: an additive `unmeasured_faces` list of
+  `{face, reason, detail}`, a `warning` problem with `code: "unmeasured_face"` in the review,
+  and a warning in the CLI, serve and MCP. The rest of the part opens, is specified and written.
+  Such a part has no planner frame (quiddity needs the solid's volume), so its rule-made
+  intent is written without planned dimensions, and a `dimensions_not_planned` problem and a
+  warning in the analysis and the write report say so; only that frame failure is tolerated.
+  `Face.area` and `Face.centroid` are `Option` in the Rust API. A face whose surface did not
+  resolve keeps its refusal, and the mesh lists the face as not triangulated.
+  For pzfreo/quiddity#303.
 - Reopening can resume a no-PMI face answer when each file item on its target faces has
   an exact match in the stored answers' plan or the available plan with remaining
   defaults accepted. Datum questions check both versions of the same datum. Part settings
@@ -67,6 +81,7 @@ Read first:
 
 ### WASM API
 
+- `AnalysisFace.area` and `AnalysisFace.centroid` are optional, and `AnalysisFace.unmeasured?: boolean` is added: a face whose area and centroid cannot be computed keeps its place in `analysis.faces` with `unmeasured: true` and no area or centroid. Other faces are unchanged. For pzfreo/quiddity#303.
 - `IntentEngine.review` can withhold no-PMI answers where the file states PMI with no
   exact match in either comparison plan.
   `IntentEngine.writePmi` retains those file requirements on save.

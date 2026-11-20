@@ -154,6 +154,33 @@ fn setting(id: &str) -> Option<&str> {
     Some(key.split_once(':').map_or(key, |(key, _)| key))
 }
 
+/// Each face's kind, by face index: the analysis lists one entry per face (an unmeasured face
+/// keeps its place), so a face's kind is found at its own index.
+fn face_kinds(analysis: &Value) -> Vec<String> {
+    analysis["faces"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|f| f["kind"].as_str().unwrap_or_default().to_owned())
+        .collect()
+}
+
+#[cfg(test)]
+mod face_kind_tests {
+    use super::face_kinds;
+    use serde_json::json;
+
+    #[test]
+    fn an_unmeasured_face_keeps_its_place_in_the_kinds() {
+        let analysis = json!({"faces": [
+            {"id": 0, "kind": "cylinder", "unmeasured": true},
+            {"id": 1, "kind": "plane", "area": 1.0, "centroid": [0, 0, 0]},
+            {"id": 2, "kind": "cone", "area": 1.0, "centroid": [0, 0, 0]},
+        ]});
+        assert_eq!(face_kinds(&analysis), ["cylinder", "plane", "cone"]);
+    }
+}
+
 /// Compare `analysis`'s stored answers (`resume.answers`) with the file's PMI.
 /// `analysis` is the analysis as it was before reconciling (the stored answers resumed).
 pub(crate) fn reconcile(
@@ -211,12 +238,7 @@ pub(crate) fn reconcile(
         } else {
             BTreeSet::new()
         },
-        kinds: analysis["faces"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .map(|f| f["kind"].as_str().unwrap_or_default().to_owned())
-            .collect(),
+        kinds: face_kinds(analysis),
     };
     // Which of the file's requirements are not marked as Specify's: another tool's, or one the
     // person kept (written unmarked).

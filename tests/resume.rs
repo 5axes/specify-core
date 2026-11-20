@@ -370,6 +370,7 @@ fn a_python_fingerprint_differs_only_in_signs_of_zero() {
             json!([
                 f.kind,
                 f.centroid
+                    .unwrap()
                     .iter()
                     .map(|c| specify_core::pyfmt::round_half_even(*c, 3))
                     .collect::<Vec<_>>()

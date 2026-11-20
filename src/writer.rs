@@ -2627,6 +2627,7 @@ fn part_pmi_observed(
     // intent here; a caller's hand-authored dimensions remain authoritative as stated.
     // Rule-produced General rows always carry a feature key (empty for plane levels).
     let mut upgraded;
+    let mut frame_warning = None;
     let intent = if !intent
         .requirements
         .iter()
@@ -2645,9 +2646,20 @@ fn part_pmi_observed(
                 .requirements
                 .extend(crate::dimensioning::stated(before));
         }
-        let input = crate::dimensioning::input(&loaded.part).map_err(WriteError::Failed)?;
-        crate::dimensioning::apply(input, &mut upgraded).map_err(WriteError::Failed)?;
-        &upgraded
+        match crate::dimensioning::input(&loaded.part) {
+            Ok(input) => {
+                crate::dimensioning::apply(input, &mut upgraded).map_err(WriteError::Failed)?;
+                &upgraded
+            }
+            // A face whose area cannot be computed leaves the part without a frame to plan
+            // in (quiddity needs the solid's volume): that reason alone. The intent is
+            // written as stated, as a hand-authored one is, and the report says so.
+            Err(why) if crate::dimensioning::is_unmeasured_frame(&why) => {
+                frame_warning = Some(crate::dimensioning::unplanned_note(loaded));
+                intent
+            }
+            Err(why) => return Err(WriteError::Failed(why)),
+        }
     } else {
         intent
     };
@@ -2712,6 +2724,7 @@ fn part_pmi_observed(
     let mut p = PartPmi::default();
     let origins = crate::pmi_origin::Planner::new(loaded).map_err(WriteError::Failed)?;
     let mut lines = Lines::default();
+    lines.warnings.extend(frame_warning);
     let mut depth_input = None;
     let mut features = Vec::new();
     let mut f = Features(&mut features);

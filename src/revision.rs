@@ -2679,10 +2679,33 @@ fn other_faces(
     prints: [&qc::Fingerprints; 2],
     features: &[FeatureChange],
 ) -> Result<(Vec<FaceChange>, usize, usize)> {
-    use crate::features::Face;
-    let described = |a: &Value| -> Result<Vec<Face>> {
-        serde_json::from_value(a["faces"].clone())
-            .map_err(|e| api::Error::Analysis(format!("the analysis's faces: {e}")))
+    // The analysis's faces, by position (one entry per face). A face with no area or centroid
+    // (`unmeasured`) has no entry here: it cannot be compared, so it is never reported.
+    struct Face {
+        kind: String,
+        area: f64,
+        centroid: [f64; 3],
+        direction: Option<[f64; 3]>,
+        origin: Option<[f64; 3]>,
+        radius: Option<f64>,
+    }
+    let described = |a: &Value| -> Result<Vec<Option<Face>>> {
+        let faces: Vec<crate::features::Face> = serde_json::from_value(a["faces"].clone())
+            .map_err(|e| api::Error::Analysis(format!("the analysis's faces: {e}")))?;
+        Ok(faces
+            .into_iter()
+            .map(|f| {
+                let (area, centroid) = (f.area?, f.centroid?);
+                Some(Face {
+                    kind: f.kind,
+                    area,
+                    centroid,
+                    direction: f.direction,
+                    origin: f.origin,
+                    radius: f.radius,
+                })
+            })
+            .collect())
     };
     let (old_faces, new_faces) = (described(analyses[0])?, described(analyses[1])?);
     let claimed_old: BTreeSet<usize> = features
@@ -2782,7 +2805,7 @@ fn other_faces(
             Class::Carried if a.found => unchanged += 1,
             Class::Orphaned => {
                 if unclaimed(Some(e.old), None)
-                    && let Some(f) = old_faces.get(e.old)
+                    && let Some(f) = old_faces.get(e.old).and_then(Option::as_ref)
                 {
                     if borders(0, e.old, true) {
                         context += 1;
@@ -2795,7 +2818,7 @@ fn other_faces(
                 let covered = e.candidates.iter().any(|c| claimed_new.contains(c));
                 if unclaimed(Some(e.old), None)
                     && !covered
-                    && let Some(f) = old_faces.get(e.old)
+                    && let Some(f) = old_faces.get(e.old).and_then(Option::as_ref)
                 {
                     if borders(0, e.old, true) {
                         context += 1;
@@ -2812,7 +2835,10 @@ fn other_faces(
                 if !unclaimed(Some(e.old), Some(n)) {
                     continue;
                 }
-                let (Some(was), Some(now)) = (old_faces.get(e.old), new_faces.get(n)) else {
+                let (Some(was), Some(now)) = (
+                    old_faces.get(e.old).and_then(Option::as_ref),
+                    new_faces.get(n).and_then(Option::as_ref),
+                ) else {
                     continue;
                 };
                 let mut c = alone(
@@ -2865,7 +2891,7 @@ fn other_faces(
     }
     for &n in &corr.new_faces {
         if unclaimed(None, Some(n))
-            && let Some(f) = new_faces.get(n)
+            && let Some(f) = new_faces.get(n).and_then(Option::as_ref)
         {
             if borders(1, n, true) {
                 context += 1;

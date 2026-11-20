@@ -139,6 +139,11 @@ impl Faces {
     pub fn from_values(values: &[Value]) -> Result<Faces> {
         let mut faces = Faces::default();
         for value in values {
+            // A face that could not be measured keeps its place in the analysis's list but is
+            // not one the rules know: nothing is asked of it, and nothing refers to it.
+            if value.get("unmeasured").and_then(Value::as_bool) == Some(true) {
+                continue;
+            }
             let face = Face::from_value(value)?;
             match faces.index.get(&face.id) {
                 // index is private and records only positions appended to list; list is never shortened.

@@ -197,6 +197,7 @@ impl Planner {
                         .and_then(|a| a.first())
                         .and_then(Value::as_u64)
                         .and_then(|i| self.faces.get(i as usize))
+                        .filter(|f| !f.unmeasured)
                         .and_then(|f| f.direction)
                         .unwrap_or([1., 0., 0.]);
                     let axis = (0..3)
