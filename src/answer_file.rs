@@ -104,18 +104,10 @@ pub(crate) fn unresolved(answers: &Map<String, Value>) -> Map<String, Value> {
 pub fn check(loaded: &LoadedPart, answers: &Map<String, Value>) -> Result<(), String> {
     if !matches(loaded, answers)? {
         return Err(
-            "stale answers: saved face evidence refers to different geometry, face numbering or authored names; use \
-                    `specify-core diff OLD NEW --answers ANSWERS -o CHANGES` to carry them"
+            "stale answers: saved face evidence refers to different geometry, face numbering or \
+             authored names; they belong to another revision of the part"
                 .into(),
         );
-    }
-    Ok(())
-}
-
-/// A diff must start with the revision to which the saved face indices belong.
-pub fn check_for_diff(loaded: &LoadedPart, answers: &Map<String, Value>) -> Result<(), String> {
-    if !matches(loaded, answers)? {
-        return Err("stale answers: the answers file belongs to another revision; pass the matching old part as OLD".into());
     }
     Ok(())
 }

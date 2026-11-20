@@ -602,20 +602,18 @@ fn a_payload_must_have_a_name_of_its_own() {
 }
 
 #[test]
-fn a_dropped_carry_stays_blocked_across_default_paths_and_repeated_diffs() {
-    let old = part::load(&fixture("revisions/plate_split.old.step.gz"), None).unwrap();
+fn a_dropped_carry_stays_blocked_across_default_paths() {
     let new = part::load(&fixture("revisions/plate_split.new.step.gz"), None).unwrap();
     let analysis = api::analyse(&new).unwrap();
-    let given = object(json!({"part.material":"6061-T6", "datum.A":[4]}));
-    let revised = specify_core::revision::diff(&old, &new, &given).unwrap();
-    let reason = &revised
-        .unresolved
-        .iter()
-        .find(|u| u.id == "datum.A")
-        .unwrap()
-        .reason;
+    // An answers file carried with its datum dropped, as an earlier `diff` wrote one (diff no
+    // longer writes answers: ADR P11).
+    let reason = &"face 4 has no match in the new part".to_string();
+    let carried = object(json!({"part.material":"6061-T6", "_specify": {
+        "evidence": specify_core::resume::evidence(&new).unwrap(),
+        "unresolved": {"datum.A": reason},
+    }}));
     for defaults in [false, true] {
-        let error = api::apply(&analysis, &revised.answers, defaults).unwrap_err();
+        let error = api::apply(&analysis, &carried, defaults).unwrap_err();
         assert!(
             error.to_string().contains(&format!(
                 "datum.A (carried answer could not be applied: {reason})"
@@ -623,7 +621,7 @@ fn a_dropped_carry_stays_blocked_across_default_paths_and_repeated_diffs() {
             "{error}"
         );
     }
-    let qs = api::questions(&analysis, &revised.answers).unwrap();
+    let qs = api::questions(&analysis, &carried).unwrap();
     let blocked = qs.iter().find(|q| q.id == "datum.A").unwrap();
     assert_eq!(blocked.default, None);
     assert_eq!(blocked.attention, "required");
@@ -631,7 +629,7 @@ fn a_dropped_carry_stays_blocked_across_default_paths_and_repeated_diffs() {
         blocked.reason,
         format!("carried answer could not be applied: {reason}")
     );
-    let review = api::review(&analysis, &revised.answers).unwrap();
+    let review = api::review(&analysis, &carried).unwrap();
     let shown = review["questions"]
         .as_array()
         .unwrap()
@@ -640,12 +638,9 @@ fn a_dropped_carry_stays_blocked_across_default_paths_and_repeated_diffs() {
         .unwrap();
     assert_eq!(shown["default"], json!(null));
     assert_eq!(shown["reason"], blocked.reason);
-    assert!(!specify_core::rules::with_defaults(&qs, &revised.answers).contains_key("datum.A"));
-    assert!(specify_core::rules::with_all_defaults(&analysis, &revised.answers).is_err());
-    let again = specify_core::revision::diff(&new, &new, &revised.answers).unwrap();
-    assert!(api::apply(&analysis, &again.answers, true).is_err());
-    assert_eq!(again.answers["_specify"]["unresolved"]["datum.A"], *reason);
-    let mut explicit = revised.answers.clone();
+    assert!(!specify_core::rules::with_defaults(&qs, &carried).contains_key("datum.A"));
+    assert!(specify_core::rules::with_all_defaults(&analysis, &carried).is_err());
+    let mut explicit = carried.clone();
     explicit.insert("datum.A".into(), json!([4, 8]));
     api::apply(&analysis, &explicit, true).unwrap();
     let accepted = specify_core::rules::with_all_defaults(&analysis, &explicit).unwrap();
@@ -675,16 +670,19 @@ fn writer_checks_answer_evidence_against_geometry_even_with_a_fresh_intent() {
     let old = part::load(&fixture("revisions/plate_split.old.step.gz"), None).unwrap();
     let new = part::load(&fixture("revisions/plate_split.new.step.gz"), None).unwrap();
     let given = object(json!({"part.material":"6061-T6", "datum.A":[4]}));
-    let answers = specify_core::revision::diff(&old, &old, &given)
-        .unwrap()
-        .answers;
+    // Answers saved with the old geometry's evidence.
+    let mut answers = given.clone();
+    answers.insert(
+        "_specify".into(),
+        json!({"evidence": specify_core::resume::evidence(&old).unwrap(), "unresolved": {}}),
+    );
     let intent = api::apply(&api::analyse(&old).unwrap(), &answers, true).unwrap();
     writer::write_bytes(&old, &intent, Some(&answers)).unwrap();
     let fresh = api::apply(&api::analyse(&new).unwrap(), &given, true).unwrap();
     let error = writer::write_bytes(&new, &fresh, Some(&answers)).unwrap_err();
     assert!(matches!(error, writer::WriteError::Invalid(_)));
     assert!(error.to_string().contains("stale answers"), "{error}");
-    assert!(error.to_string().contains("diff"), "{error}");
+    assert!(error.to_string().contains("another revision"), "{error}");
 }
 
 #[test]
@@ -693,9 +691,12 @@ fn same_face_count_still_requires_the_saved_fingerprint_and_metadata_must_be_val
     let new = part::load(&fixture("revisions/plate_thickened.new.step.gz"), None).unwrap();
     assert_eq!(old.binding.face_count, new.binding.face_count);
     let given = object(json!({"part.material":"steel", "datum.A":[4]}));
-    let saved = specify_core::revision::diff(&old, &old, &given)
-        .unwrap()
-        .answers;
+    // Answers saved with the old geometry's evidence.
+    let mut saved = given.clone();
+    saved.insert(
+        "_specify".into(),
+        json!({"evidence": specify_core::resume::evidence(&old).unwrap(), "unresolved": {}}),
+    );
     let intent = api::apply(&api::analyse(&new).unwrap(), &given, true).unwrap();
     let error = writer::write_bytes(&new, &intent, Some(&saved)).unwrap_err();
     assert!(error.to_string().contains("stale answers"), "{error}");
@@ -718,9 +719,12 @@ fn editor_rematching_keeps_embedded_evidence_and_carry_blocks() {
     let new = part::load(&fixture("revisions/plate_split.new.step.gz"), None).unwrap();
     let analysis = api::analyse(&new).unwrap();
     let given = object(json!({"part.material":"steel", "datum.A":[4]}));
-    let saved = specify_core::revision::diff(&old, &old, &given)
-        .unwrap()
-        .answers;
+    // Answers saved with the old geometry's evidence.
+    let mut saved = given.clone();
+    saved.insert(
+        "_specify".into(),
+        json!({"evidence": specify_core::resume::evidence(&old).unwrap(), "unresolved": {}}),
+    );
     let resumed = resume::rematch_answers(&new, &features(&analysis), &saved, None, None).unwrap();
     assert!(!resumed.answers.contains_key("datum.A"));
     assert_eq!(

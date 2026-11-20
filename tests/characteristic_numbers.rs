@@ -528,62 +528,6 @@ fn legacy_numberless_files_have_byte_identical_analysis_and_pmi_serialization() 
 }
 
 #[test]
-fn revised_part_correspondence_carries_numbers_and_retirement_with_the_answers() {
-    let old = load("revisions/hole_removed.old.step.gz");
-    let new = load("revisions/hole_removed.new.step.gz");
-    let a = api::analyse(&old).unwrap();
-    let answers = json!({"hole.function:holes:6":"fit:H7", "hole.function:holes:7":"fit:H7", "hole.function:holes:8":"fit:H7", "hole.function:holes:9":"fit:H7"}).as_object().unwrap().clone();
-    let i = api::preview(&a, &answers).unwrap();
-    let old = back(writer::write_bytes(&old, &i, Some(&answers)).unwrap().0);
-    let ns = numbers(&old);
-    assert_eq!(ns.len(), 4);
-    let revised = revision::diff(&old, &new).unwrap();
-    assert!(revised.answers.contains_key(characteristics::CARRY));
-    let i = api::preview(&api::analyse(&new).unwrap(), &revised.answers).unwrap();
-    let written = back(
-        writer::write_bytes(&new, &i, Some(&revised.answers))
-            .unwrap()
-            .0,
-    );
-    let now = numbers(&written);
-    assert_eq!(now.len(), 3);
-    for n in ns.iter().filter(|n| n.faces != [7]) {
-        let mapped = if n.faces[0] > 7 {
-            n.faces[0] - 1
-        } else {
-            n.faces[0]
-        };
-        assert_eq!(
-            now.iter().find(|c| c.faces == [mapped]).unwrap().number,
-            n.number
-        );
-    }
-    assert!(
-        !resume::answers_for(&written)
-            .unwrap()
-            .unwrap()
-            .contains_key(characteristics::CARRY),
-        "transport is consumed, never reapplied on resume"
-    );
-    let mut i = rebind(&i, &written);
-    i.requirements.push(
-        json!({"kind":"flatness", "faces":[4],"tolerance":0.02})
-            .as_object()
-            .unwrap()
-            .clone(),
-    );
-    let final_part = write(&written, &i);
-    assert_eq!(
-        numbers(&final_part)
-            .iter()
-            .find(|c| c.kind == "geometric_tolerance")
-            .unwrap()
-            .number,
-        ns.iter().map(|c| c.number).max().unwrap() + 1
-    );
-}
-
-#[test]
 fn older_quiddity_written_pmi_keeps_numbers_on_upgrade_to_024() {
     let p = load("resume-alpha6/ftc10-reid.step.gz");
     // Add standard numeric ids to the committed OLD writer's PMI without regenerating any
@@ -763,61 +707,6 @@ fn foreign_pmi_append_keeps_original_bytes_and_numbers_even_for_equal_requiremen
             && f.detail
                 .contains("reused the writer-owned Notes saved view")
     }));
-}
-
-#[test]
-fn stale_revision_transport_cannot_reuse_numbers_retired_in_the_destination_file() {
-    let old = load("revisions/hole_removed.old.step.gz");
-    let new = load("revisions/hole_removed.new.step.gz");
-    let answers = json!({"hole.function:holes:6":"fit:H7"})
-        .as_object()
-        .unwrap()
-        .clone();
-    let i = api::preview(&api::analyse(&old).unwrap(), &answers).unwrap();
-    let old = back(writer::write_bytes(&old, &i, Some(&answers)).unwrap().0);
-    let r = revision::diff(&old, &new).unwrap();
-    let mut i = api::preview(&api::analyse(&new).unwrap(), &r.answers).unwrap();
-    let new = back(writer::write_bytes(&new, &i, Some(&r.answers)).unwrap().0);
-    i = rebind(&i, &new);
-    let extra = json!({"kind":"flatness","faces":[4],"tolerance":0.02})
-        .as_object()
-        .unwrap()
-        .clone();
-    i.requirements.push(extra.clone());
-    let added = back(writer::write_bytes(&new, &i, Some(&r.answers)).unwrap().0);
-    let retired = numbers(&added)
-        .into_iter()
-        .find(|c| c.kind == "geometric_tolerance")
-        .unwrap()
-        .number;
-    i = rebind(&i, &added);
-    i.requirements.pop();
-    let removed = back(writer::write_bytes(&added, &i, Some(&r.answers)).unwrap().0);
-    i = rebind(&i, &removed);
-    i.requirements.push(extra);
-    let readded = back(
-        writer::write_bytes(&removed, &i, Some(&r.answers))
-            .unwrap()
-            .0,
-    );
-    assert!(
-        numbers(&readded)
-            .iter()
-            .find(|c| c.kind == "geometric_tolerance")
-            .unwrap()
-            .number
-            > retired
-    );
-    // The transport is also bound to its intended target geometry, even on a direct writer
-    // call that does not go through the browser's answer-shape checks.
-    let unrelated = load("parts/pin.step");
-    let empty = rules::Intent::new(serde_json::to_value(&unrelated.binding).unwrap());
-    assert!(
-        writer::write_bytes(&unrelated, &empty, Some(&r.answers))
-            .unwrap_err()
-            .to_string()
-            .contains("different geometry")
-    );
 }
 
 #[test]

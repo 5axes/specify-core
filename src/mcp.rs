@@ -1632,8 +1632,7 @@ fn fresh(doc: &Doc) -> Result<(), ToolError> {
         return Err(ToolError::new(
             "stale",
             format!(
-                "{} has changed (or gone) since it was opened: open it again, or use diff to carry \
-                 the answers to the new revision",
+                "{} has changed (or gone) since it was opened: open it again",
                 doc.path.display()
             ),
         ));
