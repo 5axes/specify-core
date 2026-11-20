@@ -37,25 +37,16 @@ fn with_defaults(part: &part::LoadedPart) -> part::LoadedPart {
     )
 }
 
-/// file's own, not the ids a resumed interview gives: ADR P11.)
 fn assert_scene_ids(report: &revision::Revised, part: &part::LoadedPart) {
     let scene = pmi_scene::pmi_scene(&part.bytes, None).unwrap();
     for item in &report.pmi.items {
         if item.class == "removed" {
             continue;
         }
-        let Some(number) = item.number else {
-            continue;
-        };
-        assert!(
-            scene["specify"]
-                .as_object()
-                .unwrap()
-                .values()
-                .any(|m| m["number"].as_u64() == Some(number)),
-            "#{number} ({}) is not in the file",
-            item.id
-        );
+        let meta = &scene["specify"][&item.id];
+        assert!(meta.is_object(), "{}", item.id);
+        assert_eq!(meta["number"].as_u64(), item.number);
+        assert_eq!(meta["status"], item.status);
     }
 }
 
@@ -172,20 +163,18 @@ fn a_note_change_and_material_modifier_change_are_visible() {
         specify_core::characteristics::read(&old).unwrap(),
         specify_core::characteristics::read(&new).unwrap()
     );
-    let numbers: Vec<u64> = specify_core::characteristics::read(&old)
-        .unwrap()
-        .iter()
-        .map(|c| c.number)
-        .collect();
-    for control in &controls {
-        assert!(numbers.contains(&control.number.unwrap()), "{control:?}");
+    let old_scene = pmi_scene::pmi_scene(&old.bytes, None).unwrap();
+    for control in controls {
+        assert_eq!(
+            old_scene["specify"][&control.id]["number"].as_u64(),
+            control.number
+        );
     }
-    // The file's note, read as the file states it (ADR P11: not by a stored answer's id).
     let note = report
         .pmi
         .items
         .iter()
-        .find(|c| c.kind == "note" && c.old.as_deref() == Some("Keep dry"))
+        .find(|c| c.id == "part.notes:1")
         .unwrap();
     assert_eq!(note.class, "changed");
     assert_eq!(note.old.as_deref(), Some("Keep dry"));
@@ -195,13 +184,17 @@ fn a_note_change_and_material_modifier_change_are_visible() {
             .markdown("Notes and modifiers", None)
             .contains("Keep dry → Keep clean")
     );
-    // Nothing else changed: not the finish, the edges or the general tolerance.
-    assert_eq!(
-        report.pmi.items.len(),
-        controls.len() + 1,
-        "{:?}",
-        report.pmi.items
-    );
+    for id in [
+        "part.surface_finish",
+        "part.edges",
+        "part.general_tolerance",
+    ] {
+        assert!(
+            !report.pmi.items.iter().any(|c| c.id == id),
+            "{id}: {:?}",
+            report.pmi.items
+        );
+    }
 }
 
 #[test]
@@ -219,7 +212,7 @@ fn changing_one_shared_note_leaves_every_other_requirement_unchanged() {
     assert_scene_ids(&report, &new);
     assert_eq!(report.pmi.items.len(), 1, "{:?}", report.pmi.items);
     let note = &report.pmi.items[0];
-    assert_eq!(note.kind, "note");
+    assert_eq!(note.id, "part.notes:1");
     assert_eq!(note.class, "changed");
     assert_eq!(note.old.as_deref(), Some("Keep dry"));
     assert_eq!(note.new.as_deref(), Some("Keep clean"));
@@ -525,14 +518,14 @@ fn main_history_survives_direct_modifier_and_value_edits() {
             let report = revision::diff(old, &new).unwrap();
             assert_scene_ids(&report, &new);
             assert_eq!(report.pmi.items.len(), count, "{:?}", report.pmi.items);
-            let numbers: Vec<u64> = specify_core::characteristics::read(old)
-                .unwrap()
-                .iter()
-                .map(|c| c.number)
-                .collect();
+            let old_scene = pmi_scene::pmi_scene(&old.bytes, None).unwrap();
             for item in &report.pmi.items {
                 assert_eq!(item.class, "changed");
-                assert!(numbers.contains(&item.number.unwrap()), "{item:?}");
+                assert!(item.number.is_some());
+                assert_eq!(
+                    old_scene["specify"][&item.id]["number"].as_u64(),
+                    item.number
+                );
             }
             assert_eq!(
                 specify_core::characteristics::read(old).unwrap(),
@@ -924,18 +917,18 @@ fn fresh_revision_fixture_pairs_never_cross_requirement_types() {
     // and real renumbering rather than treating unrelated occupants of a number as edits.
     let cases = [
         ("complex_counterbore", [5, 6, 2, 0]), // Five surviving pattern requirements grow support; two counterbore sizes are new.
-        ("complex_fillet_all", [0, 2, 2, 2]),
-        ("complex_many", [4, 2, 4, 4]),
-        ("complex_moved", [5, 12, 1, 0]),
+        ("complex_fillet_all", [0, 2, 2, 2]), // A pitch and a location now measured between other faces: removed and added.
+        ("complex_many", [4, 2, 4, 4]), // Recess, pocket and pattern size edits; slot locations new, removed holes' pitches go.
+        ("complex_moved", [5, 12, 1, 0]), // The pattern's bore Ø6 → Ø7 H11, its pitches and locations re-supported; its position new.
         ("complex_pattern", [0, 6, 2, 3]), // Changed pattern structure replaces requirements.
-        ("complex_remodelled", [1, 0, 3, 3]),
-        ("gramil_shaft", [1, 1, 3, 3]),
-        ("hole_added", [0, 9, 4, 0]),
-        ("hole_removed", [0, 9, 0, 4]), // Removed hole requirements go.
-        ("named_plate", [1, 0, 7, 7]),
-        ("plate_removed", [0, 3, 4, 6]),
-        ("plate_thickened", [1, 0, 2, 2]),
-        ("pmi_split", [2, 2, 0, 0]),
+        ("complex_remodelled", [0, 0, 4, 4]), // Each file's defaults locate the split halves from other faces: never paired across.
+        ("gramil_shaft", [0, 1, 4, 4]), // The end chamfer moves datum B and the lengths' references: new measurements.
+        ("hole_added", [0, 9, 4, 0]), // The new hole's four requirements; existing holes stay themselves.
+        ("hole_removed", [0, 9, 0, 4]), // The removed hole's four requirements go.
+        ("named_plate", [1, 0, 7, 7]), // Thickness 8 → 11; the datums and hole locations move to other faces.
+        ("plate_removed", [0, 3, 4, 6]), // Datums B and C on other faces; the upright's dimensions go.
+        ("plate_thickened", [1, 0, 2, 2]), // Thickness 10 → 12; one hole's locations taken from its symmetric twin.
+        ("pmi_split", [2, 2, 0, 0]), // Datums B and C swap letters on the same faces: two changes.
     ];
     let signature = |scene: &Value, id: &str| {
         scene["pmi"]["pmi"]
@@ -1252,8 +1245,26 @@ fn a_requirement_change_is_added_removed_changed_or_a_different_measurement() {
     );
 }
 
-/// ADR P11: diff reads only the PMI in the two files. The same report, scenes and picture
-/// whatever answers the files store: here with the stored answers stripped from both.
+/// A report as compared: everything but the `pmiScene` labels (scene ids and statuses, which
+/// the editor derives from stored answers, and the scenes they label).
+fn compared(report: &revision::Revised) -> Value {
+    let mut value = serde_json::to_value(report).unwrap();
+    value["pmi"].as_object_mut().unwrap().remove("scenes");
+    for list in ["/pmi/items", "/check"] {
+        for row in value.pointer_mut(list).unwrap().as_array_mut().unwrap() {
+            let row = row.as_object_mut().unwrap();
+            for label in ["id", "old_id", "status"] {
+                row.remove(label);
+            }
+        }
+    }
+    value
+}
+
+/// ADR P11: diff reads only the PMI in the two files. The same requirements paired the same
+/// way, the same Markdown and picture, whatever answers the files store: here with the stored
+/// answers stripped from both. Only the labels differ: the items keep each file's `pmiScene`
+/// ids and statuses, which the editor reads from stored answers.
 #[test]
 fn the_report_is_the_same_whatever_answers_the_files_store() {
     let written = |answers_json: Value| {
@@ -1279,10 +1290,7 @@ fn the_report_is_the_same_whatever_answers_the_files_store() {
         let (old_bare, new_bare) = (without_stored_answers(&old), without_stored_answers(&new));
         let stripped = revision::diff_with_options(&old_bare, &new_bare, options).unwrap();
         assert!(!stored.pmi.items.is_empty());
-        assert_eq!(
-            serde_json::to_value(&stored).unwrap(),
-            serde_json::to_value(&stripped).unwrap()
-        );
+        assert_eq!(compared(&stored), compared(&stripped));
         assert_eq!(
             stored.markdown("Part", None),
             stripped.markdown("Part", None)
@@ -1293,9 +1301,87 @@ fn the_report_is_the_same_whatever_answers_the_files_store() {
         );
         // One side stripped, the other not: the same again.
         let mixed = revision::diff_with_options(&old_bare, &new, options).unwrap();
-        assert_eq!(
-            serde_json::to_value(&stored).unwrap(),
-            serde_json::to_value(&mixed).unwrap()
-        );
+        assert_eq!(compared(&stored), compared(&mixed));
     }
+}
+
+/// A datum letter changed on the same faces is a change to that datum: the same faces, both
+/// letters, never a renumbering alone or a removal and an addition.
+#[test]
+fn a_datum_letter_changed_on_the_same_faces_is_changed() {
+    let bare = load("revisions/plate_split.old.step.gz");
+    let old = write(
+        &bare,
+        &answers(
+            json!({"part.material": "6061-T6", "datum.A": [4], "datum.B": [1], "datum.C": [0]}),
+        ),
+    );
+    let new = write(
+        &old,
+        &answers(
+            json!({"part.material": "6061-T6", "datum.A": [4], "datum.B": [0], "datum.C": [1]}),
+        ),
+    );
+    let report = revision::diff(&old, &new).unwrap();
+    let datums: Vec<_> = report
+        .pmi
+        .items
+        .iter()
+        .filter(|c| c.kind == "datum")
+        .collect();
+    let swapped = |was: &str, now: &str, face: usize| {
+        datums.iter().any(|c| {
+            c.class == "changed"
+                && c.old.as_deref() == Some(was)
+                && c.new.as_deref() == Some(now)
+                && c.faces.old == [revision::FaceAnchor { face }]
+                && c.faces.new == [revision::FaceAnchor { face }]
+        })
+    };
+    assert!(swapped("C", "B", 0), "{datums:?}");
+    assert!(swapped("B", "C", 1), "{datums:?}");
+    assert!(
+        !datums
+            .iter()
+            .any(|c| c.class == "added" || c.class == "removed"),
+        "{datums:?}"
+    );
+}
+
+/// Pairing by kind alone (the last resort, for requirements whose faces cannot be followed)
+/// never pairs two different measurements: two files numbered independently, each with one
+/// location of the hole, from different faces, read as one removed and another added.
+#[test]
+fn the_only_remaining_requirement_of_a_kind_is_not_paired_with_a_different_measurement() {
+    let bare = load("parts/plate.step");
+    let place = |reference: usize| {
+        answers(json!({
+            "extra.place": {"kind": "distance", "faces": [9], "reference": [reference], "value": "±0.1"},
+        }))
+    };
+    // Both written from the bare part: no number history joins them.
+    let (old, new) = (write(&bare, &place(0)), write(&bare, &place(1)));
+    let report = revision::diff(&old, &new).unwrap();
+    let items: Vec<_> = report
+        .pmi
+        .items
+        .iter()
+        .filter(|c| c.kind == "dimension")
+        .collect();
+    assert!(
+        !items
+            .iter()
+            .any(|c| c.class == "changed" || c.class == "renumbered"),
+        "{items:?}"
+    );
+    assert_eq!(
+        items.iter().filter(|c| c.class == "removed").count(),
+        1,
+        "{items:?}"
+    );
+    assert_eq!(
+        items.iter().filter(|c| c.class == "added").count(),
+        1,
+        "{items:?}"
+    );
 }

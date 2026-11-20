@@ -159,15 +159,9 @@ fn numbered_requirement_changes_use_the_same_identity_as_pmi_scene() {
     let items = result["report"]["pmi"]["items"].as_array().unwrap();
     assert_eq!(items.len(), 1);
     assert_eq!(items[0]["class"], "changed");
-    // The number is the file's, as pmiScene shows it (diff's ids are the file's own: ADR P11).
-    let number = items[0]["number"].as_u64().unwrap();
-    assert!(
-        scene["specify"]
-            .as_object()
-            .unwrap()
-            .values()
-            .any(|m| m["number"].as_u64() == Some(number))
-    );
+    let meta = &scene["specify"][items[0]["id"].as_str().unwrap()];
+    assert_eq!(items[0]["number"], meta["number"]);
+    assert_eq!(items[0]["status"], meta["status"]);
 }
 
 #[test]

@@ -447,6 +447,30 @@ fn items(scene: &Value) -> Vec<Item> {
         .collect()
 }
 
+// Whether two requirements of one kind measure different things: the old one's controlled
+// faces or reference, each face found on the new part, are not the new one's. The last-resort
+// pairing by kind is for requirements whose faces cannot be followed, never for these.
+fn measures_elsewhere(was: &Item, now: &Item, faces: &BTreeMap<usize, Bind>) -> bool {
+    let exactly = |support: &[usize]| -> Option<Vec<usize>> {
+        let mut result = support
+            .iter()
+            .map(|f| match faces.get(f) {
+                Some(Bind::To(n)) => Some(*n),
+                _ => None,
+            })
+            .collect::<Option<Vec<_>>>()?;
+        result.sort_unstable();
+        result.dedup();
+        Some(result)
+    };
+    [
+        (&was.on_faces, &now.on_faces),
+        (&was.reference_faces, &now.reference_faces),
+    ]
+    .into_iter()
+    .any(|(a, b)| !a.is_empty() && exactly(a).is_some_and(|m| m != *b))
+}
+
 fn mapped(support: &[usize], faces: &BTreeMap<usize, Bind>) -> Option<Vec<usize>> {
     let mut result = Vec::new();
     for face in support {
@@ -622,11 +646,14 @@ fn pair(
                                         })
                             }
                             2 => {
+                                // A datum is its faces: one relettered on them is that datum
+                                // changed, though the writer numbered it afresh.
                                 mapped.as_ref().is_some_and(|f| *f == now.faces)
-                                    && !(carried_numbers
-                                        && was.number.is_some()
-                                        && now.number.is_some()
-                                        && was.number != now.number)
+                                    && (was.kind == "datum"
+                                        || !(carried_numbers
+                                            && was.number.is_some()
+                                            && now.number.is_some()
+                                            && was.number != now.number))
                             }
                             3 => {
                                 support_growth(was, now, faces)
@@ -637,6 +664,7 @@ fn pair(
                             }
                             _ => {
                                 was.match_kind == now.match_kind
+                                    && !measures_elsewhere(was, now, faces)
                                     && !(carried_numbers
                                         && was.number.is_some()
                                         && now.number.is_some()
@@ -1122,16 +1150,51 @@ fn classify(
     truth
 }
 
+/// The comparison of the two files' requirements (see [`diff`]).
+pub(super) struct Compared {
+    pub items: Vec<PmiItemChange>,
+    /// Each file's `pmiScene`, whose ids the items use.
+    pub scenes: PmiScenes,
+    /// The new file's requirements as compared (its own PMI, its own ids).
+    pub new_file: Value,
+    /// The new file's scene ids by its own ids.
+    pub new_ids: BTreeMap<String, String>,
+}
+
+/// Each row's `pmiScene` id by its id in the file's own scene: the two read the same PMI
+/// rows in the same order (the file scene leaves out the stored answers' row).
+fn scene_ids(file: &Value, scene: &Value) -> BTreeMap<String, String> {
+    let answers = |row: &&Value| row["value"]["name"] == crate::resume::NAME;
+    let mut ids = BTreeMap::new();
+    for (collection, rows) in file["pmi"]["pmi"].as_object().into_iter().flatten() {
+        let theirs = scene["pmi"]["pmi"][collection].as_array();
+        for (mine, theirs) in rows
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|r| !answers(r))
+            .zip(theirs.into_iter().flatten().filter(|r| !answers(r)))
+        {
+            if let (Some(a), Some(b)) = (mine["id"].as_str(), theirs["id"].as_str()) {
+                ids.insert(a.to_owned(), b.to_owned());
+            }
+        }
+    }
+    ids
+}
+
 /// Each file's own requirements, compared through the face matching: the files' PMI and nothing
 /// else (ADR P11), read the same whoever wrote it. Characteristic numbers pair requirements only
-/// where the new file continues the old file's number history.
+/// where the new file continues the old file's number history. The pairing never reads stored
+/// answers; the items then take each file's `pmiScene` ids and statuses, as the editor shows them.
 pub(super) fn diff(
     old: &LoadedPart,
     new: &LoadedPart,
+    analyses: (&Value, &Value),
     corr: &quiddity::correspondence::Correspondence,
     correspondence: (&BTreeMap<usize, Bind>, Option<&[[f64; 3]; 3]>),
     features: (&[Feature], &[Feature]),
-) -> api::Result<(Vec<PmiItemChange>, PmiScenes)> {
+) -> api::Result<Compared> {
     let (faces, rotation) = correspondence;
     let error = |e: String| api::Error::Analysis(e);
     let before = Scene::of_file(old)
@@ -1150,7 +1213,7 @@ pub(super) fn diff(
     crate::characteristics::carry_revision(old, new, corr, &mut transport).map_err(error)?;
     let carried_numbers = after_items.iter().any(|i| i.number.is_some())
         && destination.carries_numbers(&transport).map_err(error)?;
-    let changes = compare(
+    let mut changes = compare(
         &before_items,
         &after_items,
         faces,
@@ -1158,13 +1221,53 @@ pub(super) fn diff(
         features.1,
         carried_numbers,
     );
-    Ok((
-        changes,
-        PmiScenes {
-            old: before,
-            new: after,
+    // The editor's scenes, for the ids and statuses the report gives.
+    let labelled = |part: &LoadedPart, analysis: &Value, features: &[Feature]| {
+        Scene::with(part, Some(features))
+            .and_then(|scene| scene.comparison(part, analysis, None))
+            .map_err(error)
+    };
+    let (old_scene, new_scene) = (
+        labelled(old, analyses.0, features.0)?,
+        labelled(new, analyses.1, features.1)?,
+    );
+    let (old_ids, new_ids) = (
+        scene_ids(&before, &old_scene),
+        scene_ids(&after, &new_scene),
+    );
+    let named =
+        |ids: &BTreeMap<String, String>, id: &str| ids.get(id).cloned().unwrap_or(id.into());
+    for c in &mut changes {
+        let status =
+            |scene: &Value, id: &str| scene["specify"][id]["status"].as_str().map(str::to_owned);
+        if c.class == "removed" {
+            c.id = named(&old_ids, &c.id);
+            if let Some(s) = status(&old_scene, &c.id) {
+                c.status = s;
+            }
+        } else if c.class == "added" {
+            c.id = named(&new_ids, &c.id);
+            if let Some(s) = status(&new_scene, &c.id) {
+                c.status = s;
+            }
+        } else {
+            let was = named(&old_ids, c.old_id.as_deref().unwrap_or(&c.id));
+            c.id = named(&new_ids, &c.id);
+            c.old_id = (was != c.id).then_some(was);
+            if let Some(s) = status(&new_scene, &c.id) {
+                c.status = s;
+            }
+        }
+    }
+    Ok(Compared {
+        items: changes,
+        scenes: PmiScenes {
+            old: old_scene,
+            new: new_scene,
         },
-    ))
+        new_file: after,
+        new_ids,
+    })
 }
 
 #[cfg(test)]

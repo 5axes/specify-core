@@ -1670,9 +1670,15 @@ pub fn diff_with_options(
     gone.dedup();
 
     // The PMI: each file's own requirements, compared through the face matching.
-    let (items, scenes) = pmi::diff(
+    let pmi::Compared {
+        items,
+        scenes,
+        new_file,
+        new_ids,
+    } = pmi::diff(
         old,
         new,
+        (&old_analysis, &new_analysis),
         &corr,
         (
             &geometric_faces,
@@ -1690,7 +1696,12 @@ pub fn diff_with_options(
             changed_features.insert(f.id.clone(), changes.clone());
         }
     }
-    let check = pmi::checks(&changed_features, &new_features, &scenes.new);
+    let mut check = pmi::checks(&changed_features, &new_features, &new_file);
+    for c in &mut check {
+        if let Some(id) = new_ids.get(&c.id) {
+            c.id = id.clone();
+        }
+    }
     let check_lines = pmi::check_lines(&check, &new_features);
     let pmi_graphics = pmi_picture::graphics(&items, &scenes);
     let pmi = Pmi {

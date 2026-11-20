@@ -1611,18 +1611,7 @@ fn schema_two_before_floor_ownership_keeps_editor_ids_and_no_false_removal() {
     let report =
         revision::diff_with_options(&old, &old, revision::DiffOptions { scenes: true }).unwrap();
     assert!(report.pmi.items.is_empty(), "{:?}", report.pmi.items);
-    // Diff's scenes are the file's own PMI (ADR P11): its ids are the file's, not the editor's,
-    // and its characteristic numbers are the editor's.
     let scenes = report.pmi.scenes.unwrap();
-    let numbers = |scene: &Value| -> BTreeSet<u64> {
-        scene["specify"]
-            .as_object()
-            .unwrap()
-            .values()
-            .filter_map(|m| m["number"].as_u64())
-            .collect()
-    };
-    assert!(!numbers(&scene).is_empty());
-    assert_eq!(numbers(&scenes.old), numbers(&scene));
-    assert_eq!(numbers(&scenes.new), numbers(&scene));
+    assert_eq!(editor_ids(&scenes.old), ids);
+    assert_eq!(editor_ids(&scenes.new), ids);
 }
