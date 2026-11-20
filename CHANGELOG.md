@@ -8,6 +8,9 @@ All notable changes to specify-core-rust. The format follows
 
 ### Added
 
+- `open` and MCP `show` can download and cache a pinned Specify app and the release-matched
+  WASM engine, with SHA-256 verification and a session API check. Local app and engine overrides
+  remain available. The initial `app.lock.json` is a placeholder and still requires a local app.
 - The page's `config` gives `api`, the version of the page contract (docs/open.md): 1, the
   contract of 0.2.0. It changes only in a minor release, so an app can check it is built for
   the command serving it.

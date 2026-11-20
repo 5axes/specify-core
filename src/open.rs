@@ -37,6 +37,9 @@ use serde_json::json;
 
 use crate::session;
 
+#[cfg(feature = "cli")]
+mod fetch;
+
 /// How often an open page asks for `config` (the contract's heartbeat; the server does not
 /// use it, it sizes [`CLOSE_DELAY`]).
 pub const HEARTBEAT: Duration = Duration::from_secs(30);
@@ -160,8 +163,7 @@ pub struct Assets {
     pub wasm: Option<PathBuf>,
 }
 
-/// The app and engine directories: `--app`/`--wasm`, else `SPECIFY_APP_DIR`/
-/// `SPECIFY_WASM_DIR`. The app is not bundled yet; this is where a download will go.
+/// Resolve flag and environment overrides, or use the CLI's cached release assets.
 pub fn assets(app: Option<&Path>, wasm: Option<&Path>) -> Result<Assets, Error> {
     let from_env = |name: &str| {
         std::env::var_os(name)
@@ -170,28 +172,49 @@ pub fn assets(app: Option<&Path>, wasm: Option<&Path>) -> Result<Assets, Error> 
     };
     let app = app
         .map(Path::to_path_buf)
-        .or_else(|| from_env("SPECIFY_APP_DIR"))
-        .ok_or_else(|| {
-            Error::Refused(
-                "the Specify app is not bundled with specify-core yet: pass --app DIR (or set \
-                 SPECIFY_APP_DIR) to a directory holding the built app's index.html, and --wasm \
-                 DIR (or SPECIFY_WASM_DIR) to the engine's wasm-pack pkg/ directory"
-                    .to_string(),
-            )
-        })?;
-    let app = fs::canonicalize(&app)
-        .ok()
-        .filter(|d| d.join("index.html").is_file())
-        .ok_or_else(|| {
-            Error::Refused(format!(
-                "--app {}: not a directory holding index.html",
-                app.display()
-            ))
-        })?;
-    let wasm = match wasm
+        .or_else(|| from_env("SPECIFY_APP_DIR"));
+    let wasm = wasm
         .map(Path::to_path_buf)
-        .or_else(|| from_env("SPECIFY_WASM_DIR"))
-    {
+        .or_else(|| from_env("SPECIFY_WASM_DIR"));
+    #[cfg(all(feature = "cli", feature = "asset-test-hooks"))]
+    if let Some((base, pin, cache)) = fetch::loopback_fixture() {
+        return resolve_assets(app, wasm, &fetch::Source::fixture(&base, &pin, &cache));
+    }
+    resolve_assets(
+        app,
+        wasm,
+        #[cfg(feature = "cli")]
+        &fetch::Source::github(),
+    )
+}
+
+fn resolve_assets(
+    app: Option<PathBuf>,
+    wasm: Option<PathBuf>,
+    #[cfg(feature = "cli")] source: &fetch::Source<'_>,
+) -> Result<Assets, Error> {
+    #[cfg(feature = "cli")]
+    let use_release = app.is_none();
+    let app = match app {
+        Some(path) => {
+            let dir = fs::canonicalize(&path)
+                .ok()
+                .filter(|d| d.join("index.html").is_file())
+                .ok_or_else(|| {
+                    app_error(format!(
+                        "--app {}: not a directory holding index.html",
+                        path.display()
+                    ))
+                })?;
+            check_manifest(&dir, None)?;
+            dir
+        }
+        #[cfg(feature = "cli")]
+        None => source.app()?,
+        #[cfg(not(feature = "cli"))]
+        None => return Err(app_error("no Specify app directory given")),
+    };
+    let wasm = match wasm {
         Some(w) => Some(
             fs::canonicalize(&w)
                 .ok()
@@ -200,9 +223,70 @@ pub fn assets(app: Option<&Path>, wasm: Option<&Path>) -> Result<Assets, Error> 
                     Error::Refused(format!("--wasm {}: not a directory", w.display()))
                 })?,
         ),
+        #[cfg(feature = "cli")]
+        None if use_release && !app.join("wasm").is_dir() => Some(source.wasm()?),
         None => None,
     };
     Ok(Assets { app, wasm })
+}
+
+fn app_error(message: impl std::fmt::Display) -> Error {
+    Error::Refused(format!("{message}: pass --app DIR / set SPECIFY_APP_DIR"))
+}
+
+const CORE_VERSION: &str = env!("CARGO_PKG_VERSION");
+const MANIFEST: &str = "specify-ui-app.json";
+
+fn check_app_api(api: u32) -> Result<(), Error> {
+    if api != API_VERSION {
+        return Err(app_error(format!(
+            "this app speaks session API {api}, specify-core {CORE_VERSION} speaks \
+             {API_VERSION}: update the app, or run without --app to use the pinned one"
+        )));
+    }
+    Ok(())
+}
+
+/// A release app must declare its name, version and API. Older local builds may omit it.
+fn check_manifest(dir: &Path, release_version: Option<&str>) -> Result<(), Error> {
+    #[derive(serde::Deserialize)]
+    struct Manifest {
+        name: String,
+        version: String,
+        api: u32,
+    }
+
+    let path = dir.join(MANIFEST);
+    let manifest = match fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(e) if e.kind() == io::ErrorKind::NotFound && release_version.is_none() => {
+            let _ = writeln!(
+                io::stderr(),
+                "warning: {} is missing; continuing with the local app",
+                path.display()
+            );
+            return Ok(());
+        }
+        Err(e) => {
+            return Err(app_error(format!(
+                "cannot read app manifest {}: {e}",
+                path.display()
+            )));
+        }
+    };
+    let manifest: Manifest = serde_json::from_slice(&manifest)
+        .map_err(|e| app_error(format!("invalid app manifest {}: {e}", path.display())))?;
+    check_app_api(manifest.api)?;
+    if manifest.name != "specify-ui-app"
+        || manifest.version.is_empty()
+        || release_version.is_some_and(|expected| manifest.version != expected)
+    {
+        return Err(app_error(format!(
+            "unexpected name or version in app manifest {}",
+            path.display()
+        )));
+    }
+    Ok(())
 }
 
 /// How the page is served.
@@ -269,7 +353,9 @@ pub fn start(
     let flag = Arc::clone(&running);
     thread::Builder::new()
         .spawn(move || {
-            let _ = app.serve(close_delay, idle, |n| eprintln!("{n}"));
+            let _ = app.serve(close_delay, idle, |n| {
+                let _ = writeln!(io::stderr(), "{n}");
+            });
             flag.store(false, Ordering::SeqCst);
         })
         .map_err(|e| Error::Io(format!("cannot start the page server: {e}")))?;

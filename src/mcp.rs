@@ -257,7 +257,7 @@ pub struct Server {
     /// Whether a stdio client has sent `initialize` (legacy semantics for the process).
     initialized: bool,
     browser: Browser,
-    /// The app `show` serves; else `SPECIFY_APP_DIR`/`SPECIFY_WASM_DIR`.
+    /// Resolved assets for `show`, if supplied by the caller.
     app: Option<crate::open::Assets>,
     /// A page server's close delay and idle time.
     page_timing: (Duration, Duration),
@@ -324,7 +324,7 @@ impl Server {
         self.browser = browser;
     }
 
-    /// The app and engine `show` serves, instead of `SPECIFY_APP_DIR`/`SPECIFY_WASM_DIR`.
+    /// Supply resolved app and engine assets for `show`, bypassing default asset resolution.
     pub fn set_app(&mut self, assets: crate::open::Assets) {
         self.app = Some(assets);
     }
@@ -1452,7 +1452,10 @@ impl Server {
         let (url, mode) = (page.url.clone(), page.mode);
         session::lock(&shared).page = Some(page);
         if browser && let Err(e) = (self.browser)(&url) {
-            eprintln!("warning: cannot open a browser ({e}); open {url}");
+            let _ = writeln!(
+                io::stderr(),
+                "warning: cannot open a browser ({e}); open {url}"
+            );
         }
         Ok(json!({"doc": handle, "url": url, "mode": mode}))
     }

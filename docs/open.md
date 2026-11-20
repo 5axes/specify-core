@@ -386,12 +386,37 @@ page servers stop with it.
 
 ## Where the app and the engine come from
 
-The app is not bundled with specify-core yet. Until it is:
+`open` and MCP `show` use the same resolution rules:
 
-- `--app DIR` (or `SPECIFY_APP_DIR`): the built app, `index.html` at its root. Without one,
-  `open` refuses (exit 2) and says how to pass it.
-- `--wasm DIR` (or `SPECIFY_WASM_DIR`): a wasm-pack `pkg/` directory served at `wasm/`.
-  Without one, `wasm/` is served from the app directory, so an app that ships the engine in its
-  own `wasm/` needs no `--wasm`.
+- **App.** `--app DIR` takes precedence over `SPECIFY_APP_DIR`. The directory must contain
+  `index.html`. With neither override, Specify downloads the GitHub release asset pinned in
+  `app.lock.json` and verifies its SHA-256 against the pin compiled into the CLI.
+- **Engine.** `--wasm DIR` takes precedence over `SPECIFY_WASM_DIR`. Either points to a
+  wasm-pack `pkg/` directory served at `wasm/`. With neither override, Specify serves the
+  app's own `wasm/` and fetches an engine only for a pinned app without that directory.
+  Even an empty `wasm/` directory suppresses the fetch. Specify downloads the engine from
+  the GitHub release for the running specify-core version, checks the release's `.tgz.sha256`,
+  and serves the contents of its `pkg/` at `wasm/`.
+- **Session API.** A release app must have `specify-ui-app.json` at its root with `name`
+  (`specify-ui-app`), `version`, and integer `api` matching `config.api`. The same API check
+  applies to local apps that have the manifest. Older local builds without it give a warning
+  and continue.
 
-A later release will download the app and the engine instead; the addresses above stay.
+MCP `show` reads the overrides from the server process's environment. A build whose
+`app.lock.json` still holds the placeholder pin (`v0.0.0`, a development build) has no app to
+download: use `--app DIR` or set `SPECIFY_APP_DIR`.
+
+The first uncached use needs a network connection and reports downloads on stderr. Specify
+publishes each verified download to the cache with a `.sha256` marker and a `.files.json`
+manifest of relative paths, SHA-256 digests, and sizes. Each reuse checks the entire tree
+against that manifest. A missing, changed, or extra entry triggers a fresh download. An intact
+cache can be used offline. Cache directories are `app/<app-version>/` and
+`wasm/<specify-core-version>/` under `$XDG_CACHE_HOME/specify-core/` (`~/.cache/specify-core/` by default) on Linux,
+`~/Library/Caches/specify-core/` on macOS, or `%LOCALAPPDATA%\specify-core\cache\` on Windows.
+
+Cache verification detects corruption, partial installs, and accidental edits. The threat model
+excludes local attackers with write access to the user's cache, who could equally replace the
+specify-core binary.
+
+Subprocess tests use `SPECIFY_TEST_APP_BASE_URL`, `SPECIFY_TEST_APP_PIN`, and
+`SPECIFY_TEST_CACHE_DIR` for a loopback release fixture. The hooks are enabled by the test build.
