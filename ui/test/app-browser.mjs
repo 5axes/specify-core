@@ -20,6 +20,8 @@ import { characteristicHistory, validateOpening, wasmDirectory } from './engine-
 //   SPECIFY_CORE  the specify-core binary (default: specify-core on PATH); it needs the session
 //                 contract (`GET answers`, `POST save {rev, acceptDefaults}`, `open --diff`).
 //   SPECIFY_WASM_DIR  the engine's pkg/ (default: public/wasm/intent, from `npm run fetch:wasm`).
+//   SPECIFY_APP_BUILT_IN=1  serve the app and engine built into SPECIFY_CORE (ADR P12) instead
+//                 of passing --app dist-app --wasm SPECIFY_WASM_DIR (the release's check).
 //   SHOTS         a directory to save screenshots in (optional).
 const check = expect.configure({ timeout: 90000 });
 const cli = process.env.SPECIFY_CORE ?? 'specify-core';
@@ -27,8 +29,12 @@ const app = resolve('dist-app');
 const wasm = wasmDirectory;
 const shots = process.env.SHOTS;
 if (shots) mkdirSync(shots, { recursive: true });
-assert.ok(existsSync(join(app, 'index.html')), 'dist-app is built (npm run build:app)');
+const builtIn = process.env.SPECIFY_APP_BUILT_IN === '1';
+if (!builtIn) assert.ok(existsSync(join(app, 'index.html')), 'dist-app is built (npm run build:app)');
 assert.ok(existsSync(join(wasm, 'specify_core_wasm.js')), 'the engine is fetched (npm run fetch:wasm)');
+/** The command's app and engine: its own, or dist-app and the engine directory. */
+const assetArgs = builtIn ? [] : ['--app', app, '--wasm', wasm];
+const assetEnv = builtIn ? { ...process.env, SPECIFY_APP_DIR: '', SPECIFY_WASM_DIR: '' } : process.env;
 
 const dir = mkdtempSync(join(tmpdir(), "specify app's-"));
 const part = join(dir, 'part.step');
@@ -41,7 +47,7 @@ const second = join(dir, 'part.specified-3.step');
 
 /** `specify-core open` on ``files`` (one, or `--diff` and two): its address once it prints it, and a way to stop it. */
 async function open(file, ...flags) {
-  const child = spawn(cli, ['open', '--app', app, '--wasm', wasm, '--no-browser', ...flags, ...[file].flat()], { stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawn(cli, ['open', ...assetArgs, '--no-browser', ...flags, ...[file].flat()], { env: assetEnv, stdio: ['ignore', 'pipe', 'pipe'] });
   let out = '';
   child.stdout.on('data', chunk => { out += chunk; });
   child.stderr.on('data', chunk => { out += chunk; });

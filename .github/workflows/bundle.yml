@@ -1,0 +1,65 @@
+name: Build the app and engine
+
+# ADR P12: the command carries its own app and WASM engine. cli.yml, python.yml and crates.yml
+# call this first; it builds the engine (wasm-pack) and the app (ui/, npm run build:app) from the
+# ref and uploads them as the `specify-bundle` artifact, laid out as bundle/app and bundle/wasm,
+# where build.rs finds them (and the crate carries them). The jobs that publish stay in the
+# calling workflows, so their trusted publishers are unchanged.
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: The commit or tag to build
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  bundle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ inputs.ref }}
+      - run: rustup toolchain install
+      - run: rustup target add wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: bundle-wasm
+      - run: cargo install wasm-pack --version 0.15.0 --locked
+      - run: wasm-pack build crates/specify-core-wasm --target web --profile wasm-release --locked
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - run: npm ci
+        working-directory: ui
+      - run: npm run build:app
+        working-directory: ui
+      # Lockstep: the app, the engine and the command are one version (build.rs builds in only an
+      # app of its own version, and the release jobs require one).
+      - name: Lay out bundle/
+        run: |
+          set -eu
+          version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "specify-core") | .version')
+          app=$(jq -r .version ui/dist-app/specify-ui-app.json)
+          engine=$(jq -r .version crates/specify-core-wasm/pkg/package.json)
+          [ "$app" = "$version" ] && [ "$engine" = "$version" ] || {
+            echo "::error::specify-core $version, app $app, engine $engine: versions are lockstep"
+            exit 1
+          }
+          mkdir -p bundle/wasm
+          cp -R ui/dist-app bundle/app
+          cp crates/specify-core-wasm/pkg/specify_core_wasm.js crates/specify-core-wasm/pkg/specify_core_wasm_bg.wasm crates/specify-core-wasm/pkg/package.json bundle/wasm/
+          du -sh bundle/app bundle/wasm
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: specify-bundle
+          path: bundle
+          if-no-files-found: error

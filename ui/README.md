@@ -28,8 +28,8 @@ X.Y.Z depends on `@draftwright/specify-core-wasm` X.Y.Z exactly.
 A host that implements only the original three engine methods keeps its 0.1 display and exports otherwise.
 `SpecifyEngine.inspection` is optional.
 
-New in 0.2.0: the local app (`specify-core open` / an agent's `show`), released as `specify-ui-app-<version>.tgz`
-with its `specify-ui-app.json` manifest (see "The local app").
+New in 0.2.0: the local app (`specify-core open` / an agent's `show`), with its `specify-ui-app.json` manifest (see
+"The local app"). From 0.3.0 it is built into the specify-core command rather than released as an archive.
 
 ## Install
 
@@ -191,15 +191,15 @@ workbook as downloads; it has no account, AI chat or analytics, stores nothing i
 but its own origin; IBM Plex Mono is bundled.
 
 `npm run build:app` builds it into `dist-app/` (relative URLs, no inline scripts; the engine is not included: the
-command serves its own at `config.wasmUrl`). Each specify-core release attaches it as `specify-ui-app-<version>.tgz`
-(the app's files at the archive's root) with a `.sha256` and a build provenance attestation (`gh attestation verify
-specify-ui-app-<version>.tgz --repo pzfreo/specify-core`); `specify-core open` and MCP `show` download it from their
-own version's release. (Apps up to 0.2.0 were released from pzfreo/specify-ui.) To try a local build: `specify-core
-open --app dist-app --wasm public/wasm/intent part.step`.
+command serves its own at `config.wasmUrl`). From 0.3.0 specify-core builds `dist-app/` and the WASM into the command
+itself (its release binaries, Python wheels and crate; [docs/open.md](../docs/open.md#where-the-app-and-the-engine-come-from)),
+so `specify-core open` and MCP `show` download nothing; no app archive is attached to the release. (Apps up to 0.2.0
+were released from pzfreo/specify-ui, which 0.2.1 downloads.) To try a local build: `specify-core open --app dist-app
+--wasm public/wasm/intent part.step`, or rebuild specify-core, which then has it built in.
 
-The build also writes `specify-ui-app.json` at the root of `dist-app/` and the app archive:
-`{"name":"specify-ui-app","version":"<package.json version>","api":1}`. The manifest lets specify-core
-verify the app it downloads. `api` is the session API, defined once as `SESSION_API` in
+The build also writes `specify-ui-app.json` at the root of `dist-app/`:
+`{"name":"specify-ui-app","version":"<package.json version>","api":1}`. specify-core builds in only an app of its own
+version, and checks `api` for the app it serves (built in or `--app`). `api` is the session API, defined once as `SESSION_API` in
 `app/session-api.ts`, shared by the manifest and the page's compatibility check. The page refuses
 to load a review when `config.api` differs, naming both versions and asking for an update.
 An absent `config.api` remains compatible with specify-core 0.2.0.
@@ -242,8 +242,8 @@ and `npm run test:package` both pack with it), and refuses a WASM build of anoth
 CI (specify-core's `.github/workflows/ci.yml`) runs these suites on each pull request that touches `ui/` or a shared
 file, and on each push to main. Publishing a specify-core GitHub release tagged `v<version>` runs
 `.github/workflows/release.yml`: it builds the WASM, checks the tag (a `v*` tag on main, matching `package.json`
-and the WASM build), runs the suites on that WASM, tests the app against the command built from the tagged commit,
-attaches the app archive, and packs the library. The library is published once its engine is on npm, after approval
+and the WASM build), runs the suites on that WASM, builds the app into the command from the tagged commit and tests
+it there, and packs the library. The library is published once its engine is on npm, after approval
 in the `npm` environment, with npm trusted publishing (OIDC, with provenance). The `npm` environment must have a
 required reviewer and be restricted to `v*` tags.
 

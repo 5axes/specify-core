@@ -37,8 +37,7 @@ use serde_json::json;
 
 use crate::session;
 
-#[cfg(feature = "cli")]
-mod fetch;
+mod bundle;
 
 /// How often an open page asks for `config` (the contract's heartbeat; the server does not
 /// use it, it sizes [`CLOSE_DELAY`]).
@@ -158,12 +157,43 @@ fn random(_: &mut [u8]) -> io::Result<()> {
 #[derive(Debug, Clone)]
 pub struct Assets {
     /// The static app: `index.html` at its root.
-    pub app: PathBuf,
-    /// A wasm-pack `pkg/` directory served at `wasm/`; without one, `wasm/` is the app's own.
-    pub wasm: Option<PathBuf>,
+    app: Root,
+    /// The engine served at `wasm/`; without one, `wasm/` is the app's own.
+    wasm: Option<Root>,
 }
 
-/// Resolve flag and environment overrides, or use the CLI's cached release assets.
+/// A directory, or files built into the command.
+#[derive(Clone)]
+enum Root {
+    Dir(PathBuf),
+    BuiltIn(bundle::Files),
+}
+
+impl std::fmt::Debug for Root {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Root::Dir(dir) => f.debug_tuple("Dir").field(dir).finish(),
+            Root::BuiltIn(files) => write!(f, "BuiltIn({} files)", files.len()),
+        }
+    }
+}
+
+impl Root {
+    /// The file at the request path `rel`, and its Content-Type.
+    fn file(&self, rel: &str) -> Option<(Vec<u8>, &'static str)> {
+        let segments = request_path(rel)?;
+        match self {
+            Root::Dir(dir) => static_file(dir, &segments),
+            Root::BuiltIn(files) => {
+                let path = segments.join("/");
+                let bytes = bundle::file(files, &path)?;
+                Some((bytes, content_type(Path::new(&path))))
+            }
+        }
+    }
+}
+
+/// Resolve flag and environment overrides, or use the app and engine built into the command.
 pub fn assets(app: Option<&Path>, wasm: Option<&Path>) -> Result<Assets, Error> {
     let from_env = |name: &str| {
         std::env::var_os(name)
@@ -176,25 +206,17 @@ pub fn assets(app: Option<&Path>, wasm: Option<&Path>) -> Result<Assets, Error> 
     let wasm = wasm
         .map(Path::to_path_buf)
         .or_else(|| from_env("SPECIFY_WASM_DIR"));
-    #[cfg(all(feature = "cli", feature = "asset-test-hooks"))]
-    if let Some((base, cache)) = fetch::loopback_fixture() {
-        return resolve_assets(app, wasm, &fetch::Source::fixture(&base, &cache));
-    }
-    resolve_assets(
-        app,
-        wasm,
-        #[cfg(feature = "cli")]
-        &fetch::Source::github(),
-    )
+    resolve_assets(app, wasm, bundle::app(), bundle::wasm())
 }
 
+/// `--app` (else the built-in app), and `--wasm` (else the app's own `wasm/` directory, else
+/// the built-in engine).
 fn resolve_assets(
     app: Option<PathBuf>,
     wasm: Option<PathBuf>,
-    #[cfg(feature = "cli")] source: &fetch::Source<'_>,
+    built_app: Option<bundle::Files>,
+    built_wasm: Option<bundle::Files>,
 ) -> Result<Assets, Error> {
-    #[cfg(feature = "cli")]
-    let use_release = app.is_none();
     let app = match app {
         Some(path) => {
             let dir = fs::canonicalize(&path)
@@ -206,28 +228,48 @@ fn resolve_assets(
                         path.display()
                     ))
                 })?;
-            check_manifest(&dir, None)?;
-            dir
+            check_manifest(&dir)?;
+            Root::Dir(dir)
         }
-        #[cfg(feature = "cli")]
-        None => source.app()?,
-        #[cfg(not(feature = "cli"))]
-        None => return Err(app_error("no Specify app directory given")),
+        None => {
+            let files = built_app.ok_or_else(|| app_error(not_built_in("app")))?;
+            let manifest = bundle::file(files, MANIFEST)
+                .ok_or_else(|| app_error("the built-in app has no manifest"))?;
+            check_manifest_bytes(&manifest, "the built-in app")?;
+            Root::BuiltIn(files)
+        }
     };
     let wasm = match wasm {
-        Some(w) => Some(
+        Some(w) => Some(Root::Dir(
             fs::canonicalize(&w)
                 .ok()
                 .filter(|d| d.is_dir())
                 .ok_or_else(|| {
                     Error::Refused(format!("--wasm {}: not a directory", w.display()))
                 })?,
-        ),
-        #[cfg(feature = "cli")]
-        None if use_release && !app.join("wasm").is_dir() => Some(source.wasm()?),
-        None => None,
+        )),
+        None => match (&app, built_wasm) {
+            (Root::Dir(dir), _) if dir.join("wasm").is_dir() => None,
+            (_, Some(files)) => Some(Root::BuiltIn(files)),
+            (Root::BuiltIn(_), None) => {
+                return Err(Error::Refused(format!(
+                    "{}: pass --wasm DIR / set SPECIFY_WASM_DIR",
+                    not_built_in("WASM engine")
+                )));
+            }
+            (Root::Dir(_), None) => None,
+        },
     };
     Ok(Assets { app, wasm })
+}
+
+/// A build without the app or engine (made before `ui/` and the WASM were built).
+fn not_built_in(what: &str) -> String {
+    format!(
+        "this specify-core was built without the Specify {what} (a release has it built in: \
+         `pip install specify-core`; or build the WASM and ui/dist-app, then rebuild: see \
+         docs/open.md)"
+    )
 }
 
 fn app_error(message: impl std::fmt::Display) -> Error {
@@ -241,14 +283,35 @@ fn check_app_api(api: u32) -> Result<(), Error> {
     if api != API_VERSION {
         return Err(app_error(format!(
             "this app speaks session API {api}, specify-core {CORE_VERSION} speaks \
-             {API_VERSION}: update the app, or run without --app to use the released one"
+             {API_VERSION}: update the app, or run without --app to use the built-in one"
         )));
     }
     Ok(())
 }
 
-/// A release app must declare its name, version and API. Older local builds may omit it.
-fn check_manifest(dir: &Path, release_version: Option<&str>) -> Result<(), Error> {
+/// An `--app` with a manifest must speak this session API. Older local builds may omit it.
+fn check_manifest(dir: &Path) -> Result<(), Error> {
+    let path = dir.join(MANIFEST);
+    match fs::read(&path) {
+        Ok(bytes) => check_manifest_bytes(&bytes, &path.display().to_string()),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {
+            let _ = writeln!(
+                io::stderr(),
+                "warning: {} is missing; continuing with the local app",
+                path.display()
+            );
+            Ok(())
+        }
+        Err(e) => Err(app_error(format!(
+            "cannot read app manifest {}: {e}",
+            path.display()
+        ))),
+    }
+}
+
+/// The manifest names the app and its version, and speaks this session API. (build.rs builds
+/// in only an app of this version.)
+fn check_manifest_bytes(bytes: &[u8], at: &str) -> Result<(), Error> {
     #[derive(serde::Deserialize)]
     struct Manifest {
         name: String,
@@ -256,34 +319,12 @@ fn check_manifest(dir: &Path, release_version: Option<&str>) -> Result<(), Error
         api: u32,
     }
 
-    let path = dir.join(MANIFEST);
-    let manifest = match fs::read(&path) {
-        Ok(bytes) => bytes,
-        Err(e) if e.kind() == io::ErrorKind::NotFound && release_version.is_none() => {
-            let _ = writeln!(
-                io::stderr(),
-                "warning: {} is missing; continuing with the local app",
-                path.display()
-            );
-            return Ok(());
-        }
-        Err(e) => {
-            return Err(app_error(format!(
-                "cannot read app manifest {}: {e}",
-                path.display()
-            )));
-        }
-    };
-    let manifest: Manifest = serde_json::from_slice(&manifest)
-        .map_err(|e| app_error(format!("invalid app manifest {}: {e}", path.display())))?;
+    let manifest: Manifest = serde_json::from_slice(bytes)
+        .map_err(|e| app_error(format!("invalid app manifest {at}: {e}")))?;
     check_app_api(manifest.api)?;
-    if manifest.name != "specify-ui-app"
-        || manifest.version.is_empty()
-        || release_version.is_some_and(|expected| manifest.version != expected)
-    {
+    if manifest.name != "specify-ui-app" || manifest.version.is_empty() {
         return Err(app_error(format!(
-            "unexpected name or version in app manifest {}",
-            path.display()
+            "unexpected name or version in app manifest {at}"
         )));
     }
     Ok(())
@@ -780,7 +821,7 @@ fn exchange(stream: &mut TcpStream, ctx: &Ctx) {
                 (Some(wasm), Some(rel)) => (wasm, rel),
                 _ => (&shared.assets.app, rest),
             };
-            match static_file(root, rel) {
+            match root.file(rel) {
                 Some((bytes, content_type)) => reply(stream, "200 OK", Some(content_type), &bytes),
                 None => reply(stream, "404 Not Found", None, b""),
             }
@@ -1163,22 +1204,26 @@ fn save(stream: &mut TcpStream, ctx: &Ctx, request: &Request, body: Vec<u8>) {
     }
 }
 
-/// A file inside `root` (canonical) at the request path `rel`, and its Content-Type; None for
-/// anything else: an encoded or literal `..`, `.`, an empty segment, a backslash or colon, a
-/// directory, or a link that leads outside.
-fn static_file(root: &Path, rel: &str) -> Option<(Vec<u8>, &'static str)> {
+/// The segments of the request path `rel`, decoded; None for an encoded or literal `..`, `.`,
+/// an empty segment, a backslash or colon.
+fn request_path(rel: &str) -> Option<Vec<String>> {
+    rel.split('/')
+        .map(|raw| {
+            percent_decode(raw).filter(|segment| {
+                !(segment.is_empty()
+                    || segment == "."
+                    || segment == ".."
+                    || segment.contains(['/', '\\', ':', '\0']))
+            })
+        })
+        .collect()
+}
+
+/// A file inside `root` (canonical) at `segments`, and its Content-Type; None for a directory,
+/// or a link that leads outside.
+fn static_file(root: &Path, segments: &[String]) -> Option<(Vec<u8>, &'static str)> {
     let mut path = root.to_path_buf();
-    for raw in rel.split('/') {
-        let segment = percent_decode(raw)?;
-        if segment.is_empty()
-            || segment == "."
-            || segment == ".."
-            || segment.contains(['/', '\\', ':', '\0'])
-        {
-            return None;
-        }
-        path.push(segment);
-    }
+    path.extend(segments);
     let real = fs::canonicalize(&path).ok()?;
     if !real.starts_with(root) || !real.is_file() {
         return None;
@@ -1338,7 +1383,96 @@ pub fn launch_browser(url: &str) -> io::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::header_value;
+    use std::io::Write as _;
+
+    use super::{API_VERSION, Root, bundle, header_value, resolve_assets};
+
+    /// Built-in files from `(path, contents)`, gzipped as build.rs stores them.
+    fn built(files: &[(&'static str, &[u8])]) -> bundle::Files {
+        let mut list: Vec<(&'static str, &'static [u8])> = files
+            .iter()
+            .map(|(path, bytes)| {
+                let mut gz = flate2::write::GzEncoder::new(Vec::new(), Default::default());
+                gz.write_all(bytes).unwrap();
+                let gz: &'static [u8] = Vec::leak(gz.finish().unwrap());
+                (*path, gz)
+            })
+            .collect();
+        list.sort();
+        Vec::leak(list)
+    }
+
+    fn app(api: u32) -> bundle::Files {
+        let manifest = format!(r#"{{"name":"specify-ui-app","version":"1.0.0","api":{api}}}"#);
+        built(&[
+            ("index.html", b"app"),
+            ("specify-ui-app.json", manifest.as_bytes()),
+        ])
+    }
+
+    fn refused(result: Result<super::Assets, super::Error>) -> String {
+        match result {
+            Err(super::Error::Refused(message)) => message,
+            other => panic!("not refused: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_build_without_the_app_asks_for_one() {
+        let message = refused(resolve_assets(None, None, None, None));
+        assert!(
+            message.starts_with("this specify-core was built without the Specify app"),
+            "{message}"
+        );
+        assert!(message.contains("pip install specify-core"), "{message}");
+        assert!(
+            message.ends_with(": pass --app DIR / set SPECIFY_APP_DIR"),
+            "{message}"
+        );
+        // An engine alone is not enough.
+        let engine = built(&[("specify_core_wasm.js", b"glue")]);
+        assert!(
+            refused(resolve_assets(None, None, None, Some(engine))).ends_with("SPECIFY_APP_DIR")
+        );
+    }
+
+    #[test]
+    fn a_built_in_app_needs_its_engine() {
+        let message = refused(resolve_assets(None, None, Some(app(API_VERSION)), None));
+        assert!(
+            message.starts_with("this specify-core was built without the Specify WASM engine"),
+            "{message}"
+        );
+        assert!(
+            message.ends_with(": pass --wasm DIR / set SPECIFY_WASM_DIR"),
+            "{message}"
+        );
+        let engine = built(&[("specify_core_wasm.js", b"glue")]);
+        let assets = resolve_assets(None, None, Some(app(API_VERSION)), Some(engine)).unwrap();
+        assert!(matches!(assets.app, Root::BuiltIn(_)));
+        assert!(matches!(assets.wasm, Some(Root::BuiltIn(_))));
+        let (bytes, content_type) = assets.wasm.unwrap().file("specify_core_wasm.js").unwrap();
+        assert_eq!(bytes, b"glue");
+        assert_eq!(content_type, "text/javascript; charset=utf-8");
+    }
+
+    #[test]
+    fn the_built_in_app_must_speak_this_session_api() {
+        let engine = built(&[("specify_core_wasm.js", b"glue")]);
+        let message = refused(resolve_assets(
+            None,
+            None,
+            Some(app(API_VERSION + 1)),
+            Some(engine),
+        ));
+        assert!(message.contains("this app speaks session API"), "{message}");
+        let without = built(&[("index.html", b"app")]);
+        let message = refused(resolve_assets(None, None, Some(without), Some(engine)));
+        assert!(
+            message.contains("the built-in app has no manifest"),
+            "{message}"
+        );
+    }
 
     #[test]
     fn header_values_keep_plain_paths_and_encode_the_rest() {

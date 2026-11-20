@@ -7,3 +7,6 @@ __pycache__/
 # The Python package built in place (maturin develop)
 /crates/specify-core-py/python/specify_core/_native*.so
 /crates/specify-core-py/python/specify_core/_native*.pyd
+
+# The built app and engine a release copies in for the crates.io package (crates.yml)
+/bundle/
