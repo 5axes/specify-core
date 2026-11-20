@@ -146,7 +146,7 @@ the page is closed, or 30 minutes without a request), and with the MCP server; `
 starts a new one. Under stdio its notices go to stderr.
 
 `save` and the page's Save write the same way (docs/open.md, `save`): `write`'s writer, the
-answers stored in the file, beside it as `<stem>.specified.step` (then `-2`, …) or over it when
+answers stored in the file, beside it as `<stem>.specified.step` (then `-2`, …; later saves update the session's copy) or over it when
 opened `in_place` (keeping a `.bak`; every save writes from the file as opened). An incomplete
 save is written; `complete` and `missing` say what is still open. `accept_defaults` lists
 exactly the defaults the person approved (ADR P9); they become answers, the others stay open

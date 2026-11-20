@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn, execFileSync } from 'node:child_process';
-import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { gunzipSync } from 'node:zlib';
@@ -40,10 +40,15 @@ const dir = mkdtempSync(join(tmpdir(), "specify app's-"));
 const part = join(dir, 'part.step');
 // A part with no answers stored in it: gramil's shaft.
 writeFileSync(part, gunzipSync(readFileSync('test/fixtures/gramil_shaft_before.step.gz')));
+// The copy the session's saves write: the first save creates it and later ones update it (#217).
 const specified = join(dir, 'part.specified.step');
-// The files the saves write, in order: nothing answered, the defaults taken, one answer given.
-const withDefaults = join(dir, 'part.specified-2.step');
-const second = join(dir, 'part.specified-3.step');
+// What each save wrote there, kept by the test for the checks below: nothing answered, the
+// defaults taken, one answer given.
+const saves = join(dir, 'saves');
+mkdirSync(saves);
+const plainSave = join(saves, 'part.specified.step');
+const withDefaults = join(saves, 'part.specified-2.step');
+const second = join(saves, 'part.specified-3.step');
 
 /** `specify-core open` on ``files`` (one, or `--diff` and two): its address once it prints it, and a way to stop it. */
 async function open(file, ...flags) {
@@ -110,14 +115,15 @@ async function downloadFile(page, name, filename) {
 const exportAnswers = async (page, filename = 'part.answers.json') => JSON.parse(readFileSync(await downloadFile(page, 'Answers (JSON)', filename), 'utf8'));
 const workbookSheet = (path, number) => execFileSync('unzip', ['-p', path, `xl/worksheets/sheet${number}.xml`], { encoding: 'utf8' });
 
-async function inspectSaved(page, path) {
+/** The exports downloaded from the page, named for ``path``, against ``file`` (what the save wrote there) read back. */
+async function inspectSaved(page, path, file = path) {
   const name = basename(path).replace(/\.gz$/i, '').replace(/\.(step|stp)$/i, '');
   await check(page.locator('.app-inspection-source')).toContainText(`from ${basename(path)}`);
   const csv = readFileSync(await downloadFile(page, 'Inspection list (CSV)', `${name}-characteristics.csv`), 'utf8');
   const book = await downloadFile(page, 'AS9102 FAI (Excel)', `${name}-AS9102.xlsx`);
   const form2 = workbookSheet(book, 2);
   const form3 = workbookSheet(book, 3);
-  const numbers = (analyse(path).characteristics ?? []).map((item) => item.number).sort((a, b) => a - b);
+  const numbers = (analyse(file).characteristics ?? []).map((item) => item.number).sort((a, b) => a - b);
   const csvNumbers = csv.trimEnd().split('\n').slice(1).map((line) => Number(line.split(',')[0])).filter((n) => n > 0);
   const faiNumbers = [...form3.matchAll(/<c r="A(\d+)"[^>]*><is><t [^>]*>([^<]+)<\/t>/g)]
     .filter((match) => Number(match[1]) >= 5).map((match) => Number(match[2]));
@@ -134,19 +140,21 @@ const assertSaveFirst = async (page) => {
   }
 };
 
-const assertOpenCopy = async (page, path) => {
-  const command = `specify-core open '${path.replaceAll("'", "'\"'\"'")}' --read-only`;
-  const instruction = `Open the saved file to export: ${command}`;
-  await check(page.locator('.app-inspection-source')).toHaveText(instruction);
-  await check(page.locator('.app-inspection-source code')).toHaveText(command);
+/** After a save to a copy, the exports are enabled from the file as saved (`file?rev=saved`,
+ * specify-ui#14), and the 3D view draws that file's PMI. ``before``: the save line shown before it. */
+const assertExportsFromSaved = async (page, file, before) => {
+  if (before !== undefined) await check(page.locator('.app-saved')).not.toHaveText(before);
   for (const name of ['Inspection list (CSV)', 'AS9102 FAI (Excel)']) {
-    const button = page.getByRole('button', { name, exact: true });
-    await check(button).toBeDisabled();
-    await check(button).toHaveAttribute('title', instruction);
+    await check(page.getByRole('button', { name, exact: true })).toBeEnabled();
   }
+  const exported = await inspectSaved(page, specified, file);
   const ops = await page.evaluate(() => window.__engineOps);
   assert.ok(!ops.includes('saved-copy'), 'a separate copy is never reconstructed');
+  await check.poll(async () => (await page.evaluate(() => window.__engineOps)).includes('file-scene')).toBe(true);
+  return exported;
 };
+/** The text of the save line, or null before one. */
+const savedLine = page => page.locator('.app-saved').textContent({ timeout: 1000 }).catch(() => null);
 
 try {
   // Specify: answer, save, read the PMI back.
@@ -164,14 +172,16 @@ try {
     // (nothing, here), and says what is still open. Many STEP files have no complete answer to everything.
     await page.getByRole('button', { name: 'Save', exact: true }).click();
     await check(page.locator('.app-saved')).toContainText(specified);
-    await assertOpenCopy(page, specified);
+    await assertExportsFromSaved(page, specified);
     await check(page.locator('.app-saved')).toContainText('still open');
-    // Open questions by what they ask, not their ids.
-    await check(page.locator('.app-saved')).toContainText('What material is the part made from?');
+    // Open questions by their short labels: not their ids, nor the questions with their hints (#217).
+    await check(page.locator('.app-saved')).toContainText('Material');
+    await check(page.locator('.app-saved')).not.toContainText('What material is the part made from?');
     await check(page.locator('.app-saved')).not.toContainText('part.material');
     await check(page.getByRole('alert')).toHaveCount(0);
     assert.ok(existsSync(specified), 'part.specified.step written with a required question open');
     assert.deepEqual(given(analyse(specified).resume?.answers), {}, 'a plain Save with nothing answered stores no answers');
+    copyFileSync(specified, plainSave);
     if (shots) await page.screenshot({ path: join(shots, 'save-partial.png') });
     // The person chooses the defaults, which is its own button, always there. It first lists every
     // default it would write (ADR P9: written only when approved): cancelled, nothing is written.
@@ -184,7 +194,7 @@ try {
     await list.getByRole('button', { name: 'Cancel' }).click();
     await check(list).toHaveCount(0);
     await page.waitForTimeout(500);
-    assert.ok(!existsSync(withDefaults), 'nothing written when the list is cancelled');
+    assert.deepEqual(readFileSync(specified), readFileSync(plainSave), 'nothing written when the list is cancelled');
     assert.deepEqual(await exportAnswers(page), {}, 'JSON after cancellation contains no unapproved defaults');
     // Confirmed: Save writes beside the file and says where.
     await page.getByRole('button', { name: 'Save with defaults' }).click();
@@ -193,8 +203,13 @@ try {
     const shownTolerance = (await list.locator('[data-default="part.general_tolerance"] strong').textContent()).trim();
     assert.equal(shownTolerance, 'ISO 2768-m', 'the dialog lists the default the person sees');
     assert.deepEqual(await exportAnswers(page), {}, 'listing defaults does not make them exportable');
+    const beforeDefaults = await savedLine(page);
     await list.getByRole('button', { name: /^Save with these \d+ defaults$/ }).click();
-    await check(page.locator('.app-saved')).toContainText(withDefaults);
+    // The same copy, updated: the session wrote it (#217).
+    await check(page.locator('.app-saved')).not.toHaveText(beforeDefaults);
+    await check(page.locator('.app-saved')).toContainText(specified);
+    await check.poll(() => (server.output().match(/Saved /g) ?? []).length).toBe(2);
+    copyFileSync(specified, withDefaults);
     // The value the person confirmed is exactly what lands in the file.
     assert.equal(given(analyse(withDefaults).resume?.answers)['part.general_tolerance'], shownTolerance, 'the stored answer is the value listed');
     // Inspect the file itself: filtering internal keys here would conceal an export leak.
@@ -203,18 +218,19 @@ try {
     assert.equal(approved['part.general_tolerance'], shownTolerance, 'JSON contains the value confirmed');
     await check(page.getByRole('alert')).toHaveCount(0);
     assert.ok(existsSync(withDefaults), 'the defaults save written');
-    // The command prints it once it has answered: it may come just after the page shows the save.
-    await check.poll(() => server.output()).toMatch(/Saved .*part\.specified-2\.step/);
-    // The next save takes the next free name, and the header says so.
-    await check(page.locator('.app-target')).toHaveText(second);
+    assert.match(server.output(), /Saved .*part\.specified\.step[^\n]*\n[^]*Saved .*part\.specified\.step/);
+    assert.ok(!existsSync(join(dir, 'part.specified-2.step')), 'no numbered copy');
+    // The next save updates the same copy, and the header says so.
+    await check(page.locator('.app-target')).toHaveText(specified);
+    await assertExportsFromSaved(page, withDefaults);
     // An answer: the material. Unsaved until Save.
     const box = material(page).locator('input');
     await box.fill('Aluminium 6082-T6');
     await box.press('Enter');
     await check(page.locator('.app-dirty')).toBeVisible();
     if (shots) await page.screenshot({ path: join(shots, 'specify.png') });
-    // Separate outputs are not served by 0.2.0. Require reopening that actual file.
-    await assertOpenCopy(page, withDefaults);
+    // The exports stay those of the file as saved, not the unsaved answer.
+    await inspectSaved(page, specified, withDefaults);
     for (const [name, file] of [['Answers (JSON)', 'part.answers.json']]) {
       const path = await downloadFile(page, name, file);
       if (file.endsWith('.json')) {
@@ -226,10 +242,13 @@ try {
     // confirmed earlier are answers in the session now (the command made them so), so with the
     // material given nothing is left open (before the per-part contract they were never answers, so
     // the page said 'still open' and stored the material alone).
+    const beforeAnswer = await savedLine(page);
     await page.getByRole('button', { name: 'Save', exact: true }).click();
-    await check(page.locator('.app-saved')).toContainText(second);
-    await assertOpenCopy(page, second);
+    await check(page.locator('.app-saved')).toContainText(specified);
     await check(page.locator('.app-saved')).toContainText('complete');
+    await check.poll(() => (server.output().match(/Saved /g) ?? []).length).toBe(3);
+    copyFileSync(specified, second);
+    await assertExportsFromSaved(page, second, beforeAnswer);
     await check(page.locator('.app-dirty')).toHaveCount(0);
     assert.deepEqual(Object.keys(given(analyse(second).resume?.answers)).sort(), [...listed, 'part.material'].sort(), 'Save stores the answers given and the defaults confirmed, nothing else');
     assert.equal(given(analyse(second).resume?.answers)['part.material'], 'Aluminium 6082-T6');
@@ -286,7 +305,7 @@ try {
     // command makes exactly those answers (a new rev) and stores them, so the answers stored are the
     // confirmed defaults and nothing else (before the per-part contract: the session's, none here).
     assert.deepEqual(Object.keys(given(analysis.resume?.answers)).sort(), listed, 'the answers stored are the defaults confirmed');
-    const plain = (analyse(specified).characteristics ?? []).length;
+    const plain = (analyse(plainSave).characteristics ?? []).length;
     assert.ok((analysis.characteristics ?? []).length > plain, 'the defaults save has the defaults\' PMI');
     const kinds = new Set((analysis.characteristics ?? []).map(c => c.kind));
     assert.ok(kinds.has('datum') && kinds.has('dimension'), `the PMI written reads back: ${[...kinds]}`);
@@ -307,9 +326,52 @@ try {
     await context.close();
     server.stop();
   }
+  // An assembly saved with its defaults: the 3D view draws the saved file's PMI for the part
+  // shown, for another part shown next, and again on coming back (specify-ui#14).
+  {
+    const asmDir = join(dir, 'drawn');
+    mkdirSync(asmDir);
+    const asm = join(asmDir, 'asm.step');
+    writeFileSync(asm, gunzipSync(readFileSync('test/fixtures/gramil_assembly_before.step.gz')));
+    const server = await open(asm);
+    const { context, page, requests } = await load(server);
+    const viewPmi = page.getByRole('radiogroup', { name: 'View PMI' });
+    const select = page.locator('.app-part select');
+    await check(select).toBeVisible();
+    /** The PMI drawn for the part shown: its graphics, by the planes they are looked square at. */
+    const drawn = async () => {
+      await check(viewPmi).toBeVisible();
+      await viewPmi.getByRole('radio', { name: 'Graphical' }).check();
+      const squares = page.locator('.pmi-lab-squares button');
+      await check(squares.first()).toBeAttached();
+      return squares.allTextContents();
+    };
+    // Before the save: the scene built on opening, from the answers then.
+    const opening = await drawn();
+    await page.getByRole('button', { name: 'Save with defaults' }).click();
+    const list = page.getByRole('dialog', { name: 'Save with defaults' });
+    await list.getByRole('button', { name: /^Save with these \d+ defaults$/ }).click();
+    await check(page.locator('.app-saved')).toContainText(join(asmDir, 'asm.specified.step'));
+    // After it: the saved file's PMI, as the file states it (its datum features and callouts).
+    await check.poll(async () => JSON.stringify(await drawn())).not.toBe(JSON.stringify(opening));
+    const afterSave = await drawn();
+    assert.ok(afterSave.length > 0, 'the saved PMI is drawn');
+    const shownPart = await select.inputValue();
+    const values = await select.locator('option').evaluateAll(options => options.map(o => o.value));
+    const other = values.find(v => v !== shownPart);
+    await select.selectOption(other);
+    await check(select).toHaveValue(other);
+    assert.ok((await drawn()).length > 0, 'another part shows its saved PMI');
+    await select.selectOption(shownPart);
+    await check(select).toHaveValue(shownPart);
+    assert.deepEqual(await drawn(), afterSave, 'coming back shows the saved PMI again');
+    onlyLocal(requests, server.origin);
+    await context.close();
+    server.stop();
+  }
   // The partial save reopens with what was answered, and the questions left open are still open.
   {
-    const server = await open(specified);
+    const server = await open(plainSave);
     const { context, page, requests } = await load(server);
     await check(page).toHaveTitle('part.specified.step — Specify');
     await check(material(page)).toHaveClass(/required/);

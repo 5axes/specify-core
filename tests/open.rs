@@ -912,7 +912,7 @@ fn other_hosts_tokens_origins_and_paths_outside_the_app_are_refused() {
 }
 
 #[test]
-fn saves_take_the_next_free_name_and_never_overwrite() {
+fn saves_update_the_sessions_copy_and_never_overwrite_another_file() {
     let scratch = Scratch::new("save");
     let input = std::fs::read(scratch.input()).unwrap();
     let mut opened = Opened::start(&scratch.input(), &scratch, &[]);
@@ -946,28 +946,47 @@ fn saves_take_the_next_free_name_and_never_overwrite() {
             first["bytes"]
         )
     );
+    // Later saves update the copy this session wrote (#217).
     assert_eq!(
         opened.config()["saveTarget"],
-        work("part.specified-2.step").display().to_string()
+        work("part.specified.step").display().to_string()
     );
-
     let second = opened.save(0, json!({}));
     assert_eq!(second.status, 200);
     assert_eq!(
         second.json()["path"],
-        work("part.specified-2.step").display().to_string()
+        work("part.specified.step").display().to_string()
     );
-    // A file already at the next name is left alone.
-    std::fs::write(work("part.specified-3.step"), b"mine").unwrap();
+    assert_eq!(scratch.work(), ["part.specified.step", "part.step"]);
+
+    // A copy changed by someone else is never written over, nor a file already at the next
+    // name: the save takes the first free one.
+    std::fs::write(work("part.specified.step"), b"edited").unwrap();
+    std::fs::write(work("part.specified-2.step"), b"mine").unwrap();
+    assert_eq!(
+        opened.config()["saveTarget"],
+        work("part.specified-3.step").display().to_string()
+    );
     let third = opened.save(0, json!({}));
     assert_eq!(third.status, 200);
     assert_eq!(
         third.json()["path"],
-        work("part.specified-4.step").display().to_string()
+        work("part.specified-3.step").display().to_string()
     );
     assert_eq!(
-        std::fs::read(work("part.specified-3.step")).unwrap(),
+        std::fs::read(work("part.specified.step")).unwrap(),
+        b"edited"
+    );
+    assert_eq!(
+        std::fs::read(work("part.specified-2.step")).unwrap(),
         b"mine"
+    );
+    // And the session's new copy is the one updated from then on.
+    let fourth = opened.save(0, json!({}));
+    assert_eq!(fourth.status, 200);
+    assert_eq!(
+        fourth.json()["path"],
+        work("part.specified-3.step").display().to_string()
     );
     assert_eq!(std::fs::read(scratch.input()).unwrap(), input);
     assert_eq!(
@@ -975,7 +994,6 @@ fn saves_take_the_next_free_name_and_never_overwrite() {
         [
             "part.specified-2.step",
             "part.specified-3.step",
-            "part.specified-4.step",
             "part.specified.step",
             "part.step"
         ],
@@ -1150,7 +1168,7 @@ fn read_only_refuses_saves_and_answer_changes_and_writes_nothing() {
 }
 
 /// `file?rev=saved`: 404 before a save, then exactly the bytes the last save wrote (read from
-/// disk, its path in `X-Specify-Path`), following each new copy; a copy changed on disk is 409
+/// disk, its path in `X-Specify-Path`), following each save; a copy changed on disk is 409
 /// and one removed 404, never other bytes.
 #[test]
 fn rev_saved_serves_what_the_last_save_wrote() {
@@ -1201,7 +1219,7 @@ fn rev_saved_serves_what_the_last_save_wrote() {
         std::fs::read(scratch.input()).unwrap()
     );
 
-    // A different save to the next name: `rev=saved` follows it.
+    // A later save updates the session's copy: `rev=saved` follows it.
     assert_eq!(
         opened
             .page()
@@ -1213,9 +1231,9 @@ fn rev_saved_serves_what_the_last_save_wrote() {
     assert_eq!(second.status, 200);
     assert_eq!(
         second.json()["path"],
-        work("part.specified-2.step").display().to_string()
+        work("part.specified.step").display().to_string()
     );
-    let second_bytes = saved(&work("part.specified-2.step"));
+    let second_bytes = saved(&work("part.specified.step"));
     assert_ne!(
         second_bytes, first_bytes,
         "the second save wrote the new answer"
@@ -1224,7 +1242,7 @@ fn rev_saved_serves_what_the_last_save_wrote() {
     // Changed on disk since the save: refused, never the other bytes.
     let mut changed = second_bytes.clone();
     changed.extend_from_slice(b"/* edited */\n");
-    std::fs::write(work("part.specified-2.step"), &changed).unwrap();
+    std::fs::write(work("part.specified.step"), &changed).unwrap();
     let got = opened.get("file?rev=saved");
     assert_eq!(got.status, 409);
     assert_eq!(got.header("content-type"), Some("application/json"));
@@ -1235,12 +1253,12 @@ fn rev_saved_serves_what_the_last_save_wrote() {
     );
     assert_eq!(
         error["path"],
-        work("part.specified-2.step").display().to_string()
+        work("part.specified.step").display().to_string()
     );
     // Put back as saved, it is served again; removed, it is 404.
-    std::fs::write(work("part.specified-2.step"), &second_bytes).unwrap();
-    saved(&work("part.specified-2.step"));
-    std::fs::remove_file(work("part.specified-2.step")).unwrap();
+    std::fs::write(work("part.specified.step"), &second_bytes).unwrap();
+    saved(&work("part.specified.step"));
+    std::fs::remove_file(work("part.specified.step")).unwrap();
     let got = opened.get("file?rev=saved");
     assert_eq!(got.status, 404);
     assert!(
@@ -2301,7 +2319,10 @@ fn racing_saves_write_exactly_their_rev() {
             200 => {
                 let body = got.json();
                 assert_eq!(body["rev"], rev);
-                saved.push((rev, PathBuf::from(body["path"].as_str().unwrap())));
+                let path = PathBuf::from(body["path"].as_str().unwrap());
+                // Read now: a later save updates the same copy (#217).
+                let stored = analysis_of(&path)["resume"]["answers"].clone();
+                saved.push((rev, path, stored));
             }
             409 if racing => {
                 assert!(got.json()["rev"].as_u64().unwrap() > rev);
@@ -2315,13 +2336,8 @@ fn racing_saves_write_exactly_their_rev() {
     // One more, certainly stale.
     assert_eq!(page.save(0, json!({})).status, 409);
     assert!(saved.len() >= 4, "{stale} stale");
-    for (rev, path) in saved {
-        assert_eq!(
-            analysis_of(&path)["resume"]["answers"],
-            by_rev[&rev],
-            "{} holds rev {rev}",
-            path.display()
-        );
+    for (rev, path, stored) in saved {
+        assert_eq!(stored, by_rev[&rev], "{} holds rev {rev}", path.display());
     }
 }
 

@@ -50,6 +50,32 @@ Read first:
   not touch `ui/` or a shared file skips the UI jobs. Main and releases run everything. `ci-ok` is
   the one check to require.
 
+### Fixed
+
+From the first 0.2.1 trial (#217, pzfreo/specify-ui#14):
+
+- Datum C is no longer asked once datum B is answered none, nor B (or C) once A is: a datum
+  without the one before it makes no sense. A letter already given stays asked, so its answer can
+  still be seen and removed.
+- Later saves of an `open` (or MCP) session update the copy that session's last save wrote,
+  instead of writing a new numbered copy each time. A file the session did not write, or its copy
+  once changed or removed by anyone else, is never overwritten: the save takes the next free name.
+- Every question has a short `label` ("Other notes", "Coating", "Datum C"), added to the
+  question JSON (WASM `review`, MCP `questions`): fit for a row or a message, with no question mark
+  or input hint. The app uses it in its save and agent messages and as the row label for questions
+  without one ("Other notes").
+- The app, after a save to a copy, enables the inspection exports (CSV and AS9102) from the file as
+  saved (`GET file?rev=saved`), and its 3D view draws the saved file's PMI, also for a part of an
+  assembly shown after the save; before, the exports stayed disabled and the view kept the PMI the
+  file had when it was opened.
+- The app's part panel no longer clips its values ("machined", "ISO 2768-m", the "Finish and
+  notes" summary): a long name or value wraps within the panel.
+- The app shows a question whose suggestion is none as "None (suggested)": in the "Finish and
+  notes" fold and its summary (coating, heat treatment), on "Other notes" (no longer a dash), and
+  for an unanswered datum in the Datums row. "Datums" is not marked answered while the engine
+  lists one of its questions (datum C) as open. Rows and messages name a question by the same
+  label ("Coating", not "Coating or treatment" in one and "Coating" in the other).
+
 ## 0.2.1 (2026-11-20)
 
 Read first:

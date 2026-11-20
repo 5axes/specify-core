@@ -76,7 +76,7 @@ as the last `--in-place` save left it. Outside `diff` mode `?rev=old` is 404, an
 
 `file?rev=saved` serves the file the session's last successful save wrote (from the page or
 from an AI client's `save`: it is one session), so the page can work from the file as saved
-(`part.specified.step`, `-2`, …, or the input after an `--in-place` save). It works the same in
+(the session's `part.specified.step`, or `-2`, … when that name was taken, or the input after an `--in-place` save). It works the same in
 every mode, `diff` included:
 
 - before any save in this run it is 404 (`{"error": …}`); `--read-only` never saves, so it is
@@ -186,7 +186,9 @@ into place:
   directory) under the first free name of `<stem>.specified.step`, `<stem>.specified-2.step`,
   `<stem>.specified-3.step`, … (`<stem>` is the name without `.gz` and `.step`/`.stp`:
   `part.stp` and `part.step.gz` both save as `part.specified.step`, uncompressed). An existing
-  file is never overwritten, even by a concurrent save;
+  file is never overwritten, even by a concurrent save. Later saves of the session update the
+  copy its last save wrote, while that copy is still as the save left it; a copy removed or
+  changed by anyone else is left alone, and the save takes the next free name;
 - with `--in-place` over the input. The first save of the run first copies the original to
   the first free name of `<FILE>.bak`, `<FILE>.bak-2`, … (an existing backup is never
   overwritten); later saves in the same run replace the file and make no further backup, so
