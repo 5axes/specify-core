@@ -4,10 +4,14 @@
 // and scripts/rewrite-dts-imports.mjs (the shipped .d.ts must typecheck with skipLibCheck: false).
 // The host is a copy in .cache/package-host with a package.json written here. It must typecheck,
 // build (worker and .wasm emitted), and pass test/step-diff-browser.mjs served by `vite preview`.
-// Run from the repo root after `npm run build` and `npm run fetch:wasm`.
+// The tarball is packed as release.yml packs it (scripts/pack.mjs: the engine dependency pinned to the
+// package's own version), and the host installs that engine from the in-repo WASM build.
+// Run from ui/ after `npm run build` and `npm run fetch:wasm`.
 import { execFileSync, spawn } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { engineBuild } from './fetch-wasm.mjs';
+import { pack } from './pack.mjs';
 
 const root = process.cwd();
 const packDir = resolve(root, '.cache/package-host-pack');
@@ -25,7 +29,6 @@ const run = (cmd, args, cwd, env) => execFileSync(cmd, args, { cwd, stdio: 'inhe
 
 if (!existsSync(resolve(root, 'dist'))) fail('dist/ is missing; run `npm run build` first');
 const rootPkg = JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8'));
-const lock = JSON.parse(readFileSync(resolve(root, 'package-lock.json'), 'utf8'));
 
 const dev = rootPkg.devDependencies;
 const version = name => dev[name] ?? fail(`${name} is not in the root devDependencies`);
@@ -33,8 +36,7 @@ const version = name => dev[name] ?? fail(`${name} is not in the root devDepende
 // Pack.
 rmSync(packDir, { recursive: true, force: true });
 mkdirSync(packDir, { recursive: true });
-const packed = JSON.parse(execFileSync(npm, ['pack', '--ignore-scripts', '--json', '--pack-destination', packDir], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] }));
-const tarball = resolve(packDir, packed[0].filename);
+const tarball = pack(packDir, root);
 if (!existsSync(tarball)) fail(`npm pack did not produce ${tarball}`);
 
 // The peer range spans three 0.184 to 0.187. 0.184.0 is what three-cad-viewer pins and the repo
@@ -52,8 +54,6 @@ async function testHost(threeVersion) {
   if (harness.includes('../../src')) fail('test/harness/main.tsx still imports from ../../src');
   writeFileSync(resolve(host, 'src/harness.tsx'), harness);
 
-  const core = lock.packages?.['node_modules/@draftwright/specify-core-wasm']?.resolved
-    ?? fail('package-lock.json has no resolved URL for @draftwright/specify-core-wasm');
   const pick = names => Object.fromEntries(names.map(name => [name, version(name)]));
   writeFileSync(resolve(host, 'package.json'), JSON.stringify({
     name: 'package-host',
@@ -65,8 +65,8 @@ async function testHost(threeVersion) {
       three: threeVersion,
     },
     devDependencies: pick(['vite', '@vitejs/plugin-react', 'typescript', '@types/react', '@types/react-dom']),
-    // Not on npm yet; the lockfile's resolved URL stays valid once it is.
-    overrides: { '@draftwright/specify-core-wasm': core },
+    // The engine at this version is published by the same release, after this test: the in-repo build.
+    overrides: { '@draftwright/specify-core-wasm': `file:${engineBuild}` },
   }, null, 2));
 
   run(npm, ['install', '--no-audit', '--no-fund'], host);
