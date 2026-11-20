@@ -8,7 +8,7 @@ All notable changes to specify-core-rust. The format follows
 
 Read first:
 
-- **No more `--app`:** `specify-core open` and MCP `show` download the pinned Specify app
+- **No `--app` needed:** `specify-core open` and MCP `show` download the pinned Specify app
   (specify-ui v0.2.0) and the matching WASM engine on first use, verify their SHA-256, and cache
   them. `--app`/`SPECIFY_APP_DIR` and `--wasm`/`SPECIFY_WASM_DIR` still override.
 - **Fixed: saves delete less.** Answers that write no PMI (no coating, a general hole, no
@@ -19,6 +19,9 @@ Read first:
 - **Fixed: a part with a face whose area cannot be computed** (a degenerate face some
   converters write) opens instead of being refused. That face is left out and reported as
   `unmeasured_face`, and the part has no planned dimensions (details under Fixed).
+- **Rust API:** `features::Face.area` and `Face.centroid` are now `Option` (absent for an
+  unmeasured face), and the WASM types mark them optional; Rust callers that read them need
+  updating. The JSON only leaves them out for faces that used to refuse the whole part.
 - **Conflict handling changes in 0.3.0.** In 0.2.x another tool's requirement is keep-only and
   `not_written` says to change it in that tool; the "use my answer" choice 0.2.0 announced does not
   come in 0.2.x. 0.3.0 treats the file's PMI the same whoever wrote it and lets a person or an AI
