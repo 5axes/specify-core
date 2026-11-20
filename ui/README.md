@@ -1,6 +1,9 @@
 # @draftwright/specify-ui
 
-Two React components for the browser, on [specify-core-wasm](https://github.com/pzfreo/specify-core):
+Part of [specify-core](../README.md) (moved here from pzfreo/specify-ui in 0.2.2; its history is kept under `ui/`).
+Changes are in specify-core's [CHANGELOG](../CHANGELOG.md).
+
+Two React components for the browser, on specify-core-wasm (the engine, built from [crates/specify-core-wasm](../crates/specify-core-wasm)):
 
 - **Specify review** (`SpecifyReview`): the workspace for answering a part's Specify questions, with the part, its PMI
   callouts, the characteristics table and the AS9102 / CSV exports.
@@ -9,12 +12,16 @@ Two React components for the browser, on [specify-core-wasm](https://github.com/
 
 There is no drawing engine here; drawings are Draftwright's.
 
+## Versions
+
+From 0.2.2 this package is released with specify-core, at the same version (0.2.1 was skipped): `@draftwright/specify-ui`
+X.Y.Z depends on `@draftwright/specify-core-wasm` X.Y.Z exactly.
+
 ## Upgrading from 0.1
 
 0.2.0 breaks 0.1 hosts in two ways:
 
-- **Engine:** it needs `@draftwright/specify-core-wasm` **0.2.0** (pinned in `engines.lock.json`), whose API is
-  not compatible with 0.1.x.
+- **Engine:** it needs `@draftwright/specify-core-wasm` **0.2.0** or later, whose API is not compatible with 0.1.x.
 - **Exports follow ADR P9:** the Answers (JSON) export holds only the answers given, kept or confirmed. Inspection
   exports never include an unapproved default.
 
@@ -35,8 +42,7 @@ Peer dependencies, which the host provides (the package bundles none of them): `
 5.1.3's build contains its own copy of three (r184), so a host that uses this package ships that copy as well as its
 own, whatever its three version (asked upstream: bernhard-42/three-cad-viewer#52).
 
-The Specify engine comes in as a dependency, `@draftwright/specify-core-wasm` (pinned to the release in
-`engines.lock.json`). It runs in a worker; the host's bundler builds that worker and copies the engine's `.wasm`
+The Specify engine comes in as a dependency, `@draftwright/specify-core-wasm` (the same version as this package). It runs in a worker; the host's bundler builds that worker and copies the engine's `.wasm`
 beside it, so a host passes nothing. Two things the host's build must allow:
 
 - **Vite**: in development, keep the package out of dependency pre-bundling, or the worker's URL breaks:
@@ -54,9 +60,9 @@ A host that serves the engine itself (from a CDN, or a build it pins) passes `wa
 Both files are in the `@draftwright/specify-core-wasm` package, or in the `specify-core-wasm-<version>.tgz` asset of a
 [specify-core release](https://github.com/pzfreo/specify-core/releases). For example, Draftwright's editor has
 served them as `/wasm/intent/specify_core_wasm.js` and `/wasm/intent/specify_core_wasm_bg.wasm` from its own
-`public/`, installed by a checksum-pinned script like this repo's `scripts/fetch-wasm.mjs`, and passed
+`public/`, installed by a checksum-pinned script, and passed
 `wasmUrl="/wasm/intent/specify_core_wasm.js"`. A cross-origin `wasmUrl` needs the CSP's `script-src` (and
-`connect-src`, for the `.wasm`) to allow it. Use the engine version the package pins; the components are tested
+`connect-src`, for the `.wasm`) to allow it. Use the engine of the package's own version; the components are tested
 with that one.
 
 The default engine is still imported (the worker loads it when no `wasmUrl` is given), so the host's build still
@@ -167,8 +173,8 @@ exported too; see `src/index.ts`.
 
 ## The local app (`specify-core open`, or an agent's `show`)
 
-`app/` is Specify on your own computer: the page served on 127.0.0.1 under the contract in specify-core's
-`docs/open.md` and `docs/session.md`. An AI agent with Specify as its MCP server (`specify-core mcp`) opens a part,
+`app/` is Specify on your own computer: the page served on 127.0.0.1 under the contract in
+[docs/open.md](../docs/open.md) and [docs/session.md](../docs/session.md). An AI agent with Specify as its MCP server (`specify-core mcp`) opens a part,
 answers what it was told and calls `show`; by hand, `specify-core open part.step` (or `open --diff old.step
 new.step`) serves the same page. The answers live in the command's session: the page sends its changes there
 (`PUT answers`, reapplied on a 409) and hears everyone else's (`GET events`); an agent's answer lands in the open
@@ -185,9 +191,11 @@ workbook as downloads; it has no account, AI chat or analytics, stores nothing i
 but its own origin; IBM Plex Mono is bundled.
 
 `npm run build:app` builds it into `dist-app/` (relative URLs, no inline scripts; the engine is not included: the
-command serves its own at `config.wasmUrl`). Each release attaches it as `specify-ui-app-<version>.tgz` (the app's
-files at the archive's root) with a `.sha256` and a build provenance attestation (`gh attestation verify
-specify-ui-app-<version>.tgz --repo pzfreo/specify-ui`). To try it: `specify-core open --app dist-app --wasm public/wasm/intent part.step`.
+command serves its own at `config.wasmUrl`). Each specify-core release attaches it as `specify-ui-app-<version>.tgz`
+(the app's files at the archive's root) with a `.sha256` and a build provenance attestation (`gh attestation verify
+specify-ui-app-<version>.tgz --repo pzfreo/specify-core`); `specify-core open` and MCP `show` download it from their
+own version's release. (Apps up to 0.2.0 were released from pzfreo/specify-ui.) To try a local build: `specify-core
+open --app dist-app --wasm public/wasm/intent part.step`.
 
 The build also writes `specify-ui-app.json` at the root of `dist-app/` and the app archive:
 `{"name":"specify-ui-app","version":"<package.json version>","api":1}`. The manifest lets specify-core
@@ -201,43 +209,47 @@ An absent `config.api` remains compatible with specify-core 0.2.0.
 back with `specify-core analyse`, resume, read only, diff on the enclosure fixtures, an `--in-place` save over a
 file changed on disk, the event stream refused and regained) and `test/app-agent.mjs` as an agent (`specify-core
 mcp` over stdio: open, answer, `show`, the page's edit seen by `changes`, both saves, an assembly, a symbolic link,
-a diff). Both check that no request leaves 127.0.0.1. The release workflow runs it against the Linux binary of the
-specify-core release `engines.lock.json` pins before it attaches the app. It takes about three minutes (it waits for the heartbeat and for the
+a diff). Both check that no request leaves 127.0.0.1. CI and the release workflow run it against the command built
+from the same commit (`target/release/specify-core`), and a release attaches only an app that passed. It takes about three minutes (it waits for the heartbeat and for the
 command to stop after `closed`).
 
 ## Development
 
-Node 22.
+Node 22. The engine is the in-repo WASM build: build it first, from the repository root, with
+`wasm-pack build crates/specify-core-wasm --target web --profile wasm-release --locked` (`npm ci` links
+`@draftwright/specify-core-wasm` to `../crates/specify-core-wasm/pkg`). The app's tests need the command from
+the same checkout: `cargo build --release --bin specify-core`.
 
 ```sh
 npm ci
-npm run fetch:wasm     # specify-core-wasm into public/wasm/intent (the browser test's own checks)
+npm run fetch:wasm     # copies the in-repo build into public/wasm/intent (the browser test's own checks)
 npm run build          # typecheck, vite library build, declarations
 npm test               # unit tests (node --experimental-strip-types)
 npm run test:browser   # builds test/harness and drives <StepDiff> in Chromium (Playwright), on the
                        # dependency's engine and again with wasmUrl
 npm run test:package   # packs the tarball, builds test/package-host on it, and runs the browser test there
+SPECIFY_CORE=../target/release/specify-core npm run test:app   # the local app under the command
 ```
 
 The browser test needs a Chromium for Playwright (`npx playwright install chromium`, or set `CHROMIUM_PATH`).
 
-`package-lock.json` resolves `@draftwright/specify-core-wasm` from the npm registry; the release workflow refuses
-to publish otherwise, and checks that the engine on npm is byte-identical to the pinned specify-core release.
+In the repository `package.json` depends on `@draftwright/specify-core-wasm` as `file:../crates/specify-core-wasm/pkg`.
+The published tarball depends on it at the package's own version instead: `scripts/pack.mjs` packs it so (release.yml
+and `npm run test:package` both pack with it), and refuses a WASM build of another version.
 
 ## Releasing
 
-CI (`.github/workflows/ci.yml`) runs every suite on each pull request and push to main. Publishing a GitHub release
-tagged `v<version>` runs `.github/workflows/release.yml`: it checks the tag, the engine pin and that the engine is on
-npm, runs the suites, packs, and then waits for approval in the `npm` environment before publishing with npm trusted
-publishing (OIDC, with provenance). The guard also refuses a release whose tag is not a `v*` tag on main, or whose
-engine on npm is not the pinned release's. The `npm` environment must have a required reviewer and be restricted to
-`v*` tags.
+CI (specify-core's `.github/workflows/ci.yml`) runs these suites on each pull request that touches `ui/` or a shared
+file, and on each push to main. Publishing a specify-core GitHub release tagged `v<version>` runs
+`.github/workflows/release.yml`: it builds the WASM, checks the tag (a `v*` tag on main, matching `package.json`
+and the WASM build), runs the suites on that WASM, tests the app against the command built from the tagged commit,
+attaches the app archive, and packs the library. The library is published once its engine is on npm, after approval
+in the `npm` environment, with npm trusted publishing (OIDC, with provenance). The `npm` environment must have a
+required reviewer and be restricted to `v*` tags.
 
-The trusted publisher on npmjs.com is organization `pzfreo`, repository `specify-ui`, workflow `release.yml`,
-environment `npm`. The workflow passes no npm token. (The very first publish, v0.1.0, used a short-lived token
-because npm adds a trusted publisher only to an existing package; delete any `NPM_TOKEN` secret left in the `npm`
-environment and revoke its token. Once a release has published through the trusted publisher, set "Require
-two-factor authentication and disallow tokens" on the package.)
+The trusted publisher on npmjs.com is organization `pzfreo`, repository `specify-core`, workflow `release.yml`,
+environment `npm` (repository `specify-ui` up to 0.2.0). The workflow passes no npm token. Once a release has
+published through the trusted publisher, set "Require two-factor authentication and disallow tokens" on the package.
 
 ## Licence
 
