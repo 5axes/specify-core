@@ -750,7 +750,7 @@ pub fn save(
             let bytes = text.len();
             let sha = sha256(&text);
             let path = match copy {
-                Some(copy) => update_copy(&copy, &text).map(|_| copy),
+                Some(copy) => update_copy(shared, &file, copy, &text),
                 None => write_new(&file, &text),
             };
             (path.map_err(cannot)?, bytes, None, sha)
@@ -798,16 +798,29 @@ pub fn save(
     Ok(saved)
 }
 
-/// A later save of the session's own copy (see [`Session::own_copy`]): a written temporary
-/// file renamed onto it.
-fn update_copy(copy: &Path, body: &[u8]) -> io::Result<()> {
+/// A later save of the session's own copy (see [`Session::own_copy`]): a temporary file is
+/// written, then, under the session's lock, the copy is checked again and the file renamed onto
+/// it. A copy no longer the session's by then is left alone: the save takes a new name.
+fn update_copy(shared: &Shared, file: &Opened, copy: PathBuf, body: &[u8]) -> io::Result<PathBuf> {
     let dir = copy
         .parent()
         .ok_or_else(|| io::Error::other("the copy has no directory"))?;
     let temp = temp_file(dir, body)?;
-    fs::rename(&temp, copy).inspect_err(|_| {
-        let _ = fs::remove_file(&temp);
-    })
+    let s = lock(shared);
+    if s.own_copy() == Some(copy.as_path()) {
+        let renamed = fs::rename(&temp, &copy);
+        drop(s);
+        return match renamed {
+            Ok(()) => Ok(copy),
+            Err(e) => {
+                let _ = fs::remove_file(&temp);
+                Err(e)
+            }
+        };
+    }
+    drop(s);
+    let _ = fs::remove_file(&temp);
+    write_new(file, body)
 }
 
 /// A save beside the input under the first free candidate name, taken with `create_new`
