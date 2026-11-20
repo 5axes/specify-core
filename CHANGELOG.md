@@ -4,6 +4,40 @@ All notable changes to specify-core-rust. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+To be released as 0.2.2 (every package; see "Lockstep versions").
+
+Read first:
+
+- **specify-ui moved into this repository,** under `ui/`, with its history: the React components
+  (`@draftwright/specify-ui`) and the local app that `open` and MCP `show` serve. Package names are
+  unchanged: `specify-core` (crates.io, PyPI), `@draftwright/specify-core-wasm` and
+  `@draftwright/specify-ui` (npm). pzfreo/specify-ui is archived; its changes up to 0.2.0 are in
+  its own history and release notes.
+- **Lockstep versions.** Every package is released together at one version: 0.2.2 is the next for
+  all of them, so `@draftwright/specify-ui` goes from 0.2.0 to 0.2.2 (there is no specify-ui
+  0.2.1). `@draftwright/specify-ui` X depends on `@draftwright/specify-core-wasm` X exactly.
+
+### Changed
+
+- `open` and MCP `show` download the app (`specify-ui-app-<version>.tgz`) from their own version's
+  specify-core release, beside the WASM, and check it against that release's `.sha256`, as for the
+  engine. The app's manifest must name the same version; its `api` is still checked, and
+  `--app`/`SPECIFY_APP_DIR` and `--wasm`/`SPECIFY_WASM_DIR` still override. `app.lock.json` (the
+  pin of a specify-ui release) is gone. A build of an unreleased version has no release app: it
+  needs `--app`.
+- One `v*` release builds the engine, the command line, the WASM, the Python package and the UI;
+  it tests the app against the command built from the same commit, attaches
+  `specify-ui-app-<version>.tgz` and its `.sha256` to the release, and publishes
+  `@draftwright/specify-ui` (release.yml, environment `npm`) after its engine.
+- The UI builds and tests against the in-repo WASM build (`file:../crates/specify-core-wasm/pkg`)
+  and command (`target/release/specify-core`); its `engines.lock.json` (the WASM and command pins)
+  is gone.
+- CI filters pull requests by path: a change only under `ui/` skips the Rust jobs, one that does
+  not touch `ui/` or a shared file skips the UI jobs. Main and releases run everything. `ci-ok` is
+  the one check to require.
+
 ## 0.2.1 (2026-11-20)
 
 Read first:
