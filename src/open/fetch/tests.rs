@@ -3,6 +3,7 @@ use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
+use std::time::Instant;
 
 use flate2::{Compression, write::GzEncoder};
 use serde_json::json;
@@ -191,18 +192,20 @@ fn respond(mut stream: TcpStream, routes: &Routes, log: &Mutex<Vec<Request>>) {
 }
 
 impl Server {
-    fn shutdown(&mut self) {
-        if let Some(acceptor) = self.acceptor.take() {
-            self.stop.store(true, Ordering::SeqCst);
-            // Wake the blocking accept so it sees the stop flag.
-            let _ = TcpStream::connect(self.addr);
-            let _ = acceptor.join();
-        }
+    /// Stops the server; `false` if its acceptor thread panicked.
+    fn shutdown(&mut self) -> bool {
+        let Some(acceptor) = self.acceptor.take() else {
+            return true;
+        };
+        self.stop.store(true, Ordering::SeqCst);
+        // Wake the blocking accept so it sees the stop flag.
+        let _ = TcpStream::connect(self.addr);
+        acceptor.join().is_ok()
     }
 
     /// Stop the server, then require exactly the listed responses and no other requests.
     fn finish(mut self) {
-        self.shutdown();
+        assert!(self.shutdown(), "the test server's acceptor panicked");
         let log = std::mem::take(&mut *self.log.lock().unwrap());
         let mut served = BTreeMap::<&str, usize>::new();
         for request in &log {
@@ -231,6 +234,7 @@ impl Server {
 
 impl Drop for Server {
     fn drop(&mut self) {
+        // A test that ends early is already failing; do not panic again while unwinding.
         self.shutdown();
     }
 }
@@ -469,7 +473,22 @@ fn a_dropped_download_is_refused_and_leaves_no_partial_app() {
     let base = format!("http://{}", listener.local_addr().unwrap());
     // Promise more bytes than are sent, then close: the connection drops mid-body.
     let server = thread::spawn(move || {
-        let (mut stream, _) = listener.accept().unwrap();
+        // Fail rather than hang if the download never connects.
+        listener.set_nonblocking(true).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut stream = loop {
+            match listener.accept() {
+                Ok((stream, _)) => break stream,
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock && Instant::now() < deadline => {
+                    thread::sleep(Duration::from_millis(5));
+                }
+                Err(e) => panic!("the download never connected: {e}"),
+            }
+        };
+        stream.set_nonblocking(false).unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
         let mut reader = BufReader::new(&mut stream);
         let mut line = String::new();
         while reader.read_line(&mut line).unwrap() != 0 && line != "\r\n" {
