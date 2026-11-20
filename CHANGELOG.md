@@ -16,6 +16,9 @@ Read first:
   otherwise. A general note another tool added is no longer removed when an empty notes answer is
   stored (the known issue in 0.2.0's notes). Edited printed general tolerances, a second flatness,
   another tool's manufacturing process and another tool's hole position answered afresh are kept.
+- **Fixed: a part with a face whose area cannot be computed** (a degenerate face some
+  converters write) opens instead of being refused. That face is left out and reported as
+  `unmeasured_face`, and the part has no planned dimensions (details under Fixed).
 - **Conflict handling changes in 0.3.0.** In 0.2.x another tool's requirement is keep-only and
   `not_written` says to change it in that tool; the "use my answer" choice 0.2.0 announced does not
   come in 0.2.x. 0.3.0 treats the file's PMI the same whoever wrote it and lets a person or an AI
