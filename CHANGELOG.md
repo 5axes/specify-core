@@ -13,7 +13,7 @@ Read first:
 - **specify-ui moved into this repository,** under `ui/`, with its history: the React components
   (`@draftwright/specify-ui`) and the local app that `open` and MCP `show` serve. Package names are
   unchanged: `specify-core` (crates.io, PyPI), `@draftwright/specify-core-wasm` and
-  `@draftwright/specify-ui` (npm). pzfreo/specify-ui is archived; its changes up to 0.2.0 are in
+  `@draftwright/specify-ui` (npm). pzfreo/specify-ui is to be archived (kept, so 0.2.1 can still download its app); its changes up to 0.2.0 are in
   its own history and release notes.
 - **Lockstep versions.** Every package is released together at one version: 0.2.2 is the next for
   all of them, so `@draftwright/specify-ui` goes from 0.2.0 to 0.2.2 (there is no specify-ui

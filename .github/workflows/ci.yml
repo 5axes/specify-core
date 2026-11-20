@@ -44,7 +44,7 @@ jobs:
             case "$file" in
               '') ;;
               ui/*) ui=true ;;
-              .github/*|Cargo.toml|Cargo.lock|rust-toolchain.toml|docs/open.md|src/open.rs|src/open/*|crates/specify-core-wasm/*)
+              .github/*|Cargo.toml|Cargo.lock|rust-toolchain.toml|docs/open.md|docs/session.md|src/open.rs|src/open/*|src/session.rs|src/session/*|src/mcp.rs|src/mcp/*|crates/specify-core-wasm/*)
                 rust=true; ui=true ;;
               *) rust=true ;;
             esac

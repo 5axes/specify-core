@@ -395,7 +395,14 @@ fn get(agent: &ureq::Agent, url: &str, limit: u64, kind: Kind) -> Result<Vec<u8>
             "could not download {url} (check your internet connection): {e}"
         ))
     };
-    let http_error = |status| kind.error(format!("could not download {url}: HTTP {status}"));
+    let http_error = |status| {
+        let hint = if status == 404 {
+            " (no such release asset: a development build of an unreleased version needs a local app or engine)"
+        } else {
+            ""
+        };
+        kind.error(format!("could not download {url}: HTTP {status}{hint}"))
+    };
     let mut response = agent.get(url).call().map_err(|e| match e {
         ureq::Error::StatusCode(status) => http_error(status),
         _ => failed(&e),

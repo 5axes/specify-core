@@ -418,7 +418,9 @@ cache can be used offline. Cache directories are `app/<specify-core-version>/` a
 
 Cache verification detects corruption, partial installs, and accidental edits. The threat model
 excludes local attackers with write access to the user's cache, who could equally replace the
-specify-core binary.
+specify-core binary. The app's and the engine's SHA-256 come from their release's `.sha256`
+assets, so verification catches a corrupt or partial download, not a release asset replaced
+together with its checksum; `open` does not check the build provenance attestation.
 
-Subprocess tests use `SPECIFY_TEST_APP_BASE_URL`, `SPECIFY_TEST_APP_PIN`, and
+Subprocess tests use `SPECIFY_TEST_APP_BASE_URL` and
 `SPECIFY_TEST_CACHE_DIR` for a loopback release fixture. The hooks are enabled by the test build.

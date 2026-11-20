@@ -379,7 +379,7 @@ fn rejects_an_incompatible_app_api() {
         &digest,
         &format!(
             "this app speaks session API {}, specify-core {CORE_VERSION} speaks {API_VERSION}: \
-         update the app, or run without --app to use the pinned one",
+         update the app, or run without --app to use the released one",
             API_VERSION + 1
         ),
     );

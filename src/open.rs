@@ -241,7 +241,7 @@ fn check_app_api(api: u32) -> Result<(), Error> {
     if api != API_VERSION {
         return Err(app_error(format!(
             "this app speaks session API {api}, specify-core {CORE_VERSION} speaks \
-             {API_VERSION}: update the app, or run without --app to use the pinned one"
+             {API_VERSION}: update the app, or run without --app to use the released one"
         )));
     }
     Ok(())
