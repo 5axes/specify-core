@@ -591,7 +591,8 @@ try {
     await context.close();
     agent.stop();
   }
-  // A diff the agent opened (`open` with `old`): `show` serves diff mode, from the carried answers.
+  // A diff the agent opened (`open` with `old`): `show` serves diff mode beside the new file's own
+  // session (ADR P11: nothing is carried; the comparison reads the two files' PMI).
   {
     const oldFile = join(dir, 'enclosure.step');
     const newFile = join(dir, 'enclosure-rev2.step');
@@ -605,7 +606,10 @@ try {
     const { context, page, requests } = await load(shown.url, '.diff-summary');
     await check(page.getByRole('tab', { name: 'What changed' })).toHaveAttribute('aria-selected', 'true');
     await check(page.locator('.app-path')).toHaveText(`${oldFile} → ${newFile}`);
-    await check(page.locator('.app-decision')).toHaveCount(3);
+    // What to check: the new file's requirements on the four holes resized Ø3 → Ø3.4. (Before
+    // ADR P11 a third decision asked the new Ø8 entry hole's question; diff asks no questions.)
+    assert.deepEqual(opened.report.check.map(c => c.requirement), ['⌀3.4 H11', '⌖ ⌀0.2Ⓜ A B C']);
+    await check(page.locator('.app-decision')).toHaveText(['Check: ⌀3.4 H11', 'Check: ⌖ ⌀0.2Ⓜ A B C']);
     // Drawn from GET diff (the session's comparison): no engine diff call.
     const ops = await page.evaluate(() => window.__engineOps);
     assert.ok(ops.includes('open') && !ops.includes('diff'), `no engine diff call in diff mode: ${ops}`);
