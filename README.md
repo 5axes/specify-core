@@ -62,7 +62,7 @@ One engine, one set of answers and files, whichever way you call it:
 | **Rust** | `specify-core = "0.2.1"` (crates.io) | [below](#rust), [docs/library.md](docs/library.md) |
 | **Browser** (WebAssembly) | `@draftwright/specify-core-wasm` (npm), or `specify-core-wasm-<version>.tgz` on each release | [docs/wasm.md](docs/wasm.md) |
 | **React components** (review, STEP diff) | `@draftwright/specify-ui` (npm) | [ui/README.md](ui/README.md) |
-| **Local app** (the page `open`/`show` serve) | downloaded by the command on first use; `specify-ui-app-<version>.tgz` on each release | [ui/README.md](ui/README.md#the-local-app-specify-core-open-or-an-agents-show), [docs/open.md](docs/open.md) |
+| **Local app** (the page `open`/`show` serve) | built into the command (release binaries, wheels, crate): nothing to install | [ui/README.md](ui/README.md#the-local-app-specify-core-open-or-an-agents-show), [docs/open.md](docs/open.md) |
 | **Host process** (JSON lines) | `specify-core serve` | [below](#host-process) |
 | **LLM client** (MCP: Claude Code, Claude Desktop) | `specify-core mcp` (stdio) or `specify-core mcp --http` | [docs/mcp.md](docs/mcp.md) |
 | **GitHub pull requests** | `uses: pzfreo/specify-core/step-diff@main` | [step-diff/README.md](step-diff/README.md) |
@@ -129,13 +129,11 @@ original once as `plate.step.bak`, and `--read-only` refuses answer changes and 
 `specify-core diff` carries to the new revision (`--answers FILE` for the old answers); Save
 writes the new one. `--port N` picks the port and `--no-browser` only prints the address. The
 command stops 90 seconds after the last page is closed, or after 30 minutes without a request.
-On first use, Specify downloads and caches the app from its own version's release (the app is
-built from [ui/](ui/) in this repository). It fetches the engine only for a released app
-without its own `wasm/` directory, when neither `--wasm` nor `SPECIFY_WASM_DIR` is set. An
-empty `wasm/` directory also suppresses the fetch. Pass `--app DIR` (or set `SPECIFY_APP_DIR`)
-to use a local app and `--wasm DIR` (or set `SPECIFY_WASM_DIR`) to use a local wasm-pack `pkg/`
-directory. A build of an unreleased version has no release to download from: it needs a local
-app.
+The app (built from [ui/](ui/) in this repository) and its engine are built into the command,
+so nothing is downloaded and the page works offline. Pass `--app DIR` (or set
+`SPECIFY_APP_DIR`) to use another app and `--wasm DIR` (or set `SPECIFY_WASM_DIR`) to use a
+local wasm-pack `pkg/` directory. A build from source has them once `ui/` and the WASM are
+built; until then, `open` asks for `--app`.
 See [docs/open.md](docs/open.md).
 
 **With an AI agent.** Add Specify to your agent once, as a stdio MCP server:
@@ -295,8 +293,13 @@ shasum -a 256 -c specify-core-$v-$t.tar.gz.sha256 && tar -xzf specify-core-$v-$t
 ```
 
 On Windows, the `.zip` holds `specify-core.exe`. With a Rust toolchain, `cargo install specify-core`
-builds it from crates.io. To build from a checkout with the toolchain in `rust-toolchain.toml`, run
-`cargo build --release`, which produces `target/release/specify-core`.
+builds it from crates.io (the crate carries the app and engine). To build from a checkout with the
+toolchain in `rust-toolchain.toml`, run `cargo build --release`, which produces
+`target/release/specify-core`; build the WASM and the app first (`wasm-pack build
+crates/specify-core-wasm --target web --profile wasm-release --locked`, then `npm ci && npm run
+build:app` in `ui/`) to build them in, or `open` asks for `--app` ([docs/open.md](docs/open.md#where-the-app-and-the-engine-come-from)).
+Release binaries carry a build provenance attestation: `gh attestation verify
+specify-core-$v-$t.tar.gz --repo pzfreo/specify-core`.
 
 ## Host process
 
@@ -380,9 +383,12 @@ Set it locally to require the same. The UI's tests run on the in-repo WASM build
 
 ```bash
 wasm-pack build crates/specify-core-wasm --target web --profile wasm-release --locked
-cargo build --release --bin specify-core
-cd ui && npm ci && npm run fetch:wasm && npm test
+(cd ui && npm ci && npm run fetch:wasm && npm run build:app)
+cargo build --release --bin specify-core       # with the app and engine built in
+cd ui && npm test
 SPECIFY_CORE=../target/release/specify-core npm run test:app   # the local app, in Chromium
+SPECIFY_CORE=../target/release/specify-core SPECIFY_APP_BUILT_IN=1 \
+  sh -c 'node test/app-browser.mjs && node test/app-agent.mjs'  # the same, served from the command
 ```
 
 On a pull request CI runs only what it touches: a change only under `ui/` skips the Rust jobs,

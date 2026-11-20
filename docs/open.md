@@ -386,41 +386,41 @@ page servers stop with it.
 
 ## Where the app and the engine come from
 
+The app (built from [ui/](../ui/)) and its WASM engine are built into the `specify-core`
+command ([ADR P12](https://github.com/pzfreo/draftwright-project/blob/main/adr/P12-specify-ships-whole.md)):
+the release binaries, the Python wheels and the crates.io crate carry them, gzipped (about
+6 MB), and `open` and MCP `show` serve them from the binary. Nothing is downloaded or cached:
+the page works offline from the first run, and the app, the engine and the command are always
+the same version.
+
 `open` and MCP `show` use the same resolution rules:
 
-- **App.** `--app DIR` takes precedence over `SPECIFY_APP_DIR`. The directory must contain
-  `index.html`. With neither override, Specify downloads `specify-ui-app-<version>.tgz` from
-  the GitHub release for the running specify-core version (the same release as the CLI and
-  the engine, built from ui/ at the same commit), checks it against the release's
-  `.tgz.sha256`, and requires its manifest's `version` to be that version.
-- **Engine.** `--wasm DIR` takes precedence over `SPECIFY_WASM_DIR`. Either points to a
-  wasm-pack `pkg/` directory served at `wasm/`. With neither override, Specify serves the
-  app's own `wasm/` and fetches an engine only for a released app without that directory.
-  Even an empty `wasm/` directory suppresses the fetch. Specify downloads the engine from
-  the GitHub release for the running specify-core version, checks the release's `.tgz.sha256`,
-  and serves the contents of its `pkg/` at `wasm/`.
-- **Session API.** A release app must have `specify-ui-app.json` at its root with `name`
-  (`specify-ui-app`), `version`, and integer `api` matching `config.api`. The same API check
-  applies to local apps that have the manifest. Older local builds without it give a warning
-  and continue.
+- **App.** `--app DIR` takes precedence over `SPECIFY_APP_DIR`; the directory must contain
+  `index.html`. With neither, the built-in app is served.
+- **Engine.** `--wasm DIR` takes precedence over `SPECIFY_WASM_DIR`; either points to a
+  wasm-pack `pkg/` directory served at `wasm/`. With neither, an `--app` directory's own
+  `wasm/` is served if it has one, else the built-in engine.
+- **Session API.** An app's `specify-ui-app.json` (at its root) names it (`specify-ui-app`),
+  its `version`, and an integer `api` that must match `config.api`. The built-in app always
+  has one; an `--app` with one is checked the same way, and an older local build without one
+  gives a warning and continues.
 
-MCP `show` reads the overrides from the server process's environment. A build of an
-unreleased version (a development build) has no release to download from: use `--app DIR` or
-set `SPECIFY_APP_DIR` (`npm run build:app` in ui/ builds one into `ui/dist-app`).
+MCP `show` reads the overrides from the server process's environment.
 
-The first uncached use needs a network connection and reports downloads on stderr. Specify
-publishes each verified download to the cache with a `.sha256` marker and a `.files.json`
-manifest of relative paths, SHA-256 digests, and sizes. Each reuse checks the entire tree
-against that manifest. A missing, changed, or extra entry triggers a fresh download. An intact
-cache can be used offline. Cache directories are `app/<specify-core-version>/` and
-`wasm/<specify-core-version>/` under `$XDG_CACHE_HOME/specify-core/` (`~/.cache/specify-core/` by default) on Linux,
-`~/Library/Caches/specify-core/` on macOS, or `%LOCALAPPDATA%\specify-core\cache\` on Windows.
+**Building it in.** With the `bundled-app` feature (on by default), `build.rs` builds in the
+app from `ui/dist-app` (else `bundle/app`, the copy a published crate carries) when its
+manifest names the crate's version, and the engine from `crates/specify-core-wasm/pkg` (else
+`bundle/wasm`). A development build has them once they are built:
 
-Cache verification detects corruption, partial installs, and accidental edits. The threat model
-excludes local attackers with write access to the user's cache, who could equally replace the
-specify-core binary. The app's and the engine's SHA-256 come from their release's `.sha256`
-assets, so verification catches a corrupt or partial download, not a release asset replaced
-together with its checksum; `open` does not check the build provenance attestation.
+```sh
+wasm-pack build crates/specify-core-wasm --target web --profile wasm-release --locked
+(cd ui && npm ci && npm run build:app)
+cargo build --release
+```
 
-Subprocess tests use `SPECIFY_TEST_APP_BASE_URL` and
-`SPECIFY_TEST_CACHE_DIR` for a loopback release fixture. The hooks are enabled by the test build.
+A build without them still compiles (with a build warning), and its `open` asks for `--app`
+(or a release: `pip install specify-core`). `SPECIFY_REQUIRE_BUNDLE=1` makes a missing app or
+engine a build error (the release jobs set it). `cargo test` builds in the small fake app and
+engine of `tests/fixtures/bundle` instead (the `bundle-test-fixture` feature).
+`tools/open_smoke.py BINARY STEP` checks that a binary serves its built-in app and engine with
+no network.

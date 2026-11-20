@@ -10,6 +10,12 @@ To be released as 0.2.2 (every package; see "Lockstep versions").
 
 Read first:
 
+- **The app and engine ship inside the command** ([ADR P12](https://github.com/pzfreo/draftwright-project/blob/main/adr/P12-specify-ships-whole.md)):
+  the release binaries, the Python wheels and the crates.io crate carry the Specify app and its
+  WASM engine (about 6 MB more), and `open` and MCP `show` serve them from the binary. Nothing is
+  downloaded or cached, the page works offline from the first run, and the app, the engine and
+  the command are always one version. `--app`/`SPECIFY_APP_DIR` and `--wasm`/`SPECIFY_WASM_DIR`
+  still override, and an `--app`'s session `api` is still checked.
 - **specify-ui moved into this repository,** under `ui/`, with its history: the React components
   (`@draftwright/specify-ui`) and the local app that `open` and MCP `show` serve. Package names are
   unchanged: `specify-core` (crates.io, PyPI), `@draftwright/specify-core-wasm` and
@@ -21,16 +27,22 @@ Read first:
 
 ### Changed
 
-- `open` and MCP `show` download the app (`specify-ui-app-<version>.tgz`) from their own version's
-  specify-core release, beside the WASM, and check it against that release's `.sha256`, as for the
-  engine. The app's manifest must name the same version; its `api` is still checked, and
-  `--app`/`SPECIFY_APP_DIR` and `--wasm`/`SPECIFY_WASM_DIR` still override. `app.lock.json` (the
-  pin of a specify-ui release) is gone. A build of an unreleased version has no release app: it
-  needs `--app`.
-- One `v*` release builds the engine, the command line, the WASM, the Python package and the UI;
-  it tests the app against the command built from the same commit, attaches
-  `specify-ui-app-<version>.tgz` and its `.sha256` to the release, and publishes
-  `@draftwright/specify-ui` (release.yml, environment `npm`) after its engine.
+- `open` and MCP `show` no longer download anything: the first-run download of the app and
+  engine, its cache (`app/` and `wasm/` under the user cache directory, which can be deleted) and
+  `app.lock.json` (the pin of a specify-ui release) are gone, and with them the `ureq`, `tar`,
+  `dirs` and `tempfile` dependencies. `build.rs` builds in the app from `ui/dist-app` (of the same
+  version) and the engine from the wasm-pack `pkg/`, gzipped, under the default `bundled-app`
+  feature; a build without them still compiles, and its `open` asks for `--app` (or points to
+  `pip install specify-core`). With `--app` and no `--wasm`, an app without its own `wasm/` is
+  served the built-in engine. See docs/open.md.
+- One `v*` release builds the engine, the command line, the WASM, the Python package and the UI.
+  The command line (cli.yml), the wheels and sdist (python.yml) and the crate (crates.yml) each
+  build the app and WASM first (bundle.yml) and carry them; each binary and wheel is checked to
+  serve its built-in app with no network (tools/open_smoke.py), the crate takes them while it
+  stays under crates.io's 10 MB (about 6.8 MB for 0.2.2), and release.yml tests the app against the
+  command with the app built in. No app archive is attached to the release; the command-line
+  archives carry a build provenance attestation instead. release.yml publishes
+  `@draftwright/specify-ui` (environment `npm`) after its engine.
 - The UI builds and tests against the in-repo WASM build (`file:../crates/specify-core-wasm/pkg`)
   and command (`target/release/specify-core`); its `engines.lock.json` (the WASM and command pins)
   is gone.

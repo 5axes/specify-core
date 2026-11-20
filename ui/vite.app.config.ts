@@ -22,7 +22,7 @@ const licences = (): Plugin => ({
   },
 });
 
-/** specify-core verifies this manifest before serving a downloaded app. */
+/** specify-core builds in only an app of its own version, and checks its session API (build.rs, src/open.rs). */
 const manifest = (): Plugin => ({
   name: 'specify-app-manifest',
   apply: 'build',
