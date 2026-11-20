@@ -1,6 +1,30 @@
 # Host view: letting a host draw the 3D view
 
-Status: **proposed** (2026-11-18). For agreement with Studio / text-to-cad before code.
+Status: **accepted for the interface** (Paul, 2026-11-20; Amy has not commented on specify-ui #10).
+Specify 0.3.0 ships the interface with today's views behind it (see "In 0.3.0"). The overlay over a
+host-owned camera and the conformance script wait for a real host to test against (see "Later").
+
+## In 0.3.0
+
+- The `HostView` plain-data interface below: show, style and fit faces; camera; pointer events; `rect()`.
+- Today's views become its default implementation: `cad-view.ts` (three-cad-viewer) and
+  `navigator.ts`/`picker.ts`. The components (`StepDiff`, `SpecifyReview`) are routed through the interface.
+- Face identity per quiddity #310 (see Identity), with the check on load.
+- One part at a time. `FaceRef.instance?` is reserved for assemblies.
+- `three` as a peer dependency and `three-cad-viewer` as an optional peer, only if that falls out of the
+  change without extra work. Otherwise packaging stays as it is.
+- Tests: the existing browser suites pass on the default view, going through the interface.
+
+## Later (when a real host exists to test against)
+
+- Labels, leaders and drawn PMI as a layer over a host-owned camera. Until then `annotations.ts`,
+  `drawn-layer.ts`, `diff-drawn.ts` and `review-view.ts` keep working as they do now, with the default view.
+- The adapter conformance script.
+
+## Not proposed
+
+- A transport across an iframe (`postMessage`). Nobody has asked for one. The interface is plain,
+  JSON-serialisable data, so a transport can be added if an embedding case appears.
 
 ## Why
 
@@ -42,16 +66,22 @@ choosing view directions, so the host needs no ray-casting API beyond reporting 
 ## Identity: parts and faces
 
 - A **part** is Specify's part index (`engine.parts()`), the same in every call.
-- A **face** is a **zero-based** index into that part's faces in Specify's numbering: OpenCascade's
-  `TopExp::MapShapes` order on the part's own solid. haecceity (Specify's reader) follows that order and is
+- A **face** is a **zero-based** index into that part's faces in Specify's numbering. quiddity #310 fixes
+  that order as a depth-first walk of the part. It equals OpenCascade's `TopExp::MapShapes` order only for
+  parts made of solids alone; otherwise faces join through `face_sources`, which give each face's STEP
+  `ADVANCED_FACE` entity.
+- **Adapters identify faces by STEP entity as the general route** (`faceIds: 'step-entity'`). They may use
+  MapShapes order (`'mapshapes'`) only for solid-only parts. The check on load guards both.
+- For a solid-only part, Specify's face order is OpenCascade's `TopExp::MapShapes` order on the part's
+  own solid. haecceity (Specify's reader) follows that order and is
   tested face by face against OpenCascade (specify-core `docs/design.md`). OCCT's map is one-based, so the
   host's `MapShapes` index *n* is Specify's face *n − 1*; the adapter subtracts 1.
 - text-to-cad numbers each part's faces with `MapShapes` on the part's own shape, assembly placement removed,
   per part, reading the STEP straight into OCCT. That is the same order, so it matches by number.
 - The orders can still differ on unusual files: on one corpus file OCCT's STEP transfer reorders a shell's
   faces while Specify keeps the file's order (specify-core `docs/questions.md` Q13). The check on load below
-  catches that.
-- Fallback, by **STEP entity**: for each face, Specify gives the `#N` of the `ADVANCED_FACE` it was read from
+  catches that. A face without an area or centroid (an unmeasured face) is left out of the sample.
+- By **STEP entity** (the general route): for each face, Specify gives the `#N` of the `ADVANCED_FACE` it was read from
   (`snapshot().provenance.face_entities`, already in the WASM engine). The adapter declares which it uses:
   `faceIds: 'mapshapes' | 'step-entity'`, and the package sends the entity list with each part either way.
 - **Check on load:** the package sends, for a sample of faces, the face's kind, area and centroid. The host
@@ -69,8 +99,9 @@ choosing view directions, so the host needs no ray-casting API beyond reporting 
 
 ## The interface
 
-All arguments and results are plain JSON-serialisable data, so the interface works in the same page or across
-an iframe (see Transport). Calls that change the view return nothing; the host applies them in order.
+All arguments and results are plain JSON-serialisable data. The host passes an object implementing
+`HostView` (`<StepDiff view={hostView} …>`, `<SpecifyReview view={hostView} …>`). Plain data would also let a
+transport across an iframe be added later. Calls that change the view return nothing; the host applies them in order.
 
 ```ts
 type Vec3 = [number, number, number];
@@ -130,42 +161,29 @@ interface HostView {
 Optional members the package uses when present: `roll(quarters)`, `dolly(factor)` (toolbar buttons), and
 `flash(faces)` (a brief highlight the host animates its own way).
 
-## Transport
-
-- **Same page:** the host passes an object implementing `HostView` (`<StepDiff view={hostView} …>`,
-  `<SpecifyReview view={hostView} …>`).
-- **Across an iframe** (Studio embedding the text-to-cad viewer): the package ships
-  `connectHostView(target: Window, origin: string): HostView`, which turns calls into `postMessage` messages
-  `{specify: 'host-view/1', id, call, args}` and events into listeners. The adapter inside the iframe uses
-  `serveHostView(view, origin)`. Both check the origin. Calls with results answer `{id, result}` or
-  `{id, error}`.
-- The overlay sits in the package's page, over the iframe's rectangle (`rect()`), with `pointer-events: none`
-  except on labels. Pointer events on the geometry happen in the iframe and come back through `onPointer`.
-
 ## How the components change
 
 - `cad-view.ts` and `navigator.ts` become the default `HostView` implementations. Nothing else imports
   three-cad-viewer or creates a renderer for the part.
-- Overlays (`annotations.ts`, `drawn-layer.ts`, `diff-drawn.ts`, `review-view.ts`) take a `CameraState`
-  instead of a `THREE.Camera`, and render into their own canvas and HTML layer over `rect()`.
+- *Later:* overlays (`annotations.ts`, `drawn-layer.ts`, `diff-drawn.ts`, `review-view.ts`) take a
+  `CameraState` instead of a `THREE.Camera`, and render into their own canvas and HTML layer over `rect()`.
+  In 0.3.0 they keep drawing with the default view as now.
 - `look.ts` chooses directions from the package's mesh as now, then calls `lookFrom`.
 - Picking (`picker.ts`, `review-view.ts`) listens to `onPointer` instead of ray-casting the view.
 - The direct `viewer.setOpacity` call in `review-view.ts` becomes `setOpacity`.
 
 ## Testing
 
-- A fake `HostView` in the browser tests (faces drawn by the test, events scripted), so StepDiff and
-  SpecifyReview are tested against the interface as well as against the default view.
-- The existing browser suites keep running on the default view.
-- An adapter conformance script a host can run: the face check on the corpus samples, camera events on
-  `lookFrom`, picks on known faces.
+- 0.3.0: the existing browser suites keep running on the default view, through the interface.
+- *Later:* a fake `HostView` in the browser tests, and an adapter conformance script a host can run (the
+  face check on corpus samples, camera events on `lookFrom`, picks on known faces).
 
 ## Open questions
 
-1. ~~text-to-cad's face numbering~~: answered 2026-11-18, `MapShapes` per part on the part's own shape,
-   one-based (see Identity).
-2. Assemblies: does the host's view show one part at a time, or the assembly with instances placed? An assembly
-   view needs the instance in `FaceRef` (add `instance?: number`); faces stay numbered per part.
-3. Whether the host should also draw the package's labels itself (no overlay layer). Not proposed: it would move
-   the PMI drawing rules into every host.
+1. ~~text-to-cad's face numbering~~: answered 2026-11-18 (`MapShapes` per part, one-based), and tightened by
+   quiddity #310: STEP entity is the general route, MapShapes only for solid-only parts (see Identity).
+2. ~~Assemblies~~: decided 2026-11-20, one part at a time in 0.3.0. `instance?: number` in `FaceRef` is
+   reserved; faces stay numbered per part.
+3. ~~Whether the host draws the package's labels itself~~: no. The package keeps drawing them (Paul,
+   2026-11-20); the overlay over a host camera comes later.
 4. Versioning: the message tag `host-view/1`; additions are optional members, so old adapters keep working.
