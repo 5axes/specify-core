@@ -2,7 +2,7 @@
 
 The Specify page serves the Specify app, the engine and one STEP file (two for a diff) from
 this computer on 127.0.0.1 and opens the browser at the app. This page is the contract between
-that page server (src/open.rs) and the app (built by specify-ui) that it serves.
+that page server (src/open.rs) and the app (ui/app, built in this repository) that it serves.
 
 The page server is started in one of two ways, with the same code and the same contract:
 
@@ -389,11 +389,13 @@ page servers stop with it.
 `open` and MCP `show` use the same resolution rules:
 
 - **App.** `--app DIR` takes precedence over `SPECIFY_APP_DIR`. The directory must contain
-  `index.html`. With neither override, Specify downloads the GitHub release asset pinned in
-  `app.lock.json` and verifies its SHA-256 against the pin compiled into the CLI.
+  `index.html`. With neither override, Specify downloads `specify-ui-app-<version>.tgz` from
+  the GitHub release for the running specify-core version (the same release as the CLI and
+  the engine, built from ui/ at the same commit), checks it against the release's
+  `.tgz.sha256`, and requires its manifest's `version` to be that version.
 - **Engine.** `--wasm DIR` takes precedence over `SPECIFY_WASM_DIR`. Either points to a
   wasm-pack `pkg/` directory served at `wasm/`. With neither override, Specify serves the
-  app's own `wasm/` and fetches an engine only for a pinned app without that directory.
+  app's own `wasm/` and fetches an engine only for a released app without that directory.
   Even an empty `wasm/` directory suppresses the fetch. Specify downloads the engine from
   the GitHub release for the running specify-core version, checks the release's `.tgz.sha256`,
   and serves the contents of its `pkg/` at `wasm/`.
@@ -402,21 +404,23 @@ page servers stop with it.
   applies to local apps that have the manifest. Older local builds without it give a warning
   and continue.
 
-MCP `show` reads the overrides from the server process's environment. A build whose
-`app.lock.json` still holds the placeholder pin (`v0.0.0`, a development build) has no app to
-download: use `--app DIR` or set `SPECIFY_APP_DIR`.
+MCP `show` reads the overrides from the server process's environment. A build of an
+unreleased version (a development build) has no release to download from: use `--app DIR` or
+set `SPECIFY_APP_DIR` (`npm run build:app` in ui/ builds one into `ui/dist-app`).
 
 The first uncached use needs a network connection and reports downloads on stderr. Specify
 publishes each verified download to the cache with a `.sha256` marker and a `.files.json`
 manifest of relative paths, SHA-256 digests, and sizes. Each reuse checks the entire tree
 against that manifest. A missing, changed, or extra entry triggers a fresh download. An intact
-cache can be used offline. Cache directories are `app/<app-version>/` and
+cache can be used offline. Cache directories are `app/<specify-core-version>/` and
 `wasm/<specify-core-version>/` under `$XDG_CACHE_HOME/specify-core/` (`~/.cache/specify-core/` by default) on Linux,
 `~/Library/Caches/specify-core/` on macOS, or `%LOCALAPPDATA%\specify-core\cache\` on Windows.
 
 Cache verification detects corruption, partial installs, and accidental edits. The threat model
 excludes local attackers with write access to the user's cache, who could equally replace the
-specify-core binary.
+specify-core binary. The app's and the engine's SHA-256 come from their release's `.sha256`
+assets, so verification catches a corrupt or partial download, not a release asset replaced
+together with its checksum; `open` does not check the build provenance attestation.
 
-Subprocess tests use `SPECIFY_TEST_APP_BASE_URL`, `SPECIFY_TEST_APP_PIN`, and
+Subprocess tests use `SPECIFY_TEST_APP_BASE_URL` and
 `SPECIFY_TEST_CACHE_DIR` for a loopback release fixture. The hooks are enabled by the test build.

@@ -177,8 +177,8 @@ pub fn assets(app: Option<&Path>, wasm: Option<&Path>) -> Result<Assets, Error> 
         .map(Path::to_path_buf)
         .or_else(|| from_env("SPECIFY_WASM_DIR"));
     #[cfg(all(feature = "cli", feature = "asset-test-hooks"))]
-    if let Some((base, pin, cache)) = fetch::loopback_fixture() {
-        return resolve_assets(app, wasm, &fetch::Source::fixture(&base, &pin, &cache));
+    if let Some((base, cache)) = fetch::loopback_fixture() {
+        return resolve_assets(app, wasm, &fetch::Source::fixture(&base, &cache));
     }
     resolve_assets(
         app,
@@ -241,7 +241,7 @@ fn check_app_api(api: u32) -> Result<(), Error> {
     if api != API_VERSION {
         return Err(app_error(format!(
             "this app speaks session API {api}, specify-core {CORE_VERSION} speaks \
-             {API_VERSION}: update the app, or run without --app to use the pinned one"
+             {API_VERSION}: update the app, or run without --app to use the released one"
         )));
     }
     Ok(())

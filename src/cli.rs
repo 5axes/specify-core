@@ -110,8 +110,8 @@ as Claude Code or Claude Desktop: tools to open a part, answer its questions, re
 write its PMI. On stdio by default; with --http, Streamable HTTP on 127.0.0.1 with a random
 bearer token printed at start. Open documents and their answers are held in memory and lost
 when the server stops, unless a call names an answers_file. The show tool opens the Specify
-page on the same answers. It downloads and caches the pinned app on first use. It fetches the
-engine only for a pinned app without a wasm/ directory, unless SPECIFY_WASM_DIR is set.
+page on the same answers. It downloads and caches the app from this version's release on first use. It fetches the
+engine only for an app without a wasm/ directory, unless SPECIFY_WASM_DIR is set.
 An empty wasm/ directory also suppresses the engine download. Set SPECIFY_APP_DIR to use a
 local app or SPECIFY_WASM_DIR to use a local wasm-pack pkg/. Builds without a pin require
 a local app. See docs/mcp.md.")]
@@ -217,8 +217,8 @@ With --diff OLD NEW the page shows what changed from OLD and starts from the ans
 to NEW (as `specify-core diff` carries them); Save writes NEW. Stops 90 seconds after the last
 page is closed, or after 30 minutes without a request.
 
-On first use, Specify downloads and caches the pinned app. It fetches the engine only for a
-pinned app without a wasm/ directory, when neither --wasm nor SPECIFY_WASM_DIR is set. An empty
+On first use, Specify downloads and caches the app from this version's release. It fetches the
+engine only for an app without a wasm/ directory, when neither --wasm nor SPECIFY_WASM_DIR is set. An empty
 wasm/ directory also suppresses the engine download. Use --app DIR (or SPECIFY_APP_DIR) for a
 local app and --wasm DIR (or SPECIFY_WASM_DIR) for a local wasm-pack pkg/ directory. Builds
 without a pin require a local app.")]
@@ -244,7 +244,7 @@ without a pin require a local app.")]
         /// print the address to open instead of opening a browser
         #[arg(long)]
         no_browser: bool,
-        /// a local Specify app (index.html at its root); overrides SPECIFY_APP_DIR and the pinned app
+        /// a local Specify app (index.html at its root); overrides SPECIFY_APP_DIR and the released app
         #[arg(long, value_name = "DIR")]
         app: Option<PathBuf>,
         /// a local wasm-pack pkg/ directory; overrides SPECIFY_WASM_DIR and the default engine

@@ -1,5 +1,16 @@
-name: Release WASM
+name: Release WASM and UI
 
+# A published v* release builds the engine (WASM) and the UI (ui/) from the tagged commit:
+# - wasm: builds and checks the WASM, attaches specify-core-wasm-<version>.tgz (+ .sha256);
+# - npm: publishes it as @draftwright/specify-core-wasm (environment `npm`);
+# - ui: checks the tag, runs the UI's suites on that WASM, packs @draftwright/specify-ui;
+# - app: builds the local app and runs its tests against the specify-core command built from the
+#   same commit, packs specify-ui-app-<version>.tgz (+ .sha256);
+# - app-assets: attests the app archive and attaches it to this release, where `open` and MCP
+#   `show` of this version fetch it (src/open/fetch.rs);
+# - ui-npm: publishes @draftwright/specify-ui (environment `npm`) once its engine is on npm.
+# The command line (cli.yml), crates.io (crates.yml) and PyPI (python.yml) run on the same
+# release. Versions are lockstep: the tag is the version of every package.
 on:
   release:
     types: [published]
@@ -11,6 +22,10 @@ on:
         description: The release tag whose WASM archive to publish to npm, e.g. v0.1.17
         required: true
         type: string
+
+concurrency:
+  group: release-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -38,13 +53,21 @@ jobs:
           TAG: ${{ github.event.release.tag_name }}
         run: |
           python3 - <<'PY'
-          import os, tomllib
+          import json, os, tomllib
           version = os.environ['TAG'].removeprefix('v')
           for path in ['Cargo.toml', 'crates/specify-core-wasm/Cargo.toml']:
               with open(path, 'rb') as source:
                   assert tomllib.load(source)['package']['version'] == version, path
+          with open('ui/package.json', encoding='utf-8') as source:
+              assert json.load(source)['version'] == version, 'ui/package.json'
           PY
       - run: wasm-pack build crates/specify-core-wasm --target web --profile wasm-release --locked
+      # The UI jobs build and test on this very build (the same files the archive below holds).
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: wasm-pkg
+          path: crates/specify-core-wasm/pkg
+          if-no-files-found: error
       - run: python3 tools/wasm_size.py
       - run: cargo build --locked --release -p specify-core-wasm --example parity_reference
       - run: node scripts/wasm-parity.mjs
@@ -150,3 +173,243 @@ jobs:
       - name: Publish
         if: steps.missing.outputs.publish == 'true'
         run: npm publish ./release/pkg --tag "${{ steps.missing.outputs.dist_tag }}"
+
+  # The UI library, @draftwright/specify-ui, from ui/: the release guard, the suites on the WASM
+  # the wasm job built, and the tarball (its engine dependency pinned to this version,
+  # scripts/pack.mjs). Moved from specify-ui's release.yml.
+  ui:
+    needs: wasm
+    if: github.event_name == 'release' && startsWith(github.event.release.tag_name, 'v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: ui
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: refs/tags/${{ github.event.release.tag_name }}
+          fetch-depth: 0 # main's history, to check the tag is on it
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: wasm-pkg
+          path: crates/specify-core-wasm/pkg
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+      - run: npm ci
+      - name: Release guard
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+          PRERELEASE: ${{ github.event.release.prerelease }}
+        run: |
+          set -u
+          fail=0
+          err() { echo "::error::$1"; fail=1; }
+          # A GitHub release marked pre-release is never published to npm.
+          if [ "$PRERELEASE" != false ]; then
+            err "Release $TAG is marked as a pre-release: not published to npm."
+          fi
+          pkg_version=$(node -p "require('./package.json').version")
+          wasm_spec=$(node -p "require('./package.json').dependencies?.['@draftwright/specify-core-wasm'] ?? ''")
+          wasm_built=$(node -p "require('../crates/specify-core-wasm/pkg/package.json').version")
+
+          # A release on a v* tag whose commit is on main, never a branch or a stray commit.
+          case "$GITHUB_REF" in
+            refs/tags/v*) ;;
+            *) err "The release ref is $GITHUB_REF, not a v* tag." ;;
+          esac
+          commit=$(git rev-parse --verify --quiet "refs/tags/$TAG^{commit}" || true)
+          if [ -z "$commit" ]; then
+            err "Tag $TAG is not in the checkout."
+          elif ! git merge-base --is-ancestor "$commit" origin/main; then
+            err "Tag $TAG ($commit) is not on main."
+          fi
+
+          if [ "$TAG" != "v$pkg_version" ]; then
+            err "Tag $TAG does not match ui/package.json version v$pkg_version."
+          fi
+          # In the repository the engine is the in-repo build; the tarball pins this version.
+          if [ "$wasm_spec" != "file:../crates/specify-core-wasm/pkg" ]; then
+            err "ui/package.json depends on @draftwright/specify-core-wasm '$wasm_spec', not the in-repo build."
+          fi
+          if [ "$wasm_built" != "$pkg_version" ]; then
+            err "The WASM build is $wasm_built, ui/package.json $pkg_version: versions are lockstep."
+          fi
+          exit "$fail"
+      - run: npm run fetch:wasm
+      - run: npm run build
+      - run: npm test
+      - name: Cache Playwright browsers
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('ui/package-lock.json') }}
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:browser
+      - run: npm run test:package
+      # No scripts: prepack would rebuild; the tarball must hold the build that was tested.
+      - name: Pack the tarball
+        run: node scripts/pack.mjs ../npm-tarball
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: npm-tarball
+          path: npm-tarball/*.tgz
+          if-no-files-found: error
+
+  # The local app `specify-core open` serves (ui/app): built, tested against the specify-core
+  # command built from this commit, and packed. Only app-assets needs it, so the npm library's
+  # publish never waits on it.
+  app:
+    needs: wasm
+    if: github.event_name == 'release' && startsWith(github.event.release.tag_name, 'v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: refs/tags/${{ github.event.release.tag_name }}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: wasm-pkg
+          path: crates/specify-core-wasm/pkg
+      - run: rustup toolchain install
+      - name: Build the specify-core command
+        run: |
+          cargo build --release --locked --bin specify-core
+          echo "SPECIFY_CORE=$PWD/target/release/specify-core" >> "$GITHUB_ENV"
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+      - run: npm ci
+        working-directory: ui
+      - run: npm run fetch:wasm
+        working-directory: ui
+      - name: Cache Playwright browsers
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('ui/package-lock.json') }}
+      - run: npx playwright install --with-deps chromium
+        working-directory: ui
+      # build:app, then the app against `specify-core open` and `mcp`; the archive below is that build.
+      - name: Test the local app
+        working-directory: ui
+        run: |
+          npm run test:app || {
+            echo "::error::The local app's tests failed against this commit's specify-core: no app is attached to this release (the npm library is published without it)."
+            exit 1
+          }
+      # Its files and API manifest at the archive's root, with its sha256.
+      - name: Pack the local app
+        working-directory: ui
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -eu
+          version=$(node -p "require('./package.json').version")
+          [ "$TAG" = "v$version" ] || { echo "::error::Tag $TAG, ui/package.json $version: they must agree."; exit 1; }
+          mkdir ../app-release
+          tar -czf "../app-release/specify-ui-app-$version.tgz" -C dist-app .
+          # Refuse an app archive without its root manifest (or with different contents).
+          tar -xOzf "../app-release/specify-ui-app-$version.tgz" ./specify-ui-app.json | cmp dist-app/specify-ui-app.json -
+          (cd ../app-release && sha256sum "specify-ui-app-$version.tgz" > "specify-ui-app-$version.tgz.sha256")
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: app-release
+          path: app-release/*
+          if-no-files-found: error
+
+  # Attests the local app's build provenance and attaches it to the GitHub release. Only this job
+  # (with wasm) can write to the repository (contents: write, for the release's assets) or sign
+  # (id-token and attestations, for the attestation); it checks out nothing and runs no package code.
+  app-assets:
+    # ui too: its release guard (tag on main, matching the versions) holds for the app as well.
+    needs: [ui, app]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write # the attestation's signing certificate
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: app-release
+          path: app-release
+      # `gh attestation verify specify-ui-app-<version>.tgz --repo pzfreo/specify-core` checks it.
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: app-release/*.tgz
+      # An asset already on the release is never replaced: the upload fails instead.
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -eu
+          cd app-release
+          sha256sum -c ./*.sha256
+          gh release upload "$TAG" ./*.tgz ./*.sha256 --repo "$REPO"
+
+  # Publishes @draftwright/specify-ui with npm trusted publishing (OIDC): configured on
+  # npmjs.com for pzfreo/specify-core, release.yml and environment `npm`. No npm token is
+  # passed. It waits for the engine it depends on to be published (the npm job above).
+  ui-npm:
+    needs: [ui, npm]
+    if: >-
+      ${{ !cancelled() && github.event_name == 'release' && !github.event.release.prerelease &&
+        needs.ui.result == 'success' && needs.npm.result == 'success' }}
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write # npm trusted publishing and provenance
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: npm-tarball
+          path: tarball
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      # Trusted publishing needs npm >= 11.5.1; Node 22 ships npm 10.
+      - run: npm install -g npm@11.20.0
+      # npm exchanges the job's OIDC token with the trusted publisher; no secret is used.
+      - name: Publish
+        run: |
+          set -eu
+          set -- ./tarball/*.tgz
+          [ "$#" -eq 1 ] || { echo "::error::Expected one tarball, found $#."; exit 1; }
+          file=$1 # ./ prefix: npm reads a bare "dir/file.tgz" as a GitHub owner/repo
+          version=$(tar -xOzf "$file" package/package.json | node -p "JSON.parse(require('fs').readFileSync(0,'utf8')).version")
+          engine=$(tar -xOzf "$file" package/package.json | node -p "JSON.parse(require('fs').readFileSync(0,'utf8')).dependencies['@draftwright/specify-core-wasm']")
+          [ "$engine" = "$version" ] || { echo "::error::The tarball depends on @draftwright/specify-core-wasm $engine, not $version."; exit 1; }
+          published=$(npm view "@draftwright/specify-core-wasm@$engine" version 2>/dev/null || true)
+          [ "$published" = "$engine" ] || { echo "::error::@draftwright/specify-core-wasm@$engine is not on npm."; exit 1; }
+          if [ "$(npm view "@draftwright/specify-ui@$version" version 2>/dev/null || true)" = "$version" ]; then
+            echo "@draftwright/specify-ui $version is already on npm: skipped"
+            exit 0
+          fi
+          # `latest` never moves backwards. A version older than npm's latest is published under
+          # release-<version>; a semver prerelease version (1.0.0-rc.1) under `next`.
+          latest=$(npm view "@draftwright/specify-ui" dist-tags.latest 2>/dev/null || true)
+          case "$version" in
+            *-*) dist_tag=next ;;
+            *)
+              if [ -n "$latest" ] && [ "$(printf '%s\n' "$latest" "$version" | sort -V | tail -1)" != "$version" ]; then
+                dist_tag="release-$version"
+              else
+                dist_tag=latest
+              fi
+              ;;
+          esac
+          echo "Publishing $version with dist-tag $dist_tag (npm latest: ${latest:-none})"
+          npm publish "$file" --provenance --access public --tag "$dist_tag"

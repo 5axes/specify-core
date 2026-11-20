@@ -33,6 +33,12 @@ Python. Feature recognition and the STEP/AP242 kernel come from
 
 ![The STEP diff action's comment on a pull request](step-diff/comment.png)
 
+**One repository, one release.** Since 0.3.0 the browser UI, formerly
+[pzfreo/specify-ui](https://github.com/pzfreo/specify-ui), lives here in [ui/](ui/): the React
+components (`@draftwright/specify-ui`) and the local app that `specify-core open` and MCP `show`
+serve. A `v*` release builds and publishes the engine, the command line, the WASM, the Python
+package and the UI together, at one version.
+
 ## With AI and code-first CAD
 
 Text-to-CAD and code-first tools (build123d, cadgen) now let an AI produce a part's geometry. What they don't produce is the manufacturing intent a supplier needs: datums, fits, threads, tolerances and finish. Specify is the deterministic half of that loop:
@@ -55,6 +61,8 @@ One engine, one set of answers and files, whichever way you call it:
 | **Python** | `pip install specify-core` (CPython 3.11+, no dependencies) | [below](#python), [package README](crates/specify-core-py/README.md) |
 | **Rust** | `specify-core = "0.2.1"` (crates.io) | [below](#rust), [docs/library.md](docs/library.md) |
 | **Browser** (WebAssembly) | `@draftwright/specify-core-wasm` (npm), or `specify-core-wasm-<version>.tgz` on each release | [docs/wasm.md](docs/wasm.md) |
+| **React components** (review, STEP diff) | `@draftwright/specify-ui` (npm) | [ui/README.md](ui/README.md) |
+| **Local app** (the page `open`/`show` serve) | downloaded by the command on first use; `specify-ui-app-<version>.tgz` on each release | [ui/README.md](ui/README.md#the-local-app-specify-core-open-or-an-agents-show), [docs/open.md](docs/open.md) |
 | **Host process** (JSON lines) | `specify-core serve` | [below](#host-process) |
 | **LLM client** (MCP: Claude Code, Claude Desktop) | `specify-core mcp` (stdio) or `specify-core mcp --http` | [docs/mcp.md](docs/mcp.md) |
 | **GitHub pull requests** | `uses: pzfreo/specify-core/step-diff@main` | [step-diff/README.md](step-diff/README.md) |
@@ -121,11 +129,13 @@ original once as `plate.step.bak`, and `--read-only` refuses answer changes and 
 `specify-core diff` carries to the new revision (`--answers FILE` for the old answers); Save
 writes the new one. `--port N` picks the port and `--no-browser` only prints the address. The
 command stops 90 seconds after the last page is closed, or after 30 minutes without a request.
-On first use, Specify downloads and caches the pinned app. It fetches the engine only for a
-pinned app without its own `wasm/` directory, when neither `--wasm` nor `SPECIFY_WASM_DIR` is
-set. An empty `wasm/` directory also suppresses the fetch. Pass `--app DIR` (or set
-`SPECIFY_APP_DIR`) to use a local app and `--wasm DIR` (or set `SPECIFY_WASM_DIR`) to use a
-local wasm-pack `pkg/` directory. Builds with a placeholder pin require a local app.
+On first use, Specify downloads and caches the app from its own version's release (the app is
+built from [ui/](ui/) in this repository). It fetches the engine only for a released app
+without its own `wasm/` directory, when neither `--wasm` nor `SPECIFY_WASM_DIR` is set. An
+empty `wasm/` directory also suppresses the fetch. Pass `--app DIR` (or set `SPECIFY_APP_DIR`)
+to use a local app and `--wasm DIR` (or set `SPECIFY_WASM_DIR`) to use a local wasm-pack `pkg/`
+directory. A build of an unreleased version has no release to download from: it needs a local
+app.
 See [docs/open.md](docs/open.md).
 
 **With an AI agent.** Add Specify to your agent once, as a stdio MCP server:
@@ -344,6 +354,8 @@ that implementation wrote. The `specify-core` Python package is now this engine;
 | [docs/face-names.md](docs/face-names.md) | answers on named faces (code-first CAD) |
 | [docs/characteristic-numbers.md](docs/characteristic-numbers.md) | characteristic numbers |
 | [docs/wasm.md](docs/wasm.md) | the WebAssembly module |
+| [ui/README.md](ui/README.md) | the React components and the local app |
+| [docs/open.md](docs/open.md) | the local app's contract with `open` and `show` |
 | [docs/mcp.md](docs/mcp.md) | the MCP server for LLM clients |
 | [docs/library.md](docs/library.md) | the Rust API |
 | [crates/specify-core-py/README.md](crates/specify-core-py/README.md) | the Python package |
@@ -364,7 +376,19 @@ SPECIFY_CORPUS=/path/to/quiddity-corpus/tests/corpus cargo test --workspace --re
 
 CI runs the whole workspace against the pinned [quiddity-corpus](https://github.com/pzfreo/quiddity-corpus)
 with `QUIDDITY_CORPUS_REQUIRED=1`, which fails when the corpus or a captured input is missing.
-Set it locally to require the same.
+Set it locally to require the same. The UI's tests run on the in-repo WASM build and command:
+
+```bash
+wasm-pack build crates/specify-core-wasm --target web --profile wasm-release --locked
+cargo build --release --bin specify-core
+cd ui && npm ci && npm run fetch:wasm && npm test
+SPECIFY_CORE=../target/release/specify-core npm run test:app   # the local app, in Chromium
+```
+
+On a pull request CI runs only what it touches: a change only under `ui/` skips the Rust jobs,
+one outside `ui/` skips the UI jobs unless it changes a shared file (the workflows, the root
+manifests, the session contract in `docs/open.md` and `src/open*`, the WASM crate). Main and
+releases run everything.
 
 ## Licence
 
