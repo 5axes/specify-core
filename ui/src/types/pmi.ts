@@ -210,6 +210,9 @@ export interface PmiLabSession extends PmiQuestionSet {
   readonly filename: string;
   readonly analysis: PmiAnalysis;
   readonly mesh: PmiMesh;
+  /** Where the part came from, as the engine's snapshot gives it: its faces' STEP ``ADVANCED_FACE``
+   * entities, by face, and Specify's index of the part. A host's view identifies faces by them. */
+  readonly provenance?: { readonly face_entities?: readonly number[]; readonly part?: number | null };
 }
 
 export interface PmiFinishReport {
