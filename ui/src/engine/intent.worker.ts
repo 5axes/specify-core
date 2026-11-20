@@ -82,7 +82,10 @@ self.onmessage = ({ data }) => {
     try {
       const module = await load();
       let result: unknown = true;
-      if (operation === 'file-inspection') {
+      if (operation === 'file-scene') {
+        // A saved file's own PMI as drawn (the free pmiScene): the cached engine is left as it is.
+        result = JSON.parse(module.pmiScene(args.bytes, args.part));
+      } else if (operation === 'file-inspection') {
         const file = args.part === undefined ? new module.IntentEngine(args.name, args.bytes)
           : module.IntentEngine.openPart(args.name, args.bytes, args.part);
         try {

@@ -70,9 +70,10 @@ export const getConfig = (signal?: AbortSignal, onResponse?: () => void) => json
   fetch('config', { cache: 'no-store', signal }).then((response) => { onResponse?.(); return response; }),
 ).then((config) => { requireSessionApi(config.api); return config; });
 
-/** The STEP as on disk (gzipped if the file is); in diff mode ``old`` is OLD's. */
-export async function getFile(rev: 'old' | 'new' = 'new'): Promise<Blob> {
-  const response = await fetch(rev === 'old' ? 'file?rev=old' : 'file?rev=new', { cache: 'no-store' });
+/** The STEP as on disk (gzipped if the file is); in diff mode ``old`` is OLD's; ``saved`` is what
+ * the session's last save wrote (404 before one, 409 if it changed on disk since). */
+export async function getFile(rev: 'old' | 'new' | 'saved' = 'new'): Promise<Blob> {
+  const response = await fetch(`file?rev=${rev}`, { cache: 'no-store' });
   if (!response.ok) throw await failure(response);
   return response.blob();
 }

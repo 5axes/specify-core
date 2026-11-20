@@ -112,11 +112,9 @@ const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`;
 
 interface InspectionStep { path: string; name: string; bytes: Uint8Array }
 const inspectionName = (path: string) => path.split(/[\\/]/).pop() ?? path;
-// Shell-quote the real path so this text can be copied directly into a terminal.
-const reopenCommand = (path: string) => `specify-core open '${path.replaceAll("'", "'\"'\"'")}' --read-only`;
 const SAVE_FIRST = 'Save first: the inspection files describe the saved STEP';
 
-/** What the last save wrote, and the questions still open in it, by their prompts. */
+/** What the last save wrote, and the questions still open in it, by their short labels. */
 interface SavedLine { path: string; open: string[] | null; byAgent: boolean; assemblyCount?: number; matching?: boolean }
 
 function App() {
@@ -157,7 +155,6 @@ function App() {
   const [inspectionStep, setInspectionStep] = useState<InspectionStep | null>(null);
   const [inspectionData, setInspectionData] = useState<(StoredInspection & { part: number }) | null>(null);
   const [inspectionProblem, setInspectionProblem] = useState<string | null>(null);
-  const [inspectionCopy, setInspectionCopy] = useState<string | null>(null);
   const inspectionLoad = useRef(0);
   const savedRevision = useRef(-1);
   const heardSaves = useRef(new Set<string>());
@@ -208,14 +205,21 @@ function App() {
         setInspectionStep(null);
         setInspectionData(null);
         setInspectionProblem(null);
-        setInspectionCopy(event.path !== first.path ? event.path : null);
-        // 0.2.0 serves the opened path, updated by an in-place save, never a separate copy.
-        if (event.path !== first.path) return;
+        // The exports come from the file as saved, a copy or the input in place (`file?rev=saved`).
         void (async () => {
-          const written = await getFile('new').then(stepBytes);
-          if (!ended && load === inspectionLoad.current) setInspectionStep({
-            path: event.path, name: inspectionName(event.path), bytes: written,
-          });
+          const written = await getFile('saved').then(stepBytes);
+          if (ended || load !== inspectionLoad.current) return;
+          setInspectionStep({ path: event.path, name: inspectionName(event.path), bytes: written });
+          // The 3D view draws the PMI as the save wrote it: the scene built on opening shows only
+          // what the file had then (specify-ui#14). A scene that fails leaves the view as it was.
+          const shown = shownRef.current;
+          if (!shown || !worker.current) return;
+          const scene = await worker.current.request('file-scene', { bytes: written, ...(shown.several ? { part: shown.part } : {}) })
+            .then(drawnFromScene, () => null);
+          const drawn = scene?.ok ? withoutNotesBlock(scene.value) : null;
+          if (scene && !ended && load === inspectionLoad.current) {
+            setOpened((now) => (now?.store === shown.store ? { ...now, drawn: drawn && hasGraphics(drawn) ? drawn : null } : now));
+          }
         })().catch((error: unknown) => {
           if (!ended && load === inspectionLoad.current) setInspectionProblem(message(error));
         });
@@ -374,9 +378,9 @@ function App() {
   const mode = config?.mode;
   const readOnly = !config || config.readOnly;
 
-  /** The prompts of questions ``ids`` (the part shown's; an id Specify does not ask here is kept as it is). */
+  /** The short labels of questions ``ids`` (the part shown's; an id Specify does not ask here is kept as it is). */
   const prompts = (ids: string[], ...reviews: { questions: PmiQuestion[] }[]) => {
-    const prompt = new Map(reviews.flatMap((r) => r.questions.map((q) => [q.id, q.prompt] as const)));
+    const prompt = new Map(reviews.flatMap((r) => r.questions.map((q) => [q.id, q.label ?? q.prompt] as const)));
     return ids.map((id) => prompt.get(id) || id);
   };
   // An agent's save says no more than where it wrote: what is still open is what the session's
@@ -398,7 +402,7 @@ function App() {
         const name = parts.find((row) => row.part === part)?.name ?? `Part ${part}`;
         const file = fileOf(config.name, opened.bytes, part, true);
         const { questions, open } = await engine.request<IntentReview>('review-given', { ...file, answers });
-        const byId = new Map(questions.map((q) => [q.id, q.prompt]));
+        const byId = new Map(questions.map((q) => [q.id, q.label ?? q.prompt]));
         const labels = open.map((id) => byId.get(id));
         return {
           open,
@@ -517,7 +521,7 @@ function App() {
     const book = xlsx(as9102({ name: stem(inspectionStep.name) }, inspectionData.chars, new Set(), inspectionData.notes));
     saveFile(new File([book as BlobPart], `${stem(inspectionStep.name)}-AS9102.xlsx`, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
   };
-  const inspectionTitle = inspectionCopy ? `Open the saved file to export: ${reopenCommand(inspectionCopy)}` : inspectionProblem ?? (!inspectionStep && savedRevision.current < 0 ? SAVE_FIRST : !inspectionReady ? 'Reading the saved STEP…' : undefined);
+  const inspectionTitle = inspectionProblem ?? (!inspectionStep && savedRevision.current < 0 ? SAVE_FIRST : !inspectionReady ? 'Reading the saved STEP…' : undefined);
   /** A decision picked in the diff: its question, in the answers. */
   const decide = (d: Decision) => {
     setTab('answers');
@@ -551,9 +555,6 @@ function App() {
             {opened && <button type="button" onClick={downloadAnswers}>Answers (JSON)</button>}
             <button type="button" onClick={downloadCsv} disabled={!inspectionReady} title={inspectionTitle}>Inspection list (CSV)</button>
             <button type="button" onClick={downloadFai} disabled={!inspectionReady} title={inspectionTitle}>AS9102 FAI (Excel)</button>
-            {inspectionCopy && <span className="app-inspection-source">
-              Open the saved file to export: <code>{reopenCommand(inspectionCopy)}</code>
-            </span>}
             {inspectionStep && <span className="app-inspection-source">
               from <code>{inspectionStep.name}</code>
             </span>}
