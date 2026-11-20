@@ -89,11 +89,12 @@ try {
     await check(page.locator('.pmi-lab-panel')).toContainText('6082');
     await check(page.locator('.app-dirty')).toBeVisible();
     await check(page.locator('.pmi-lab-resumed')).toHaveCount(0);
-    // An answer the agent gives now lands in the open page: said (by the question it asks), its
-    // question opened and lit. The note and the light stay until dismissed or the next change.
+    // An answer the agent gives now lands in the open page: said (by the question's short label,
+    // #217), its question opened and lit. The note and the light stay until dismissed or the next change.
     await agent.call('answer', { doc, set: { 'part.general_tolerance': 'ISO 2768-f' } });
     await check(page.locator('.app-agent')).toContainText('Updated by your agent');
-    await check(page.locator('.app-agent')).toContainText('Which general tolerance applies');
+    await check(page.locator('.app-agent')).toContainText('General tolerance');
+    await check(page.locator('.app-agent')).not.toContainText('Which general tolerance applies');
     await check(question(page, 'part.general_tolerance')).toBeVisible();
     await check(question(page, 'part.general_tolerance')).toHaveClass(/app-agent-lit/);
     await check(question(page, 'part.general_tolerance')).toContainText('2768-f');
@@ -215,7 +216,8 @@ try {
       const { doc } = await second.call('open', { path: written.path, part });
       const { questions } = await second.call('questions', { doc, state: 'open' });
       assert.ok(questions.length, `${name} has open questions`);
-      expected.push(...questions.map(q => `${name} — ${q.prompt}`));
+      // By the short label the command gives each question (#217), as MCP returns it.
+      expected.push(...questions.map(q => `${name} — ${q.label}`));
     }
     await check(stillOpen.locator('li')).toHaveText(expected);
     await check(page.locator('.app-dirty')).toHaveCount(0);
