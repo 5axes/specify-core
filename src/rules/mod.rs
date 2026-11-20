@@ -544,16 +544,8 @@ fn all_questions(
     // left its requirement removed) stays the file's: its question is not asked either.
     let kept = crate::resume::truth::kept(answers);
     // Another tool's requirement in conflict with a stored answer stands, answered or not.
-    let foreign: BTreeSet<&str> = ctx
-        .analysis
-        .get("resume")
-        .and_then(|r| r.get("conflicts"))
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter(|c| c.get("foreign") == Some(&Value::Bool(true)))
-        .filter_map(|c| c.get("id").and_then(Value::as_str))
-        .collect();
+    let foreign =
+        crate::resume::truth::foreign_in(ctx.analysis.get("resume").unwrap_or(&Value::Null));
     if !conflicts.is_empty() || !kept.is_empty() {
         out.retain(|q| {
             !foreign.contains(q.id.as_str())
@@ -1606,6 +1598,39 @@ fn unasked(
         }
         None => None,
     };
+    // Another tool's requirement holds a question (ADR P9): a foreign conflict or file
+    // answer of a reopened file, or another tool's PMI in `existing` without which the
+    // question would be asked.
+    let foreign =
+        crate::resume::truth::foreign_in(ctx.analysis.get("resume").unwrap_or(&Value::Null));
+    let marked = |e: &Value| e.get("provenance").is_some();
+    let held_by_file: Vec<&String> = match ctx.analysis.get("existing") {
+        Some(Value::Array(existing)) if !existing.iter().all(marked) => {
+            let mut without = ctx.analysis.clone();
+            without.insert(
+                "existing".into(),
+                Value::Array(existing.iter().filter(|e| marked(e)).cloned().collect()),
+            );
+            let without = Value::Object(without);
+            let mut rest = answers.clone();
+            rest.retain(|id, _| !ids.contains(&id));
+            // A Keep of the question would hide it too; only the file's PMI is weighed here.
+            rest.remove(crate::answer_file::META);
+            Ctx::new(&without)
+                .and_then(|other| questions_in(&other, &rest))
+                .map(|qs| {
+                    ids.iter()
+                        .copied()
+                        .chain(blocks.iter().map(|(id, _)| id))
+                        .filter(|id| !id.starts_with("part.") && asks(&qs, id))
+                        .collect()
+                })
+                .unwrap_or_default()
+        }
+        _ => Vec::new(),
+    };
+    let held = "another tool's requirement holds this question; keep it, or change it in that \
+                tool";
     let mut rows = Vec::with_capacity(ids.len() + blocks.len());
     let carried = blocks.iter().map(|(id, why)| (id, Some(why)));
     for (id, block) in ids.into_iter().map(|id| (id, None)).chain(carried) {
@@ -1613,7 +1638,10 @@ fn unasked(
             .strip_prefix("datum.")
             .filter(|l| l.len() == 1)
             .and_then(|l| l.chars().next());
-        let why = if let Some(letter) = letter.filter(|&l| ctx.file_datum(l).is_some()) {
+        let mut foreign_held = foreign.contains(id.as_str());
+        let why = if foreign_held {
+            format!("is not asked: {held}")
+        } else if let Some(letter) = letter.filter(|&l| ctx.file_datum(l).is_some()) {
             format!("is not asked: the file already states datum {letter}")
         } else if id == crate::process::QUESTION {
             "is not asked of a bought part".to_string()
@@ -1623,10 +1651,14 @@ fn unasked(
             && asks(other, id)
         {
             format!("is not asked when part.locating is '{current}'")
+        } else if held_by_file.contains(&id) {
+            foreign_held = true;
+            format!("is not asked: {held}")
         } else {
             "is not asked of this part given the other answers".to_string()
         };
         let reason = match block {
+            None if foreign_held => format!("{id}: its answer was not written, as {held}"),
             None => format!("{id} {why}, so its answer was not written"),
             Some(carry) => format!(
                 "{id} was carried (carried answer could not be applied: {carry}) but {why}, \

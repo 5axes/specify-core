@@ -33,6 +33,13 @@ All notable changes to specify-core-rust. The format follows
   rewrites preserve unmarked foreign process attributes, including text outside Specify's
   options. A Keep of Specify's process permits later replacement of the UDA with the
   recorded property-set name and items.
+- A fresh answer no longer replaces another tool's requirement. After a save kept another
+  tool's hole position over a contradicted stored answer, reopening read it as the file's
+  answer together with Specify's own location dimensions, and answering the question again
+  replaced it (CLI, editor `writePmi` and MCP; also in 0.2.0). Such a question is now
+  `resume.foreign`, not asked, and its answer is neither written nor stored. A Keep of a
+  foreign conflict is no longer stored as permission to replace it. `not_written` names the
+  cause: "another tool's requirement holds this question; keep it, or change it in that tool".
 
 ### WASM API
 
