@@ -1,6 +1,6 @@
 # @draftwright/specify-ui
 
-Part of [specify-core](../README.md) (moved here from pzfreo/specify-ui in 0.2.2; its history is kept under `ui/`).
+Part of [specify-core](../README.md) (moved here from pzfreo/specify-ui in 0.3.0; its history is kept under `ui/`).
 Changes are in specify-core's [CHANGELOG](../CHANGELOG.md).
 
 Two React components for the browser, on specify-core-wasm (the engine, built from [crates/specify-core-wasm](../crates/specify-core-wasm)):
@@ -14,7 +14,7 @@ There is no drawing engine here; drawings are Draftwright's.
 
 ## Versions
 
-From 0.2.2 this package is released with specify-core, at the same version (0.2.1 was skipped): `@draftwright/specify-ui`
+From 0.3.0 this package is released with specify-core, at the same version (0.2.1 and 0.2.2 were skipped): `@draftwright/specify-ui`
 X.Y.Z depends on `@draftwright/specify-core-wasm` X.Y.Z exactly.
 
 ## Upgrading from 0.1

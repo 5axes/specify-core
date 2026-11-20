@@ -6,7 +6,7 @@ All notable changes to specify-core-rust. The format follows
 
 ## Unreleased
 
-To be released as 0.2.2 (every package; see "Lockstep versions").
+To be released as 0.3.0 (every package; see "Lockstep versions").
 
 Read first:
 
@@ -15,8 +15,8 @@ Read first:
   unchanged: `specify-core` (crates.io, PyPI), `@draftwright/specify-core-wasm` and
   `@draftwright/specify-ui` (npm). pzfreo/specify-ui is to be archived (kept, so 0.2.1 can still download its app); its changes up to 0.2.0 are in
   its own history and release notes.
-- **Lockstep versions.** Every package is released together at one version: 0.2.2 is the next for
-  all of them, so `@draftwright/specify-ui` goes from 0.2.0 to 0.2.2 (there is no specify-ui
+- **Lockstep versions.** Every package is released together at one version: 0.3.0 is the next for
+  all of them, so `@draftwright/specify-ui` goes from 0.2.0 to 0.3.0 (there is no specify-ui
   0.2.1). `@draftwright/specify-ui` X depends on `@draftwright/specify-core-wasm` X exactly.
 
 ### Changed

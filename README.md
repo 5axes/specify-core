@@ -33,7 +33,7 @@ Python. Feature recognition and the STEP/AP242 kernel come from
 
 ![The STEP diff action's comment on a pull request](step-diff/comment.png)
 
-**One repository, one release.** Since 0.2.2 the browser UI, formerly
+**One repository, one release.** Since 0.3.0 the browser UI, formerly
 [pzfreo/specify-ui](https://github.com/pzfreo/specify-ui), lives here in [ui/](ui/): the React
 components (`@draftwright/specify-ui`) and the local app that `specify-core open` and MCP `show`
 serve. A `v*` release builds and publishes the engine, the command line, the WASM, the Python
