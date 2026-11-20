@@ -20,6 +20,8 @@ import { mcp } from './mcp-client.mjs';
 //
 //   SPECIFY_CORE      the specify-core binary with `mcp`'s `show` (specify-core open-session).
 //   SPECIFY_WASM_DIR  the engine's pkg/ (default: public/wasm/intent).
+//   SPECIFY_APP_BUILT_IN=1  serve the app and engine built into SPECIFY_CORE (ADR P12) instead
+//                     of setting SPECIFY_APP_DIR=dist-app and SPECIFY_WASM_DIR.
 //   SHOTS             a directory to save screenshots in (optional).
 const check = expect.configure({ timeout: 90000 });
 const cli = process.env.SPECIFY_CORE ?? 'specify-core';
@@ -27,10 +29,12 @@ const app = resolve('dist-app');
 const wasm = resolve(process.env.SPECIFY_WASM_DIR ?? 'public/wasm/intent');
 const shots = process.env.SHOTS;
 if (shots) mkdirSync(shots, { recursive: true });
-assert.ok(existsSync(join(app, 'index.html')), 'dist-app is built (npm run build:app)');
+const builtIn = process.env.SPECIFY_APP_BUILT_IN === '1';
+if (!builtIn) assert.ok(existsSync(join(app, 'index.html')), 'dist-app is built (npm run build:app)');
 
 const dir = mkdtempSync(join(tmpdir(), 'specify-agent-'));
-const env = { SPECIFY_APP_DIR: app, SPECIFY_WASM_DIR: wasm };
+// Empty overrides are unset: the command's own app and engine.
+const env = builtIn ? { SPECIFY_APP_DIR: '', SPECIFY_WASM_DIR: '' } : { SPECIFY_APP_DIR: app, SPECIFY_WASM_DIR: wasm };
 const analyse = (file, part) => JSON.parse(execFileSync(cli, ['analyse', '--output', '-', ...(part === undefined ? [] : ['--part', String(part)]), file], { encoding: 'utf8', maxBuffer: 1 << 28, stdio: ['ignore', 'pipe', 'ignore'] }));
 const stored = file => analyse(file).resume?.answers ?? {};
 const stored2 = (file, part) => analyse(file, part).resume?.answers ?? {};

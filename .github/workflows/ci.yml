@@ -44,7 +44,7 @@ jobs:
             case "$file" in
               '') ;;
               ui/*) ui=true ;;
-              .github/*|Cargo.toml|Cargo.lock|rust-toolchain.toml|docs/open.md|docs/session.md|src/open.rs|src/open/*|src/session.rs|src/session/*|src/mcp.rs|src/mcp/*|crates/specify-core-wasm/*)
+              .github/*|Cargo.toml|Cargo.lock|build.rs|tools/open_smoke.py|tests/fixtures/bundle/*|rust-toolchain.toml|docs/open.md|docs/session.md|src/open.rs|src/open/*|src/session.rs|src/session/*|src/mcp.rs|src/mcp/*|crates/specify-core-wasm/*)
                 rust=true; ui=true ;;
               *) rust=true ;;
             esac
@@ -212,8 +212,9 @@ jobs:
       - name: Show the package contents
         run: npm pack --dry-run
 
-  # The local app (ui/app) against the specify-core command from the same commit: `open` by hand
-  # and `mcp`'s `show` as an agent (test/app-browser.mjs, test/app-agent.mjs).
+  # The local app (ui/app) built into the specify-core command from the same commit (ADR P12):
+  # `open` by hand and `mcp`'s `show` as an agent (test/app-browser.mjs, test/app-agent.mjs),
+  # served from the command itself.
   app:
     needs: [changes, wasm]
     if: needs.changes.outputs.ui == 'true'
@@ -227,14 +228,6 @@ jobs:
         with:
           name: wasm-pkg
           path: crates/specify-core-wasm/pkg
-      - run: rustup toolchain install
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        with:
-          key: app-cli
-      - name: Build the specify-core command
-        run: |
-          cargo build --release --locked --bin specify-core
-          echo "SPECIFY_CORE=$PWD/target/release/specify-core" >> "$GITHUB_ENV"
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 22
@@ -244,6 +237,24 @@ jobs:
         working-directory: ui
       - run: npm run fetch:wasm
         working-directory: ui
+      - run: npm run build:app
+        working-directory: ui
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          key: app-cli
+      # build.rs builds in ui/dist-app and the WASM; SPECIFY_REQUIRE_BUNDLE fails rather than
+      # leave either out.
+      - name: Build the specify-core command with the app and engine
+        env:
+          SPECIFY_REQUIRE_BUNDLE: '1'
+        run: |
+          cargo build --release --locked --bin specify-core
+          echo "SPECIFY_CORE=$PWD/target/release/specify-core" >> "$GITHUB_ENV"
+      - name: Open serves the built-in app and engine
+        run: |
+          gunzip -c tests/fixtures/thread-depth-alpha7.step.gz > "$RUNNER_TEMP/part.step"
+          python3 tools/open_smoke.py "$SPECIFY_CORE" "$RUNNER_TEMP/part.step"
       - name: Cache Playwright browsers
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
@@ -251,9 +262,11 @@ jobs:
           key: playwright-${{ runner.os }}-${{ hashFiles('ui/package-lock.json') }}
       - run: npx playwright install --with-deps chromium
         working-directory: ui
-      # build:app, then the app against `specify-core open` and `mcp`.
-      - run: npm run test:app
+      - name: The app against `specify-core open` and `mcp`, served from the command
         working-directory: ui
+        env:
+          SPECIFY_APP_BUILT_IN: '1'
+        run: node test/app-browser.mjs && node test/app-agent.mjs
 
   # The one required check: passes when every job above passed or was skipped by the path
   # filter, fails when any failed or was cancelled.

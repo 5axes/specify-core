@@ -1,19 +1,26 @@
 name: Release command line
 
-# The specify-core command line for Linux, macOS and Windows, attached to each release. A change to
-# this workflow builds and tries all three on its pull request, without attaching anything.
+# The specify-core command line for Linux, macOS and Windows, attached to each release. Each
+# binary carries the app and engine bundle.yml builds first (ADR P12). A change to this workflow,
+# bundle.yml or build.rs builds and tries all three on its pull request, without attaching anything.
 on:
   release:
     types: [published]
   pull_request:
-    paths: ['.github/workflows/cli.yml']
+    paths: ['.github/workflows/cli.yml', '.github/workflows/bundle.yml', 'build.rs', 'tools/open_smoke.py']
 
 permissions:
   contents: read
 
 jobs:
-  build:
+  bundle:
     if: github.event_name == 'pull_request' || startsWith(github.event.release.tag_name, 'v')
+    uses: ./.github/workflows/bundle.yml
+    with:
+      ref: ${{ github.event.release.tag_name || github.sha }}
+
+  build:
+    needs: bundle
     strategy:
       fail-fast: false
       matrix:
@@ -25,6 +32,8 @@ jobs:
     env:
       CARGO_TERM_COLOR: always
       RELEASE_TAG: ${{ github.event.release.tag_name }}
+      # build.rs fails rather than build a binary without the app and engine.
+      SPECIFY_REQUIRE_BUNDLE: '1'
       # rustc's thin-LTO threads overflow Windows' default stack on step-io.
       RUST_MIN_STACK: '67108864'
     defaults:
@@ -34,6 +43,10 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ github.event.release.tag_name || github.sha }}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: specify-bundle
+          path: bundle
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
@@ -69,6 +82,12 @@ jobs:
           cat smoke/answers.json
           # The ⌀6 hole's answer follows it from faces 9 to 8.
           grep -q '"hole.function:holes:8": *"general"' smoke/answers.json && ! grep -q 'holes:9' smoke/answers.json
+      # Its own app and engine, served with no download (no --app, an empty HOME, no proxy).
+      - name: Open serves the built-in app and engine
+        run: |
+          gunzip -c tests/fixtures/thread-depth-alpha7.step.gz > part.step
+          py=python3; [ "${{ runner.os }}" != Windows ] || py=python
+          "$py" tools/open_smoke.py "target/${{ matrix.target }}/release/specify-core${{ matrix.exe }}" part.step
       - name: Try Linux on Amazon Linux 2023 and AlmaLinux 8
         if: matrix.target == 'x86_64-unknown-linux-gnu'
         run: |
@@ -104,19 +123,42 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
-  # Only this job can write to the repository, and only for a release.
+  # Only this job can write to the repository or sign, and only for a release. It attests the
+  # archives' build provenance (`gh attestation verify <archive> --repo pzfreo/specify-core`):
+  # with the app and engine inside the binary (ADR P12), that covers them too.
   attach:
     needs: build
     if: github.event_name == 'release'
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      id-token: write # the attestation's signing certificate
+      attestations: write
+      actions: read # the CI gate below reads ci.yml's runs
     steps:
+      # ci.yml's push run on main tests the app against the built-in one; a commit it has not
+      # passed is not released (as crates.yml). github.sha is the tagged commit for a release.
+      - name: ci.yml passed on the tagged commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name || github.ref_name }}
+        run: |
+          sha=${{ github.sha }}
+          n=$(gh api "repos/${{ github.repository }}/actions/workflows/ci.yml/runs?head_sha=$sha&status=success&event=push" --jq .total_count)
+          if [ "$n" -lt 1 ]; then
+            echo "::error::ci.yml has no successful run for $sha ($TAG): publish refused"
+            exit 1
+          fi
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: cli-*
           path: dist
           merge-multiple: true
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            dist/*.tar.gz
+            dist/*.zip
       - name: Attach to this release
         env:
           GH_TOKEN: ${{ github.token }}
