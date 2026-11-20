@@ -60,6 +60,19 @@ From the first 0.2.1 trial (#217, pzfreo/specify-ui#14):
 - Later saves of an `open` (or MCP) session update the copy that session's last save wrote,
   instead of writing a new numbered copy each time. A file the session did not write, or its copy
   once changed or removed by anyone else, is never overwritten: the save takes the next free name.
+- Every question has a short `label` ("Other notes", "Coating", "Datum C"), added to the
+  question JSON (WASM `review`, MCP `questions`): fit for a row or a message, with no question mark
+  or input hint. The app uses it in its save and agent messages and as the row label for questions
+  without one ("Other notes").
+- The app, after a save to a copy, enables the inspection exports (CSV and AS9102) from the file as
+  saved (`GET file?rev=saved`), and its 3D view draws the saved file's PMI; before, the exports
+  stayed disabled and the view kept the PMI the file had when it was opened.
+- The app's part panel no longer clips its values ("machined", "ISO 2768-m", the "Finish and
+  notes" summary): a long name or value wraps within the panel.
+- The app shows a question whose suggestion is none as an ordinary row reading "None (suggested)":
+  coating and heat treatment are rows of their own again, "Other notes" no longer shows a dash,
+  and an unanswered datum shows in the Datums row. A row is marked answered only when none of its
+  questions is still open, so "Datums" is not answered while datum C is.
 
 ## 0.2.1 (2026-11-20)
 
