@@ -31,10 +31,13 @@ Read first:
   0.3.0 use case 6): reviewing a requirement change is `specify-core diff OLD NEW` between two
   annotated files. It lists requirements added, removed and changed per feature, with their
   characteristic numbers, and the new file's requirements on a feature that moved or changed
-  size, to check. Each file is read alone, whoever wrote it: stored answers are never read, so
-  the report is the same with or without them. A change of limits on the same feature and kind
+  size, to check. Each file is read alone, whoever wrote it: stored answers are never read to
+  compare, so the same requirements pair the same way with or without them (items keep their
+  `pmiScene` ids and statuses). A change of limits on the same feature and kind
   is `changed` with both values and the same number; a different measurement is one removed
-  and another added. The geometric matching, the picture and the Markdown report are as before.
+  and another added, also when the last-resort pairing by kind would have joined them; a datum
+  relettered on the same faces is `changed`. The geometric matching, the picture and the
+  Markdown report are as before.
   - **Removed:** `diff --answers` and the `answers.json` that `diff` wrote; `open --diff`'s
     `--answers` and its default of carrying the answers stored in OLD (the session is NEW's own);
     MCP `open`'s `old_answers` and `diff`'s `doc` and `answers`; Python `api.diff`'s `answers`;

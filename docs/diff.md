@@ -13,8 +13,9 @@ The [STEP diff action](../step-diff/README.md) runs it on pull requests.
 
 **It reads only the PMI in the two files** ([ADR P11](https://github.com/pzfreo/draftwright-project/blob/main/adr/P11-the-file-is-the-only-copy.md)):
 each file's requirements are read as any file's are, whoever wrote them. Answers a file
-stores are never read, so the report is the same with or without them; `diff` takes no answers
-and writes none. (Carrying requirements to a new revision is not `diff`'s.)
+stores are never read to compare, so the same requirements pair the same way with or without
+them (only the items' labels, each file's `pmiScene` ids and statuses, follow the editor);
+`diff` takes no answers and writes none. (Carrying requirements to a new revision is not `diff`'s.)
 
 ## What it writes
 
@@ -116,7 +117,11 @@ remain alike after the motion is chosen are still `ambiguous`, as above.
 - **PMI** compares the requirements the two files state as `haecceity.pmi/1`: each old
   requirement is paired with a new one through the face matching and its kind, and listed
   `added`, `removed`, `changed` or `renumbered`, with its characteristic number. Each file is
-  read alone: its ids are the file's own, and stored answers are not read.
+  read alone and paired without reading stored answers; the items then take each file's
+  `pmiScene` ids and statuses, as the editor shows them. Pairing by kind alone, the last
+  resort for requirements whose faces cannot be followed, never pairs requirements whose faces
+  or references are found elsewhere on the new part. A datum is its faces: one relettered on
+  them is `changed`.
   - **A change of limits** on the same feature and kind (H7 → H8, ⏥ 0.05 → 0.02) is `changed`,
     with both values and the same number.
   - **A different measurement** (a hole located from another face) is the old requirement
@@ -175,7 +180,7 @@ matching thread, remain separate items. Optional scenes retain all semantic reco
 `report.json` adds `pmi.items`, an ordered list of changes:
 
 ```json
-{"class":"changed","number":7,"id":"7","kind":"dimension",
+{"class":"changed","number":7,"id":"size:holes:9","kind":"dimension",
  "faces":{"old":[{"face":9}],"new":[{"face":9}]},
  "status":"answered","on":"⌀6.6 holes","old":"⌀6.6 H7","new":"⌀6.6 H8"}
 ```
@@ -219,11 +224,9 @@ Opt in to `report.pmi.scenes: {"old": PmiScene, "new": PmiScene}` using:
 - Python: `api.diff(old, new, scenes=True)`.
 
 Both documents have the `pmiScene` shape (`pmi`, `presentation`, `specify`). They
-are the exact scenes the comparison built: each file's own PMI, read without its stored
-answers, so their ids are the file's own (a numbered requirement's id is its number) and a
-requirement's notes are named by their owner. Comparison presentations use current semantic
-notation, not potentially stale saved As Drawn ink. No additional scene derivation is
-performed. Assembly
+are each file's `pmiScene` comparison scene (its PMI with the editor's ids and statuses), in
+current semantic notation, not potentially stale saved As Drawn ink. No additional scene
+derivation is performed. Assembly
 reports include the pair in each matched part's `report.pmi.scenes`.
 
 Scenes are omitted by default because they can dominate report size. Opting in
@@ -246,7 +249,7 @@ The deprecated `pmi.stored`, `pmi.existing` and `pmi.existing_count` are gone (0
 `items`.
 
 WASM `diff` returns these items in `report.pmi.items` (and in each assembly part's
-report), with ids and numbers suitable for highlighting the characteristics of its own scenes
+report), with ids and numbers suitable for highlighting `pmiScene` characteristics
 in `/diff`. The Python package exposes `specify_core.api.diff(old, new,
 *, title="Revision", part=None, scenes=False)`, returning `{report, markdown}` for the selected
 part. It accepts paths or loaded part handles; paths accept a part index.
