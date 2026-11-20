@@ -30,10 +30,15 @@ building it:
   every rewrite of a defaulted file had to keep it beside the rewritten PMI, which restated
   datums and planner dimensions (characteristic numbering and datum-letter refusals) and lost
   the byte-identical unchanged rewrite. A default the file states differently is `existing`.
-- **Derived basic locations.** The dimension planner's basic location dimensions for an
-  answered question explain the file's equal ones but never make a conflict: how they merge
-  (one location to a hole and a pattern) varies with the other answers and the planner's
-  version, and they state nothing the answer chose.
+- **Answers that write no PMI** (maintainer, 2026-11-19). After comparison succeeds, a
+  stored face answer can resume when every file item on its target faces has the same kind,
+  faces, value and tolerance as an item in the stored answers' plan or in the available
+  plan with remaining defaults accepted. Datum questions check both sets of faces for the
+  same datum letter. Part settings check each file entry against the stored answer,
+  regardless of authorship. Ordinary #204 rules handle withheld answers and ask questions
+  left open. Withholding creates no conflict. If comparison fails, Specify withholds the
+  saved answers and protects the readable file PMI. Saves carry withheld answers for
+  reevaluation. `write --accept-defaults` stores the defaults it takes that write no PMI.
 
 
 ## Decision (2026-11-02): limit dimensions and combined ISO 2768 classes

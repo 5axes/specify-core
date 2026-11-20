@@ -798,6 +798,8 @@ pub(crate) struct PlanTruth {
     /// File scene ids the stored answers explain: an answered (or general-tolerance)
     /// requirement of the plan, unchanged in the file.
     pub explained: BTreeSet<String>,
+    /// The stored question responsible for each explained, explicitly answered item.
+    pub explained_by: BTreeMap<String, String>,
     /// Answered questions whose requirement the file changed or removed: the file's
     /// requirements for it (scene id, notation), none when it was removed in the file.
     pub conflicts: BTreeMap<String, Vec<(String, String)>>,
@@ -843,6 +845,51 @@ pub(crate) fn against_plan(
         |item| question(item).map(str::to_owned),
         drift,
     )
+}
+
+/// Each requirement of a comparison scene, by scene id: its faces and notation.
+pub(crate) fn scene_items(scene: &Value) -> BTreeMap<String, (Vec<usize>, String)> {
+    items(scene)
+        .into_iter()
+        .map(|item| (item.id, (item.on_faces, item.text)))
+        .collect()
+}
+
+/// The file requirements the writer's plans state exactly. This uses the semantic
+/// items, independent of characteristic numbers, provenance and drawing text.
+pub(crate) fn exactly_restated<'a>(
+    file: &Value,
+    plans: impl IntoIterator<Item = &'a Value>,
+) -> BTreeSet<String> {
+    let planned: Vec<_> = plans
+        .into_iter()
+        .flat_map(items)
+        .filter(|item| item.status != "existing")
+        .collect();
+    let support = |item: &Item| {
+        (
+            item.match_kind.clone(),
+            item.faces.clone(),
+            item.on_faces.clone(),
+            item.reference_faces.clone(),
+        )
+    };
+    let mut by_support = BTreeMap::<_, Vec<_>>::new();
+    for item in &planned {
+        by_support
+            .entry(support(item))
+            .or_default()
+            .push(&item.semantic);
+    }
+    items(file)
+        .into_iter()
+        .filter(|actual| {
+            by_support
+                .get(&support(actual))
+                .is_some_and(|candidates| candidates.contains(&&actual.semantic))
+        })
+        .map(|actual| actual.id)
+        .collect()
 }
 
 /// Where a stored answer's requirement may be the file's on other faces: recognition that
@@ -1010,6 +1057,9 @@ fn classify(
             match (paired, question) {
                 (Some(now), q) if equal(was, now, q) => {
                     truth.explained.insert(now.id.clone());
+                    if let Some(question) = q {
+                        truth.explained_by.insert(now.id.clone(), question.clone());
+                    }
                 }
                 (now, Some(question)) => {
                     differs.insert(question.clone());

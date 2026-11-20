@@ -1,6 +1,6 @@
 //! Haecceity's semantic/presentation documents with Specify's interview metadata.
 //! `Scene` caches the parsed source; answering never reloads STEP or geometry.
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use haecceity::{
     json::{self as wire, Semantic, presentation},
@@ -89,6 +89,63 @@ impl Scene {
         characteristics::carries_history(&self.read.parts[self.index], answers)
     }
 
+    /// The file's PMI, with the requirements not marked as Specify's. `saved_process`: the
+    /// stored answers hold a process, evidence that the part's attributes carry provenance.
+    pub(crate) fn file_pmi(&self, saved_process: bool) -> (&PartPmi, BTreeSet<(String, usize)>) {
+        let part = &self.read.parts[self.index];
+        let mut unmarked: BTreeSet<_> =
+            crate::provenance::unmarked(&self.doc, &self.read, self.index)
+                .into_iter()
+                .collect();
+        if self.foreign.is_some()
+            || saved_process
+            || part.attributes.iter().any(crate::process::is_process_set)
+        {
+            // In scoped files, other attributes also carry provenance, including
+            // manufacturing details attached to requirements. Process answers and
+            // attributes identify the same in files whose markers were stripped.
+            for (i, ids) in self.read.provenance.parts[self.index]
+                .attributes
+                .iter()
+                .enumerate()
+            {
+                if !resume::is_answers(&part.attributes[i])
+                    && !crate::provenance::marked(&self.doc, ids, "attribute")
+                {
+                    unmarked.insert(("attributes".to_string(), i));
+                }
+            }
+        }
+        (part, unmarked)
+    }
+
+    /// The file's process attribute: its index, the field with its authorship, and the
+    /// identity (set name and items) a Keep of it is bound to.
+    pub(crate) fn file_process(&self) -> Option<(usize, crate::bom::Field, Value)> {
+        let pmi = &self.read.parts[self.index];
+        crate::process::file_pmi(&self.doc, pmi, &self.read.provenance.parts[self.index]).map(
+            |(i, field)| {
+                let set = &pmi.attributes[i];
+                (i, field, json!({"name": set.name, "items": set.items}))
+            },
+        )
+    }
+
+    /// The identity of the process attribute a stored Keep was bound to.
+    pub(crate) fn kept_process(&self) -> Option<Value> {
+        resume::stored_in(&self.doc)
+            .remove(&self.index)
+            .and_then(|mut payload| payload.remove(resume::KEPT_PROCESS))
+    }
+
+    pub(crate) fn legacy_part_attributes(&self) -> bool {
+        self.foreign.is_none()
+            && !self.read.provenance.parts[self.index]
+                .attributes
+                .iter()
+                .any(|ids| crate::provenance::marked(&self.doc, ids, "attribute"))
+    }
+
     /// `None` shows only the file; `Some` shows the current answers. Stored origin/source are authoritative when showing the file.
     pub fn scene(
         &self,
@@ -96,7 +153,7 @@ impl Scene {
         analysis: Option<&Value>,
         answers: Option<&Map<String, Value>>,
     ) -> Result<Value, String> {
-        self.scene_mode(loaded, analysis, answers, false)
+        self.scene_mode(loaded, analysis, answers, false, None)
     }
 
     // Revision comparisons need current semantic notation, never stale As Drawn text.
@@ -106,7 +163,16 @@ impl Scene {
         analysis: &Value,
         answers: Option<&Map<String, Value>>,
     ) -> Result<Value, String> {
-        self.scene_mode(loaded, Some(analysis), answers, true)
+        self.scene_mode(loaded, Some(analysis), answers, true, None)
+    }
+
+    fn plans_add(&self) -> bool {
+        let before = &self
+            .foreign
+            .as_ref()
+            .map_or(&self.read, |(_, read)| read)
+            .parts[self.index];
+        (self.stored.is_none() || self.foreign.is_some()) && has_pmi(before)
     }
 
     fn scene_mode(
@@ -115,13 +181,14 @@ impl Scene {
         analysis: Option<&Value>,
         answers: Option<&Map<String, Value>>,
         comparison: bool,
+        prepared: Option<(PlannedScene, &Value)>,
     ) -> Result<Value, String> {
         let before = &self
             .foreign
             .as_ref()
             .map_or(&self.read, |(_, read)| read)
             .parts[self.index];
-        let foreign = (self.stored.is_none() || self.foreign.is_some()) && has_pmi(before);
+        let foreign = self.plans_add();
         if let Some(answers) = answers {
             let owned;
             let analysis = match analysis {
@@ -131,7 +198,10 @@ impl Scene {
                     &owned
                 }
             };
-            let (semantic, metadata, counts) = self.planned(loaded, analysis, answers, foreign)?;
+            let ((semantic, metadata, counts), file) = match prepared {
+                Some((plan, file)) => (plan, Some(file)),
+                None => (self.planned(loaded, analysis, answers, foreign)?, None),
+            };
             // Reusing a foreign datum does not author a new item or redraw its callout.
             if foreign
                 && semantic.pmi.material.is_none()
@@ -180,11 +250,14 @@ impl Scene {
                 } else {
                     self.file(loaded, None, comparison)?
                 };
-                merge(&mut result, file)?;
+                merge(&mut result, file, comparison)?;
             } else if comparison {
                 // Replace plans rebuild Specify requirements; keep CAD requirements even
                 // when the source also contains saved interview answers.
-                let mut file = self.scene_mode(loaded, Some(analysis), None, true)?;
+                let mut file = match file {
+                    Some(file) => file.clone(),
+                    None => self.scene_mode(loaded, Some(analysis), None, true, None)?,
+                };
                 let existing: std::collections::BTreeSet<String> = file["specify"]
                     .as_object()
                     .ok_or("invalid metadata")?
@@ -229,7 +302,7 @@ impl Scene {
                 // the same part note differently when the file has extra foreign PMI.
                 file["presentation"]["planes"] = json!([]);
                 file["presentation"]["views"] = json!([]);
-                merge(&mut result, file)?;
+                merge(&mut result, file, comparison)?;
             }
             let original = foreign
                 .then(|| {
@@ -503,19 +576,42 @@ impl Scene {
             .map(|(scene, _)| scene)
     }
 
-    /// The file's own scene for comparison (as [`Scene::comparison`] without answers), with
-    /// each scene id's item in the file's PMI: `(collection, index)` of haecceity's read of
-    /// the whole file. Reopening compares it with the stored answers' plan (ADR P9).
-    pub(crate) fn file_comparison(
+    /// Build the stored answers' writer plan once. The file scene uses its numbered
+    /// identities, and reconciliation uses the resulting planned and actual PMI.
+    pub(crate) fn reopening_comparison(
         &self,
         loaded: &LoadedPart,
         analysis: &Value,
-    ) -> Result<IndexedScene, String> {
-        let planned = match &self.stored {
-            Some(saved) => Some(self.planned(loaded, analysis, saved, false)?.1),
-            None => None,
-        };
-        self.file_indexed(loaded, planned.as_ref(), true, None)
+        stored: &Map<String, Value>,
+    ) -> Result<(IndexedScene, Value), String> {
+        let planned = self.planned(loaded, analysis, stored, self.plans_add())?;
+        let file = self.file_indexed(loaded, Some(&planned.1), true, None)?;
+        let comparison = self.scene_mode(
+            loaded,
+            Some(analysis),
+            Some(stored),
+            true,
+            Some((planned, &file.0)),
+        )?;
+        Ok((file, comparison))
+    }
+
+    /// Compare another #204 plan against the file scene already read on reopening.
+    pub(crate) fn comparison_with_file(
+        &self,
+        loaded: &LoadedPart,
+        analysis: &Value,
+        answers: &Map<String, Value>,
+        file: &Value,
+    ) -> Result<Value, String> {
+        let planned = self.planned(loaded, analysis, answers, self.plans_add())?;
+        self.scene_mode(
+            loaded,
+            Some(analysis),
+            Some(answers),
+            true,
+            Some((planned, file)),
+        )
     }
 
     fn file_indexed(
@@ -609,6 +705,12 @@ fn part_metadata(
         for i in 0..semantic.ids[collection].len() {
             let key = match collection {
                 "general" => Some("general_tolerance"),
+                "attributes"
+                    if crate::existing::general_tolerance_text(&semantic.pmi.attributes[i])
+                        .is_some() =>
+                {
+                    Some("general_tolerance")
+                }
                 "surface_textures" if semantic.pmi.surface_textures[i].on.is_none() => {
                     crate::existing::PART_NOTES
                         .iter()
@@ -621,8 +723,8 @@ fn part_metadata(
                 {
                     semantic.pmi.attributes[i]
                         .items
-                        .first()
-                        .and_then(|(kind, _)| {
+                        .iter()
+                        .find_map(|(kind, _)| {
                             crate::existing::PART_NOTES
                                 .iter()
                                 .find(|(_, stored)| *stored == kind)
@@ -657,6 +759,13 @@ fn part_metadata(
                     format!("{question}:{index}")
                 } else {
                     question.clone()
+                };
+                // Imported entries can use the same index (or state the same scalar
+                // setting twice). Each still has its own value and provenance.
+                let id = if semantic.ids[collection][i] != id && metadata.contains_key(&id) {
+                    format!("{id}:{i}")
+                } else {
+                    id
                 };
                 let old = std::mem::replace(
                     &mut semantic
@@ -1066,7 +1175,7 @@ fn prune_views(presentation: &mut Value) {
     }
 }
 
-fn merge(target: &mut Value, other: Value) -> Result<(), String> {
+fn merge(target: &mut Value, other: Value, comparison: bool) -> Result<(), String> {
     for (collection, rows) in other["pmi"]["pmi"]
         .as_object()
         .ok_or("invalid PMI document")?
@@ -1148,7 +1257,9 @@ fn merge(target: &mut Value, other: Value) -> Result<(), String> {
                 .ok_or("invalid presentation collection")?;
             for row in rows {
                 if let Some(old) = output.iter().find(|old| old["id"] == row["id"]) {
-                    if old != row {
+                    // A comparison can generate two different layouts for the same
+                    // general-notes block. The combined scene lays it out again.
+                    if old != row && !comparison {
                         return Err(format!("conflicting presentation {field} id {}", row["id"]));
                     }
                 } else {
@@ -1252,7 +1363,7 @@ mod tests {
         };
         let mut scene = document("generated");
         let file = document("file");
-        merge(&mut scene, file.clone()).unwrap();
+        merge(&mut scene, file.clone(), false).unwrap();
         assert_eq!(
             scene["presentation"]["views"],
             file["presentation"]["views"]

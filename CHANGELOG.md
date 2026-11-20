@@ -8,6 +8,9 @@ All notable changes to specify-core-rust. The format follows
 
 ### Added
 
+- `open` and MCP `show` can download and cache a pinned Specify app and the release-matched
+  WASM engine, with SHA-256 verification and a session API check. Local app and engine overrides
+  remain available. The initial `app.lock.json` is a placeholder and still requires a local app.
 - The page's `config` gives `api`, the version of the page contract (docs/open.md): 1, the
   contract of 0.2.0. It changes only in a minor release, so an app can check it is built for
   the command serving it.
@@ -32,6 +35,16 @@ All notable changes to specify-core-rust. The format follows
   `Face.area` and `Face.centroid` are `Option` in the Rust API. A face whose surface did not
   resolve keeps its refusal, and the mesh lists the face as not triangulated.
   For pzfreo/quiddity#303.
+- Reopening can resume a no-PMI face answer when each file item on its target faces has
+  an exact match in the stored answers' plan or the available plan with remaining
+  defaults accepted. Datum questions check both versions of the same datum. Part settings
+  compare every file entry, including each note, regardless of authorship. Withheld
+  answers follow ordinary file-PMI handling and stay in the file for reevaluation.
+  `write --accept-defaults` stores the defaults it takes that write no PMI.
+- Saves preserve edited printed general-tolerance notes and marked tolerances hidden by
+  imported tolerances. If comparison fails, reopening withholds the saved answers while
+  protecting the file's readable PMI (with an analysis warning from the CLI, serve, MCP and
+  Python; not yet from WASM or the page's session).
 - Reopening a STEP file detects manufacturing-process edits and removals against saved
   answers even after the STEP provenance markers have been stripped. CLI and editor
   rewrites preserve unmarked foreign process attributes, including text outside Specify's
@@ -41,6 +54,9 @@ All notable changes to specify-core-rust. The format follows
 ### WASM API
 
 - `AnalysisFace.area` and `AnalysisFace.centroid` are optional, and `AnalysisFace.unmeasured?: boolean` is added: a face whose area and centroid cannot be computed keeps its place in `analysis.faces` with `unmeasured: true` and no area or centroid. Other faces are unchanged. For pzfreo/quiddity#303.
+- `IntentEngine.review` can withhold no-PMI answers where the file states PMI with no
+  exact match in either comparison plan.
+  `IntentEngine.writePmi` retains those file requirements on save.
 
 ### Known limits
 

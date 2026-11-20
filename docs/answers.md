@@ -174,9 +174,9 @@ cone or floor claimed since).
   `resume.present: {id: value}`: the file answers the question with its default, so it is
   neither open nor a conflict, it is not repeated in `existing`, and it can still be answered
   otherwise (the answer then replaces it). `resume.answers` stays the stored answers.
-- **Only in the file**, added by another tool (no Specify provenance marker): in
-  `existing`, present and kept, never a conflict. Its question is not asked where the file's
-  PMI already states it.
+- **Only in the file**, added by another tool (no Specify provenance marker), is shown in
+  `existing` and kept. It can contradict a stored answer. Its question is settled wherever
+  the file's PMI already states it.
 - **Specify's own requirement that no stored answer states, stated otherwise than its
   default** (a default another tool changed while keeping Specify's marker, or a requirement
   Specify wrote from an intent rather than from answers): the file answers that question,
@@ -184,6 +184,24 @@ cone or floor claimed since).
   requirement is in `existing`, tagged `question: <id>`, the question is not asked, and
   every write keeps it until the question is answered (which gives it way). Specify's own
   requirements that no question accounts for at all are Specify's to state from the answers.
+- **An answer that writes no PMI** can resume after the file comparison. A face question
+  withholds it when a file item on its target faces has no exact match in either the plan
+  for all stored answers or the plan with remaining defaults accepted, when that alternative
+  is available. A match has the same kind, faces, value and tolerance. A location
+  dimension's target faces are the faces it locates. A datum question checks both the
+  stored datum's faces and the file datum's faces for the same letter.
+  For a part setting, every file entry must match an entry in the stored answer. This
+  includes every note, regardless of who wrote it. The ordinary file-PMI rules handle a
+  withheld answer (`resume.present`, `resume.file`, or `existing`). The question opens again
+  if those rules leave it open. Withholding creates no conflict. A save keeps the file's
+  requirements and carries the withheld answer for reevaluation on later opens.
+- **When planning or comparison fails**, Specify withholds the saved answers and treats the
+  readable PMI and part settings as the file's own. A save protects that PMI and carries the
+  withheld answers for reevaluation. The CLI, serve, MCP and Python report an analysis
+  warning; the WASM engine (the editor) and the page's session do not yet, so the page
+  shows only the questions asked again. Known limit: the answer that made comparison fail
+  (a notes list) is carried forward as it is and its question is not asked, so every
+  reopen of that file withholds the saved answers until the notes are answered again.
 - **Different, or only in the answers (removed in the file):** a conflict,
   `resume.conflicts: [{id, stored, file}]` (`file` is the file's notation, `null` when the
   file has none), with an analysis warning each. Until it is decided the file's state is
@@ -191,7 +209,7 @@ cone or floor claimed since).
   `question: <id>`; the stored answer is not resumed and the question is not asked.
 
 Part settings (material, general tolerance, finish, coating, heat treatment, edges, notes)
-follow the same rule; a setting in conflict keeps the file's value in `part`.
+use the file's value in `part` when the file answers the question or the setting is in conflict.
 
 When the file's requirement in conflict is another tool's (not marked as Specify's, and not
 one the person kept), the conflict says so (`foreign: true`): no answer replaces it, not even
@@ -222,8 +240,14 @@ the file. Restore it, or leave it removed?", and `choices` `[{choice: "keep", la
 {choice: "restore", label, answer}]`. A front end or agent puts them to the person and never
 decides them itself. Conflicts are not `open` questions: they do not block a write.
 
-**Known limits.** Two kinds of Specify-marked PMI that no stored answer explains are still
-dropped on rewrite, as they were before ADR P9: a default whose faces another tool moved
+Answers that write no PMI are stored whenever they are answers: given, or defaults approved
+(the page's Save, MCP's `save`, `write_pmi` and `export_answers` with `accept_defaults`).
+`write --accept-defaults` (and serve's `write` with `accept_defaults`), the person's "accept
+all", stores the defaults it takes that write no PMI as well; the defaults it takes that write
+PMI are not stored, and reopening reads them from the file as `resume.present`.
+
+**Known limits.** Outside the scope of withheld answers, ADR P9 still has two cases where
+Specify-marked PMI can be dropped on rewrite: a default whose faces another tool moved
 (it no longer pairs with its default), and a requirement written from a raw intent where no
 default exists (no question accounts for it). Keeping them needs the writer to match restated
 requirements by meaning rather than by characteristic key, so that what a rewrite states
@@ -232,13 +256,16 @@ When another tool strips all of Specify's markers from a replace-written STEP fi
 leaves no process evidence, rewrites restore saved answers and drop edited items, as in 0.2.0.
 
 When the writer rewrites a reopened part, it replaces Specify's own (provenance-marked)
-requirements from the answers and keeps every other one: PMI another tool added (unmarked)
-and, until decided, a conflict's file items (restoring gives them way). A part written by
+requirements from the answers and keeps every other one: PMI another tool added (unmarked),
+PMI in the scope of withheld answers, and a conflict's file items until decided. A part written by
 replace that holds such PMI is rewritten as a scoped Add (`pmi_scope`), so only its marked
 requirements are replaced; with nothing to keep the write is as before (a replace, and an
 unchanged rewrite keeps the file's bytes). A file written before Specify marked its
 requirements (#22) has none marked: all its PMI is its answers', so it opens and is rewritten
 as before (no reconciliation), and none of it is stated twice.
+In a legacy Replace file with marks only on part settings, the interview's `existing` list
+shows face PMI tied to a conflict or a file answer. Revision scenes read the full PMI and
+rewrites keep the unmarked requirements.
 
 ## Specify metadata
 

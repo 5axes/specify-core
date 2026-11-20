@@ -109,10 +109,12 @@ A Model Context Protocol server (revisions 2026-07-28 and 2025-11-25) for an LLM
 as Claude Code or Claude Desktop: tools to open a part, answer its questions, review and
 write its PMI. On stdio by default; with --http, Streamable HTTP on 127.0.0.1 with a random
 bearer token printed at start. Open documents and their answers are held in memory and lost
-when the server stops, unless a call names an answers_file. The show tool, which opens the
-Specify page on the same answers, is a preview: until the app is bundled it needs SPECIFY_APP_DIR
-(the built app), and SPECIFY_WASM_DIR (the engine's wasm-pack pkg/) when the engine is not in
-the app's wasm/. See docs/mcp.md.")]
+when the server stops, unless a call names an answers_file. The show tool opens the Specify
+page on the same answers. It downloads and caches the pinned app on first use. It fetches the
+engine only for a pinned app without a wasm/ directory, unless SPECIFY_WASM_DIR is set.
+An empty wasm/ directory also suppresses the engine download. Set SPECIFY_APP_DIR to use a
+local app or SPECIFY_WASM_DIR to use a local wasm-pack pkg/. Builds without a pin require
+a local app. See docs/mcp.md.")]
     Mcp {
         /// serve Streamable HTTP on 127.0.0.1 instead of stdio
         #[arg(long)]
@@ -215,8 +217,11 @@ With --diff OLD NEW the page shows what changed from OLD and starts from the ans
 to NEW (as `specify-core diff` carries them); Save writes NEW. Stops 90 seconds after the last
 page is closed, or after 30 minutes without a request.
 
-Preview: the app is not bundled yet. Pass --app DIR (or set SPECIFY_APP_DIR) to the built app
-and --wasm DIR (or SPECIFY_WASM_DIR) to the engine's wasm-pack pkg/ directory.")]
+On first use, Specify downloads and caches the pinned app. It fetches the engine only for a
+pinned app without a wasm/ directory, when neither --wasm nor SPECIFY_WASM_DIR is set. An empty
+wasm/ directory also suppresses the engine download. Use --app DIR (or SPECIFY_APP_DIR) for a
+local app and --wasm DIR (or SPECIFY_WASM_DIR) for a local wasm-pack pkg/ directory. Builds
+without a pin require a local app.")]
     Open {
         /// a .step or .stp file, or either gzipped
         #[arg(required_unless_present = "diff", conflicts_with = "diff")]
@@ -239,10 +244,10 @@ and --wasm DIR (or SPECIFY_WASM_DIR) to the engine's wasm-pack pkg/ directory.")
         /// print the address to open instead of opening a browser
         #[arg(long)]
         no_browser: bool,
-        /// the built Specify app (index.html at its root); default $SPECIFY_APP_DIR
+        /// a local Specify app (index.html at its root); overrides SPECIFY_APP_DIR and the pinned app
         #[arg(long, value_name = "DIR")]
         app: Option<PathBuf>,
-        /// the engine's wasm-pack pkg/ directory, served at wasm/; default $SPECIFY_WASM_DIR
+        /// a local wasm-pack pkg/ directory; overrides SPECIFY_WASM_DIR and the default engine
         #[arg(long, value_name = "DIR")]
         wasm: Option<PathBuf>,
     },
@@ -323,7 +328,7 @@ pub fn main(argv: &[String]) -> u8 {
     match result {
         Ok(()) => 0,
         Err(exit) => {
-            eprintln!("{}", exit.message);
+            let _ = writeln!(io::stderr(), "{}", exit.message);
             exit.code
         }
     }
@@ -611,6 +616,17 @@ fn write(
             crate::bom::accept_suggestions(&analysis, &answers, &mut intent)
                 .map_err(Exit::error)?;
         }
+        // Every default taken: those that write no PMI are stored with the answers (ADR P9).
+        // A part that cannot be loaded or planned stores what was given; the write refuses it.
+        let answers = if accept_defaults {
+            let index = analysis["binding"]["part"].as_u64().unwrap_or(0) as usize;
+            part::load(step, Some(index))
+                .ok()
+                .and_then(|loaded| api::stored_with_defaults(&loaded, &analysis, &answers).ok())
+                .unwrap_or(answers)
+        } else {
+            answers
+        };
         written.push((intent, Some(answers)));
     }
     if let Some(path) = intent_path {
@@ -697,7 +713,6 @@ fn open(
         OpenError::Refused(m) => Exit::new(2, format!("cannot open: {m}")),
         other => Exit::error(other),
     };
-    let found = assets(app, wasm).map_err(failed)?;
     let named = |path: &Path| {
         let name = path
             .file_name()
@@ -734,13 +749,17 @@ fn open(
         }
     }
     .map_err(refused)?;
+    let found = assets(app, wasm).map_err(failed)?;
     let session = std::sync::Arc::new(std::sync::Mutex::new(session));
     let served = App::new(session, found, options).map_err(failed)?;
     let url = served.url();
     print(out, &format!("Open {}: {url}", served.name()))?;
     out.flush().map_err(Exit::error)?;
     if !no_browser && let Err(e) = launch_browser(&url) {
-        eprintln!("warning: cannot open a browser ({e}); open the address above");
+        let _ = writeln!(
+            io::stderr(),
+            "warning: cannot open a browser ({e}); open the address above"
+        );
     }
     let mut written = Ok(());
     served

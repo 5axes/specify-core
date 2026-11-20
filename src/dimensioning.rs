@@ -1185,10 +1185,19 @@ pub(crate) fn apply(mut input: Input, intent: &mut Intent) -> Result<(), String>
 /// Already-stated dimensions are planner authorities, not fresh writer jobs. Their exact
 /// tolerance is opaque to the planner; the original PMI remains the authority in Add mode.
 pub(crate) fn stated(p: &haecceity::pmi::PartPmi) -> Vec<Map<String, Value>> {
+    stated_where(p, |_| true)
+}
+
+pub(crate) fn stated_where(
+    p: &haecceity::pmi::PartPmi,
+    include: impl Fn(usize) -> bool,
+) -> Vec<Map<String, Value>> {
     use haecceity::pmi::{DimTolerance, DimensionKind};
     p.dimensions
         .iter()
-        .filter_map(|d| {
+        .enumerate()
+        .filter(|(i, _)| include(*i))
+        .filter_map(|(_, d)| {
             let mut r = Map::new();
             let value = crate::existing::value(d.nominal.as_ref()?);
             match &d.kind {
