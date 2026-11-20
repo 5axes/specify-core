@@ -1,0 +1,410 @@
+/* Preview-only PMI lab (#859). Label styles follow step-pmi-viewer's. */
+.pmi-lab { position: fixed; inset: 0; background: #fff; color: #1a1d21;
+  font: 13px/1.45 ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif; }
+.pmi-lab-message { position: static; max-width: 640px; margin: 10vh auto; padding: 0 20px; }
+.pmi-lab-message small { font-size: 12px; color: #a86500; font-weight: 500; margin-left: 6px; }
+/* The front page: what Specify does, and where to put a part. */
+.pmi-front { overflow-y: auto; background: linear-gradient(180deg, #f3f6fa 0, #fff 340px); }
+.pmi-front header { display: flex; align-items: baseline; gap: 10px; max-width: 880px; margin: 0 auto; padding: 18px 24px; }
+.pmi-front header .brand { color: #1a1d21; font-weight: 700; font-size: 16px; text-decoration: none; }
+.pmi-front header .name { color: #2f6fb5; font-weight: 600; font-size: 16px; }
+.pmi-front header small { font-size: 11px; color: #a86500; font-weight: 500; margin-left: 4px; }
+.pmi-front-hero { max-width: 880px; margin: 0 auto; padding: 40px 24px 8px; }
+.pmi-front-hero h1 { font-size: 34px; line-height: 1.15; letter-spacing: -0.02em; margin: 0 0 14px; max-width: 640px; }
+.pmi-front-hero > p { font-size: 16px; color: #3a4450; max-width: 640px; margin: 0 0 28px; }
+.pmi-front-drop { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+  min-height: 170px; padding: 24px; border: 2px dashed #9db6d3; border-radius: 10px; background: #fff;
+  cursor: pointer; text-align: center; transition: border-color .15s, background .15s; position: relative; }
+.pmi-front-drop:hover, .pmi-front-drop.over { border-color: #2f6fb5; background: #f3f8fe; }
+.pmi-front-drop.off { cursor: default; }
+.pmi-front-drop input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.pmi-front-drop strong { font-size: 18px; }
+.pmi-front-drop span { color: #5a626b; }
+.pmi-front-drop u { color: #2f6fb5; text-decoration: none; font-weight: 600; }
+.pmi-front-drop p { margin: 0; color: #3a4450; }
+.pmi-front-samples { display: flex; flex-wrap: wrap; justify-content: center; align-items: stretch; gap: 8px;
+  margin-top: 14px; }
+.pmi-front-samples > span { flex-basis: 100%; text-align: center; color: #5a626b; font-size: 13px; }
+.pmi-lab .pmi-front-sample { display: grid; gap: 2px; min-width: 170px; padding: 8px 14px; border-color: #9db6d3;
+  color: #2f6fb5; text-align: center; }
+.pmi-lab .pmi-front-sample:hover { border-color: #2f6fb5; background: #f3f8fe; }
+.pmi-front-sample small { color: #5a626b; font-size: 11.5px; }
+.pmi-front-credit { flex-basis: 100%; text-align: center; color: #707880; font-size: 11px; }
+.pmi-front-trial { display: grid; justify-items: center; gap: 6px; margin-top: 12px; text-align: center; }
+.pmi-front-trial small { color: #5a626b; max-width: 520px; }
+.pmi-lab-register { display: grid; gap: 6px; padding: 8px; border: 1px solid #d9dee4; border-radius: 6px; background: #f7f9fc; }
+.pmi-lab-register p { margin: 0; font-size: 12px; color: #3a4450; }
+.pmi-lab .pmi-lab-register button.link { border: 0; background: none; color: #707880; }
+.pmi-front header .pmi-account { margin-left: auto; }
+.pmi-account { font-size: 12.5px; color: #5a626b; }
+.pmi-lab .pmi-account button.link, .pmi-account button.link { border: 0; background: none; padding: 0; color: #2f6fb5;
+  font: inherit; cursor: pointer; }
+.pmi-legal { display: inline-flex; gap: 12px; font-size: 12px; }
+.pmi-legal a { color: #707880; }
+.pmi-front-footer { max-width: 880px; margin: 0 auto; padding: 0 24px 32px; display: flex; justify-content: flex-end; }
+.pmi-lab-account { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding-top: 6px; border-top: 1px solid #eef1f4; }
+.pmi-lab-table-head .btns { display: inline-flex; gap: 4px; }
+.pmi-lab .pmi-lab-qif { padding: 4px 10px; font-size: 12px; color: #5a626b; border-style: dashed; }
+.pmi-qif-overlay { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center;
+  background: rgba(20, 24, 30, 0.45); }
+.pmi-qif { width: 440px; max-width: calc(100vw - 32px); padding: 22px; border-radius: 10px; background: #fff;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.25); }
+.pmi-qif h2 { margin: 0 0 10px; font-size: 18px; }
+.pmi-qif p { color: #3a4450; line-height: 1.5; }
+.pmi-qif .btns { display: flex; flex-wrap: wrap; gap: 8px; }
+.pmi-qif button { padding: 7px 12px; }
+/* Review/Edit and Characteristics: a switch that reads as one, not two faint tabs. */
+.pmi-lab .pmi-lab-views { border-bottom: 0; background: #eef1f4; border-radius: 7px; padding: 3px; gap: 3px; }
+.pmi-lab .pmi-lab-views button { flex: 1; border: 0; border-radius: 5px; padding: 5px 8px; color: #4a5360;
+  font-size: 13px; font-weight: 600; }
+.pmi-lab .pmi-lab-views button.on { background: #fff; color: #1f2933; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+  border-bottom: 0; }
+.pmi-lab .pmi-lab-table-head .csv { border-color: #2f6fb5; color: #2f6fb5; font-weight: 600; }
+.pmi-lab .pmi-lab-csv { padding: 4px 10px; font-size: 12px; color: #2f6fb5; border-color: #9db6d3; }
+.pmi-lab-exports { display: flex; gap: 6px; }
+.pmi-lab-exports button { flex: 1; }
+/* A compact foot: the actions on one row, exports small, the account smaller. */
+.pmi-lab-actions { display: flex; gap: 6px; }
+.pmi-lab .pmi-lab-actions .pmi-lab-go { flex: 1.5; }
+.pmi-lab .pmi-lab-actions .pmi-lab-save { flex: 1; padding: 8px 8px; }
+.pmi-lab .pmi-lab-exports button { padding: 3px 8px; font-size: 12px; }
+.pmi-lab-account { padding-top: 4px; font-size: 11.5px; }
+.pmi-lab-account .pmi-account { font-size: 11.5px; }
+.pmi-lab-pad details.pmi-lab-show { position: relative; display: block; align-self: flex-end; font-size: 12.5px; color: #1a1d21; }
+.pmi-lab-pad details.pmi-lab-show summary { list-style: none; cursor: pointer; padding: 3px 8px; border: 1px solid #d9dee4;
+  border-radius: 4px; background: #fff; }
+.pmi-lab-pad details.pmi-lab-show summary::-webkit-details-marker { display: none; }
+/* Opens up and to the left, inside the view: the menu sits at its bottom right. */
+.pmi-lab-pad details.pmi-lab-show > div { position: absolute; bottom: calc(100% + 4px); right: 0; display: grid; gap: 4px;
+  min-width: 170px; padding: 8px 10px; background: #fff; border: 1px solid #d9dee4; border-radius: 6px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12); white-space: nowrap;
+  /* A long list (many planes or saved views) scrolls inside the menu rather than running off the view. */
+  max-height: min(60vh, 520px); overflow-y: auto; overscroll-behavior: contain; }
+/* Turning square to an annotation plane or saved view: one button a plane, named by its callouts. */
+.pmi-lab-squares { display: grid; gap: 3px; padding-bottom: 6px; margin-bottom: 2px; border-bottom: 1px solid #e3e7ec; }
+.pmi-lab-squares > span { color: #707880; font-size: 11.5px; }
+.pmi-lab .pmi-lab-pad .pmi-lab-squares button { width: auto; height: auto; max-width: 260px; padding: 2px 6px; text-align: left;
+  font: 500 12px/1.3 ui-sans-serif, sans-serif; overflow: hidden; text-overflow: ellipsis; }
+.pmi-lab-resumed { margin: 4px 0 0; padding: 4px 8px; border-radius: 4px; background: #e9f6ee; color: #14632f;
+  font-size: 12px; }
+.pmi-front-button { display: inline-block; margin-top: 6px; padding: 8px 16px; border-radius: 6px;
+  background: #2f6fb5; color: #fff; font-weight: 600; text-decoration: none; }
+.pmi-front-steps { list-style: none; counter-reset: step; display: grid; grid-template-columns: repeat(3, 1fr);
+  gap: 18px; max-width: 880px; margin: 0 auto; padding: 32px 24px 48px; }
+.pmi-front-steps li { counter-increment: step; display: grid; gap: 4px; align-content: start; }
+.pmi-front-steps li::before { content: counter(step); display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; border-radius: 50%; background: #2f6fb5; color: #fff; font-weight: 700; font-size: 13px; }
+.pmi-front-steps b { font-size: 15px; margin-top: 4px; }
+.pmi-front-steps span { color: #5a626b; }
+@media (max-width: 700px) {
+  .pmi-front-hero { padding-top: 16px; }
+  .pmi-front-hero h1 { font-size: 26px; }
+  .pmi-front-steps { grid-template-columns: 1fr; }
+}
+.pmi-lab-view { position: absolute; inset: 0; }
+.pmi-lab-stage { position: absolute; inset: 0; overflow: hidden; }
+/* Bottom right, clear of three-cad-viewer's toolbar (top), tree (top left), filter (top right)
+   and axes (bottom left). */
+.pmi-lab-pad { position: absolute; right: 14px; bottom: 40px; z-index: 9;
+  display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.pmi-lab-pad > div { display: flex; gap: 4px; }
+.pmi-lab .pmi-lab-pad button { width: 26px; height: 24px; padding: 0; font: 600 13px/1 ui-sans-serif, sans-serif; }
+.pmi-lab .pmi-lab-pad button.wide { width: 46px; font-size: 11px; font-weight: 500; }
+.pmi-lab-pad > label { display: flex; align-items: center; gap: 4px; color: #707880; }
+.pmi-lab-pad input[type=range] { width: 120px; }
+/* View PMI: always shown, top centre just under three-cad-viewer's toolbar (42px), between its
+   tree (top left, 264px) and its filter and cube (top right). */
+.pmi-lab-viewpmi { position: absolute; top: 50px; left: 50%; transform: translateX(-50%); z-index: 9;
+  display: flex; align-items: center; gap: 2px; padding: 2px; max-width: calc(100% - 128px);
+  border: 1px solid #d9dee4; border-radius: 6px; background: #ffffffee; box-shadow: 0 1px 4px rgba(0, 0, 0, .08);
+  font-size: 12px; white-space: nowrap; }
+.pmi-lab-viewpmi > span { padding: 0 6px 0 4px; color: #707880; }
+.pmi-lab-viewpmi label { position: relative; display: flex; align-items: center; min-height: 24px; padding: 0 9px; border-radius: 4px;
+  color: #3a4450; cursor: pointer; }
+.pmi-lab-viewpmi label:hover { background: #eef3f9; }
+.pmi-lab-viewpmi label.on { background: #2f6fb5; color: #fff; font-weight: 600; }
+.pmi-lab-viewpmi label:has(input:focus-visible) { outline: 2px solid #2f6fb5; outline-offset: 1px; }
+/* The radio covers its label, unseen: what is tapped, focused and arrow-keyed. */
+.pmi-lab-viewpmi input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.pmi-lab-status { position: absolute; left: 110px; bottom: 14px; z-index: 9; color: #707880; font-size: 12px; }
+/* The notes' and drawn PMI's lettering: the host's --specify-mono-font, else IBM Plex Mono (Draftwright
+   drawings' lettering) when the host loads it, else the system monospace. The package loads no font. */
+/* The part's notes: a drawing's notes block, on the view where it stays put -- no box, its
+   lettering haloed as the labels are; folded to its heading when the part is wanted. */
+.pmi-lab-partnotes { position: absolute; left: 14px; bottom: 38px; z-index: 9; max-width: min(380px, calc(100% - 200px));
+  max-height: 40%; overflow: auto; color: #2f6fb5; font: 12px/1.35 var(--specify-mono-font, 'IBM Plex Mono', ui-monospace, monospace);
+  letter-spacing: .2px; font-variant-numeric: tabular-nums;
+  text-shadow: 0 0 3px #fff, 0 0 3px #fff, 0 0 2px #fff, 0 0 2px #fff;
+  /* The part shows through it, and is turned from it, but for its heading and notes' links. */
+  pointer-events: none; }
+.pmi-lab-partnotes summary, .pmi-lab .pmi-lab-partnotes li button { pointer-events: auto; }
+/* The heading in capitals; the notes come in capitals but for their values (noteStatements). */
+.pmi-lab-partnotes summary { padding: 2px 0 6px; cursor: pointer; list-style: none; text-transform: uppercase; }
+.pmi-lab-partnotes summary::-webkit-details-marker { display: none; }
+.pmi-lab-partnotes summary::after { content: ' ▾' / ''; }
+.pmi-lab-partnotes:not([open]) summary::after { content: ' ▸' / ''; }
+.pmi-lab-partnotes ol { margin: 0; padding: 0 0 0 3.2ch; display: grid; gap: 7px; }
+.pmi-lab-partnotes li { padding-left: 1ch; }
+.pmi-lab .pmi-lab-partnotes li button { border: 0; padding: 0; background: none; text-align: left; color: inherit; font: inherit; text-shadow: inherit; }
+.pmi-lab .pmi-lab-partnotes li button:hover { text-decoration: underline; }
+/* three-cad-viewer's own hover readout sits where ours does, and reads its tree's leaves (a leaf
+   is many faces, by state), not the part's faces: ours says the face under the pointer. */
+.pmi-lab .tcv_status_line { display: none !important; }
+.pmi-lab button { font: inherit; border: 1px solid #d9dee4; background: #fff; color: #1a1d21;
+  border-radius: 4px; padding: 3px 8px; cursor: pointer; }
+.pmi-lab button:hover { border-color: #2f6fb5; }
+.pmi-lab button:disabled { cursor: default; opacity: .55; }
+.pmi-lab button.on { background: #2f6fb5; border-color: #2f6fb5; color: #fff; }
+.pmi-lab button.default { box-shadow: inset 0 -2px #f2b134; }
+.pmi-lab button.ok { background: #e6f6f0; border-color: #8fd3bf; color: #00684c; font-weight: 600; }
+.pmi-lab button.ok:hover { border-color: #00684c; }
+.pmi-lab-panel { position: absolute; top: 10px; right: 10px; bottom: 10px; width: 358px; z-index: 10;
+  background: #f7f8fa; border: 1px solid #d9dee4; border-radius: 6px; display: flex; flex-direction: column;
+  overflow: hidden; box-shadow: 0 2px 10px rgba(0, 0, 0, .08); }
+.pmi-lab-panel header { padding: 10px 12px 9px; border-bottom: 1px solid #d9dee4; background: #fff; }
+.pmi-lab-panel header .title { display: flex; align-items: center; gap: 8px; }
+.pmi-lab-panel header strong { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pmi-lab-panel header small { display: block; color: #707880; }
+.pmi-lab .sheet-toggle { display: none; }
+.pmi-lab-note { margin: 4px 0 0; padding: 4px 8px; border-radius: 4px; background: #e8f3ee; color: #2c6650; font-size: 12px; }
+.pmi-lab-quick { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 4px 0 0; font-size: 12px; }
+.pmi-lab-quick > span { margin-right: 2px; color: #2c6650; font-weight: 600; }
+.pmi-lab .pmi-lab-quick button { padding: 2px 7px; font-size: 12px; }
+.pmi-lab .pmi-lab-call-out { margin: 4px 0 0; align-self: flex-start; max-width: 100%; font-size: 12px;
+  white-space: normal; text-align: left; }
+.pmi-lab-rows { flex: 1; min-height: 0; overflow-y: auto; overflow-anchor: none; }
+.pmi-lab-fields { display: grid; gap: 2px; padding: 11px 12px 12px; background: #fff; border-bottom: 1px solid #d9dee4; }
+.pmi-lab-field { display: grid; gap: 3px; }
+.pmi-lab-field .name { font-weight: 600; font-size: 12px; }
+.pmi-lab-field .name em { font-style: normal; font-weight: 600; color: #b04a00; font-size: 11px; margin-left: 4px; }
+.pmi-lab-field input, .pmi-lab-field select { font: inherit; font-size: 14px; padding: 6px 8px; border: 1px solid #c3cad3;
+  border-radius: 4px; background: #fff; color: inherit; width: 100%; box-sizing: border-box; }
+.pmi-lab-field.required input { border-color: #d55e00; box-shadow: 0 0 0 2px rgba(213, 94, 0, .14); }
+.pmi-lab-notes summary { cursor: pointer; display: grid; gap: 2px; padding: 2px 0; }
+.pmi-lab-notes summary .name { font-weight: 600; font-size: 12px; }
+.pmi-lab-notes summary .value { color: #5a626b; font-size: 12.5px; }
+.pmi-lab-notes[open] summary { margin-bottom: 8px; }
+.pmi-lab-notes[open] { display: grid; gap: 9px; }
+.pmi-lab .pmi-lab-line { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; width: 100%;
+  border: 0; border-bottom: 1px solid #eef1f4; border-radius: 0; background: none; padding: 5px 0; text-align: left; }
+.pmi-lab .pmi-lab-line:hover { background: rgba(47, 111, 181, .05); }
+.pmi-lab-line .name { font-weight: 600; font-size: 12.5px; white-space: nowrap; }
+.pmi-lab-line .value { color: #2f6fb5; font-size: 12.5px; text-align: right; overflow: hidden; text-overflow: ellipsis; }
+.pmi-lab-line.stated .value { color: #3a4450; }
+.pmi-lab-line.stated .value small { color: #8a929b; }
+.pmi-lab-line.open .value { color: #707880; }
+.pmi-lab-notes { display: grid; gap: 4px; padding-left: 8px; border-left: 2px solid #e3e7ec; }
+.pmi-lab-chev { display: inline-block; width: 1em; margin-right: 4px; color: #2f6fb5; font-size: 11px;
+  transition: transform .15s; transform-origin: 40% 50%; }
+.pmi-lab-chev.open { transform: rotate(90deg); }
+.pmi-lab-field .why { color: #707880; font-size: 11.5px; }
+.pmi-lab-field.stated .value { font-size: 14px; padding: 2px 0; }
+.pmi-lab-rows-title { margin: 0; padding: 10px 12px 4px; font-size: 11px; font-weight: 600; letter-spacing: .04em;
+  text-transform: uppercase; color: #707880; }
+.pmi-lab-row { border-bottom: 1px solid #d9dee4; }
+.pmi-lab-row.current { background: #fff; box-shadow: inset 3px 0 #009ccf; }
+.pmi-lab .pmi-lab-row-head { display: block; width: 100%; text-align: left; border: 0; border-radius: 0;
+  background: none; padding: 8px 12px; }
+.pmi-lab .pmi-lab-row-head:hover { background: rgba(47, 111, 181, .06); }
+.pmi-lab-row-head .st { float: right; font-size: 11px; color: #707880; border-radius: 9px; padding: 0 7px;
+  background: #eceff2; }
+.pmi-lab-row.required .st { color: #fff; background: #d55e00; font-weight: 600; }
+.pmi-lab-row.check .st { color: #7a4a00; background: #fde7b8; font-weight: 600; }
+.pmi-lab-row.set .st { color: #1d4f86; background: #dde9f6; }
+.pmi-lab-row-head .sum { display: block; color: #707880; font-size: 12px; }
+.pmi-lab-datums { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; padding: 0 12px 9px; }
+.pmi-lab-datums .chip { display: inline-flex; align-items: center; gap: 5px; border: 1px solid #c3cad3; border-radius: 4px;
+  background: #fff; padding: 1px 2px 1px 1px; font-size: 12px; }
+.pmi-lab-datums .chip.existing { background: #f3f5f7; color: #5a626b; }
+.pmi-lab-datums .chip.on { border-color: #009ccf; background: #1ec8ff1f; }
+.pmi-lab .pmi-lab-datums .letter { font-weight: 700; min-width: 22px; padding: 1px 5px; border: 1px solid #2f6fb5;
+  border-radius: 3px; background: #fff; color: #2f6fb5; }
+.pmi-lab .pmi-lab-datums .letter:disabled { border-color: #8a929b; color: #5a626b; cursor: default; }
+.pmi-lab .pmi-lab-datums .x { border: 0; background: none; color: #8a929b; padding: 0 5px; font-size: 12px; }
+.pmi-lab .pmi-lab-datums .x:hover { color: #b3261e; }
+.pmi-lab .pmi-lab-datums .add { font-size: 12px; padding: 2px 8px; border-style: dashed; }
+.pmi-lab-datums .none { color: #707880; font-size: 12px; }
+.pmi-lab .pmi-lab-cancel { margin: 0 12px 9px; }
+/* A choice pmi-assist made, in its row: field, choice and alternatives, why. */
+/* A balloon number: on a label, beside a row's title, in the table. */
+/* As an inspector draws one: a ringed number, readable at a glance. */
+.pmi-lab .bal { display: inline-block; box-sizing: border-box; min-width: 19px; height: 19px; padding: 0 4px;
+  margin: 0 4px; border: 1.5px solid currentColor; border-radius: 10px; background: #fff; color: #1a1d21;
+  font-size: 11px; font-weight: 700; line-height: 16px; text-align: center; font-style: normal;
+  vertical-align: middle; }
+/* On the part, the ring takes the label's colour; the number stays dark. */
+.pmi-lab .pmi .bal { color: inherit; }
+.pmi-lab .pmi .bal { -webkit-text-fill-color: #1a1d21; }
+.pmi .pmi-in .bal { margin: 0 4px 0 0; }
+.pmi-lab-views { display: flex; gap: 2px; margin-top: 8px; border-bottom: 1px solid #e3e7ec; }
+.pmi-lab .pmi-lab-views button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none;
+  padding: 4px 10px; font-size: 12.5px; font-weight: 600; color: #707880; }
+.pmi-lab .pmi-lab-views button.on { color: #1f2933; border-bottom-color: #2f6fb5; }
+.pmi-lab-table { padding: 8px 10px; overflow-x: auto; }
+.pmi-lab-table-head { display: flex; gap: 8px; align-items: center; justify-content: space-between; font-size: 11.5px;
+  color: #707880; margin-bottom: 6px; }
+.pmi-lab-table-head button { font-size: 12px; padding: 2px 8px; white-space: nowrap; }
+.pmi-lab-table table { width: 100%; border-collapse: collapse; font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.pmi-lab-table th { text-align: left; color: #707880; font-weight: 600; border-bottom: 1px solid #d9dee4; padding: 3px 4px; }
+.pmi-lab-table td { border-bottom: 1px solid #eef1f4; padding: 4px; vertical-align: top; }
+.pmi-lab-table td .bal { margin: 0; }
+.pmi-lab-table td.text { min-width: 7em; }
+.pmi-lab-table td.tol { font-size: 10.5px; line-height: 1.25; white-space: nowrap; }
+.pmi-lab-table tbody tr { cursor: pointer; }
+.pmi-lab-table tbody tr:hover { background: #f3f6fa; }
+.pmi-lab-table tbody tr.on { background: #1ec8ff1f; box-shadow: inset 3px 0 #009ccf; }
+.pmi-lab-table tbody tr.on td:last-child { background: #fff6e5; }
+.pmi-lab-table tbody tr.sub td { color: #4a5360; }
+.pmi-lab-table tbody tr.sub:not(.on) { background: #fafbfc; }
+.pmi-lab-table tbody tr.sub td:first-child { padding-left: 12px; }
+.pmi-lab-table .chev { display: inline-block; width: 10px; color: #707880; }
+.pmi-lab-table tbody tr.skip td:not(:first-child):not(:last-child) { color: #a3aab2; text-decoration: line-through; }
+.pmi-lab-table td input[type=checkbox] { margin: 0; }
+.pmi-lab .pmi-lab-table button.edit { border: 0; background: none; padding: 0 2px; font-size: 13px; color: #2f6fb5; cursor: pointer; }
+/* Where a row is changed or called out stays in sight while the table scrolls sideways. */
+.pmi-lab-table td:last-child { position: sticky; right: 0; background: #fff; }
+.pmi-lab-table.view td:last-child { position: static; background: none; }
+.pmi-lab .pmi-lab-table button.call-out { border: 0; background: none; padding: 0 2px; font-size: 12px; color: #2f6fb5; cursor: pointer; white-space: nowrap; }
+.pmi-lab-table tbody tr.general-summary td { color: #5a626b; font-style: italic; cursor: pointer; }
+.pmi-lab-cards { display: grid; gap: 5px; padding: 0 12px 9px; }
+.pmi-lab-suggestion { background: #fbf8ff; border: 1px solid #e2d9f3; border-left: 3px solid #7b5cc4;
+  border-radius: 5px; padding: 5px 8px; }
+.pmi-lab-fields .pmi-lab-suggestion { margin: 2px 0; }
+.pmi-lab-suggestion.check { background: #fff8ea; border-color: #f0d79a; border-left-color: #c47f00; }
+.pmi-lab-suggestion .field { font-weight: 600; font-size: 12px; margin-bottom: 3px; }
+.pmi-lab-suggestion .field em { font-style: normal; font-weight: 400; color: #a86500; }
+.pmi-lab-suggestion .why { color: #6b6380; font-size: 11.5px; margin-top: 3px; }
+.pmi-lab-suggestion .btns { display: flex; flex-wrap: wrap; gap: 4px; }
+.pmi-lab-suggestion .btns button { font-size: 12px; padding: 1px 8px; }
+.pmi-lab .pmi-lab-suggestion .ok, .pmi-lab .pmi-lab-review .ok {
+  background: #e9f6ee; border-color: #9fd3b3; color: #14632f; font-weight: 600; }
+.pmi-lab .pmi-lab-suggestion .more { border-style: dashed; color: #5d5470; }
+.pmi-lab-suggestion .suggested { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 4px; font-size: 12.5px; color: #4a4360; }
+.pmi-lab .pmi-lab-suggestion .keep { background: #fff; border-color: #7b5cc4; color: #4b2f93; font-weight: 600; }
+.pmi-lab-tick { color: #14632f; font-weight: 700; margin-right: 4px; }
+.pmi-lab-review { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; font-size: 12px;
+  color: #5d5470; }
+.pmi-lab-review button { font-size: 12px; padding: 1px 8px; }
+.pmi-lab .pmi-lab-review .warn { background: #fff8ea; border-color: #f0d79a; color: #7a4a00; }
+.pmi-lab-review label { margin-left: auto; color: #707880; }
+.pmi-lab .pmi-lab-row > .problem { display: block; width: calc(100% - 24px); margin: 0 12px 6px; text-align: left;
+  font-size: 12px; padding: 5px 8px; border-radius: 4px; border: 1px solid #f0d79a; border-left: 3px solid #c47f00;
+  background: #fff8ea; }
+.pmi-lab .pmi-lab-row > .problem.info { border-color: #d9e3ef; border-left-color: #6f8db3; background: #f3f6fa; }
+.pmi-lab-rules { margin: 10px 12px; padding-left: 8px; border-left: 2px solid #d4c7ef; color: #5d5470; font-size: 12px;
+  display: grid; gap: 3px; }
+.pmi-lab-datums .sg { color: #7b5cc4; font-size: 10.5px; font-style: italic; }
+/* On the part: a suggestion is drawn dashed until it is kept or changed. */
+.pmi-lab .pmi.default .fcf, .pmi-lab .pmi.default .datum, .pmi-lab .pmi.default .fcf span { border-style: dashed; }
+.pmi-lab .pmi.default .pmi-in { font-style: italic; }
+.pmi-lab-problems { display: grid; gap: 5px; padding: 0 12px 10px; background: #fff; border-bottom: 1px solid #d9dee4; }
+.pmi-lab .pmi-lab-problems .problem { text-align: left; font-size: 12px; padding: 6px 8px; border-radius: 4px;
+  border: 1px solid #e1e5ea; border-left-width: 3px; background: #fff; }
+.pmi-lab .pmi-lab-problems .problem.warning { border-left-color: #c47f00; background: #fff8ea; }
+.pmi-lab .pmi-lab-problems .problem.info { border-left-color: #6f8db3; background: #f3f6fa; }
+.pmi-lab .pmi-lab-row-head.static { cursor: default; }
+.pmi-lab .pmi-lab-row-head.static:hover { background: none; }
+.pmi-lab .pmi-lab-datums .what-button { border: 0; background: none; padding: 1px 6px; font-size: 12px; color: #2f6fb5; }
+.pmi-lab-extra { margin-bottom: 9px; }
+.pmi-lab-confirm { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 12px 9px; align-items: center; }
+.pmi-lab-confirm .reason { flex-basis: 100%; font-size: 12px; color: #5d4300; }
+.pmi-lab .pmi-lab-item { display: flex; gap: 8px; justify-content: space-between; align-items: baseline;
+  width: calc(100% - 24px); margin: 0 12px 6px; text-align: left; background: #fff; border: 1px solid #e1e5ea;
+  border-radius: 4px; padding: 6px 8px; }
+.pmi-lab .pmi-lab-item .value { color: #2f6fb5; white-space: nowrap; font-size: 12px; }
+.pmi-lab .pmi-lab-item.on { display: block; border-color: #009ccf; cursor: default; }
+.pmi-lab-item .prompt { font-weight: 600; font-size: 12.5px; }
+.pmi-lab-item.required .prompt::after { content: " · needs an answer"; color: #b04a00; font-weight: 400; }
+.pmi-lab-item.check .prompt::after { content: " · please check"; color: #a86500; font-weight: 400; }
+.pmi-lab-item .reset { float: right; font-size: 11px; padding: 1px 6px; color: #707880; }
+.pmi-lab-item .reason { background: #fff6e5; border-left: 3px solid #f2b134; padding: 5px 7px; margin: 5px 0; font-size: 12px; }
+.pmi-lab-item .reason button { margin-top: 4px; }
+.pmi-lab-item .why { color: #707880; font-size: 11.5px; margin: 4px 0 8px; }
+.pmi-lab-item .opts { display: flex; flex-wrap: wrap; gap: 5px; margin: 4px 0; }
+.pmi-lab-item .hint { background: #f3f6fa; border-left: 3px solid #6f8db3; border-radius: 3px; color: #3a4450; font-size: 12px; margin: 6px 0 4px; padding: 5px 8px; }
+.pmi-lab-purposes { display: grid; gap: 5px; margin: 4px 0 6px; }
+.pmi-lab .pmi-lab-purposes button { display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
+  text-align: left; padding: 7px 9px; background: #fff; }
+.pmi-lab .pmi-lab-purposes button.on { border-color: #2f6fb5; background: #eef4fb; color: inherit; box-shadow: inset 3px 0 #2f6fb5; }
+.pmi-lab-purposes .label { font-weight: 600; font-size: 13px; }
+.pmi-lab-purposes .code { color: #2f6fb5; font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.pmi-lab-item .opts.codes button { font-size: 11.5px; padding: 2px 7px; }
+.pmi-lab-item .callout { font-size: 13px; margin: 6px 0 2px; font-variant-numeric: tabular-nums; }
+.pmi-lab-item .callout span { color: #707880; font-size: 11px; text-transform: uppercase; letter-spacing: .04em; margin-right: 4px; }
+.pmi-lab-spec { margin: 8px 0 2px; }
+.pmi-lab-spec .row { display: flex; gap: 5px; }
+.pmi-lab .pmi-lab-spec input[type=text] { flex: 1; min-width: 0; font-size: 14px; padding: 5px 8px; }
+.pmi-lab-spec button { flex: none; }
+.pmi-lab-suggest { position: relative; }
+.pmi-lab-field .pmi-lab-suggest input.invalid { border-color: #d55e00; box-shadow: 0 0 0 2px rgba(213, 94, 0, .14); }
+.pmi-lab-suggestions { position: absolute; z-index: 5; left: 0; right: 0; top: calc(100% + 2px); max-height: 260px;
+  overflow-y: auto; margin: 0; padding: 0 0 4px; list-style: none; background: #fff; border: 1px solid #c3cad3;
+  border-radius: 4px; box-shadow: 0 4px 14px rgba(0, 0, 0, .14); }
+.pmi-lab-suggestions li { padding: 5px 9px; cursor: pointer; display: grid; }
+.pmi-lab-suggestions li.first::before { content: attr(data-group); display: block; margin: 4px -9px 3px; padding: 3px 9px;
+  font-size: 10.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: #707880; background: #f3f5f7; }
+.pmi-lab-suggestions li.active, .pmi-lab-suggestions li:hover { background: #eef4fb; }
+.pmi-lab-suggestions .name { font-size: 13.5px; }
+.pmi-lab-suggestions .also { font-size: 11px; color: #707880; }
+.pmi-lab-item .faces { color: #707880; margin: 6px 0; font-variant-numeric: tabular-nums; }
+.pmi-lab-item input[type=text] { font: inherit; width: 100%; padding: 4px 6px; border: 1px solid #d9dee4; border-radius: 4px; }
+.pmi-lab-panel footer { padding: 8px 12px; border-top: 1px solid #d9dee4; display: grid; gap: 5px; background: #fff; }
+.pmi-lab .pmi-lab-go { background: #2f6fb5; border-color: #2f6fb5; color: #fff; padding: 8px 10px; font-weight: 600; }
+.pmi-lab .pmi-lab-save { padding: 6px 10px; font-weight: 600; color: #2f6fb5; border-color: #2f6fb5; background: #fff; }
+.pmi-lab-go-note { color: #707880; font-size: 11.5px; }
+.pmi-lab-error { color: #b3261e; margin: 4px 0; white-space: pre-wrap; }
+
+/* A phone: the part above, the panel a sheet below it that can be pulled up over it. */
+@media (max-width: 700px) {
+  .pmi-lab-view { bottom: 46dvh; }
+  .pmi-lab-panel { top: auto; left: 0; right: 0; bottom: 0; width: auto; height: 46dvh; border-radius: 10px 10px 0 0;
+    border-width: 1px 0 0; box-shadow: 0 -2px 12px rgba(0, 0, 0, .12); }
+  .pmi-lab.sheet-open .pmi-lab-panel { height: 88dvh; }
+  .pmi-lab .sheet-toggle { display: inline-block; font-size: 12px; }
+  .pmi-lab-status, .pmi-lab-go-note:not(.blocked) { display: none; }
+  /* Tappable, and clear of the Tools/Info toggles (left, 57px) and the cube (right, below it). */
+  .pmi-lab-viewpmi { max-width: calc(100% - 120px); font-size: 11.5px; }
+  .pmi-lab-viewpmi > span { padding: 0 3px; }
+  .pmi-lab-partnotes { bottom: 8px; max-width: calc(100% - 150px); max-height: 30%; }
+  .pmi-lab-viewpmi label { min-height: 32px; padding: 0 7px; }
+}
+
+/* Labels on the part */
+.pmi-lab .pmi { position: relative; white-space: nowrap; font-size: 11.5px; font-weight: 600; pointer-events: none;
+  font-variant-numeric: tabular-nums; text-shadow: 0 0 3px #fff, 0 0 3px #fff, 0 0 2px #fff, 0 0 2px #fff; }
+.pmi-lab .pmi.default { opacity: .85; }
+.pmi-lab .pmi.hidden { display: none; }
+/* A file's own text (Graphical): as the file writes it, where it places it. */
+.pmi-lab .pmi-drawn { white-space: pre; font-size: 11.5px; pointer-events: none;
+  text-shadow: 0 0 3px #fff, 0 0 3px #fff, 0 0 2px #fff, 0 0 2px #fff; }
+.pmi-lab .pmi-drawn span { display: inline-block; }
+/* Placed text: its alignment point at the tag, turned and sized in drawn-layer.ts. */
+.pmi-lab .pmi-drawn-placed { width: 0; height: 0; }
+.pmi-lab .pmi-drawn-placed span { position: absolute; left: 0; top: 0; transform-origin: 0 0; line-height: 1; }
+.pmi-lab .pmi-in { display: inline-block; transform: translate(9px, -50%); will-change: transform; }
+.pmi-lab .pmi .sub { font-weight: 400; opacity: .8; }
+.pmi-lab .pmi .times { font-weight: 700; }
+.pmi-lab .fcf { display: inline-flex; border: 1.3px solid currentColor; border-radius: 1px; background: #fff;
+  text-shadow: none; overflow: hidden; }
+.pmi-lab .fcf span { padding: 1px 6px; border-right: 1.3px solid currentColor; display: inline-flex;
+  align-items: center; justify-content: center; min-width: 20px; }
+.pmi-lab .fcf span:last-child { border-right: 0; }
+.pmi-lab .fcf .sym { font-size: 13px; line-height: 1; }
+.pmi-lab .datum { display: inline-flex; border: 1.3px solid currentColor; border-radius: 1px; background: #fff;
+  text-shadow: none; padding: 1px 7px; min-width: 20px; justify-content: center; }
+.pmi-lab .tolpair { display: inline-flex; flex-direction: column; align-items: flex-start; font-size: 8.5px;
+  line-height: 1.12; font-weight: 500; margin-left: 2px; vertical-align: middle; }
+.pmi-lab .tolsym { font-weight: 500; font-size: 10.5px; margin-left: 2px; }
+fieldset.pmi-lab-rows { min-width: 0; margin: 0; padding: 0; border: 0; }
+
+.pmi-lab-pending { display: block; margin-top: 3px; font-size: 11.5px; color: #8a5a00; }
+/* The viewer's own tools come on request, in the same corner as Show. */
+.pmi-lab .pmi-lab-pad button.pmi-lab-more-tools { width: auto; height: auto; align-self: flex-end; padding: 3px 8px; font-size: 12.5px; }
+.pmi-lab .pmi-lab-pad button.pmi-lab-more-tools[aria-pressed="true"] { background: #e8f0f8; border-color: #2f6fb5; }
+/* The viewer's toolbar and tools panel, folded away until "More view tools". */
+.cad-tools-hidden .tcv_cad_toolbar, .cad-tools-hidden .tcv_cad_navigation { display: none !important; }
+.pmi-lab-none { margin: 0; padding: 10px 12px; color: #5a626b; font-size: 12.5px; }
+.pmi-lab-keep-all { margin-top: 6px; padding: 6px 8px; border: 1px solid #c9dccf; border-radius: 4px; background: #f3f9f5; font-size: 12px; }
+.pmi-lab-keep-all p { margin: 0 0 4px; }
+.pmi-lab-keep-all ul { margin: 0 0 6px; padding-left: 18px; max-height: 180px; overflow: auto; }

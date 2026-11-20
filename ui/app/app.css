@@ -1,0 +1,57 @@
+/* The app's frame: a header, the review filling the rest, an About line. The review's panes
+   (.pmi-lab-pane) are fixed over the page in the package; here they fill the main area. */
+:root { --specify-mono-font: 'IBM Plex Mono', ui-monospace, monospace; }
+html, body, #root { height: 100%; margin: 0; }
+body { background: #fff; color: #1a1d21; font: 13px/1.45 ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif; }
+.app { display: flex; flex-direction: column; height: 100%; }
+.app-header { display: grid; grid-template-columns: 1fr auto; gap: 2px 16px; align-items: center;
+  padding: 8px 14px; border-bottom: 1px solid #d9dee4; background: #fff; }
+.app-title { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.app-brand { font-size: 16px; font-weight: 700; }
+.app-file { font-size: 15px; font-weight: 600; color: #2f6fb5; white-space: nowrap; }
+.app-path { color: #707880; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.app-badge { font-size: 11px; padding: 1px 6px; border-radius: 3px; background: #eef1f5; color: #3a4450; }
+.app-dirty { font-size: 12px; color: #a86500; }
+.app-actions { display: flex; align-items: center; gap: 8px; }
+.app-exports { display: flex; flex-wrap: wrap; gap: 6px; }
+.app-inspection-source { flex-basis: 100%; max-width: 44em; color: #707880; font-size: 11.5px; }
+.app button { font: inherit; padding: 5px 10px; border: 1px solid #c4ccd6; border-radius: 4px; background: #fff; color: #1a1d21; cursor: pointer; }
+.app button:disabled { opacity: .5; cursor: default; }
+.app .app-save { background: #2f6fb5; border-color: #2f6fb5; color: #fff; font-weight: 600; padding: 5px 16px; }
+.app-paths { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px 18px; color: #707880; font-size: 12px; }
+.app-paths code, .app-path { font-family: var(--specify-mono-font); }
+.app-saved { color: #2c6650; }
+.app-open-questions summary { cursor: pointer; }
+.app-open-questions ul { margin: 4px 0; padding-left: 20px; max-height: 160px; overflow: auto; }
+.app-problem { margin: 0; padding: 6px 14px; background: #fbeaea; color: #b3261e; white-space: pre-wrap; }
+.app-main { position: relative; flex: 1; min-height: 0; overflow: hidden; }
+.app-loading { position: absolute; inset: 0; display: grid; place-items: center; margin: 0; color: #707880; }
+.app-slot { position: absolute; inset: 0; }
+.app-main .pmi-lab.pmi-lab-pane { position: absolute; inset: 0; }
+.app-panel { pointer-events: none; }
+.app-panel .pmi-lab { background: transparent; pointer-events: none; }
+.app-panel .pmi-lab-panel { pointer-events: auto; }
+.app-about { padding: 4px 14px; border-top: 1px solid #d9dee4; color: #707880; font-size: 11.5px; }
+.app-about a { color: #2f6fb5; }
+@media (max-width: 700px) {
+  .app-header { grid-template-columns: 1fr; }
+  .app-path { display: none; }
+}
+.app-agent { margin: 0; padding: 6px 14px; background: #e8f3ee; color: #2c6650; animation: app-agent-in 1.2s ease-out; }
+@keyframes app-agent-in { from { background: #bfe3cf; } to { background: #e8f3ee; } }
+.app-old { color: #707880; font-weight: 500; }
+.app-tabs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 6px 14px; border-bottom: 1px solid #d9dee4; background: #f7f8fa; }
+.app-tabs [role="tab"][aria-selected="true"] { background: #2f6fb5; border-color: #2f6fb5; color: #fff; }
+.app-decide { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-left: 12px; color: #a86500; }
+.app .app-decision { border-color: #e0b56a; background: #fff8ea; max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.app-diff { position: absolute; inset: 0; z-index: 2; overflow: auto; background: #fff; }
+.app-diff[hidden] { display: none; }
+/* The answers stay laid out under the changes, so their view keeps its size. */
+.app-slot.app-under, .app-slot.app-under * { visibility: hidden !important; }
+.app-part { font-size: 12px; color: #3a4450; } .app-part select { font: inherit; max-width: 240px; }
+.app-agent-lit { outline: 2px solid #3d9a6e; outline-offset: 2px; border-radius: 4px; background: #e8f3ee; animation: app-agent-in 1.2s ease-out; }
+.app-offline { margin: 0; padding: 6px 14px; background: #fff4e0; color: #8a5300; }
+.app .app-dismiss { margin-left: 8px; padding: 1px 8px; font-size: 12px; }
+.app-defaults { margin: 0; padding: 8px 14px; background: #fff8ea; border-bottom: 1px solid #e0b56a; }
+.app-defaults p { margin: 0 0 4px; }
+.app-defaults ul { margin: 0 0 8px; padding-left: 20px; max-height: 240px; overflow: auto; }
