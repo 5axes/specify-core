@@ -714,3 +714,8 @@ show them as answered. `review` presents the undecided ones as `conflicts`,
 
 The conflict's question is not in `questions` or `open` until decided, and an undecided
 conflict never blocks `writePmi`: the file's state is what is written.
+
+`resume.foreign` (only when there are some) lists the ids of questions the file answers with
+another tool's requirement among Specify's own, such as a hole's position tolerance beside
+Specify's location dimensions. Like a foreign conflict, such a question is not asked, and an
+answer to it is neither written nor stored; the report's `not_written` gives the reason.

@@ -40,6 +40,8 @@ All notable changes to specify-core-rust. The format follows
   `resume.foreign`, not asked, and its answer is neither written nor stored. A Keep of a
   foreign conflict is no longer stored as permission to replace it. `not_written` names the
   cause: "another tool's requirement holds this question; keep it, or change it in that tool".
+  Known limit: a file saved by 0.2.0 after such a Keep still records it, and an answer can
+  still replace that requirement.
 
 ### WASM API
 
