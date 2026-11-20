@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { groupQuestions, needs, summary } from '../src/specify/review.ts';
+import { groupQuestions, isNone, needs, noneSuggested, NONE_SUGGESTED, rowState, summary } from '../src/specify/review.ts';
 import { optionHint } from '../src/specify/hints.ts';
 
 test('Specify row titles use typed titles despite edited or translated prompts', () => {
@@ -36,4 +36,20 @@ test('in the Part row, process comes before material; the other part questions k
   const q = id => ({ id, prompt: id, faces: [] });
   const [part] = groupQuestions([q('part.material'), q('part.general_tolerance'), q('hole.function:h1'), q('part.process')]);
   assert.deepEqual(part.questions.map(x => x.id), ['part.process', 'part.material', 'part.general_tolerance']);
+});
+
+test('specify-ui#14: a row is answered only when none of its questions is open; "none" suggestions read as such', () => {
+  const q = (id, def) => ({ id, prompt: id, faces: [], default: def, attention: 'routine', kind: 'faces' });
+  const [datums] = groupQuestions([q('datum.A', [1]), q('datum.B', [2]), q('datum.C', [])]);
+  assert.equal(rowState(datums, { 'datum.A': [1], 'datum.B': [2] }), 'ok', 'not answered while datum C is open');
+  assert.equal(rowState(datums, { 'datum.A': [1], 'datum.B': [2], 'datum.C': [] }), 'set');
+  // Never-open questions (a full-thread depth, a parts-list row, the process) do not hold a row back.
+  const [hole] = groupQuestions([{ ...q('hole.function:h', 'fit:H7'), feature: 'h' }, { ...q('hole.full_thread:h', 6), feature: 'h' }]);
+  assert.equal(rowState(hole, { 'hole.function:h': 'fit:H7' }), 'set');
+  for (const value of [[], 'None', 'None (as machined)', 'none']) assert.ok(isNone(value), JSON.stringify(value));
+  for (const value of [[3], 'Anodised', 'ISO 2768-m']) assert.ok(!isNone(value), JSON.stringify(value));
+  assert.ok(noneSuggested(q('part.notes', []), {}));
+  assert.ok(!noneSuggested(q('part.notes', []), { 'part.notes': [] }), 'answered none is an answer, not a suggestion');
+  assert.ok(!noneSuggested(q('part.material', null), {}), 'no suggestion at all is not a none suggestion');
+  assert.equal(NONE_SUGGESTED, 'None (suggested)');
 });

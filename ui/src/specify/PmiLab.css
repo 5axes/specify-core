@@ -174,7 +174,7 @@
 .pmi-lab .pmi-lab-call-out { margin: 4px 0 0; align-self: flex-start; max-width: 100%; font-size: 12px;
   white-space: normal; text-align: left; }
 .pmi-lab-rows { flex: 1; min-height: 0; overflow-y: auto; overflow-anchor: none; }
-.pmi-lab-fields { display: grid; gap: 2px; padding: 11px 12px 12px; background: #fff; border-bottom: 1px solid #d9dee4; }
+.pmi-lab-fields { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; padding: 11px 12px 12px; background: #fff; border-bottom: 1px solid #d9dee4; }
 .pmi-lab-field { display: grid; gap: 3px; }
 .pmi-lab-field .name { font-weight: 600; font-size: 12px; }
 .pmi-lab-field .name em { font-style: normal; font-weight: 600; color: #b04a00; font-size: 11px; margin-left: 4px; }
@@ -189,12 +189,13 @@
 .pmi-lab .pmi-lab-line { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; width: 100%;
   border: 0; border-bottom: 1px solid #eef1f4; border-radius: 0; background: none; padding: 5px 0; text-align: left; }
 .pmi-lab .pmi-lab-line:hover { background: rgba(47, 111, 181, .05); }
-.pmi-lab-line .name { font-weight: 600; font-size: 12.5px; white-space: nowrap; }
-.pmi-lab-line .value { color: #2f6fb5; font-size: 12.5px; text-align: right; overflow: hidden; text-overflow: ellipsis; }
+/* Both wrap within the panel rather than widen the fields' column past its edge (specify-ui#14). */
+.pmi-lab-line .name { font-weight: 600; font-size: 12.5px; min-width: 0; overflow-wrap: anywhere; }
+.pmi-lab-line .value { color: #2f6fb5; font-size: 12.5px; text-align: right; min-width: 0; overflow-wrap: anywhere; }
 .pmi-lab-line.stated .value { color: #3a4450; }
 .pmi-lab-line.stated .value small { color: #8a929b; }
 .pmi-lab-line.open .value { color: #707880; }
-.pmi-lab-notes { display: grid; gap: 4px; padding-left: 8px; border-left: 2px solid #e3e7ec; }
+.pmi-lab-notes { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; padding-left: 8px; border-left: 2px solid #e3e7ec; }
 .pmi-lab-chev { display: inline-block; width: 1em; margin-right: 4px; color: #2f6fb5; font-size: 11px;
   transition: transform .15s; transform-origin: 40% 50%; }
 .pmi-lab-chev.open { transform: rotate(90deg); }

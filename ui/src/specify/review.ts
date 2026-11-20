@@ -65,13 +65,27 @@ export function needs(q: PmiQuestion, answers: PmiAnswers): 'required' | 'check'
   return q.attention === 'check' ? 'check' : null;
 }
 
-/** The row's state, most urgent first. */
+/** Questions the command never lists as open (a full-thread depth, a parts-list row, the process). */
+const neverOpen = (q: PmiQuestion) => q.id.startsWith('hole.full_thread:') || q.id.startsWith('bom.') || q.id === 'part.process';
+
+/** The row's state, most urgent first. A row is answered only when none of its questions is
+ * still open: "Datums" is not answered while datum C is (#14). */
 export function rowState(group: QuestionGroup, answers: PmiAnswers): RowState {
   const states = group.questions.map((q) => needs(q, answers));
   if (states.includes('required')) return 'required';
   if (states.includes('check')) return 'check';
-  return group.questions.some((q) => q.id in answers) ? 'set' : 'ok';
+  return group.questions.some((q) => q.id in answers) && group.questions.every((q) => q.id in answers || neverOpen(q)) ? 'set' : 'ok';
 }
+
+/** Whether ``value`` states nothing: no faces, no notes, or a "None …" choice. */
+export const isNone = (value: unknown): boolean => (Array.isArray(value) ? value.length === 0
+  : typeof value === 'string' && /^none\b/i.test(value.trim()));
+
+/** How an unanswered question whose suggestion states nothing reads (#14): a row like any other. */
+export const NONE_SUGGESTED = 'None (suggested)';
+
+/** Whether ``q`` is unanswered with a suggestion that states nothing (coating, other notes, datum C). */
+export const noneSuggested = (q: PmiQuestion, answers: PmiAnswers): boolean => !(q.id in answers) && isNone(q.default);
 
 /** A value as a row summary shows it, or '' when it says nothing (general, none). */
 export function display(q: PmiQuestion, value: unknown): string {
