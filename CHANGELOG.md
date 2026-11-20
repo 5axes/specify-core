@@ -4,13 +4,32 @@ All notable changes to specify-core-rust. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/).
 
-## Unreleased
+## 0.2.1 (2026-11-20)
+
+Read first:
+
+- **No more `--app`:** `specify-core open` and MCP `show` download the pinned Specify app
+  (specify-ui v0.2.0) and the matching WASM engine on first use, verify their SHA-256, and cache
+  them. `--app`/`SPECIFY_APP_DIR` and `--wasm`/`SPECIFY_WASM_DIR` still override.
+- **Fixed: saves delete less.** Answers that write no PMI (no coating, a general hole, no
+  flatness on a datum) are resumed on reopening instead of asked again, unless the file now says
+  otherwise. A general note another tool added is no longer removed when an empty notes answer is
+  stored (the known issue in 0.2.0's notes). Edited printed general tolerances, a second flatness,
+  another tool's manufacturing process and another tool's hole position answered afresh are kept.
+- **Conflict handling changes in 0.3.0.** In 0.2.x another tool's requirement is keep-only and
+  `not_written` says to change it in that tool; the "use my answer" choice 0.2.0 announced does not
+  come in 0.2.x. 0.3.0 treats the file's PMI the same whoever wrote it and lets a person or an AI
+  change or remove any of it on purpose (ADR P11).
+- **Known issue:** on a file an older Specify wrote (0.1.7), the editor's live preview can list
+  location dimensions that saving then removes, and leave out ones that saving keeps. `write`'s
+  "retired characteristic numbers" warning names what a save removed. 0.3.0 is planned to stop
+  removing them (ADR P11).
 
 ### Added
 
 - `open` and MCP `show` can download and cache a pinned Specify app and the release-matched
   WASM engine, with SHA-256 verification and a session API check. Local app and engine overrides
-  remain available. The initial `app.lock.json` is a placeholder and still requires a local app.
+  remain available. `app.lock.json` pins specify-ui v0.2.0 (page contract `api` 1).
 - The page's `config` gives `api`, the version of the page contract (docs/open.md): 1, the
   contract of 0.2.0. It changes only in a minor release, so an app can check it is built for
   the command serving it.
