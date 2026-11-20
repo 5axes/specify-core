@@ -42,19 +42,14 @@ fn a_moved_hole_s_requirements_are_flagged_for_checking() {
     // Each revision written with its requirements: the Ø6 hole moved X −15.
     let (old, new) = pair("hole_moved");
     let given = json!({ "part.material": "6061-T6", "hole.function:holes:8": "clearance" });
-    let (old, new) = (annotated(&old, given.clone()), annotated(&new, given));
+    let (old, new) = (written(&old, given.clone()), written(&new, given));
     let r = diff(&old, &new).unwrap();
     assert_eq!(r.verdict, "decide", "{}", r.summary);
-    assert!(!r.check.is_empty());
-    assert!(r.check.iter().all(|c| c.changes.contains_key("position")));
-    // A moved feature's locations are checked too.
+    assert_eq!(r.check.len(), 1, "{:?}", r.check);
+    assert!(r.check[0].changes.contains_key("position"));
+    assert!(r.check[0].requirement.contains('⌀'), "{:?}", r.check);
     assert!(
-        r.check.iter().any(|c| c.requirement.contains('⌀')),
-        "{:?}",
-        r.check
-    );
-    assert!(
-        r.summary.contains("need checking:") || r.summary.contains("needs checking:"),
+        r.summary.contains("1 requirement needs checking:"),
         "{}",
         r.summary
     );
@@ -80,7 +75,18 @@ fn a_moved_hole_s_requirements_are_flagged_for_checking() {
 
 #[test]
 fn a_turned_part_has_not_changed() {
-    let r = revised("whole_part_moved");
+    // Each revision written with the same requirements.
+    let (old, new) = pair("whole_part_moved");
+    let given =
+        json!({ "part.material": "6061-T6", "hole.function:holes:8": "clearance", "datum.A": [4] });
+    let (old, new) = (written(&old, given.clone()), written(&new, given));
+    assert!(
+        !specify_core::characteristics::read(&new)
+            .unwrap()
+            .is_empty()
+    );
+    let r = diff(&old, &new).unwrap();
+    assert!(edits(&r).is_empty(), "{:?}", r.pmi.items);
     assert_eq!(r.verdict, "ok", "{}", r.summary);
     assert!(r.features.is_empty());
     assert!(r.check.is_empty());
@@ -357,12 +363,16 @@ fn a_real_part_s_report_names_what_a_person_changed() {
     // build123d's cast bearing unit: the flange 11 → 13 thick, the bolt holes Ø10 → Ø9.
     // Each revision written with its requirements and every default.
     let (old, new) = pair("bearing_flange");
-    let given = json!({ "part.material": "EN AC-42100" });
-    let r = diff(&annotated(&old, given.clone()), &annotated(&new, given)).unwrap();
+    let given = json!({
+        "part.material": "EN AC-42100",
+        "hole.function:hole_patterns.set:31.32": "clearance:M8",
+        "datum.A": [17]
+    });
+    let r = diff(&written(&old, given.clone()), &written(&new, given)).unwrap();
     // The holes first; the rounds and drafted surfaces that follow them counted after.
     assert!(
         r.summary
-            .starts_with("2 holes changed, 8 rounds and surfaces with them, "),
+            .starts_with("2 holes changed, 8 rounds and surfaces with them, 1 change to the PMI."),
         "{}",
         r.summary
     );
@@ -389,14 +399,11 @@ fn a_real_part_s_report_names_what_a_person_changed() {
     assert!(!md.contains("support."), "{md}");
     // The new file's requirements on the pair of holes are listed to check, without the
     // holes' middles moving as they deepen.
-    assert!(!r.check.is_empty());
+    assert_eq!(r.check.len(), 1, "{:?}", r.check);
     assert!(
-        md.contains(
-            "- pattern of 2 × Ø9 × 13 through holes: depth 11 → 13; diameter 10 → 9, so its "
-        ),
+        md.contains("- pattern of 2 × Ø9 × 13 through holes: depth 11 → 13; diameter 10 → 9, so its ⌀9 H11 requirement may no longer fit.\n"),
         "{md}"
     );
-    assert!(!md.contains("diameter 10 → 9; moved"), "{md}");
 }
 
 /// The "What changed" lines of a `complex_*` pair (`tests/fixtures/revisions/complex.py`): a
@@ -1026,4 +1033,190 @@ fn a_hole_cut_in_a_pocket_floor_does_not_move_the_pocket() {
         r.change_lines()
     );
     assert!(!r.summary.contains(" moved"), "{}", r.summary);
+}
+
+/// *part* written with *given* only (no defaults taken).
+fn written(part: &LoadedPart, given: Value) -> LoadedPart {
+    let analysis = specify_core::api::analyse(part).unwrap();
+    let given = given.as_object().unwrap().clone();
+    let intent = specify_core::api::preview(&analysis, &given).unwrap();
+    let bytes = specify_core::writer::write_bytes(part, &intent, Some(&given))
+        .unwrap()
+        .0;
+    specify_core::part::load_bytes("written.step", bytes).unwrap()
+}
+
+/// The PMI items of a report that are more than a renumbering.
+fn edits(r: &Revised) -> Vec<&specify_core::revision::PmiItemChange> {
+    r.pmi
+        .items
+        .iter()
+        .filter(|c| c.class != "renumbered")
+        .collect()
+}
+
+#[test]
+fn removing_a_hole_removes_its_requirements_and_the_holes_after_it_keep_theirs() {
+    // Old holes on faces 6 (Ø5), 7 (Ø7, removed), 8 (Ø8) and 9 (Ø6); the new part's faces
+    // after 7 renumber. Each file states its own requirements; the new one adds a flatness.
+    let (old, new) = pair("hole_removed");
+    let old = written(
+        &old,
+        json!({
+            "part.material": "6061-T6",
+            "hole.function:holes:6": "tapped:M6",
+            "hole.function:holes:7": "fit:H7",
+            "hole.function:holes:8": "fit:H8",
+            "hole.function:holes:9": "fit:H9",
+            "datum.A": [4],
+        }),
+    );
+    let new = written(
+        &new,
+        json!({
+            "part.material": "6061-T6",
+            "hole.function:holes:6": "tapped:M6",
+            "hole.function:holes:7": "fit:H8",
+            "hole.function:holes:8": "fit:H9",
+            "datum.A": [4],
+            "datum.A.flatness": "0.02",
+        }),
+    );
+    let r = diff(&old, &new).unwrap();
+    let edits = edits(&r);
+    // The removed Ø7 hole's requirements go, and only they.
+    let removed: Vec<_> = edits.iter().filter(|c| c.class == "removed").collect();
+    assert!(!removed.is_empty(), "{edits:?}");
+    assert!(removed.iter().all(|c| c.on.contains("Ø7")), "{edits:?}");
+    // The holes after it keep their requirements on the hole of the same size: nothing on
+    // them is changed, added or removed.
+    for size in ["Ø5", "Ø8", "Ø6"] {
+        assert!(
+            !edits.iter().any(|c| c.on.contains(size)),
+            "{size}: {edits:?}"
+        );
+    }
+    // The flatness the new file adds is added.
+    let added: Vec<_> = edits.iter().filter(|c| c.class == "added").collect();
+    assert_eq!(added.len(), 1, "{edits:?}");
+    assert_eq!(added[0].new.as_deref(), Some("⏥ 0.02"));
+    assert!(
+        r.features
+            .iter()
+            .any(|f| f.class == "orphaned" && f.old.as_deref() == Some("holes:7"))
+    );
+}
+
+#[test]
+fn an_added_hole_s_requirements_are_added_on_it() {
+    let (old, new) = pair("hole_added");
+    let given = json!({ "part.material": "6061-T6" });
+    let r = diff(&annotated(&old, given.clone()), &annotated(&new, given)).unwrap();
+    assert!(
+        r.features
+            .iter()
+            .any(|f| f.class == "new" && f.family == "holes" && f.what.contains("Ø7"))
+    );
+    let edits = edits(&r);
+    assert!(!edits.is_empty());
+    // Every requirement the new file states on the new hole is added; nothing else changes.
+    assert!(
+        edits
+            .iter()
+            .all(|c| c.class == "added" && c.on.contains("Ø7")),
+        "{edits:?}"
+    );
+    assert!(
+        edits.iter().any(|c| c.new.as_deref() == Some("⌀7 H11")),
+        "{edits:?}"
+    );
+}
+
+#[test]
+fn symmetric_holes_are_not_paired_by_a_guess() {
+    // The plate 10 → 12 thick; its pattern holes are symmetric repeats, which the matching
+    // cannot tell apart. Each file states its own requirements.
+    let (old, new) = pair("plate_thickened");
+    let given = json!({ "part.material": "6061-T6" });
+    let r = diff(&annotated(&old, given.clone()), &annotated(&new, given)).unwrap();
+    assert!(
+        r.features.iter().any(|f| f.class == "ambiguous"),
+        "{:?}",
+        r.features
+    );
+    let edits = edits(&r);
+    // The only requirement changed is the thickness; a requirement on a hole the matching
+    // cannot follow is never changed into another's value.
+    let changed: Vec<_> = edits.iter().filter(|c| c.class == "changed").collect();
+    assert_eq!(changed.len(), 1, "{edits:?}");
+    assert_eq!(
+        (changed[0].old.as_deref(), changed[0].new.as_deref()),
+        (Some("10"), Some("12"))
+    );
+    // What it cannot pair is listed removed and added, value for value.
+    let values = |class: &str| {
+        let mut v: Vec<_> = edits
+            .iter()
+            .filter(|c| c.class == class)
+            .map(|c| c.old.clone().or(c.new.clone()).unwrap())
+            .collect();
+        v.sort();
+        v
+    };
+    assert_eq!(values("removed"), values("added"), "{edits:?}");
+}
+
+// For #125: a requirement follows its faces when another feature takes lower face numbers.
+// The new Ø7 hole takes face 7, so the old Ø8 hole (7) becomes 8, the Ø6 hole (8) 9, the boss
+// (9) 10 and its top (10) 11.
+#[test]
+fn an_added_requirement_follows_its_faces_when_a_feature_takes_lower_ids() {
+    let (old, new) = pair("hole_added");
+    let extras = |hole: usize, boss: usize, top: usize| {
+        json!({
+            "part.material": "6061-T6",
+            "extra.hole.size": {"faces": [hole], "kind": "size", "value": "±0.1"},
+            "extra.hole.place": {"faces": [hole], "reference": [0], "kind": "distance", "value": "±0.1"},
+            "extra.boss.size": {"faces": [boss], "kind": "size", "value": "±0.2"},
+            "extra.boss.height": {"faces": [top], "reference": [2], "kind": "distance", "value": "±0.1"},
+        })
+    };
+    let old = written(&old, extras(7, 9, 10));
+    // The same requirements on the same features, at their new face numbers: unchanged.
+    let r = diff(&old, &written(&new, extras(8, 10, 11))).unwrap();
+    assert!(edits(&r).is_empty(), "{:?}", edits(&r));
+    // Kept at the old numbers, they would name other features: never an unchanged report.
+    let hole_only = |hole: usize| json!({"part.material": "6061-T6", "extra.hole.size": {"faces": [hole], "kind": "size", "value": "±0.1"}});
+    let r = diff(
+        &written(&pair("hole_added").0, hole_only(7)),
+        &written(&new, hole_only(7)),
+    )
+    .unwrap();
+    assert!(
+        edits(&r).iter().any(|c| c.class == "removed"),
+        "{:?}",
+        edits(&r)
+    );
+}
+
+// Added requirements on unchanged geometry, including the symmetric repeats of
+// plate_thickened's patterns, which the matching must not confuse: nothing changes.
+#[test]
+fn an_added_requirement_on_unchanged_geometry_carries_unchanged() {
+    let (old, _) = pair("plate_thickened");
+    let old = written(
+        &old,
+        json!({
+            "part.material": "6061-T6",
+            "datum.A": [4],
+            "extra.end.size": {"faces": [7], "kind": "size", "value": "±0.1"},
+            "extra.other_end.place": {"faces": [10], "reference": [0], "kind": "distance", "value": "±0.1"},
+            "extra.row.size": {"faces": [12, 13, 14], "kind": "size", "value": "±0.05"},
+            "extra.top.flatness": {"faces": [2], "kind": "flatness", "value": "0.05"},
+        }),
+    );
+    let r = diff(&old, &old).unwrap();
+    assert!(r.pmi.items.is_empty(), "{:?}", r.pmi.items);
+    assert!(r.check.is_empty());
+    assert_eq!(r.verdict, "ok");
 }
