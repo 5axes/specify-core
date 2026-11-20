@@ -1,5 +1,7 @@
 use std::io::{BufRead, BufReader};
-use std::net::{Ipv4Addr, TcpListener};
+use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::Instant;
 
@@ -77,54 +79,164 @@ fn engine_archive() -> Vec<u8> {
     ])
 }
 
-fn serve(routes: Vec<(&str, &str, Vec<u8>)>) -> (String, JoinHandle<()>) {
+/// Path to (status line and headers, body, how many times it must be served).
+type Routes = BTreeMap<String, (String, Vec<u8>, usize)>;
+
+/// One request the test server saw, with how it ended.
+#[derive(Debug)]
+struct Request {
+    peer: String,
+    line: String,
+    outcome: Result<(), String>,
+}
+
+/// A loopback release server. Each connection is handled on its own thread and answered by path,
+/// so no client's IO error can stop the others being served. `finish` shuts it down and checks
+/// that every route was answered exactly as often as it was listed, with nothing else asked for.
+struct Server {
+    addr: SocketAddr,
+    routes: Arc<Routes>,
+    log: Arc<Mutex<Vec<Request>>>,
+    stop: Arc<AtomicBool>,
+    acceptor: Option<JoinHandle<()>>,
+}
+
+fn serve(routes: Vec<(&str, &str, Vec<u8>)>) -> (String, Server) {
     let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
-    listener.set_nonblocking(true).unwrap();
-    let base = format!("http://{}", listener.local_addr().unwrap());
-    let routes: Vec<_> = routes
-        .into_iter()
-        .map(|(path, status, body)| (path.to_owned(), status.to_owned(), body))
-        .collect();
-    let worker = thread::spawn(move || {
-        let deadline = Instant::now() + Duration::from_secs(5);
-        for (path, status, body) in routes {
-            let mut stream = loop {
-                match listener.accept() {
-                    Ok((stream, _)) => break stream,
-                    Err(e)
-                        if e.kind() == io::ErrorKind::WouldBlock && Instant::now() < deadline =>
-                    {
-                        thread::sleep(Duration::from_millis(5));
-                    }
-                    Err(e) => panic!("expected a request for {path}: {e}"),
-                }
-            };
-            stream
-                .set_read_timeout(Some(Duration::from_secs(2)))
-                .unwrap();
-            stream
-                .set_write_timeout(Some(Duration::from_secs(2)))
-                .unwrap();
-            let mut reader = BufReader::new(&mut stream);
-            let mut line = String::new();
-            reader.read_line(&mut line).unwrap();
-            assert_eq!(line, format!("GET {path} HTTP/1.1\r\n"));
-            loop {
-                line.clear();
-                if reader.read_line(&mut line).unwrap() == 0 || line == "\r\n" {
+    let addr = listener.local_addr().unwrap();
+    let mut table = Routes::new();
+    for (path, status, body) in routes {
+        let route = table
+            .entry(path.to_owned())
+            .or_insert_with(|| (status.to_owned(), body.clone(), 0));
+        assert_eq!((route.0.as_str(), &route.1), (status, &body), "{path}");
+        route.2 += 1;
+    }
+    let routes = Arc::new(table);
+    let log = Arc::new(Mutex::new(Vec::new()));
+    let stop = Arc::new(AtomicBool::new(false));
+    let acceptor = thread::spawn({
+        let (routes, log, stop) = (routes.clone(), log.clone(), stop.clone());
+        move || {
+            let mut handlers = Vec::new();
+            for stream in listener.incoming() {
+                if stop.load(Ordering::SeqCst) {
                     break;
                 }
+                let (routes, log) = (routes.clone(), log.clone());
+                handlers.push(thread::spawn(move || match stream {
+                    Ok(stream) => respond(stream, &routes, &log),
+                    Err(e) => log.lock().unwrap().push(Request {
+                        peer: String::new(),
+                        line: String::new(),
+                        outcome: Err(format!("accept failed: {e}")),
+                    }),
+                }));
             }
-            write!(
-                stream,
-                "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-                body.len()
-            )
-            .unwrap();
-            stream.write_all(&body).unwrap();
+            drop(listener);
+            for handler in handlers {
+                handler.join().unwrap();
+            }
         }
     });
-    (base, worker)
+    let server = Server {
+        addr,
+        routes,
+        log,
+        stop,
+        acceptor: Some(acceptor),
+    };
+    (format!("http://{addr}"), server)
+}
+
+/// Read one request and write the whole response in a single call. Partial writes let a client
+/// that follows a redirect as soon as it sees `Location` close the socket under a later write.
+fn respond(mut stream: TcpStream, routes: &Routes, log: &Mutex<Vec<Request>>) {
+    let peer = stream
+        .peer_addr()
+        .map_or_else(|e| e.to_string(), |addr| addr.to_string());
+    let mut line = String::new();
+    let outcome = (|| {
+        stream.set_read_timeout(Some(Duration::from_secs(5)))?;
+        stream.set_write_timeout(Some(Duration::from_secs(5)))?;
+        let mut reader = BufReader::new(&mut stream);
+        reader.read_line(&mut line)?;
+        let mut header = String::new();
+        while reader.read_line(&mut header)? != 0 && header != "\r\n" {
+            header.clear();
+        }
+        let route = line
+            .strip_prefix("GET ")
+            .and_then(|rest| rest.strip_suffix(" HTTP/1.1\r\n"))
+            .and_then(|path| routes.get(path));
+        let Some((status, body, _)) = route else {
+            stream.write_all(
+                b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+            )?;
+            return Err(io::Error::other("unexpected request"));
+        };
+        let mut response = format!(
+            "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            body.len()
+        )
+        .into_bytes();
+        response.extend_from_slice(body);
+        stream.write_all(&response)?;
+        stream.flush()
+    })();
+    log.lock().unwrap().push(Request {
+        peer,
+        line: line.trim_end().to_owned(),
+        outcome: outcome.map_err(|e| e.to_string()),
+    });
+}
+
+impl Server {
+    /// Stops the server; `false` if its acceptor thread panicked.
+    fn shutdown(&mut self) -> bool {
+        let Some(acceptor) = self.acceptor.take() else {
+            return true;
+        };
+        self.stop.store(true, Ordering::SeqCst);
+        // Wake the blocking accept so it sees the stop flag.
+        let _ = TcpStream::connect(self.addr);
+        acceptor.join().is_ok()
+    }
+
+    /// Stop the server, then require exactly the listed responses and no other requests.
+    fn finish(mut self) {
+        assert!(self.shutdown(), "the test server's acceptor panicked");
+        let log = std::mem::take(&mut *self.log.lock().unwrap());
+        let mut served = BTreeMap::<&str, usize>::new();
+        for request in &log {
+            let path = request
+                .line
+                .strip_prefix("GET ")
+                .and_then(|rest| rest.strip_suffix(" HTTP/1.1"));
+            match (path, &request.outcome) {
+                (Some(path), Ok(())) if self.routes.contains_key(path) => {
+                    *served.entry(path).or_default() += 1;
+                }
+                _ => panic!(
+                    "unexpected or failed request from {}: {:?} ({:?}); all requests: {log:#?}",
+                    request.peer, request.line, request.outcome
+                ),
+            }
+        }
+        let expected: BTreeMap<&str, usize> = self
+            .routes
+            .iter()
+            .map(|(path, (_, _, count))| (path.as_str(), *count))
+            .collect();
+        assert_eq!(served, expected, "responses served; all requests: {log:#?}");
+    }
+}
+
+impl Drop for Server {
+    fn drop(&mut self) {
+        // A test that ends early is already failing; do not panic again while unwinding.
+        self.shutdown();
+    }
 }
 
 fn source<'a>(base: &'a str, pin: &'a str, cache: &'a Path) -> Source<'a> {
@@ -171,7 +283,7 @@ fn downloads_app_and_engine_once_and_uses_the_cache_offline() {
         assert_eq!(first.app, other.app);
         assert_eq!(first.wasm, other.wasm);
     });
-    server.join().unwrap();
+    server.finish();
 
     // The server has gone away. Only published, verified assets can satisfy this request.
     let second = resolve_assets(None, None, &source).unwrap();
@@ -202,7 +314,7 @@ fn reject_app(archive: Vec<u8>, digest: &str, message: &str) {
     let cache = tempfile::tempdir().unwrap();
     let (base, server) = serve(vec![(APP_URL, "200 OK", archive)]);
     refused(source(&base, &pin(digest), cache.path()).app(), message);
-    server.join().unwrap();
+    server.finish();
     let entries: Vec<_> = fs::read_dir(cache.path().join("app"))
         .unwrap()
         .map(|entry| entry.unwrap().file_name())
@@ -235,7 +347,7 @@ fn checks_engine_against_the_release_checksum() {
         source(&base, APP_LOCK, cache.path()).wasm(),
         "SHA-256 checksum mismatch",
     );
-    server.join().unwrap();
+    server.finish();
     assert!(!cache.path().join("wasm").join(CORE_VERSION).exists());
 }
 
@@ -336,7 +448,7 @@ fn missing_manifest_and_extra_file_both_trigger_reinstallation() {
     fs::write(root.join("extra.js"), "extra").unwrap();
     assert_eq!(source.app().unwrap(), root);
     assert!(!root.join("extra.js").exists());
-    server.join().unwrap();
+    server.finish();
 }
 
 #[test]
@@ -353,6 +465,60 @@ fn reports_a_refused_connection() {
 }
 
 #[test]
+fn a_dropped_download_is_refused_and_leaves_no_partial_app() {
+    let cache = tempfile::tempdir().unwrap();
+    let bytes = app_archive(Some(API_VERSION));
+    let digest = sha256(&bytes);
+    let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    // Promise more bytes than are sent, then close: the connection drops mid-body.
+    let server = thread::spawn(move || {
+        // Fail rather than hang if the download never connects.
+        listener.set_nonblocking(true).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut stream = loop {
+            match listener.accept() {
+                Ok((stream, _)) => break stream,
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock && Instant::now() < deadline => {
+                    thread::sleep(Duration::from_millis(5));
+                }
+                Err(e) => panic!("the download never connected: {e}"),
+            }
+        };
+        stream.set_nonblocking(false).unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let mut reader = BufReader::new(&mut stream);
+        let mut line = String::new();
+        while reader.read_line(&mut line).unwrap() != 0 && line != "\r\n" {
+            line.clear();
+        }
+        let mut response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            bytes.len() + 1000
+        )
+        .into_bytes();
+        response.extend_from_slice(&bytes);
+        stream.write_all(&response).unwrap();
+    });
+    refused(
+        source(&base, &pin(&digest), cache.path()).app(),
+        "check your internet connection",
+    );
+    server.join().unwrap();
+    let entries: Vec<_> = fs::read_dir(cache.path().join("app"))
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name())
+        .collect();
+    assert_eq!(
+        entries,
+        [std::ffi::OsString::from(format!("{APP_VERSION}.lock"))],
+        "a partial app was left behind"
+    );
+}
+
+#[test]
 fn reports_an_http_failure() {
     let cache = tempfile::tempdir().unwrap();
     let (base, server) = serve(vec![(APP_URL, "503 Service Unavailable", vec![])]);
@@ -360,7 +526,7 @@ fn reports_an_http_failure() {
         source(&base, &pin(DIFFERENT_SHA), cache.path()).app(),
         "HTTP 503",
     );
-    server.join().unwrap();
+    server.finish();
 }
 
 #[test]
@@ -402,7 +568,7 @@ fn a_changed_pin_replaces_a_stale_app_and_preserves_its_bundled_engine() {
     let pin = pin(&digest);
     let source = source(&base, &pin, cache.path());
     let assets = resolve_assets(None, None, &source).unwrap();
-    server.join().unwrap();
+    server.finish();
     assert_eq!(assets.app, dest.canonicalize().unwrap());
     assert!(assets.wasm.is_none());
     assert_eq!(fs::read(dest.join("index.html")).unwrap(), b"new app");
