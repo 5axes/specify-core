@@ -25,6 +25,15 @@ Read first:
   all of them, so `@draftwright/specify-ui` goes from 0.2.0 to 0.3.0 (there is no specify-ui
   0.2.1). `@draftwright/specify-ui` X depends on `@draftwright/specify-core-wasm` X exactly.
 
+### Added
+
+- `@draftwright/specify-ui`: a `HostView` interface (ui/docs/host-view.md, specify-core #222) so a host can
+  draw the 3D view. `StepDiff` and `SpecifyReview` take an optional `view` prop; without one they use
+  today's view, now the interface's default implementation. Faces are identified by STEP entity
+  (MapShapes order only for solid-only parts), with a check on load. Labels and drawn PMI stay on the
+  default view for now. StepDiff now reports the nearest face under the pointer, since a host reports
+  only that; known gap: StepDiff runs no load check yet.
+
 ### Changed
 
 - `open` and MCP `show` no longer download anything: the first-run download of the app and
