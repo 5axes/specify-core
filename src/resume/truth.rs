@@ -808,7 +808,6 @@ pub(crate) fn foreign_in(resume: &Value) -> BTreeSet<&str> {
 }
 
 /// Every conflict question of `analysis`, decided or not.
-
 pub(crate) fn conflict_ids(analysis: &Value) -> BTreeSet<&str> {
     analysis["resume"]["conflicts"]
         .as_array()
