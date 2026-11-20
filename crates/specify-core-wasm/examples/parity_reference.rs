@@ -12,14 +12,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(pair) = request["diff"].as_array() {
         let old = part::File::read(std::path::Path::new(pair[0].as_str().ok_or("old path")?))?;
         let new = part::File::read(std::path::Path::new(pair[1].as_str().ok_or("new path")?))?;
-        let session = Session::open("old.step", old.bytes())?;
-        let defaults = session.accept_defaults(&Map::new())?;
         println!(
             "{}",
             specify_core_wasm::session::diff_with_options(
                 ("old.step", old.bytes()),
                 ("new.step", new.bytes()),
-                &defaults,
                 "Spindle",
                 specify_core::revision::DiffOptions { scenes: true },
             )?

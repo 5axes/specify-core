@@ -308,7 +308,7 @@ throwsString(() => new IntentEngine('twice.step', Buffer.from(twice)), /one inst
 }
 console.log('assemblies: parts listed, a part opened, written into the original file and reopened');
 
-// Diff must decode assembly answer maps before applying single-part validation.
+// Diff reads the files' PMI only (ADR P11): the answers argument is not read.
 {
   const bytes = readFileSync(new URL('tests/fixtures/parts/assembly.step', root));
   const answers = {};
@@ -319,19 +319,16 @@ console.log('assemblies: parts listed, a part opened, written into the original 
   }
   const result = JSON.parse(diff('old.step', bytes, 'new.step', bytes, JSON.stringify(answers), 'Assembly'));
   assert.equal(result.report.parts.length, 2);
-  answers.plate['part.nope'] = 'bad';
-  throwsString(() => diff('old.step', bytes, 'new.step', bytes, JSON.stringify(answers), 'Assembly'), /part "plate".*part.nope.*unknown answer ID/);
+  assert.deepEqual(result, JSON.parse(diff('old.step', bytes, 'new.step', bytes, '{}', 'Assembly')));
 }
-console.log('assembly diff: per-part acceptDefaults JSON accepted; invalid id names its part');
+console.log('assembly diff: the same report whatever answers are passed');
 
-// The editor's spindle pair with acceptDefaults('{}'): the manufacturing note is
-// part of its own thread, with one review line and the full scenes still available.
+// The editor's spindle pair: the files' own PMI, with the full scenes, as native.
 {
   const paths = ['old', 'new'].map(side => fileURLToPath(new URL(`tests/fixtures/revisions/spindle_pmi.${side}.step.gz`, root)));
   const [old, next] = paths.map(path => gunzipSync(readFileSync(path)));
-  const engine = new IntentEngine('old.step', old);
-  try {
-    const result = JSON.parse(diff('old.step', old, 'new.step', next, engine.acceptDefaults('{}'), 'Spindle', true));
+  {
+    const result = JSON.parse(diff('old.step', old, 'new.step', next, '{}', 'Spindle', true));
     const native = spawnSync(executable, [], {
       cwd: fileURLToPath(root), encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
       input: JSON.stringify({ diff: paths }),
@@ -343,11 +340,8 @@ console.log('assembly diff: per-part acceptDefaults JSON accepted; invalid id na
       view: { ...value.view, old: meshGeometry(value.view.old), new: meshGeometry(value.view.new) },
     });
     compare(geometry(result), geometry(JSON.parse(native.stdout)));
-    const thread = result.report.pmi.items.filter(i => i.id.includes('thread:holes:14'));
-    assert.equal(thread.length, 1);
-    assert.equal(thread[0].id, 'thread:holes:14');
-    assert.equal(thread[0].class, 'removed');
-    assert.equal(thread[0].old, 'M4×0.7-6H THRU');
-  } finally { engine.free(); }
+    assert.ok(result.report.pmi.items.length > 0);
+    assert.equal(result.report.answers, undefined);
+  }
 }
-console.log('spindle diff: accepted defaults, folded thread and full scene parity passed');
+console.log('spindle diff: the files\' PMI and full scene parity passed');

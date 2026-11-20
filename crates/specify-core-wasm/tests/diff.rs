@@ -1,5 +1,4 @@
 //! The browser's diff: two revisions in memory, compared as the command line compares files.
-use serde_json::Map;
 use specify_core::{part, revision};
 use specify_core_wasm::session;
 use std::path::Path;
@@ -16,7 +15,6 @@ fn the_browser_s_diff_is_the_command_line_s_with_what_a_viewer_draws() {
     let got = session::diff(
         ("old.step", &old),
         ("new.step", &new),
-        &Map::new(),
         "flange",
     )
     .unwrap();
@@ -82,12 +80,11 @@ fn a_compressed_or_unreadable_revision_is_refused_by_name() {
     let new = bytes("bearing_flange.new");
     let gz = [0x1f, 0x8b, 0, 0];
     let error =
-        session::diff(("old.step.gz", &gz), ("new.step", &new), &Map::new(), "x").unwrap_err();
+        session::diff(("old.step.gz", &gz), ("new.step", &new), "x").unwrap_err();
     assert!(error.contains("Decompress"), "{error}");
     let error = session::diff(
         ("old.step", b"garbage"),
         ("new.step", &new),
-        &Map::new(),
         "x",
     )
     .unwrap_err();
@@ -100,7 +97,6 @@ fn an_assembly_is_compared_part_by_part_each_changed_part_shaped_as_a_part_s_dif
     let got = session::diff(
         ("old.step", &old),
         ("new.step", &new),
-        &Map::new(),
         "gramil_assembly.step",
     )
     .unwrap();
@@ -172,7 +168,6 @@ fn numbered_requirement_changes_use_the_same_identity_as_pmi_scene() {
     let result = session::diff(
         ("old.step", &old.bytes),
         ("new.step", &new.bytes),
-        &Map::new(),
         "Fit",
     )
     .unwrap();
@@ -180,21 +175,24 @@ fn numbered_requirement_changes_use_the_same_identity_as_pmi_scene() {
     let items = result["report"]["pmi"]["items"].as_array().unwrap();
     assert_eq!(items.len(), 1);
     assert_eq!(items[0]["class"], "changed");
-    let meta = &scene["specify"][items[0]["id"].as_str().unwrap()];
-    assert_eq!(items[0]["number"], meta["number"]);
-    assert_eq!(items[0]["status"], meta["status"]);
+    // The number is the file's, as pmiScene shows it (diff's ids are the file's own: ADR P11).
+    let number = items[0]["number"].as_u64().unwrap();
+    assert!(
+        scene["specify"]
+            .as_object()
+            .unwrap()
+            .values()
+            .any(|m| m["number"].as_u64() == Some(number))
+    );
 }
 
 #[test]
 fn optional_scenes_use_the_same_report_without_changing_defaults() {
-    let (old, new) = (bytes("hole_moved.old"), bytes("hole_moved.new"));
-    let answers = serde_json::from_value(serde_json::json!({"part.notes":["Keep dry"]})).unwrap();
-    let default =
-        session::diff(("old.step", &old), ("new.step", &new), &answers, "Scenes").unwrap();
+    let (old, new) = (bytes("spindle_pmi.old"), bytes("spindle_pmi.new"));
+    let default = session::diff(("old.step", &old), ("new.step", &new), "Scenes").unwrap();
     let mut included = session::diff_with_options(
         ("old.step", &old),
         ("new.step", &new),
-        &answers,
         "Scenes",
         revision::DiffOptions { scenes: true },
     )
@@ -205,76 +203,19 @@ fn optional_scenes_use_the_same_report_without_changing_defaults() {
         .remove("scenes")
         .unwrap();
     assert_eq!(included, default);
-    let old = session::Session::open("old.step", &old).unwrap();
-    assert_eq!(scenes["old"], old.pmi_scene(&answers).unwrap());
-}
-
-#[test]
-fn assembly_diff_accepts_each_parts_accept_defaults_map_through_json() {
-    let old = bytes("gramil_assembly.old");
-    let new = bytes("gramil_assembly.new");
-    let parts = specify_core::part::File::of_bytes(Path::new("old.step"), old.clone())
-        .unwrap()
-        .load_all()
-        .unwrap();
-    let mut answers = Map::new();
-    for part in &parts {
-        let analysis = specify_core::api::analyse(part).unwrap();
-        let defaults = specify_core_wasm::accept_defaults(&analysis, &Map::new()).unwrap();
-        answers.insert(part.name.clone(), serde_json::json!(defaults));
-    }
-    let parsed =
-        specify_core_wasm::diff_answers(&serde_json::to_string(&answers).unwrap()).unwrap();
-    let report =
-        session::diff(("old.step", &old), ("new.step", &new), &parsed, "Assembly").unwrap();
-    assert_eq!(report["report"]["parts"].as_array().unwrap().len(), 12);
-    let mut invalid = parsed;
-    invalid["GRM-02 shaft"]
-        .as_object_mut()
-        .unwrap()
-        .insert("part.nope".into(), serde_json::json!("bad"));
-    let error =
-        session::diff(("old.step", &old), ("new.step", &new), &invalid, "Assembly").unwrap_err();
-    assert!(
-        error.contains("GRM-02 shaft") && error.contains("part.nope"),
-        "{error}"
-    );
+    assert!(scenes["old"]["specify"].is_object() && scenes["new"]["specify"].is_object());
 }
 
 #[test]
 fn spindle_diff_scenes_obey_the_editor_link_rule() {
     let (old, new) = (bytes("spindle_pmi.old"), bytes("spindle_pmi.new"));
-    let engine = session::Session::open("old.step", &old).unwrap();
-    let answers = engine
-        .accept_defaults(
-            &serde_json::from_value(serde_json::json!({
-                "part.material":"steel"
-            }))
-            .unwrap(),
-        )
-        .unwrap();
     let result = session::diff_with_options(
         ("old.step", &old),
         ("new.step", &new),
-        &answers,
         "Spindle",
         revision::DiffOptions { scenes: true },
     )
     .unwrap();
-    let thread: Vec<_> = result["report"]["pmi"]["items"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter(|i| {
-            i["id"]
-                .as_str()
-                .is_some_and(|id| id.contains("thread:holes:14"))
-        })
-        .collect();
-    assert_eq!(thread.len(), 1, "{thread:?}");
-    assert_eq!(thread[0]["id"], "thread:holes:14");
-    assert_eq!(thread[0]["old"], "M4×0.7-6H THRU");
-    assert_eq!(thread[0]["class"], "removed");
     for side in ["old", "new"] {
         let scene = &result["report"]["pmi"]["scenes"][side];
         let ids: std::collections::BTreeSet<_> = ["pmi", "units"]
