@@ -37,6 +37,8 @@ pub struct Scene {
     stored: Option<Map<String, Value>>,
     foreign: Option<(Document, pmi::PmiRead)>,
     reconciling: bool,
+    /// Read for `diff`: the file's PMI only, whoever wrote it.
+    of_file: bool,
 }
 
 impl Scene {
@@ -72,6 +74,7 @@ impl Scene {
             stored,
             foreign,
             reconciling: false,
+            of_file: false,
         })
     }
 
@@ -88,6 +91,7 @@ impl Scene {
             stored: None,
             foreign: None,
             reconciling: false,
+            of_file: true,
         })
     }
 
@@ -684,6 +688,13 @@ impl Scene {
             part_metadata(&mut semantic, &mut metadata, answers)?;
             attribute_ids(&mut semantic, &mut metadata)?;
             // Drop obsolete content ids after renaming the part settings.
+            let ids: std::collections::BTreeSet<_> = semantic.ids.values().flatten().collect();
+            metadata.retain(|id, _| ids.contains(id));
+        }
+        if self.of_file {
+            // A requirement's notes are named by their owner, as for a file Specify wrote, so a
+            // thread's manufacturing note is compared with its thread.
+            attribute_ids(&mut semantic, &mut metadata)?;
             let ids: std::collections::BTreeSet<_> = semantic.ids.values().flatten().collect();
             metadata.retain(|id, _| ids.contains(id));
         }
