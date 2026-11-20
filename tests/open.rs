@@ -1731,18 +1731,15 @@ fn in_place_on_a_gzipped_input_writes_it_gzipped() {
 }
 
 /// `open --diff OLD NEW`: the comparison `specify-core diff` makes, OLD and NEW served, and
-/// the session starting from the answers it carried.
+/// the session NEW's own, as `open NEW` starts it: nothing is carried (ADR P11).
 #[test]
-fn a_diff_serves_both_files_and_starts_from_the_carried_answers() {
+fn a_diff_serves_both_files_and_starts_from_the_new_file() {
     let scratch = Scratch::new("diff");
     let old = scratch.path("work/plate.old.step.gz");
     let new = scratch.path("work/plate.new.step.gz");
     std::fs::copy(revision("hole_moved.old.step.gz"), &old).unwrap();
     std::fs::copy(revision("hole_moved.new.step.gz"), &new).unwrap();
-    let given = scratch.path("old-answers.json");
-    std::fs::write(&given, r#"{"part.material": "6061-T6"}"#).unwrap();
-    let given_arg = given.display().to_string();
-    let opened = Opened::diff(&old, &new, &scratch, &["--answers", &given_arg]);
+    let opened = Opened::diff(&old, &new, &scratch, &[]);
 
     // What `specify-core diff` writes for the same pair.
     let dir = scratch.path("diffed");
@@ -1751,8 +1748,6 @@ fn a_diff_serves_both_files_and_starts_from_the_carried_answers() {
         .args([&old, &new])
         .arg("-o")
         .arg(&dir)
-        .arg("--answers")
-        .arg(&given)
         .arg("--pmi-scenes")
         .output()
         .unwrap();
@@ -1796,12 +1791,9 @@ fn a_diff_serves_both_files_and_starts_from_the_carried_answers() {
     let served = report.json();
     assert_eq!(served["report"], read("report.json"));
     assert!(served["markdown"].is_string() && served["view"]["new"].is_object());
-    let carried = read("answers.json");
-    assert_eq!(carried["part.material"], "6061-T6");
-    assert_eq!(
-        opened.page().answers(),
-        json!({"rev": 0, "parts": {"0": carried}})
-    );
+    assert!(!dir.join("answers.json").exists());
+    // NEW stores no answers, and none are carried to it.
+    assert_eq!(opened.page().answers(), json!({"rev": 0, "parts": {}}));
     // Save writes NEW, beside it.
     let saved = opened.save(0, json!({}));
     assert_eq!(saved.status, 200);
@@ -1926,7 +1918,7 @@ fn bad_arguments_and_names_that_are_not_step_are_refused_up_front() {
         let stderr = String::from_utf8(conflict.stderr).unwrap();
         assert!(stderr.contains("cannot be used with"), "{stderr}");
     }
-    // --answers is for a diff.
+    // There is no --answers, with or without --diff (ADR P11).
     let answers = command(&[input.as_path()], &scratch, &["--answers", "a.json"])
         .output()
         .unwrap();

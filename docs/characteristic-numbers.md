@@ -192,15 +192,15 @@ answer resume: this accommodates quiddity adding defining faces after an upgrade
 or missing correspondence is not guessed; those numbers are retired, while the high-water
 mark survives.
 
-`revision::diff` uses its existing quiddity fingerprints/face correspondence to map the old
-numbered supports to the revised part. Its returned `answers` (including CLI `answers.json`
-and WASM `diff.report.answers`) contains an opaque `_specify_characteristic_numbers` member
-when the old file has number history. **Keep that member with the returned answers** when
-applying/writing the revision. The ordinary writer verifies its target geometry fingerprint,
-uses the carried history and consumes the member; it does not store it among user answers.
-The next resume reads the freshly written entity numbers and current high-water mark.
-Once the destination has its own history, that history takes precedence over stale revision
-transport, so reusing external answers cannot reset its counter or resurrect retired numbers.
+`revision::diff` reads each file's numbers from its own PMI. It uses its quiddity
+fingerprints/face correspondence to map the old numbered supports to the revised part, and
+pairs requirements by number only where the new file's history continues that mapped
+snapshot (docs/diff.md). It returns no answers, so no `_specify_characteristic_numbers`
+transport (ADR P11). The ordinary writer still accepts that member: it verifies its target
+geometry fingerprint, uses the carried history and consumes the member; it does not store it
+among user answers. Once the destination has its own history, that history takes precedence
+over stale revision transport, so reusing external answers cannot reset its counter or
+resurrect retired numbers.
 No separate number-matching operation is needed in a drawing or CSV consumer.
 
 An Add-mode write preserves imported PMI byte for byte. Existing numeric characteristic ids
@@ -222,8 +222,8 @@ text notes and caller metadata are settings rather than individual inspection ch
   JSON omits `number` when absent. Numbered thread/knurl/finish rows are kept distinct instead
   of aggregating different requirements of the same kind. A default part texture is in the
   authoritative `characteristics` list even though it has no face-note row.
-- WASM `IntentEngine.snapshot().analysis` exposes the same list, and `writePmi` and `diff`
-  use the same writer and carry path. JavaScript signatures are unchanged.
+- WASM `IntentEngine.snapshot().analysis` exposes the same list, `writePmi` uses the same
+  writer, and `diff` reads the same numbers from each file.
 
 For #95, history schema 2 replaces the value-sensitive `specification` field with a
 structural `role` (size/location, feature/dimension/relation/whole part, or datum). Schema 1

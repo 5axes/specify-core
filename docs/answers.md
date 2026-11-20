@@ -12,14 +12,13 @@ checks whether the supplied answers are valid on the current analysis, but canno
 whether an in-range face number now denotes a different face. In particular, the plain v1
 plate map above still writes on v2 after a groove splits bottom face 4 into faces 4 and 8:
 it selects only face 4. It could equally have been handwritten for v2. Unchanged-geometry
-plain maps remain accepted; Specify does not guess provenance from face numbers. Use
-`diff` from the actual old part when carrying these maps to edited geometry.
+plain maps remain accepted; Specify does not guess provenance from face numbers. `diff` no
+longer carries answers to edited geometry (ADR P11): it reads the two files' PMI only.
 
 This also applies to **released v0.1.8 and earlier `changes/answers.json` files**: they have no
 `_specify` metadata. The literal old `changes/answers.json` repro still exits 0 with
-`--accept-defaults`, because nothing in that file says an answer was dropped. **Re-run
-`diff` with the original old/new parts and old answers to regenerate these changes files**;
-merely upgrading the writer cannot recover their lost carry decisions.
+`--accept-defaults`, because nothing in that file says an answer was dropped. Upgrading the
+writer cannot recover their lost carry decisions.
 
 ## Export a sidecar
 
@@ -35,8 +34,6 @@ specify-core questions plate.analysis.json --answers chosen.json \
   --resolve-defaults --step plate_v1.step --accept-defaults approved.json > plate.answers.json
 # write needs a complete set: stderr's "open: …" lists what to answer or approve first.
 specify-core write plate_v1.step plate.analysis.json plate.answers.json -o plate.pmi.step
-# After editing geometry, carry the committed sidecar from its matching old part:
-specify-core diff plate_v1.step plate_v2.step --answers plate.answers.json -o changes
 ```
 
 `questions --resolve-defaults` is the single CLI export surface. It writes an **answer
@@ -90,11 +87,11 @@ The same non-writing operation is available in existing front-end shapes:
 
 Existing `with_all_defaults` / `acceptDefaults` operations still give every default, for
 partial review, and retain their return shapes. Exported maps can be passed directly to
-`diff`, questions/review, serve, Python and WASM, and to `write` once complete: `write`
+questions/review, serve, Python and WASM, and to `write` once complete: `write`
 (without its own `--accept-defaults`) refuses an incomplete set, so answer the open questions
 or approve their defaults and export again. Exporting with every default approved and writing
-the unchanged part from the export gives the same semantic PMI as `write --accept-defaults`. Writing changed geometry is refused as stale; carry with `diff`
-instead, then explicitly resolve its blocks.
+the unchanged part from the export gives the same semantic PMI as `write --accept-defaults`. Writing changed geometry is refused as stale: the answers belong to
+another revision.
 
 ## Answers to questions not asked
 
@@ -124,7 +121,7 @@ the datum. `apply` does not refuse these answers: callers revising answers acros
 of `part.locating` keep both modes' answers, and the question takes its answer again when it
 returns. The answer is still stored in the STEP with the others, exported unchanged by
 `questions --resolve-defaults` (dropping it would lose it, and refusing would break the same
-callers), and carried by `diff` like any other answer. A carry block applies only while
+callers). A carry block applies only while
 its question is asked: a block on `datum.A.flatness` under `"± dimensions"` does not stop
 `write`, export or bulk defaults, and is listed in `not_written` ("datum.A.flatness was
 carried (carried answer could not be applied: …) but is not asked when part.locating is
@@ -300,13 +297,11 @@ stores alongside answers inside STEP and returns from WASM `evidence()`. It belo
 the **destination** part's face numbering. Schema 3 may add authored names and geometry;
 write requires the saved count, ordered face fingerprint and indexed authored names
 to match, without remapping by name. This deliberately refuses changed numbering even if names could be rematched.
-Malformed evidence is an error. A new diff checks supplied evidence against its old part
-before carrying, so it cannot silently reinterpret stale indices either. A mismatch exits
-2: the answers file belongs to another revision, so pass its matching old part as `OLD`.
+Malformed evidence is an error.
 
 The shared writer checks evidence against the loaded part before writing bytes. CLI
 also checks before saving `--intent`; stale evidence exits 2, names the answers path,
-and directs the caller to `specify-core diff OLD NEW --answers ANSWERS -o CHANGES`.
+and says they belong to another revision of the part.
 An unchanged part's evidence remains valid even if its file bytes change without changing
 faces. Existing in-STEP answer payloads retain their format and evidence; transport
 metadata is consumed before answers are embedded.

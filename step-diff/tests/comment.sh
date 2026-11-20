@@ -52,9 +52,10 @@ cat > "$fixture/release/specify-core-test-x86_64-unknown-linux-gnu/specify-core"
 set -euo pipefail
 while [ "$1" != -o ]; do shift; done
 out=$2
-printf '### plate.step: Specify\n\n✅ All 2 requirements still apply to the changed part.\n' > "$out/report.md"
+# Diff takes no answers (ADR P11).
+for arg in "$@"; do [ "$arg" != --answers ] || { echo 'unexpected --answers' >&2; exit 2; }; done
+printf '### plate.step: Specify\n\n✅ 1 change to the PMI.\n' > "$out/report.md"
 printf '%s\n' "$TEST_REPORT" > "$out/report.json"
-printf '%s\n' "$TEST_CARRIED" > "$out/answers.json"
 STUB
 chmod +x "$fixture/bin/"* "$fixture/release/"*/specify-core
 export PATH="$fixture/bin:$PATH" TEST_RELEASE="$fixture/release"
@@ -71,9 +72,8 @@ printf 'new STEP fixture\n' > plate.step
 "$REAL_GIT" add .
 "$REAL_GIT" commit -qm revision
 export PR=1 HEAD_REPO=fixture/repo REPO=fixture/repo VERSION=test ACTION_REF=main
-export PR_HEAD TEST_CARRIED TEST_REPORT
+export PR_HEAD TEST_REPORT
 PR_HEAD=$("$REAL_GIT" rev-parse HEAD)
-TEST_CARRIED='{"hole.function:holes:8":"general","part.material":"6061-T6"}'
 TEST_REPORT='{"verdict":"ok"}'
 run_case() {
   export RUNNER_TEMP="$fixture/$1" PRIVATE=$2 CAPTURED_COMMENT="$fixture/$1.md"
@@ -85,29 +85,15 @@ run_case() {
   bash "$script" > "$fixture/$1.log" 2>&1 || { cat "$fixture/$1.log"; return 1; }
   test -f "$CAPTURED_COMMENT"
   ! grep -Eq '```json|<details>|hole.function|6061-T6' "$CAPTURED_COMMENT"
-  grep -q 'All 2 requirements still apply' "$CAPTURED_COMMENT"
-  test -f "$RUNNER_TEMP/step-diff/0/answers.json"
+  grep -q '1 change to the PMI' "$CAPTURED_COMMENT"
+  # No answers are taken or compared, and an answers sidecar is never called stale.
+  ! grep -q 'is stale' "$CAPTURED_COMMENT"
 }
-run_case stale false
-grep -Fq '`plate.answers.json` is stale: its requirements differ from this comparison. [Review in 3D](https://draftwright.io/diff?' "$CAPTURED_COMMENT"
-# Equal JSON with different order/whitespace is current.
-printf '{ "part.material": "6061-T6", "hole.function:holes:8": "general" }\n' > plate.answers.json
-run_case current false
-! grep -q 'is stale' "$CAPTURED_COMMENT"
+run_case public false
 grep -q 'Turn the part round in 3D' "$CAPTURED_COMMENT"
-rm plate.answers.json
-run_case absent false
-! grep -q 'is stale' "$CAPTURED_COMMENT"
-printf '{}\n' > plate.answers.json
 run_case private true
-grep -Fq '`plate.answers.json` is stale' "$CAPTURED_COMMENT"
 ! grep -q 'draftwright.io' "$CAPTURED_COMMENT"
 TEST_REPORT='{"parts":[]}'
-TEST_CARRIED='{"plate":{"part.material":"6061-T6","_specify_history":{"number":7}}}'
 run_case assembly false
-grep -Fq '`plate.answers.json` is stale' "$CAPTURED_COMMENT"
-printf '{"plate":{"_specify_history":{"number":7},"part.material":"6061-T6"}}\n' > plate.answers.json
-run_case assembly_current false
-! grep -q 'is stale' "$CAPTURED_COMMENT"
 grep -q 'Turn the assembly round in 3D' "$CAPTURED_COMMENT"
-echo 'step-diff comment: 6 cases passed'
+echo 'step-diff comment: 3 cases passed'

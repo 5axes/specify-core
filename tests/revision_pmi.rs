@@ -736,8 +736,7 @@ fn compared_scenes_are_opt_in_and_are_each_file_s_own_pmi() {
     // A written destination's scene is its own PMI.
     let stored = write(&new, &answers(json!({"part.notes":["Keep clean"]})));
     let included =
-        revision::diff_with_options(&old, &stored, revision::DiffOptions { scenes: true })
-            .unwrap();
+        revision::diff_with_options(&old, &stored, revision::DiffOptions { scenes: true }).unwrap();
     let scenes = included.pmi.scenes.unwrap();
     assert_eq!(notes(&scenes.new), ["Keep clean"]);
     assert_eq!(notes(&scenes.old), ["Keep dry"]);
@@ -760,12 +759,8 @@ fn semantic_only_attributes_have_both_sides_mesh_face_anchors() {
     };
     let old = foreign_model(&bare, model("CMM"));
     let new = foreign_model(&bare, model("gauge"));
-    let report = revision::diff_with_options(
-        &old,
-        &new,
-        revision::DiffOptions { scenes: true },
-    )
-    .unwrap();
+    let report =
+        revision::diff_with_options(&old, &new, revision::DiffOptions { scenes: true }).unwrap();
     let change = report
         .pmi
         .items
@@ -1115,10 +1110,194 @@ fn spindle_thread_number_cannot_pair_with_a_new_location_dimension() {
         report.pmi.items
     );
     assert!(!report.pmi.items.iter().any(|item| {
-        item.old.as_deref().is_some_and(|text| text.starts_with("M4"))
+        item.old
+            .as_deref()
+            .is_some_and(|text| text.starts_with("M4"))
             && item
                 .new
                 .as_deref()
                 .is_some_and(|text| !text.starts_with("M4"))
     }));
+}
+
+/// *part* with its stored answers (the `pmi-assist answers` attribute and everything that
+/// only serves it) removed from the STEP text: the file's PMI as another tool would leave it.
+fn without_stored_answers(part: &part::LoadedPart) -> part::LoadedPart {
+    let text = String::from_utf8(part.bytes.to_vec()).unwrap();
+    let entity = regex::Regex::new(r"^#(\d+)\s*=").unwrap();
+    let id = |line: &str| entity.captures(line).map(|c| c[1].to_string());
+    let mut gone: std::collections::BTreeSet<String> = text
+        .lines()
+        .filter(|l| l.contains("'pmi-assist answers'"))
+        .filter_map(id)
+        .collect();
+    assert!(!gone.is_empty(), "the file stores answers");
+    loop {
+        let more: Vec<String> = text
+            .lines()
+            .filter_map(|l| id(l).map(|i| (i, l)))
+            .filter(|(i, l)| {
+                !gone.contains(i)
+                    && regex::Regex::new(r"#(\d+)")
+                        .unwrap()
+                        .captures_iter(&l[l.find('=').unwrap()..])
+                        .any(|c| gone.contains(&c[1]))
+            })
+            .map(|(i, _)| i)
+            .collect();
+        if more.is_empty() {
+            break;
+        }
+        gone.extend(more);
+    }
+    let kept: Vec<&str> = text
+        .lines()
+        .filter(|l| id(l).is_none_or(|i| !gone.contains(&i)))
+        .collect();
+    let stripped = part::load_bytes("stripped.step", kept.join("\n").into_bytes()).unwrap();
+    assert!(
+        specify_core::resume::answers_for(&stripped)
+            .unwrap()
+            .is_none()
+    );
+    stripped
+}
+
+/// ADR P11, use case 6: a requirement change between two annotated files, read from their PMI
+/// alone. A change of limits on the same feature and kind keeps its number; a different
+/// measurement is one removed (its number retired) and another added (a new number); a removed
+/// requirement retires its number; an added one takes a new number.
+#[test]
+fn a_requirement_change_is_added_removed_changed_or_a_different_measurement() {
+    let bare = load("parts/plate.step");
+    let old = write(
+        &bare,
+        &answers(json!({
+            "hole.function:holes:9": "fit:H7",
+            "extra.flat": {"kind": "flatness", "faces": [4], "value": "0.05"},
+            "extra.place": {"kind": "distance", "faces": [9], "reference": [0], "value": "±0.1"},
+        })),
+    );
+    let new = write(
+        &old,
+        &answers(json!({
+            "hole.function:holes:9": "fit:H8",
+            "extra.top": {"kind": "flatness", "faces": [5], "value": "0.02"},
+            "extra.place": {"kind": "distance", "faces": [9], "reference": [1], "value": "±0.1"},
+        })),
+    );
+    let numbers = |p: &part::LoadedPart| -> Vec<u64> {
+        specify_core::characteristics::read(p)
+            .unwrap()
+            .iter()
+            .map(|c| c.number)
+            .collect()
+    };
+    let (before, after) = (numbers(&old), numbers(&new));
+    let high_water = *before.iter().max().unwrap();
+    let report = revision::diff(&old, &new).unwrap();
+    let items = &report.pmi.items;
+    // No requirement is only renumbered: the new file continues the old file's numbers.
+    assert!(!items.iter().any(|c| c.class == "renumbered"), "{items:?}");
+    // Changed limits: the same number, both values.
+    let fit: Vec<_> = items
+        .iter()
+        .filter(|c| c.class == "changed" && c.kind == "dimension")
+        .collect();
+    assert_eq!(fit.len(), 1, "{items:?}");
+    let fit = fit[0];
+    assert!(before.contains(&fit.number.unwrap()) && after.contains(&fit.number.unwrap()));
+    assert!(fit.old.as_deref().unwrap().contains("H7"), "{fit:?}");
+    assert!(fit.new.as_deref().unwrap().contains("H8"), "{fit:?}");
+    // Removed: the old flatness, its number retired.
+    let flat = items
+        .iter()
+        .find(|c| c.old.as_deref() == Some("⏥ 0.05"))
+        .unwrap();
+    assert_eq!(flat.class, "removed");
+    assert_eq!(flat.reason.as_deref(), Some("retired"));
+    assert!(!after.contains(&flat.number.unwrap()));
+    // Added: the new flatness, a new number.
+    let top = items
+        .iter()
+        .find(|c| c.new.as_deref() == Some("⏥ 0.02"))
+        .unwrap();
+    assert_eq!(top.class, "added");
+    assert!(top.number.unwrap() > high_water);
+    // A different measurement (located from another face): removed and added, not changed.
+    let place: Vec<_> = items
+        .iter()
+        .filter(|c| c.kind == "dimension" && c.class != "changed")
+        .collect();
+    let removed = place.iter().find(|c| c.class == "removed").unwrap();
+    let added = place.iter().find(|c| c.class == "added").unwrap();
+    assert_eq!(removed.reason.as_deref(), Some("retired"));
+    assert!(!after.contains(&removed.number.unwrap()));
+    assert!(added.number.unwrap() > high_water);
+    assert_ne!(removed.number, added.number);
+    // The Markdown lists each with its number and feature.
+    let md = report.markdown("Plate", None);
+    for c in [fit, flat, top, removed, added] {
+        assert!(
+            md.contains(&format!("- #{} ", c.number.unwrap())),
+            "#{:?}: {md}",
+            c.number
+        );
+    }
+    assert!(
+        md.contains(&format!("- #{} retired: ⏥ 0.05", flat.number.unwrap())),
+        "{md}"
+    );
+    assert!(
+        md.contains(&format!("- #{} added: ⏥ 0.02", top.number.unwrap())),
+        "{md}"
+    );
+}
+
+/// ADR P11: diff reads only the PMI in the two files. The same report, scenes and picture
+/// whatever answers the files store: here with the stored answers stripped from both.
+#[test]
+fn the_report_is_the_same_whatever_answers_the_files_store() {
+    let written = |answers_json: Value| {
+        let bare = load("revisions/hole_moved.old.step.gz");
+        write(&bare, &answers(answers_json))
+    };
+    let pairs = [
+        (
+            load("revisions/spindle_pmi.old.step.gz"),
+            load("revisions/spindle_pmi.new.step.gz"),
+        ),
+        (
+            written(json!({"part.material": "6061-T6", "hole.function:holes:8": "fit:H7"})),
+            write(
+                &load("revisions/hole_moved.new.step.gz"),
+                &answers(json!({"part.material": "6082-T6", "hole.function:holes:8": "fit:H8"})),
+            ),
+        ),
+    ];
+    for (old, new) in pairs {
+        let options = revision::DiffOptions { scenes: true };
+        let stored = revision::diff_with_options(&old, &new, options).unwrap();
+        let (old_bare, new_bare) = (without_stored_answers(&old), without_stored_answers(&new));
+        let stripped = revision::diff_with_options(&old_bare, &new_bare, options).unwrap();
+        assert!(!stored.pmi.items.is_empty());
+        assert_eq!(
+            serde_json::to_value(&stored).unwrap(),
+            serde_json::to_value(&stripped).unwrap()
+        );
+        assert_eq!(
+            stored.markdown("Part", None),
+            stripped.markdown("Part", None)
+        );
+        assert_eq!(
+            revision::picture(&old, &new, &stored, 300),
+            revision::picture(&old_bare, &new_bare, &stripped, 300)
+        );
+        // One side stripped, the other not: the same again.
+        let mixed = revision::diff_with_options(&old_bare, &new, options).unwrap();
+        assert_eq!(
+            serde_json::to_value(&stored).unwrap(),
+            serde_json::to_value(&mixed).unwrap()
+        );
+    }
 }

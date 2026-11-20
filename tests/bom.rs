@@ -885,4 +885,3 @@ fn a_history_fingerprinted_before_quiddity_0_5_keeps_its_numbers() {
     assert_eq!(rows[0].description.value, "Mounting plate");
     assert_eq!(rows[1].description.value, "Locating pin");
 }
-

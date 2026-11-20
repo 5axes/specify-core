@@ -141,15 +141,12 @@ them to obtain compact JSON:
 `geometry` is quiddity's versioned recognition fingerprint, including faces/features.
 quiddity never matches fingerprints of another version, so entries written before
 quiddity 0.5.0 (fingerprint/3) are re-fingerprinted from the file that holds the history,
-whenever that file is at hand (a write into it, `revision::diff` and
-`revision::assembly::diff` from it): each entry takes the part carrying its item number,
+whenever that file is at hand (a write into it): each entry takes the part carrying its item number,
 or failing that the one part with its name. A transported history kept from before the
 upgrade without its file cannot be re-fingerprinted, and its parts receive new numbers.
 An entry also carries `fields`, a snapshot of the answered BOM UDA items, so a renamed
 part can retain its BOM data through geometric matching. An optional `material` snapshot
-holds an answered material for assembly revision carry; the revision API restores it as
-`part.material` only when the new export lacks a material, using the existing writer.
-Occurrence UDAs remain the
+holds an answered material. Occurrence UDAs remain the
 public read contract. Snapshots append; the last valid snapshot is current, and counters cannot decrease.
 Corrupt histories refuse the write. Numbers start at 1; every new number is above the
 high-water mark. Removed entries disappear from the current snapshot, retiring their
@@ -162,12 +159,10 @@ two-face parts). Identical duplicate parts retain stored identities first, then 
 names and stored/occurrence order; they do not acquire new numbers due to ambiguity.
 STEP entity IDs never establish identity. A fresh CAD export with no transported history
 has no prior allocation to preserve and starts at 1 (unless native find numbers exist).
-`revision::diff` carries the history in opaque answer member `_specify_bom`; retain it
-alongside `_specify_characteristic_numbers`. Destination history wins over transport.
-For assembly changes, `revision::assembly::diff` exposes `bom_history` when present,
-its optional per-part `bom_answers` supplies geometrically carried BOM answers, and
-`answers()` (CLI `answers.json`) includes the transport on every new part,
-even when all parts have been renamed and none pairs by name for PMI comparison.
+The writer still accepts a history transported in the opaque answer member `_specify_bom`
+(destination history wins over transport), but `diff` no longer produces one: it reads the
+two files' PMI only and returns no answers (ADR P11). Carrying the history to a new revision
+is for `carry`.
 Keep the returned transport in answers passed to `write`, including subset writes.
 BOM matching uses geometry independently of the existing assembly PMI name-pairing rule.
 

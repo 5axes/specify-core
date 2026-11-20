@@ -186,10 +186,7 @@ fn the_report_says_what_changed_in_words() {
         assert!(thickened.contains(row), "{thickened}");
     }
     let moved = md("hole_moved");
-    assert!(
-        moved.contains("✅ 1 hole moved.\n"),
-        "{moved}"
-    );
+    assert!(moved.contains("✅ 1 hole moved.\n"), "{moved}");
     assert!(
         moved.contains(
             "- Ø6 × 10 through hole, on the −Z side, at X 40, Y 45 from the −X, −Y corner: \
@@ -394,7 +391,9 @@ fn a_real_part_s_report_names_what_a_person_changed() {
     // holes' middles moving as they deepen.
     assert!(!r.check.is_empty());
     assert!(
-        md.contains("- pattern of 2 × Ø9 × 13 through holes: depth 11 → 13; diameter 10 → 9, so its "),
+        md.contains(
+            "- pattern of 2 × Ø9 × 13 through holes: depth 11 → 13; diameter 10 → 9, so its "
+        ),
         "{md}"
     );
     assert!(!md.contains("diameter 10 → 9; moved"), "{md}");
@@ -848,9 +847,19 @@ fn a_removed_hole_s_requirements_are_not_paired_with_the_hole_taking_its_faces()
     let given = answer_file("pair_after_removal");
     let mut kept = given.as_object().unwrap().clone();
     kept.retain(|id, _| !id.ends_with(":holes:7") && !id.contains("set:8.9"));
-    kept.insert("hole.function:hole_patterns.set:7.8".into(), given["hole.function:hole_patterns.set:8.9"].clone());
-    kept.insert("hole.position:hole_patterns.set:7.8".into(), given["hole.position:hole_patterns.set:8.9"].clone());
-    let r = diff(&annotated(&old, given.clone()), &annotated(&new, Value::Object(kept))).unwrap();
+    kept.insert(
+        "hole.function:hole_patterns.set:7.8".into(),
+        given["hole.function:hole_patterns.set:8.9"].clone(),
+    );
+    kept.insert(
+        "hole.position:hole_patterns.set:7.8".into(),
+        given["hole.position:hole_patterns.set:8.9"].clone(),
+    );
+    let r = diff(
+        &annotated(&old, given.clone()),
+        &annotated(&new, Value::Object(kept)),
+    )
+    .unwrap();
     let items = &r.pmi.items;
     let removed: Vec<_> = items.iter().filter(|i| i.class == "removed").collect();
     let mut gone: Vec<_> = removed.iter().map(|i| i.old.as_deref().unwrap()).collect();

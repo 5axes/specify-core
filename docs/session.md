@@ -28,8 +28,8 @@ One session per opened file (per pair, for a diff), held in memory by the MCP se
 - where Save writes: beside the file by default, or over it when the session was opened
   `in_place` (keeping a `.bak`), as docs/open.md's `save` says.
 
-It starts from the answers stored in the file (a file Specify wrote resumes them), or, for a
-diff, from the answers `diff` carried to the new revision. It lasts as long as the MCP server
+It starts from the answers stored in the file (a file Specify wrote resumes them), for a diff
+too: nothing is carried from the old revision (ADR P11). It lasts as long as the MCP server
 process; nothing is written to disk unless a save or an `answers_file` asks for it (docs/mcp.md's
 memory rule).
 
@@ -43,11 +43,11 @@ The existing tools (docs/mcp.md) work on the session, plus three new ones:
 
 | Tool | Arguments | Result |
 | --- | --- | --- |
-| `open` | as today, plus `old?` (a revision to compare from), `old_answers?` (the old answers' file; else those stored in `old`, else none), `in_place?` (on a session already open, changes where Save writes only when given) | as today, plus `rev`; with `old`, the diff's `verdict`, `summary` and `report` too, and the session starts from the carried answers |
+| `open` | as today, plus `old?` (a revision to compare from), `in_place?` (on a session already open, changes where Save writes only when given) | as today, plus `rev`; with `old`, the diff's `verdict`, `summary` and `report` too; the session is the file's own, nothing carried |
 | `questions`, `review`, `characteristics`, `read_pmi`, `export_answers` | as today | as today, plus `rev`: they read the session as it is now, page edits included |
 | `answer` | as today | as today, plus the new `rev`; the page receives it as an `answers` event with `source: "mcp"` |
 | `changes` (new) | `doc`, `since` (a `rev`) | `rev`, and `changes`: `[{rev, part, source, set: {id: answer}, cleared: [id]}]` after `since`, oldest first. If `since` is older than the changes kept, `full: true` and the whole `answers` instead (every part's, by part index, as the page's `GET answers` gives `parts`) |
-| `show` (new) | `doc`, `browser?` (default `true`), `read_only?` | `url`, `mode`. Starts the page server for this session on 127.0.0.1 (random port and token), or returns the running one's address; opens the browser unless `browser: false`. A session opened with `old` is shown in `diff` mode: the page shows what changed and the carried answers, and the person may answer and save the new revision. `read_only: true` makes that page view-only (no answer changes or Save from the page); the agent can still answer. Only `read_only: true` is refused for a session opened with `old` or `in_place` (as `open` refuses `--read-only` with `--diff` or `--in-place`). A page already running in the other mode is never replaced: `show` is refused with its `url` and `mode` until the person has closed it |
+| `show` (new) | `doc`, `browser?` (default `true`), `read_only?` | `url`, `mode`. Starts the page server for this session on 127.0.0.1 (random port and token), or returns the running one's address; opens the browser unless `browser: false`. A session opened with `old` is shown in `diff` mode: the page shows what changed beside the new file, and the person may answer and save the new revision. `read_only: true` makes that page view-only (no answer changes or Save from the page); the agent can still answer. Only `read_only: true` is refused for a session opened with `old` or `in_place` (as `open` refuses `--read-only` with `--diff` or `--in-place`). A page already running in the other mode is never replaced: `show` is refused with its `url` and `mode` until the person has closed it |
 | `save` (new) | `doc`, `accept_defaults` (required: the defaults the person approved, each id with the default value they saw: `{"<part index>": {"<id>": <value>}}` as the page sends them, or `{"<id>": <value>}` meaning the `doc`'s own part; `{}` for none) | `path`, `bytes`, `rev`, `report`: writes the session's answers with the same writer and naming as the page's Save (docs/open.md); plus `complete` and `missing`. Open questions never refuse it: what is answered is written, as the page's Save does. The page gets the same `saved` event |
 
 `write_pmi` stays for writing to a path of the agent's choosing; it does not change where

@@ -708,6 +708,28 @@ impl Scene {
             notes::file(doc, read, self.index, &semantic, loaded, &mut graphics)?;
         }
         let mut result = encode(&semantic, graphics, metadata)?;
+        if self.of_file {
+            // Stored answers are no PMI: the scene is the same with or without them (ADR P11).
+            let answers: Vec<String> = semantic.ids["attributes"]
+                .iter()
+                .zip(&semantic.pmi.attributes)
+                .filter(|(_, a)| resume::is_answers(a))
+                .map(|(id, _)| id.clone())
+                .collect();
+            if let Some(rows) = result["pmi"]["pmi"]["attributes"].as_array_mut() {
+                rows.retain(|row| {
+                    row["id"]
+                        .as_str()
+                        .is_none_or(|id| !answers.iter().any(|a| a == id))
+                });
+            }
+            if let Some(ids) = result["presentation"]["semantic_ids"].as_array_mut() {
+                ids.retain(|id| {
+                    id.as_str()
+                        .is_none_or(|id| !answers.iter().any(|a| a == id))
+                });
+            }
+        }
         // Append keeps the original callout records. Reopening must still draw
         // just one block, including the requirements from both generations.
         if notes::multiple_blocks(&result) {

@@ -287,4 +287,3 @@ fn a_renamed_part_s_ghost_does_not_tint_the_part_in_its_place() {
     );
     assert_eq!(reddish, 0);
 }
-

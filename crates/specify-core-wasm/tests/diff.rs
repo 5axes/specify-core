@@ -12,12 +12,7 @@ fn bytes(name: &str) -> Vec<u8> {
 #[test]
 fn the_browser_s_diff_is_the_command_line_s_with_what_a_viewer_draws() {
     let (old, new) = (bytes("bearing_flange.old"), bytes("bearing_flange.new"));
-    let got = session::diff(
-        ("old.step", &old),
-        ("new.step", &new),
-        "flange",
-    )
-    .unwrap();
+    let got = session::diff(("old.step", &old), ("new.step", &new), "flange").unwrap();
     let (before, after) = (
         part::load_bytes("old.step", old.clone()).unwrap(),
         part::load_bytes("new.step", new.clone()).unwrap(),
@@ -79,15 +74,9 @@ fn the_browser_s_diff_is_the_command_line_s_with_what_a_viewer_draws() {
 fn a_compressed_or_unreadable_revision_is_refused_by_name() {
     let new = bytes("bearing_flange.new");
     let gz = [0x1f, 0x8b, 0, 0];
-    let error =
-        session::diff(("old.step.gz", &gz), ("new.step", &new), "x").unwrap_err();
+    let error = session::diff(("old.step.gz", &gz), ("new.step", &new), "x").unwrap_err();
     assert!(error.contains("Decompress"), "{error}");
-    let error = session::diff(
-        ("old.step", b"garbage"),
-        ("new.step", &new),
-        "x",
-    )
-    .unwrap_err();
+    let error = session::diff(("old.step", b"garbage"), ("new.step", &new), "x").unwrap_err();
     assert!(error.contains("old.step"), "{error}");
 }
 
@@ -165,12 +154,7 @@ fn numbered_requirement_changes_use_the_same_identity_as_pmi_scene() {
     };
     let old = write(&bare, "fit:H7");
     let new = write(&old, "fit:H8");
-    let result = session::diff(
-        ("old.step", &old.bytes),
-        ("new.step", &new.bytes),
-        "Fit",
-    )
-    .unwrap();
+    let result = session::diff(("old.step", &old.bytes), ("new.step", &new.bytes), "Fit").unwrap();
     let scene = pmi_scene::pmi_scene(&new.bytes, None).unwrap();
     let items = result["report"]["pmi"]["items"].as_array().unwrap();
     assert_eq!(items.len(), 1);

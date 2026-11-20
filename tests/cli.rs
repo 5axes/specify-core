@@ -2276,21 +2276,28 @@ fn split_answers() -> Value {
     json!({"part.material":"6061-T6", "datum.A":[4], "datum.B":[1], "datum.C":[0]})
 }
 
+/// The split plate's answers file for *new* (written to `dir/changes/answers.json`), with
+/// *new*'s face evidence: on the old plate itself, as saved; on the new plate, as an earlier
+/// `diff` carried it, its bottom datum dropped. (Diff no longer writes answers: ADR P11.)
 fn split_diff(dir: &Path, new: &Path) -> Value {
-    let old = split_plate("old");
-    save(&dir.join("given.json"), &split_answers());
-    let done = run(&[
-        "diff",
-        &s(&old),
-        &s(new),
-        "--answers",
-        &s(&dir.join("given.json")),
-        "-o",
-        &s(&dir.join("changes")),
-    ]);
-    assert_eq!(done.code, 0, "{}", done.stderr);
-    serde_json::from_slice(&std::fs::read(dir.join("changes/answers.json")).unwrap()).unwrap()
+    let loaded = specify_core::part::load(new, None).unwrap();
+    let evidence = specify_core::resume::evidence(&loaded).unwrap();
+    let mut answers = split_answers();
+    if new == split_plate("new") {
+        answers = json!({"part.material": "6061-T6", "_specify": {
+            "evidence": evidence,
+            "unresolved": {"datum.A": SPLIT_DROPPED},
+        }});
+    } else {
+        answers["_specify"] = json!({"evidence": evidence, "unresolved": {}});
+    }
+    std::fs::create_dir_all(dir.join("changes")).unwrap();
+    save(&dir.join("changes/answers.json"), &answers);
+    answers
 }
+
+/// Why the split plate's datum A could not be carried.
+const SPLIT_DROPPED: &str = "face 4 has no match in the new part";
 
 fn split_write(dir: &Path, step: &Path, answers: &Path) -> Run {
     let analysis = dir.join("analysis.json");
@@ -2314,16 +2321,7 @@ fn dropped_carried_datum_cannot_be_bulk_defaulted_and_explicit_answer_clears_it(
     let new = split_plate("new");
     let mut answers = split_diff(&dir, &new);
     assert!(answers.get("datum.A").is_none());
-    let report: Value =
-        serde_json::from_slice(&std::fs::read(dir.join("changes/report.json")).unwrap()).unwrap();
-    let reason = report["unresolved"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|u| u["id"] == "datum.A")
-        .unwrap()["reason"]
-        .as_str()
-        .unwrap();
+    let reason = SPLIT_DROPPED;
     let analysis = dir.join("questions.analysis.json");
     save(&analysis, &api::analyse_file(&new, None).unwrap());
     let asked = run(&[
@@ -2380,7 +2378,7 @@ fn specify_written_answers_verify_unchanged_geometry_and_refuse_stale_indices() 
     assert_eq!(done.code, 2, "{}", done.stderr);
     assert!(done.stderr.contains("stale answers"), "{}", done.stderr);
     assert!(done.stderr.contains(&s(&answers)), "{}", done.stderr);
-    assert!(done.stderr.contains("diff"), "{}", done.stderr);
+    assert!(done.stderr.contains("another revision"), "{}", done.stderr);
     assert!(!dir.join("out.step").exists());
     assert!(!dir.join("intent.json").exists());
 }
@@ -2394,53 +2392,6 @@ fn plain_maps_have_no_geometry_history_and_remain_compatible() {
         // The same map could be newly handwritten for either part: no provenance to check.
         assert_eq!(done.code, 0, "{}", done.stderr);
     }
-}
-
-#[test]
-fn diff_refuses_answers_from_another_old_revision_with_actionable_exit_two() {
-    let dir = scratch("diff-stale-evidence");
-    let old = split_plate("old");
-    let new = split_plate("new");
-    split_diff(&dir, &old);
-    let saved = dir.join("changes/answers.json");
-    let rejected = dir.join("wrong-old");
-    let done = run(&[
-        "diff",
-        &s(&new),
-        &s(&new),
-        "--answers",
-        &s(&saved),
-        "-o",
-        &s(&rejected),
-    ]);
-    assert_eq!(done.code, 2, "{}", done.stderr);
-    assert!(
-        done.stderr
-            .contains("answers file belongs to another revision"),
-        "{}",
-        done.stderr
-    );
-    assert!(
-        done.stderr.contains("pass the matching old part as OLD"),
-        "{}",
-        done.stderr
-    );
-    assert!(
-        !done.stderr.contains("use `specify-core diff"),
-        "{}",
-        done.stderr
-    );
-    assert!(!rejected.exists());
-    let done = run(&[
-        "diff",
-        &s(&old),
-        &s(&new),
-        "--answers",
-        &s(&saved),
-        "-o",
-        &s(&dir.join("matching-old")),
-    ]);
-    assert_eq!(done.code, 0, "{}", done.stderr);
 }
 
 #[test]

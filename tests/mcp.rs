@@ -468,7 +468,10 @@ fn conversation(era: &'static str) {
     )
     .unwrap();
     assert_eq!(compared["kind"], json!("part"));
-    assert!(compared.get("answers").is_none(), "diff carries no answers (ADR P11)");
+    assert!(
+        compared.get("answers").is_none(),
+        "diff carries no answers (ADR P11)"
+    );
     assert_eq!(compared["verdict"], json!(expected.verdict));
     assert_eq!(compared["summary"], json!(expected.summary));
     assert_eq!(compared["report"], serde_json::to_value(&expected).unwrap());
@@ -1688,10 +1691,7 @@ fn nothing_is_saved_outside_the_allowed_directories() {
     let evil = outside.join("evil.step");
     std::os::unix::fs::symlink(&inside, &evil).unwrap();
     let mut server = Server::new(std::slice::from_ref(&allowed)).unwrap();
-    for arguments in [
-        json!({"path": evil}),
-        json!({"path": inside, "old": evil}),
-    ] {
+    for arguments in [json!({"path": evil}), json!({"path": inside, "old": evil})] {
         let refused = error_of(&mut server, "open", arguments.clone());
         assert_eq!(refused["code"], json!("refused"), "{arguments}: {refused}");
     }
@@ -1740,11 +1740,7 @@ fn nothing_is_saved_outside_the_allowed_directories() {
         assert_eq!(status, 403, "{body}");
         assert!(body["error"].is_string());
         served.join().unwrap();
-        assert_eq!(
-            names(),
-            ["evil.step"],
-            "nothing written outside"
-        );
+        assert_eq!(names(), ["evil.step"], "nothing written outside");
     }
     assert_eq!(
         std::fs::read(&inside).unwrap(),

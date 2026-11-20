@@ -18,7 +18,7 @@ The [demo repository](https://github.com/pzfreo/step-diff-demo) is a working exa
    name: STEP diff
    on:
      pull_request:
-       paths: ['**.step', '**.stp', '**.STEP', '**.STP', '**.answers.json']
+       paths: ['**.step', '**.stp', '**.STEP', '**.STP']
    permissions:
      contents: write       # the pictures, on the step-diff-images branch
      pull-requests: write  # the comment
@@ -60,34 +60,21 @@ checks its checksum.
 - **What changed** names each feature as a drawing would ("2× Ø10 × 11 through holes") and
   places it so it can be found ("on the −Z side, at X 10.9, Y 28.4 from the −X, −Y corner"),
   then says what changed: "depth 11 → 13; diameter 10 → 9", "moved Z +2", "removed".
-- **Requirements to check** are applied but listed to check. A clearance hole
-  that got smaller may no longer clear its bolt.
-- **Requirements not applied** keep their value and say why: the feature was removed, or the new
-  part has several features it could be.
-- **Requirements to specify** are decisions needed for new features, such as a new hole.
-- **PMI** lists the dimensions, tolerances and datums in the STEP files themselves that were
-  added, removed or changed.
-- **A stale sidecar** is reported in one line when `<part>.answers.json` differs from the
-  comparison's requirements, with a 3D review link for public repositories. The comment
-  never includes the JSON payload.
+- **PMI** lists the requirements (dimensions, tolerances, datums, notes) the two STEP files
+  state that were added, removed or changed, each with its characteristic number.
+- **Requirements to check** are the new file's requirements on a feature that moved or changed
+  size. A clearance hole that got smaller may no longer clear its bolt.
 
-How `diff` matches the two parts and decides what carries is in [docs/diff.md](../docs/diff.md).
+How `diff` matches the two parts and their requirements is in [docs/diff.md](../docs/diff.md).
 
 ## Requirements
 
-The requirements are the decisions made about the part: its material, what each hole is for, which
-faces are datums, the tolerances. The action looks for them in two places:
+The requirements are what each STEP file states as PMI: its material, tolerances, datums and
+notes, whoever wrote them. A file written by Specify, including one exported from the Specify
+editor at [draftwright.io](https://draftwright.io), is read the same as any other. The annotated
+STEP is the committed record; no answers file is read (ADR P11).
 
-- **A file beside the part.** For `bracket.step`, the file is `bracket.answers.json`, a JSON object
-  mapping question ids to values, as `specify-core write` takes. The base branch's file is the
-  one used for the comparison. If the new revision's sidecar differs from the resulting
-  requirements, the comment says it is stale. Run the comparison locally to produce the
-  updated `answers.json` for review and commit.
-- **The STEP file itself.** A STEP file written by Specify, including one exported from the
-  Specify editor at [draftwright.io](https://draftwright.io), stores its requirements as PMI. When
-  there's no sidecar, those are used.
-
-A part with no saved requirements still gets the comment: what changed, the picture and the measures.
+A part with no requirements still gets the comment: what changed, the picture and the measures.
 
 ## What it compares
 
@@ -154,9 +141,9 @@ never uploaded. [HANDOFF.md](HANDOFF.md) gives the message and the few lines tha
 The action runs `specify-core diff`. The same report comes from the command line:
 
 ```bash
-specify-core diff old.step new.step --answers old.answers.json -o changes
+specify-core diff old.step new.step -o changes
 ```
 
-`changes/` gets `report.md` (the comment), `model.png` (the picture), `report.json` and the
-carried `answers.json`. An assembly gives the same four files, its requirements by part name.
+`changes/` gets `report.md` (the comment), `model.png` (the picture) and `report.json`. An
+assembly gives the same three files.
 Installing the command line is described in [the README](../README.md#install).

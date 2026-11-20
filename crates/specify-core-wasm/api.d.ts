@@ -24,7 +24,7 @@ export function acceptDefaults(analysis: string, answers: string): string;
 
 export function answerEdit(state: string, answers: string): string;
 
-export function diff(old_name: string, old: Uint8Array, new_name: string, _new: Uint8Array, answers: string, title: string, scenes?: boolean | null): string;
+export function diff(old_name: string, old: Uint8Array, new_name: string, _new: Uint8Array, _answers: string, title: string, scenes?: boolean | null): string;
 
 export function initSync(module: { module: SyncInitInput } | SyncInitInput): InitOutput;
 

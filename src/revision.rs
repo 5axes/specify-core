@@ -1294,7 +1294,6 @@ impl Comparison {
             } => assembly_diff(before, after, compared, title),
         }
     }
-
 }
 
 /// Two revisions of a part compared, for a viewer: `{report, markdown, view}`, the report as
@@ -1582,7 +1581,6 @@ pub fn diff_with_options(
             .collect();
     }
 
-
     // The picture's faces.
     let mut face_class: BTreeMap<usize, &'static str> = BTreeMap::new();
     for n in &corr.new_faces {
@@ -1670,7 +1668,6 @@ pub fn diff_with_options(
     }
     gone.sort_unstable();
     gone.dedup();
-
 
     // The PMI: each file's own requirements, compared through the face matching.
     let (items, scenes) = pmi::diff(

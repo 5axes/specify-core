@@ -43,7 +43,7 @@ api.write("plate_v1.step", api.apply(analysis, answers), "plate.pmi.step", answe
 ```
 
 Keys are sorted recursively; arrays keep their order. The resulting map is accepted by
-all answer-taking operations, including `api.diff`. See [answer files](answers.md).
+all answer-taking operations. See [answer files](answers.md).
 
 ## Limit dimensions and combined ISO 2768 classes
 
@@ -100,8 +100,8 @@ assembly from bytes too). The same file loaded from bytes and from a path is the
 the same binding and analysis. A `LoadedPart` recognises its features once, on first use: after
 `analyse(old)`, each `diff(old, new_i)` recognises only `new_i`.
 
-`diff(old, new, answers=None, *, title, part, scenes, image_width=None)` returns
-`{"report", "markdown"}`; the report's `other_faces` and `unchanged_faces` cover face changes no
+`diff(old, new, *, title, part, scenes, image_width=None)` returns
+`{"report", "markdown"}`, from the two files' geometry and PMI only (no answers are taken); the report's `other_faces` and `unchanged_faces` cover face changes no
 feature explains (see [diff](diff.md)). With `image_width` (pixels) the result also has `"image"`:
 the PNG of the change that `specify-core diff` writes as `model.png`, drawn from the same
 comparison, so loaded parts are not read or recognised again.
