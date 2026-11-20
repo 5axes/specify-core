@@ -7,14 +7,13 @@
 //! keeps a `.bak`); `closed` stops the server.
 
 use std::io::{BufRead, BufReader, Read, Write};
-use std::net::{Ipv4Addr, TcpListener, TcpStream};
+use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdout, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use serde_json::{Map, Value, json};
-use sha2::{Digest, Sha256};
 use specify_core::open::{self, App, Assets, Options};
 use specify_core::session::{Opened as OpenedFile, Session};
 
@@ -2006,127 +2005,234 @@ fn bad_arguments_and_names_that_are_not_step_are_refused_up_front() {
     assert!(!help.contains("draftwright.io"), "{help}");
 }
 
-#[test]
-fn open_refuses_offline_and_evicts_tampered_javascript() {
-    let scratch = Scratch::new("release-source");
-    let cache = scratch.path("cache");
-    let app_cache = cache.join("app");
-    // The app is an asset of this specify-core release: same version, same release.
-    let version = env!("CARGO_PKG_VERSION");
-    let asset = format!("specify-ui-app-{version}.tgz");
-    let lock_name = format!("{version}.lock");
-    std::fs::create_dir_all(&app_cache).unwrap();
-    std::fs::write(app_cache.join(&lock_name), b"").unwrap();
+/// The built-in app and engine (ADR P12): the test build has tests/fixtures/bundle's built in.
+fn built_in(rel: &str) -> Vec<u8> {
+    std::fs::read(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/bundle")
+            .join(rel),
+    )
+    .unwrap()
+}
 
-    let manifest = json!({"name": "specify-ui-app", "version": version, "api": open::API_VERSION});
-    let mut tar = tar::Builder::new(flate2::write::GzEncoder::new(
-        Vec::new(),
-        flate2::Compression::fast(),
-    ));
-    for (path, body) in [
-        ("index.html", b"stub app".as_slice()),
-        ("specify-ui-app.json", manifest.to_string().as_bytes()),
-        ("main.js", b"export const value = 1;".as_slice()),
-        ("wasm/", b"".as_slice()),
+/// `open` with no `--app` or `--wasm` overrides, no user cache and no way to the network.
+fn offline_command(scratch: &Scratch, extra: &[&str]) -> Command {
+    let mut c = Command::new(env!("CARGO_BIN_EXE_specify-core"));
+    let home = scratch.path("home");
+    std::fs::create_dir_all(&home).unwrap();
+    c.arg("open")
+        .arg(scratch.input())
+        .arg("--no-browser")
+        .args(extra)
+        .env_remove("SPECIFY_APP_DIR")
+        .env_remove("SPECIFY_WASM_DIR")
+        .env("HOME", &home)
+        .env("XDG_CACHE_HOME", home.join("cache"))
+        .env("LOCALAPPDATA", &home);
+    // A proxy that refuses every connection: a download would fail.
+    for proxy in [
+        "HTTP_PROXY",
+        "HTTPS_PROXY",
+        "ALL_PROXY",
+        "http_proxy",
+        "https_proxy",
     ] {
-        let mut header = tar::Header::new_gnu();
-        header.set_mode(0o644);
-        header.set_size(body.len() as u64);
-        if path == "wasm/" {
-            header.set_entry_type(tar::EntryType::Directory);
-        }
-        tar.append_data(&mut header, path, body).unwrap();
+        c.env(proxy, "http://127.0.0.1:9");
     }
-    let archive = tar.into_inner().unwrap().finish().unwrap();
-    let digest: String = Sha256::digest(&archive)
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect();
-    let release = format!("/pzfreo/specify-core/releases/download/v{version}/{asset}");
-    let checksum = format!("{digest}  {asset}\n");
-    let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
-    let base = format!("http://{}", listener.local_addr().unwrap());
-    let make_command = || {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_specify-core"));
-        command
-            .arg("open")
-            .arg(scratch.input())
-            .arg("--no-browser")
-            .env_remove("SPECIFY_APP_DIR")
-            .env_remove("SPECIFY_WASM_DIR")
-            .env("SPECIFY_TEST_APP_BASE_URL", &base)
-            .env("SPECIFY_TEST_CACHE_DIR", &cache);
-        command
-    };
-    let assert_offline = || {
-        let out = make_command().output().unwrap();
-        assert_eq!(out.status.code(), Some(2));
-        assert!(out.stdout.is_empty());
-        let stderr = String::from_utf8(out.stderr).unwrap();
-        assert!(
-            stderr.contains("cannot open: could not download http://127.0.0.1:"),
-            "{stderr}"
-        );
-        assert!(
-            stderr.contains("check your internet connection"),
-            "{stderr}"
-        );
-        assert!(
-            stderr.contains("pass --app DIR / set SPECIFY_APP_DIR"),
-            "{stderr}"
-        );
-        let entries: Vec<_> = std::fs::read_dir(&app_cache)
+    c.env_remove("NO_PROXY").env_remove("no_proxy");
+    c
+}
+
+#[test]
+fn open_serves_the_built_in_app_and_engine_with_nothing_downloaded() {
+    let scratch = Scratch::new("built-in");
+    let opened = Opened::from_command(
+        &scratch.input(),
+        offline_command(&scratch, &["--read-only"]),
+    );
+
+    let index = opened.get("");
+    assert_eq!(index.status, 200);
+    assert_eq!(index.body, built_in("app/index.html"));
+    assert_eq!(
+        index.header("content-type"),
+        Some("text/html; charset=utf-8")
+    );
+    assert_eq!(index.header("cache-control"), Some("no-store"));
+    assert!(
+        index
+            .header("content-security-policy")
             .unwrap()
-            .map(|entry| entry.unwrap().file_name())
-            .collect();
-        assert_eq!(entries, [std::ffi::OsString::from(&lock_name)]);
-        assert_eq!(std::fs::read_dir(&cache).unwrap().count(), 1);
-    };
+            .contains("'wasm-unsafe-eval'")
+    );
+    for (rel, content_type, file) in [
+        ("index.html", "text/html; charset=utf-8", "app/index.html"),
+        (
+            "assets/main.js",
+            "text/javascript; charset=utf-8",
+            "app/assets/main.js",
+        ),
+        (
+            "specify-ui-app.json",
+            "application/json",
+            "app/specify-ui-app.json",
+        ),
+        (
+            "wasm/specify_core_wasm.js",
+            "text/javascript; charset=utf-8",
+            "wasm/specify_core_wasm.js",
+        ),
+        (
+            "wasm/specify_core_wasm_bg.wasm",
+            "application/wasm",
+            "wasm/specify_core_wasm_bg.wasm",
+        ),
+        // Percent-encoded segments name the same file.
+        (
+            "assets/%6Dain.js",
+            "text/javascript; charset=utf-8",
+            "app/assets/main.js",
+        ),
+    ] {
+        let got = opened.get(rel);
+        assert_eq!(got.status, 200, "{rel}");
+        assert_eq!(got.header("content-type"), Some(content_type), "{rel}");
+        assert_eq!(got.body, built_in(file), "{rel}");
+    }
+    // Only the built-in files: no directory, no way out, nothing else.
+    for rel in [
+        "assets",
+        "assets/",
+        "assets/../index.html",
+        "assets/%2E%2E/index.html",
+        "./index.html",
+        "assets//main.js",
+        "wasm",
+        "wasm/",
+        "wasm/../index.html",
+        "wasm/missing.wasm",
+        "missing.html",
+        "assets%2Fmain.js",
+    ] {
+        assert_eq!(opened.get(rel).status, 404, "{rel}");
+    }
 
-    // Reserve this port before testing and reopen it only long enough to install the fixture.
-    let addr = listener.local_addr().unwrap();
-    drop(listener);
-    assert_offline();
-    let listener = TcpListener::bind(addr).unwrap();
-    // The release's checksum, then the archive it names: one connection each.
-    let server = std::thread::spawn(move || {
-        for (path, body) in [
-            (format!("{release}.sha256"), checksum.into_bytes()),
-            (release, archive),
-        ] {
-            let (mut stream, _) = listener.accept().unwrap();
-            stream
-                .set_read_timeout(Some(Duration::from_secs(5)))
-                .unwrap();
-            let mut reader = BufReader::new(&mut stream);
-            let mut line = String::new();
-            reader.read_line(&mut line).unwrap();
-            assert_eq!(line, format!("GET {path} HTTP/1.1\r\n"));
-            while !line.is_empty() && line != "\r\n" {
-                line.clear();
-                reader.read_line(&mut line).unwrap();
-            }
-            write!(
-                stream,
-                "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: {}\r\n\r\n",
-                body.len()
-            )
-            .unwrap();
-            stream.write_all(&body).unwrap();
-        }
-    });
-    let page = Opened::from_command(&scratch.input(), make_command());
-    let served = page.get("main.js");
-    assert_eq!(served.status, 200);
-    assert_eq!(served.body, b"export const value = 1;");
-    drop(page);
-    server.join().unwrap();
+    let config = opened.config();
+    assert_eq!(config["wasmUrl"], "wasm/specify_core_wasm.js");
+    assert_eq!(config["api"], open::API_VERSION);
+    assert_eq!(config["readOnly"], true);
+    // Nothing was written outside the scratch input's directory.
+    assert_eq!(
+        std::fs::read_dir(scratch.path("home")).unwrap().count(),
+        0,
+        "nothing cached"
+    );
+}
 
-    let installed = app_cache.join(version);
-    // The replacement has the same number of bytes. Only the digest can detect it.
-    std::fs::write(installed.join("main.js"), b"export const value = 2;").unwrap();
-    assert_offline();
-    assert!(!installed.exists());
+/// `--app` overrides the built-in app; without `--wasm` its own `wasm/` serves the engine, and
+/// without one the built-in engine does. `--wasm` overrides both.
+#[test]
+fn app_and_wasm_override_the_built_in_ones() {
+    let scratch = Scratch::new("override");
+    let app = scratch.path("app");
+    let app = app.to_str().unwrap();
+    let pkg = scratch.path("pkg");
+    let pkg = pkg.to_str().unwrap();
+
+    let opened = Opened::from_command(&scratch.input(), offline_command(&scratch, &["--app", app]));
+    assert_eq!(
+        opened.get("").body,
+        b"<!doctype html><title>stub app</title>"
+    );
+    assert_eq!(opened.get("assets/main.js").status, 404);
+    let engine = opened.get("wasm/specify_core_wasm.js");
+    assert_eq!(engine.status, 200);
+    assert_eq!(engine.body, built_in("wasm/specify_core_wasm.js"));
+    drop(opened);
+
+    let opened = Opened::from_command(
+        &scratch.input(),
+        offline_command(&scratch, &["--app", app, "--wasm", pkg]),
+    );
+    assert_eq!(
+        opened.get("").body,
+        b"<!doctype html><title>stub app</title>"
+    );
+    assert_eq!(
+        opened.get("wasm/specify_core_wasm.js").body,
+        b"export default 1;"
+    );
+    drop(opened);
+
+    // An app's own wasm/ directory is its engine.
+    std::fs::create_dir(scratch.path("app/wasm")).unwrap();
+    std::fs::write(scratch.path("app/wasm/specify_core_wasm.js"), b"own").unwrap();
+    let opened = Opened::from_command(&scratch.input(), offline_command(&scratch, &["--app", app]));
+    assert_eq!(opened.get("wasm/specify_core_wasm.js").body, b"own");
+    drop(opened);
+
+    // --wasm alone: the built-in app on that engine.
+    let opened = Opened::from_command(
+        &scratch.input(),
+        offline_command(&scratch, &["--wasm", pkg]),
+    );
+    assert_eq!(opened.get("").body, built_in("app/index.html"));
+    assert_eq!(
+        opened.get("wasm/specify_core_wasm.js").body,
+        b"export default 1;"
+    );
+    drop(opened);
+
+    // The environment overrides as the flags do.
+    let mut from_env = offline_command(&scratch, &[]);
+    from_env.env("SPECIFY_APP_DIR", app);
+    let opened = Opened::from_command(&scratch.input(), from_env);
+    assert_eq!(
+        opened.get("").body,
+        b"<!doctype html><title>stub app</title>"
+    );
+}
+
+/// An `--app` whose manifest speaks another session API is refused before anything is served;
+/// one of this API is served.
+#[test]
+fn an_app_of_another_session_api_is_refused() {
+    let scratch = Scratch::new("app-api");
+    let app = scratch.path("app");
+    let manifest =
+        |api: u32| json!({"name": "specify-ui-app", "version": "9.9.9", "api": api}).to_string();
+    std::fs::write(
+        app.join("specify-ui-app.json"),
+        manifest(open::API_VERSION + 1),
+    )
+    .unwrap();
+    let out = offline_command(&scratch, &["--app", app.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(2));
+    assert!(out.stdout.is_empty());
+    let stderr = String::from_utf8(out.stderr).unwrap();
+    assert!(stderr.starts_with("cannot open: "), "{stderr}");
+    assert!(
+        stderr.contains(&format!(
+            "this app speaks session API {}, specify-core {} speaks {}",
+            open::API_VERSION + 1,
+            env!("CARGO_PKG_VERSION"),
+            open::API_VERSION
+        )),
+        "{stderr}"
+    );
+    assert!(
+        stderr.contains("pass --app DIR / set SPECIFY_APP_DIR"),
+        "{stderr}"
+    );
+
+    std::fs::write(app.join("specify-ui-app.json"), manifest(open::API_VERSION)).unwrap();
+    let opened = Opened::from_command(
+        &scratch.input(),
+        offline_command(&scratch, &["--app", app.to_str().unwrap()]),
+    );
+    assert_eq!(opened.get("").status, 200);
 }
 
 #[test]
