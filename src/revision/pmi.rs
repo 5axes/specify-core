@@ -1162,20 +1162,47 @@ pub(super) struct Compared {
 }
 
 /// Each row's `pmiScene` id by its id in the file's own scene: the two read the same PMI
-/// rows in the same order (the file scene leaves out the stored answers' row).
+/// rows in the same order (the file scene leaves out the stored answers' row). Rows are matched
+/// by position only while both scenes hold the same collections, the same number of rows in
+/// each and rows of the same kind; otherwise none is renamed and the file's own ids stand.
 fn scene_ids(file: &Value, scene: &Value) -> BTreeMap<String, String> {
     let answers = |row: &&Value| row["value"]["name"] == crate::resume::NAME;
-    let mut ids = BTreeMap::new();
-    for (collection, rows) in file["pmi"]["pmi"].as_object().into_iter().flatten() {
-        let theirs = scene["pmi"]["pmi"][collection].as_array();
-        for (mine, theirs) in rows
-            .as_array()
+    let rows = |s: &Value| -> BTreeMap<String, Vec<Value>> {
+        s["pmi"]["pmi"]
+            .as_object()
             .into_iter()
             .flatten()
-            .filter(|r| !answers(r))
-            .zip(theirs.into_iter().flatten().filter(|r| !answers(r)))
-        {
-            if let (Some(a), Some(b)) = (mine["id"].as_str(), theirs["id"].as_str()) {
+            .map(|(collection, rows)| {
+                let kept = rows
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter(|r| !answers(r))
+                    .cloned()
+                    .collect();
+                (collection.clone(), kept)
+            })
+            .filter(|(_, rows): &(String, Vec<Value>)| !rows.is_empty())
+            .collect()
+    };
+    let (mine, theirs) = (rows(file), rows(scene));
+    let alike = mine.len() == theirs.len()
+        && mine.iter().all(|(collection, rows)| {
+            theirs.get(collection).is_some_and(|other| {
+                other.len() == rows.len()
+                    && rows
+                        .iter()
+                        .zip(other)
+                        .all(|(a, b)| a["value"]["kind"] == b["value"]["kind"])
+            })
+        });
+    if !alike {
+        return BTreeMap::new();
+    }
+    let mut ids = BTreeMap::new();
+    for (collection, rows) in &mine {
+        for (a, b) in rows.iter().zip(&theirs[collection]) {
+            if let (Some(a), Some(b)) = (a["id"].as_str(), b["id"].as_str()) {
                 ids.insert(a.to_owned(), b.to_owned());
             }
         }
@@ -1273,6 +1300,39 @@ pub(super) fn diff(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scene_ids_rename_only_scenes_that_hold_the_same_rows() {
+        let scene = |rows: Value| json!({"pmi": {"pmi": rows}});
+        let file = scene(json!({
+            "dimensions": [{"id": "7", "value": {"kind": {"size": {}}}}],
+            "tolerances": [{"id": "8", "value": {"kind": "flatness"}}],
+        }));
+        let same = scene(json!({
+            "dimensions": [{"id": "size:holes:9", "value": {"kind": {"size": {}}}}],
+            "tolerances": [{"id": "flatness:4", "value": {"kind": "flatness"}}],
+        }));
+        assert_eq!(scene_ids(&file, &same)["7"], "size:holes:9");
+        assert_eq!(scene_ids(&file, &same)["8"], "flatness:4");
+        // A row more, a row of another kind or another collection: the file's own ids stand.
+        for other in [
+            json!({
+                "dimensions": [{"id": "a", "value": {"kind": {"size": {}}}},
+                               {"id": "b", "value": {"kind": {"size": {}}}}],
+                "tolerances": [{"id": "c", "value": {"kind": "flatness"}}],
+            }),
+            json!({
+                "dimensions": [{"id": "a", "value": {"kind": {"size": {}}}}],
+                "tolerances": [{"id": "c", "value": {"kind": "parallelism"}}],
+            }),
+            json!({
+                "dimensions": [{"id": "a", "value": {"kind": {"size": {}}}}],
+                "datums": [{"id": "c", "value": {"kind": null}}],
+            }),
+        ] {
+            assert!(scene_ids(&file, &scene(other)).is_empty());
+        }
+    }
 
     fn thread_scene(text: &str, depth: &str) -> Value {
         json!({
