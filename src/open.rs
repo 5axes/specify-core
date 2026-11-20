@@ -177,8 +177,8 @@ pub fn assets(app: Option<&Path>, wasm: Option<&Path>) -> Result<Assets, Error> 
         .map(Path::to_path_buf)
         .or_else(|| from_env("SPECIFY_WASM_DIR"));
     #[cfg(all(feature = "cli", feature = "asset-test-hooks"))]
-    if let Some((base, pin, cache)) = fetch::loopback_fixture() {
-        return resolve_assets(app, wasm, &fetch::Source::fixture(&base, &pin, &cache));
+    if let Some((base, cache)) = fetch::loopback_fixture() {
+        return resolve_assets(app, wasm, &fetch::Source::fixture(&base, &cache));
     }
     resolve_assets(
         app,

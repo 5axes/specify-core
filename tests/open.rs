@@ -2011,7 +2011,8 @@ fn open_refuses_offline_and_evicts_tampered_javascript() {
     let scratch = Scratch::new("release-source");
     let cache = scratch.path("cache");
     let app_cache = cache.join("app");
-    let version = "1.0.0-test";
+    // The app is an asset of this specify-core release: same version, same release.
+    let version = env!("CARGO_PKG_VERSION");
     let asset = format!("specify-ui-app-{version}.tgz");
     let lock_name = format!("{version}.lock");
     std::fs::create_dir_all(&app_cache).unwrap();
@@ -2041,9 +2042,8 @@ fn open_refuses_offline_and_evicts_tampered_javascript() {
         .iter()
         .map(|b| format!("{b:02x}"))
         .collect();
-    let pin = json!({"repository": "pzfreo/specify-ui", "tag": format!("v{version}"),
-        "asset": asset, "sha256": digest, "api": open::API_VERSION})
-    .to_string();
+    let release = format!("/pzfreo/specify-core/releases/download/v{version}/{asset}");
+    let checksum = format!("{digest}  {asset}\n");
     let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
     let base = format!("http://{}", listener.local_addr().unwrap());
     let make_command = || {
@@ -2055,7 +2055,6 @@ fn open_refuses_offline_and_evicts_tampered_javascript() {
             .env_remove("SPECIFY_APP_DIR")
             .env_remove("SPECIFY_WASM_DIR")
             .env("SPECIFY_TEST_APP_BASE_URL", &base)
-            .env("SPECIFY_TEST_APP_PIN", &pin)
             .env("SPECIFY_TEST_CACHE_DIR", &cache);
         command
     };
@@ -2089,26 +2088,32 @@ fn open_refuses_offline_and_evicts_tampered_javascript() {
     drop(listener);
     assert_offline();
     let listener = TcpListener::bind(addr).unwrap();
+    // The release's checksum, then the archive it names: one connection each.
     let server = std::thread::spawn(move || {
-        let (mut stream, _) = listener.accept().unwrap();
-        stream
-            .set_read_timeout(Some(Duration::from_secs(5)))
-            .unwrap();
-        let mut reader = BufReader::new(&mut stream);
-        let mut line = String::new();
-        reader.read_line(&mut line).unwrap();
-        assert!(line.starts_with("GET /pzfreo/specify-ui/releases/download/"));
-        while !line.is_empty() && line != "\r\n" {
-            line.clear();
+        for (path, body) in [
+            (format!("{release}.sha256"), checksum.into_bytes()),
+            (release, archive),
+        ] {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let mut reader = BufReader::new(&mut stream);
+            let mut line = String::new();
             reader.read_line(&mut line).unwrap();
+            assert_eq!(line, format!("GET {path} HTTP/1.1\r\n"));
+            while !line.is_empty() && line != "\r\n" {
+                line.clear();
+                reader.read_line(&mut line).unwrap();
+            }
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: {}\r\n\r\n",
+                body.len()
+            )
+            .unwrap();
+            stream.write_all(&body).unwrap();
         }
-        write!(
-            stream,
-            "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: {}\r\n\r\n",
-            archive.len()
-        )
-        .unwrap();
-        stream.write_all(&archive).unwrap();
     });
     let page = Opened::from_command(&scratch.input(), make_command());
     let served = page.get("main.js");

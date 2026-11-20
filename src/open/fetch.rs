@@ -10,11 +10,12 @@ use flate2::read::MultiGzDecoder;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use super::{CORE_VERSION, Error, app_error, check_app_api, check_manifest};
+use super::{CORE_VERSION, Error, app_error, check_manifest};
 
 const GITHUB: &str = "https://github.com";
-const APP_LOCK: &str = include_str!("../../app.lock.json");
-const UNPINNED: &str = "0000000000000000000000000000000000000000000000000000000000000000";
+/// The app and the engine are assets of this specify-core release (the app is built from ui/).
+const REPOSITORY: &str = "pzfreo/specify-core";
+const TAG: &str = concat!("v", env!("CARGO_PKG_VERSION"));
 const MARKER: &str = ".sha256";
 const FILES: &str = ".files.json";
 const MAX_ARCHIVE_BYTES: u64 = 100 * 1024 * 1024;
@@ -23,26 +24,16 @@ const MAX_ARCHIVE_ENTRIES: usize = 4096;
 #[cfg(test)]
 mod tests;
 
-#[derive(Deserialize)]
-struct Pin<'a> {
-    repository: &'a str,
-    tag: &'a str,
-    asset: &'a str,
-    sha256: &'a str,
-    api: u32,
-}
-
-/// The internal base URL, pin and cache override allow loopback tests with an isolated cache.
-/// Normal invocations always use GitHub, the compiled pin and the platform cache.
+/// The internal base URL and cache override allow loopback tests with an isolated cache.
+/// Normal invocations always use GitHub and the platform cache.
 pub(super) struct Source<'a> {
     base: &'a str,
-    pin: &'a str,
     cache: Option<&'a Path>,
 }
 
 /// A fixture for subprocess integration tests. Published builds have no runtime source override.
 #[cfg(feature = "asset-test-hooks")]
-pub(super) fn loopback_fixture() -> Option<(String, String, PathBuf)> {
+pub(super) fn loopback_fixture() -> Option<(String, PathBuf)> {
     let base = std::env::var("SPECIFY_TEST_APP_BASE_URL").ok()?;
     let cache = PathBuf::from(std::env::var_os("SPECIFY_TEST_CACHE_DIR")?);
     let addr = base
@@ -52,16 +43,14 @@ pub(super) fn loopback_fixture() -> Option<(String, String, PathBuf)> {
     if !addr.ip().is_loopback() || !cache.is_absolute() {
         return None;
     }
-    let pin = std::env::var("SPECIFY_TEST_APP_PIN").ok()?;
-    Some((base, pin, cache))
+    Some((base, cache))
 }
 
 #[cfg(feature = "asset-test-hooks")]
 impl<'a> Source<'a> {
-    pub(super) fn fixture(base: &'a str, pin: &'a str, cache: &'a Path) -> Self {
+    pub(super) fn fixture(base: &'a str, cache: &'a Path) -> Self {
         Self {
             base,
-            pin,
             cache: Some(cache),
         }
     }
@@ -96,13 +85,11 @@ impl Kind {
     }
 }
 
+/// A release asset, checked against the release's `<asset>.sha256`.
 struct Bundle<'a> {
     kind: Kind,
     version: &'a str,
-    repository: &'a str,
-    tag: &'a str,
     asset: &'a str,
-    sha256: Option<&'a str>,
 }
 
 impl Bundle<'_> {
@@ -120,11 +107,7 @@ impl Bundle<'_> {
         let Ok(marker) = read_metadata(&dir.join(MARKER), 128) else {
             return false;
         };
-        let matching = str::from_utf8(&marker).is_ok_and(|marker| {
-            let marker = marker.trim();
-            self.sha256
-                .map_or_else(|| is_sha256(marker), |pin| pin == marker)
-        });
+        let matching = str::from_utf8(&marker).is_ok_and(|marker| is_sha256(marker.trim()));
         matching && verify_inventory(dir).is_ok() && self.validate(dir).is_ok()
     }
 
@@ -147,40 +130,16 @@ impl Source<'_> {
     pub(super) fn github() -> Self {
         Self {
             base: GITHUB,
-            pin: APP_LOCK,
             cache: None,
         }
     }
 
+    /// The app this release built (ui/), whose manifest must name this version.
     pub(super) fn app(&self) -> Result<PathBuf, Error> {
-        let pin: Pin<'_> = serde_json::from_str(self.pin)
-            .map_err(|e| app_error(format!("invalid app.lock.json: {e}")))?;
-        if pin.tag == "v0.0.0" || pin.sha256 == UNPINNED {
-            return Err(app_error("no pinned app yet"));
-        }
-        check_app_api(pin.api)?;
-        let version = pin
-            .asset
-            .strip_prefix("specify-ui-app-")
-            .and_then(|name| name.strip_suffix(".tgz"))
-            .filter(|v| {
-                v.starts_with(|c: char| c.is_ascii_digit())
-                    && !v.ends_with('.')
-                    && v.bytes()
-                        .all(|b| b.is_ascii_alphanumeric() || b".-+_".contains(&b))
-            })
-            .ok_or_else(|| app_error("invalid app asset name in app.lock.json"))?;
-        if !is_sha256(pin.sha256) {
-            return Err(app_error("invalid SHA-256 in app.lock.json"));
-        }
-        let digest = pin.sha256.to_ascii_lowercase();
         self.install(&Bundle {
             kind: Kind::App,
-            version,
-            repository: pin.repository,
-            tag: pin.tag,
-            asset: pin.asset,
-            sha256: Some(&digest),
+            version: CORE_VERSION,
+            asset: concat!("specify-ui-app-", env!("CARGO_PKG_VERSION"), ".tgz"),
         })
     }
 
@@ -188,10 +147,7 @@ impl Source<'_> {
         self.install(&Bundle {
             kind: Kind::Wasm,
             version: CORE_VERSION,
-            repository: "pzfreo/specify-core",
-            tag: concat!("v", env!("CARGO_PKG_VERSION")),
             asset: concat!("specify-core-wasm-", env!("CARGO_PKG_VERSION"), ".tgz"),
-            sha256: None,
         })
     }
 
@@ -276,7 +232,7 @@ impl Source<'_> {
         let kind = bundle.kind;
         let url = format!(
             "{}/{}/releases/download/{}/{}",
-            self.base, bundle.repository, bundle.tag, bundle.asset
+            self.base, REPOSITORY, TAG, bundle.asset
         );
         let agent = download_agent(self.base);
         let _ = writeln!(
@@ -286,19 +242,13 @@ impl Source<'_> {
             bundle.version
         );
 
-        let checksum;
-        let expected = if let Some(pin) = bundle.sha256 {
-            pin
-        } else {
-            let bytes = get(&agent, &format!("{url}.sha256"), 4096, kind)?;
-            checksum = str::from_utf8(&bytes)
-                .ok()
-                .and_then(|s| s.split_ascii_whitespace().next())
-                .filter(|s| is_sha256(s))
-                .ok_or_else(|| kind.error(format!("invalid SHA-256 checksum at {url}.sha256")))?
-                .to_ascii_lowercase();
-            &checksum
-        };
+        let bytes = get(&agent, &format!("{url}.sha256"), 4096, kind)?;
+        let expected = str::from_utf8(&bytes)
+            .ok()
+            .and_then(|s| s.split_ascii_whitespace().next())
+            .filter(|s| is_sha256(s))
+            .ok_or_else(|| kind.error(format!("invalid SHA-256 checksum at {url}.sha256")))?
+            .to_ascii_lowercase();
         let bytes = get(&agent, &url, MAX_ARCHIVE_BYTES, kind)?;
         let digest = sha256(&bytes);
         if digest != expected {

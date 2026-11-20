@@ -12,8 +12,21 @@ use tar::{EntryType, Header};
 use super::*;
 use crate::open::{API_VERSION, MANIFEST, resolve_assets};
 
-const APP_VERSION: &str = "0.2.0";
-const APP_URL: &str = "/pzfreo/specify-ui/releases/download/v0.2.0/specify-ui-app-0.2.0.tgz";
+const APP_VERSION: &str = CORE_VERSION;
+const APP_URL: &str = concat!(
+    "/pzfreo/specify-core/releases/download/v",
+    env!("CARGO_PKG_VERSION"),
+    "/specify-ui-app-",
+    env!("CARGO_PKG_VERSION"),
+    ".tgz"
+);
+const APP_CHECKSUM_URL: &str = concat!(
+    "/pzfreo/specify-core/releases/download/v",
+    env!("CARGO_PKG_VERSION"),
+    "/specify-ui-app-",
+    env!("CARGO_PKG_VERSION"),
+    ".tgz.sha256"
+);
 const ENGINE_URL: &str = concat!(
     "/pzfreo/specify-core/releases/download/v",
     env!("CARGO_PKG_VERSION"),
@@ -23,12 +36,9 @@ const ENGINE_URL: &str = concat!(
 );
 const DIFFERENT_SHA: &str = "1111111111111111111111111111111111111111111111111111111111111111";
 
-fn pin(digest: &str) -> String {
-    json!({
-        "repository": "pzfreo/specify-ui", "tag": "v0.2.0", "asset": "specify-ui-app-0.2.0.tgz",
-        "sha256": digest, "api": API_VERSION,
-    })
-    .to_string()
+/// The release's `specify-ui-app-<version>.tgz.sha256`, as `sha256sum` writes it.
+fn app_checksum(digest: &str) -> Vec<u8> {
+    format!("{digest}  specify-ui-app-{APP_VERSION}.tgz\n").into_bytes()
 }
 
 fn manifest(api: u32) -> String {
@@ -239,10 +249,9 @@ impl Drop for Server {
     }
 }
 
-fn source<'a>(base: &'a str, pin: &'a str, cache: &'a Path) -> Source<'a> {
+fn source<'a>(base: &'a str, cache: &'a Path) -> Source<'a> {
     Source {
         base,
-        pin,
         cache: Some(cache),
     }
 }
@@ -268,14 +277,14 @@ fn downloads_app_and_engine_once_and_uses_the_cache_offline() {
     let checksum_path = format!("{ENGINE_URL}.sha256");
     let checksum_body = format!("{engine_digest}  specify-core-wasm-{CORE_VERSION}.tgz\n");
     let (base, server) = serve(vec![
+        (APP_CHECKSUM_URL, "200 OK", app_checksum(&app_digest)),
         (APP_URL, "302 Found\r\nLocation: /redirected-app", vec![]),
         ("/redirected-app", "200 OK", app),
         (&checksum_path, "200 OK", checksum_body.into_bytes()),
         (ENGINE_URL, "200 OK", engine),
     ]);
 
-    let pin = pin(&app_digest);
-    let source = source(&base, &pin, cache.path());
+    let source = source(&base, cache.path());
     thread::scope(|scope| {
         let concurrent = scope.spawn(|| resolve_assets(None, None, &source).unwrap());
         let first = resolve_assets(None, None, &source).unwrap();
@@ -312,8 +321,11 @@ fn downloads_app_and_engine_once_and_uses_the_cache_offline() {
 
 fn reject_app(archive: Vec<u8>, digest: &str, message: &str) {
     let cache = tempfile::tempdir().unwrap();
-    let (base, server) = serve(vec![(APP_URL, "200 OK", archive)]);
-    refused(source(&base, &pin(digest), cache.path()).app(), message);
+    let (base, server) = serve(vec![
+        (APP_CHECKSUM_URL, "200 OK", app_checksum(digest)),
+        (APP_URL, "200 OK", archive),
+    ]);
+    refused(source(&base, cache.path()).app(), message);
     server.finish();
     let entries: Vec<_> = fs::read_dir(cache.path().join("app"))
         .unwrap()
@@ -327,7 +339,7 @@ fn reject_app(archive: Vec<u8>, digest: &str, message: &str) {
 }
 
 #[test]
-fn checks_app_sha256_before_unpacking() {
+fn checks_app_against_the_release_checksum_before_unpacking() {
     reject_app(
         app_archive(Some(API_VERSION)),
         DIFFERENT_SHA,
@@ -344,7 +356,7 @@ fn checks_engine_against_the_release_checksum() {
         (ENGINE_URL, "200 OK", engine_archive()),
     ]);
     refused(
-        source(&base, APP_LOCK, cache.path()).wasm(),
+        source(&base, cache.path()).wasm(),
         "SHA-256 checksum mismatch",
     );
     server.finish();
@@ -438,9 +450,10 @@ fn missing_manifest_and_extra_file_both_trigger_reinstallation() {
     let cache = tempfile::tempdir().unwrap();
     let bytes = app_archive(Some(API_VERSION));
     let digest = sha256(&bytes);
-    let (base, server) = serve(vec![(APP_URL, "200 OK", bytes); 3]);
-    let pin = pin(&digest);
-    let source = source(&base, &pin, cache.path());
+    let mut routes = vec![(APP_CHECKSUM_URL, "200 OK", app_checksum(&digest)); 3];
+    routes.extend(vec![(APP_URL, "200 OK", bytes); 3]);
+    let (base, server) = serve(routes);
+    let source = source(&base, cache.path());
     let root = source.app().unwrap();
     fs::remove_file(root.join(MANIFEST)).unwrap();
     assert_eq!(source.app().unwrap(), root);
@@ -459,7 +472,7 @@ fn reports_a_refused_connection() {
     let base = format!("http://{}", listener.local_addr().unwrap());
     drop(listener);
     refused(
-        source(&base, &pin(DIFFERENT_SHA), cache.path()).app(),
+        source(&base, cache.path()).app(),
         "check your internet connection",
     );
 }
@@ -471,39 +484,49 @@ fn a_dropped_download_is_refused_and_leaves_no_partial_app() {
     let digest = sha256(&bytes);
     let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
     let base = format!("http://{}", listener.local_addr().unwrap());
-    // Promise more bytes than are sent, then close: the connection drops mid-body.
+    // The checksum in full; then the archive promises more bytes than are sent, and closes: the
+    // connection drops mid-body.
     let server = thread::spawn(move || {
         // Fail rather than hang if the download never connects.
         listener.set_nonblocking(true).unwrap();
-        let deadline = Instant::now() + Duration::from_secs(5);
-        let mut stream = loop {
-            match listener.accept() {
-                Ok((stream, _)) => break stream,
-                Err(e) if e.kind() == io::ErrorKind::WouldBlock && Instant::now() < deadline => {
-                    thread::sleep(Duration::from_millis(5));
+        for (path, body, length) in [
+            (APP_CHECKSUM_URL, app_checksum(&digest), None),
+            (APP_URL, bytes.clone(), Some(bytes.len() + 1000)),
+        ] {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            let mut stream = loop {
+                match listener.accept() {
+                    Ok((stream, _)) => break stream,
+                    Err(e)
+                        if e.kind() == io::ErrorKind::WouldBlock && Instant::now() < deadline =>
+                    {
+                        thread::sleep(Duration::from_millis(5));
+                    }
+                    Err(e) => panic!("the download never connected: {e}"),
                 }
-                Err(e) => panic!("the download never connected: {e}"),
+            };
+            stream.set_nonblocking(false).unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let mut reader = BufReader::new(&mut stream);
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            assert_eq!(line, format!("GET {path} HTTP/1.1\r\n"));
+            while reader.read_line(&mut line).unwrap() != 0 && line != "\r\n" {
+                line.clear();
             }
-        };
-        stream.set_nonblocking(false).unwrap();
-        stream
-            .set_read_timeout(Some(Duration::from_secs(5)))
-            .unwrap();
-        let mut reader = BufReader::new(&mut stream);
-        let mut line = String::new();
-        while reader.read_line(&mut line).unwrap() != 0 && line != "\r\n" {
-            line.clear();
+            let mut response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                length.unwrap_or(body.len())
+            )
+            .into_bytes();
+            response.extend_from_slice(&body);
+            stream.write_all(&response).unwrap();
         }
-        let mut response = format!(
-            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-            bytes.len() + 1000
-        )
-        .into_bytes();
-        response.extend_from_slice(&bytes);
-        stream.write_all(&response).unwrap();
     });
     refused(
-        source(&base, &pin(&digest), cache.path()).app(),
+        source(&base, cache.path()).app(),
         "check your internet connection",
     );
     server.join().unwrap();
@@ -521,33 +544,41 @@ fn a_dropped_download_is_refused_and_leaves_no_partial_app() {
 #[test]
 fn reports_an_http_failure() {
     let cache = tempfile::tempdir().unwrap();
-    let (base, server) = serve(vec![(APP_URL, "503 Service Unavailable", vec![])]);
+    let (base, server) = serve(vec![
+        (APP_CHECKSUM_URL, "200 OK", app_checksum(DIFFERENT_SHA)),
+        (APP_URL, "503 Service Unavailable", vec![]),
+    ]);
+    refused(source(&base, cache.path()).app(), "HTTP 503");
+    server.finish();
+}
+
+#[test]
+fn refuses_an_invalid_release_checksum_before_downloading_the_app() {
+    let cache = tempfile::tempdir().unwrap();
+    let (base, server) = serve(vec![(
+        APP_CHECKSUM_URL,
+        "200 OK",
+        b"not a digest\n".to_vec(),
+    )]);
     refused(
-        source(&base, &pin(DIFFERENT_SHA), cache.path()).app(),
-        "HTTP 503",
+        source(&base, cache.path()).app(),
+        "invalid SHA-256 checksum at",
     );
     server.finish();
+    assert!(!cache.path().join("app").join(APP_VERSION).exists());
 }
 
 #[test]
 fn reports_an_unusable_cache() {
     let file = tempfile::NamedTempFile::new().unwrap();
     refused(
-        source("", &pin(DIFFERENT_SHA), file.path()).app(),
+        source("", file.path()).app(),
         "cannot use the Specify app cache",
     );
 }
 
 #[test]
-fn placeholder_refuses_without_touching_the_cache() {
-    let pin = pin(UNPINNED);
-    let cache = tempfile::tempdir().unwrap();
-    refused(source("", &pin, cache.path()).app(), "no pinned app yet");
-    assert_eq!(fs::read_dir(cache.path()).unwrap().count(), 0);
-}
-
-#[test]
-fn a_changed_pin_replaces_a_stale_app_and_preserves_its_bundled_engine() {
+fn a_stale_app_is_replaced_and_its_bundled_engine_preserved() {
     let cache = tempfile::tempdir().unwrap();
     let dest = cache.path().join("app").join(APP_VERSION);
     fs::create_dir_all(&dest).unwrap();
@@ -564,9 +595,11 @@ fn a_changed_pin_replaces_a_stale_app_and_preserves_its_bundled_engine() {
         ("wasm/specify_core_wasm.js", EntryType::Regular, b"engine"),
     ]);
     let digest = sha256(&bytes);
-    let (base, server) = serve(vec![(APP_URL, "200 OK", bytes)]);
-    let pin = pin(&digest);
-    let source = source(&base, &pin, cache.path());
+    let (base, server) = serve(vec![
+        (APP_CHECKSUM_URL, "200 OK", app_checksum(&digest)),
+        (APP_URL, "200 OK", bytes),
+    ]);
+    let source = source(&base, cache.path());
     let assets = resolve_assets(None, None, &source).unwrap();
     server.finish();
     assert_eq!(assets.app, dest.canonicalize().unwrap());
@@ -589,7 +622,7 @@ fn a_changed_pin_replaces_a_stale_app_and_preserves_its_bundled_engine() {
 fn local_app_skips_downloads_and_checks_its_manifest_when_present() {
     let scratch = tempfile::tempdir().unwrap();
     let cache = scratch.path().join("must-stay-absent");
-    let source = source("", "unused", &cache);
+    let source = source("", &cache);
     let app = scratch.path().join("app");
     fs::create_dir(&app).unwrap();
     fs::write(app.join("index.html"), "local app").unwrap();

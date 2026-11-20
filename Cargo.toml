@@ -12,7 +12,7 @@ description = "Interview-driven AP242 PMI authoring for STEP parts (Rust port of
 repository = "https://github.com/pzfreo/specify-core"
 readme = "README.md"
 # crates.io gets the library and the command line; tests, fixtures and tools stay in the repository.
-include = ["/src/**", "/app.lock.json", "/Cargo.toml", "/README.md", "/CHANGELOG.md", "/LICENSE", "/NOTICE"]
+include = ["/src/**", "/Cargo.toml", "/README.md", "/CHANGELOG.md", "/LICENSE", "/NOTICE"]
 
 [[bin]]
 name = "specify-core"
