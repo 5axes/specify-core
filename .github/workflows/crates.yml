@@ -1,5 +1,7 @@
 name: crates.io
 
+# The crate carries the app and engine bundle.yml builds first, when it stays under crates.io's
+# 10 MB (tools/package_crate.sh; ADR P12).
 on:
   pull_request:
     paths:
@@ -11,7 +13,10 @@ on:
       - 'CHANGELOG.md'
       - 'LICENSE'
       - 'NOTICE'
+      - 'build.rs'
+      - 'tools/package_crate.sh'
       - '.github/workflows/crates.yml'
+      - '.github/workflows/bundle.yml'
   # A published GitHub release publishes specify-core to crates.io, as it publishes the wheel
   # to PyPI (python.yml): the maintainer's release is the approval. A pre-release is not
   # published (a crates.io version can be yanked but never removed); a manual run can.
@@ -34,19 +39,35 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  bundle:
+    if: >-
+      github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'release' && !github.event.release.prerelease)
+    uses: ./.github/workflows/bundle.yml
+    with:
+      ref: ${{ github.event.release.tag_name || inputs.tag || github.sha }}
+
   # Packages the crate as crates.io would build it, against the crates.io quiddity and
-  # haecceity named by the manifest's `version`, so a packaging break shows before a release.
+  # haecceity named by the manifest's `version`, so a packaging break (or a crate grown past
+  # 10 MB) shows before a release.
   package:
+    needs: bundle
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: specify-bundle
+          path: bundle
       # The toolchain comes from rust-toolchain.toml.
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-      - run: cargo publish --dry-run --locked -p specify-core
+      - run: bash tools/package_crate.sh
+      - run: cargo publish --dry-run --locked --allow-dirty -p specify-core
 
   publish:
+    needs: bundle
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'release' && !github.event.release.prerelease)
@@ -65,6 +86,10 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: refs/tags/${{ env.TAG }}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: specify-bundle
+          path: bundle
       - name: ci.yml passed on the tagged commit
         env:
           GH_TOKEN: ${{ github.token }}
@@ -113,6 +138,10 @@ jobs:
             echo "::error::crates.io answered $status for specify-core $VERSION"
             exit 1
           fi
+      # The app and engine, in the crate if it fits (bundle/ is not committed: --allow-dirty).
+      - name: Package
+        if: steps.missing.outputs.publish == 'true'
+        run: bash tools/package_crate.sh
       - name: Mint a crates.io token
         if: steps.missing.outputs.publish == 'true'
         id: auth
@@ -121,4 +150,4 @@ jobs:
         if: steps.missing.outputs.publish == 'true'
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
-        run: cargo publish --locked -p specify-core
+        run: cargo publish --locked --allow-dirty -p specify-core

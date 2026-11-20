@@ -1,7 +1,9 @@
 name: Python package
 
 # The specify-core Python package (crates/specify-core-py): an abi3 wheel per platform and an
-# sdist. Each wheel is installed and its smoke suite (tests/python) run on CPython 3.12, and the
+# sdist, each carrying the app and engine bundle.yml builds first (ADR P12). Each wheel is
+# installed, checked to serve its built-in app (tools/open_smoke.py), and its smoke suite
+# (tests/python) run on CPython 3.12, and the
 # Linux x86_64 wheel on the oldest (3.11) and newest CPython too, as abi3 promises. Published to PyPI for a
 # release. A change to the package, the engine or this workflow builds and tests on its pull
 # request, without publishing.
@@ -15,7 +17,10 @@ on:
       - 'src/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
+      - 'build.rs'
+      - 'tools/open_smoke.py'
       - '.github/workflows/python.yml'
+      - '.github/workflows/bundle.yml'
   # A manual run on main can publish the version already released (0.1.4 predates this workflow).
   workflow_dispatch:
     inputs:
@@ -28,8 +33,14 @@ permissions:
   contents: read
 
 jobs:
-  wheels:
+  bundle:
     if: github.event_name != 'release' || startsWith(github.event.release.tag_name, 'v')
+    uses: ./.github/workflows/bundle.yml
+    with:
+      ref: ${{ github.event.release.tag_name || github.sha }}
+
+  wheels:
+    needs: bundle
     strategy:
       fail-fast: false
       matrix:
@@ -51,6 +62,11 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ github.event.release.tag_name || github.sha }}
+      # The app and engine build.rs builds in (bundle/app, bundle/wasm).
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: specify-bundle
+          path: bundle
       # The package's LICENSE and NOTICE are links to the repository's; a Windows checkout
       # makes a link a text file holding its target, so it gets the files themselves.
       - if: runner.os == 'Windows'
@@ -69,17 +85,29 @@ jobs:
           path: dist/*.whl
           if-no-files-found: error
 
+  # The sdist carries bundle/ too, so a build from it has the app and engine built in.
   sdist:
-    if: github.event_name != 'release' || startsWith(github.event.release.tag_name, 'v')
+    needs: bundle
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ github.event.release.tag_name || github.sha }}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: specify-bundle
+          path: bundle
       - uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
           command: sdist
           args: -m crates/specify-core-py/Cargo.toml --out dist
+      - name: The sdist carries the app and engine
+        run: |
+          set -eu
+          names=$(tar -tzf dist/*.tar.gz)
+          for file in bundle/app/index.html bundle/app/specify-ui-app.json bundle/wasm/specify_core_wasm.js bundle/wasm/specify_core_wasm_bg.wasm; do
+            grep -q "/$file\$" <<<"$names" || { echo "::error::the sdist lacks $file"; exit 1; }
+          done
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: sdist
@@ -130,6 +158,12 @@ jobs:
               text = zipfile.ZipFile(wheel).read(found).decode()
               assert len(text) > 100, (found, text)
           EOF
+      # Its own app and engine, served with no download (no --app, an empty HOME, no proxy).
+      - name: The wheel's command serves its built-in app and engine
+        run: |
+          gunzip -c tests/fixtures/thread-depth-alpha7.step.gz > part.step
+          bin=.venv/${{ runner.os == 'Windows' && 'Scripts' || 'bin' }}
+          "$bin/python" tools/open_smoke.py "$bin/specify-core${{ runner.os == 'Windows' && '.exe' || '' }}" part.step
       - run: .venv/${{ runner.os == 'Windows' && 'Scripts' || 'bin' }}/python -m pytest tests/python -q
 
   publish:
@@ -142,8 +176,14 @@ jobs:
     permissions:
       id-token: write # PyPI trusted publishing
     steps:
+      # The wheels and the sdist only (not specify-bundle, which they carry).
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
+          pattern: wheel-*
           path: dist
           merge-multiple: true
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: sdist
+          path: dist
       - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
