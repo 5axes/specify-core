@@ -410,7 +410,7 @@ MCP `show` reads the overrides from the server process's environment.
 **Building it in.** With the `bundled-app` feature (on by default), `build.rs` builds in the
 app from `ui/dist-app` (else `bundle/app`, the copy a published crate carries) when its
 manifest names the crate's version, and the engine from `crates/specify-core-wasm/pkg` (else
-`bundle/wasm`). A development build has them once they are built:
+`bundle/wasm`) when its `package.json` names the crate's version. A development build has them once they are built:
 
 ```sh
 wasm-pack build crates/specify-core-wasm --target web --profile wasm-release --locked

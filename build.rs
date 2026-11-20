@@ -4,7 +4,8 @@
 //! With the `bundled-app` feature, the app is the first of `ui/dist-app` (`npm run build:app`)
 //! and `bundle/app` (the copy a published crate carries) that holds `index.html` and a
 //! `specify-ui-app.json` naming this version; the engine is the first of
-//! `crates/specify-core-wasm/pkg` (wasm-pack) and `bundle/wasm` that holds its glue and WASM.
+//! `crates/specify-core-wasm/pkg` (wasm-pack) and `bundle/wasm` that holds its glue and WASM and
+//! a `package.json` naming this version.
 //! Each file is stored gzipped. A build without them still compiles, with nothing built in, and
 //! `open` then asks for `--app`; `SPECIFY_REQUIRE_BUNDLE=1` (the release jobs) makes that an error.
 //! The `bundle-test-fixture` feature (cargo test) builds in the small fake app and engine of
@@ -57,7 +58,18 @@ fn main() {
             }
             None => false,
         });
-        (app, wasm.into_iter().find(|dir| is_engine(dir)))
+        let wasm = wasm.into_iter().find(|dir| match engine_version(dir) {
+            Some(found) if found == version => true,
+            Some(found) => {
+                println!(
+                    "cargo:warning={} is Specify engine {found}, not {version}: not built in (rebuild it: wasm-pack build crates/specify-core-wasm --target web --profile wasm-release)",
+                    dir.display()
+                );
+                false
+            }
+            None => false,
+        });
+        (app, wasm)
     } else {
         (None, None)
     };
@@ -134,6 +146,16 @@ fn app_version(dir: &Path) -> Option<String> {
 
 fn is_engine(dir: &Path) -> bool {
     ENGINE.iter().all(|name| dir.join(name).is_file())
+}
+
+/// The version a built engine's `package.json` (wasm-pack's) names, if `dir` holds an engine.
+fn engine_version(dir: &Path) -> Option<String> {
+    if !is_engine(dir) {
+        return None;
+    }
+    let package: serde_json::Value =
+        serde_json::from_slice(&fs::read(dir.join("package.json")).ok()?).ok()?;
+    Some(package.get("version")?.as_str()?.to_string())
 }
 
 /// The files under `dir` by their `/`-separated path, sorted (hidden files left out); only
