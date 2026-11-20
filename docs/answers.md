@@ -222,7 +222,7 @@ hole's basic location dimensions beside the other tool's position tolerance), re
 it in `resume.file` and in `resume.foreign`: it is still keep-only. An answer to it is not
 written or stored, and the report's `not_written` says "another tool's requirement holds this
 question; keep it, or change it in that tool", as it does for any answer another tool's PMI
-keeps from being asked. A file saved by 0.2.0, or by a preview of 0.2.1, with a Keep of
+keeps from being asked. A file saved by 0.2.0, or by a development build before this fix, with a Keep of
 another tool's conflict still lists the question in `_specify.keep`, which cannot be told
 apart from a Keep of Specify's own requirement, so an answer there can still replace it.
 
