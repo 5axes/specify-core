@@ -182,13 +182,12 @@ fn mesh(
 /// `image_width` the picture of the change (a PNG of that width in pixels) drawn from the same
 /// comparison: `(json, png or None)`.
 #[pyfunction]
-#[pyo3(signature = (old, new, answers="{}", title="Revision", part=None, scenes=false, image_width=None))]
+#[pyo3(signature = (old, new, title="Revision", part=None, scenes=false, image_width=None))]
 #[allow(clippy::too_many_arguments)]
 fn diff<'py>(
     py: Python<'py>,
     old: &Bound<'py, PyAny>,
     new: &Bound<'py, PyAny>,
-    answers: &str,
     title: &str,
     part: Option<usize>,
     scenes: bool,
@@ -202,7 +201,6 @@ fn diff<'py>(
             specify_core::revision::MAX_PICTURE_WIDTH
         )));
     }
-    let answers = answers_of(answers)?;
     let old_owned;
     let old = match loaded(old, part)? {
         Some(handle) => handle,
@@ -224,7 +222,6 @@ fn diff<'py>(
             let report = specify_core::revision::diff_with_options(
                 &old.loaded,
                 &new.loaded,
-                &answers,
                 specify_core::revision::DiffOptions { scenes },
             )?;
             let png = image_width.map(|width| {

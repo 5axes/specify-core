@@ -75,6 +75,27 @@ impl Scene {
         })
     }
 
+    /// The file's PMI only, read as any file's is: no stored answers are read, so nothing
+    /// depends on which tool wrote an item (ADR P11). For `diff`.
+    pub(crate) fn of_file(loaded: &LoadedPart) -> Result<Self, String> {
+        let doc = Document::parse(loaded.bytes.to_vec()).map_err(|e| e.to_string())?;
+        let defs = step::read_part_definitions(&loaded.bytes).map_err(|e| e.to_string())?;
+        let read = pmi::read(&doc, &defs).map_err(|e| e.to_string())?;
+        Ok(Self {
+            doc,
+            read,
+            index: loaded.binding.part,
+            stored: None,
+            foreign: None,
+            reconciling: false,
+        })
+    }
+
+    /// The file's requirements in current semantic notation, for a revision comparison.
+    pub(crate) fn file_comparison(&self, loaded: &LoadedPart) -> Result<Value, String> {
+        self.file(loaded, None, true)
+    }
+
     /// Compare saved answers even when an unmarked process would prevent writing them.
     pub(crate) fn for_resume(
         loaded: &LoadedPart,

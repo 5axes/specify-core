@@ -140,18 +140,52 @@ fn supports(
     }
 }
 
-// Reuse scene notation and feature labels; no new requirement classification.
-pub(super) fn check_lines(
-    checks: &[super::Check],
+/// The requirements *scene* states on a feature of *changed* (new feature id → its changes):
+/// those whose controlled faces (a location's target, not its reference) are the feature's. A
+/// location is listed only when its feature moved.
+pub(super) fn checks(
+    changed: &BTreeMap<String, BTreeMap<String, quiddity::correspondence::Change>>,
     features: &[Feature],
     scene: &Value,
-) -> Vec<String> {
-    if checks.is_empty() {
-        return Vec::new();
+) -> Vec<super::Check> {
+    let mut checks = Vec::new();
+    for item in items(scene) {
+        let on = if item.on_faces.is_empty() {
+            &item.faces
+        } else {
+            &item.on_faces
+        };
+        if on.is_empty() || item.kind == "datum" {
+            continue;
+        }
+        // A location is checked when its feature moved, not when it only changed size.
+        let location = item.match_kind.starts_with("dimension:location");
+        let Some(f) = features.iter().find(|f| {
+            changed
+                .get(&f.id)
+                .is_some_and(|c| !location || c.contains_key("position"))
+                && on.iter().all(|face| f.faces.contains(face))
+        }) else {
+            continue;
+        };
+        checks.push(super::Check {
+            number: item.number,
+            id: item.id.clone(),
+            requirement: item.text.clone(),
+            feature: f.id.clone(),
+            changes: changed[&f.id].clone(),
+            axis: super::along(&f.record).map(|(k, _, _)| k),
+        });
     }
-    let requirements = items(scene);
-    // One line per feature and change: `… diameter 3 → 3.4, so its ⌀3.4 H11 and ⌖ ⌀0.2Ⓜ A B C
-    // requirements may no longer fit`.
+    checks.sort_by(|a, b| {
+        (a.number.is_none(), a.number, &a.id).cmp(&(b.number.is_none(), b.number, &b.id))
+    });
+    checks
+}
+
+// One line per feature and change: `… diameter 3 → 3.4, so its ⌀3.4 H11 and ⌖ ⌀0.2Ⓜ A B C
+// requirements may no longer fit`.
+pub(super) fn check_lines(checks: &[super::Check], features: &[Feature]) -> Vec<String> {
     let mut lines: Vec<(String, String, Vec<String>)> = Vec::new();
     for c in checks {
         let feature = features
@@ -159,28 +193,7 @@ pub(super) fn check_lines(
             .find(|f| f.id == c.feature)
             .map(|f| super::describe(f).0)
             .unwrap_or_else(|| c.feature.clone());
-        let asked: Vec<&Item> = requirements
-            .iter()
-            .filter(|r| scene["specify"][&r.id]["question"] == c.id)
-            .filter(|r| !r.text.is_empty())
-            .collect();
-        // The requirement itself, not the planned dimensions that locate it: a position
-        // tolerance is named by its frame, as the PMI list names it.
-        let own: Vec<&&Item> = asked
-            .iter()
-            .filter(|r| !r.id.starts_with("planner:"))
-            .collect();
-        let notation = if own.is_empty() {
-            asked.iter().map(|r| r.text.as_str()).collect::<Vec<_>>()
-        } else {
-            own.iter().map(|r| r.text.as_str()).collect()
-        }
-        .join("; ");
-        let notation = if notation.is_empty() {
-            super::fmt(&c.answer)
-        } else {
-            notation
-        };
+        let notation = c.requirement.clone();
         let changes = [
             super::sizes(&c.changes),
             super::moved(&c.changes, c.axis)
@@ -1109,106 +1122,42 @@ fn classify(
     truth
 }
 
-/// The plans' changes that the files' comparison lacks (by id or number), each saying it comes
-/// from the plans: a `retired` item keeps its reason, a code, with the words in `detail`.
-fn add_planned(changes: &mut Vec<PmiItemChange>, planned: Vec<PmiItemChange>) {
-    for mut change in planned {
-        if !changes.iter().any(|actual| {
-            actual.id == change.id || (actual.number.is_some() && actual.number == change.number)
-        }) {
-            let differs = "carried requirement differs from the new file";
-            if change.reason.as_deref() == Some("retired") {
-                change.detail = Some(differs.into());
-            } else {
-                change.reason = Some(differs.into());
-            }
-            changes.push(change);
-        }
-    }
-}
-
+/// Each file's own requirements, compared through the face matching: the files' PMI and nothing
+/// else (ADR P11), read the same whoever wrote it. Characteristic numbers pair requirements only
+/// where the new file continues the old file's number history.
 pub(super) fn diff(
     old: &LoadedPart,
     new: &LoadedPart,
-    analyses: (&Value, &Value),
-    given: Option<&Map<String, Value>>,
-    carried: &Map<String, Value>,
+    corr: &quiddity::correspondence::Correspondence,
     correspondence: (&BTreeMap<usize, Bind>, Option<&[[f64; 3]; 3]>),
     features: (&[Feature], &[Feature]),
 ) -> api::Result<(Vec<PmiItemChange>, PmiScenes)> {
     let (faces, rotation) = correspondence;
-    let old_items = |scene: &Value| {
-        let mut items = items(scene);
-        if let Some(rotation) = rotation {
-            rotate_roles(&mut items, rotation);
-        }
-        items
-    };
-    let destination = Scene::with(new, Some(features.1)).map_err(api::Error::Analysis)?;
-    let carried_numbers = destination
-        .carries_numbers(carried)
-        .map_err(api::Error::Analysis)?;
-    let scene = |part: &LoadedPart, analysis: &Value, answers| {
-        if std::ptr::eq(part, new) {
-            destination.comparison(part, analysis, answers)
-        } else {
-            Scene::with(part, std::ptr::eq(part, old).then_some(features.0))
-                .and_then(|scene| scene.comparison(part, analysis, answers))
-        }
-        .map_err(api::Error::Analysis)
-    };
-    let (old_analysis, new_analysis) = analyses;
-    let before = scene(old, old_analysis, given)?;
-    let before_items = old_items(&before);
-    let projected = scene(new, new_analysis, (!carried.is_empty()).then_some(carried))?;
-    let (mut changes, after) = if new_analysis["resume"].is_object() {
-        let actual = scene(new, new_analysis, None)?;
-        let mut changes = compare(
-            &before_items,
-            &items(&actual),
-            faces,
-            features.0,
-            features.1,
-            carried_numbers,
-        );
-        // Compare the two plans too: generated requirements can follow geometry
-        // without any answer changing. File edits own the final requirement when
-        // they differ; otherwise retain the geometry-derived change from the plan.
-        let source = given.or_else(|| old_analysis["resume"]["answers"].as_object());
-        if let Some(source) = source {
-            let old_plan = scene(old, old_analysis, Some(source))?;
-            let planned = compare(
-                &old_items(&old_plan),
-                &items(&projected),
-                faces,
-                features.0,
-                features.1,
-                carried_numbers,
-            );
-            add_planned(&mut changes, planned);
-        }
-        (changes, actual)
-    } else {
-        (
-            compare(
-                &before_items,
-                &items(&projected),
-                faces,
-                features.0,
-                features.1,
-                carried_numbers,
-            ),
-            projected,
-        )
-    };
-    changes.sort_by(|a, b| {
-        (a.number.is_none(), a.number, &a.id, &a.class).cmp(&(
-            b.number.is_none(),
-            b.number,
-            &b.id,
-            &b.class,
-        ))
-    });
+    let error = |e: String| api::Error::Analysis(e);
+    let before = Scene::of_file(old)
+        .map_err(error)?
+        .file_comparison(old)
+        .map_err(error)?;
+    let destination = Scene::of_file(new).map_err(error)?;
+    let after = destination.file_comparison(new).map_err(error)?;
+    let mut before_items = items(&before);
+    if let Some(rotation) = rotation {
+        rotate_roles(&mut before_items, rotation);
+    }
+    let after_items = items(&after);
+    // The old file's number history, read on the new part through the face matching.
+    let mut transport = Map::new();
+    crate::characteristics::carry_revision(old, new, corr, &mut transport).map_err(error)?;
+    let carried_numbers = after_items.iter().any(|i| i.number.is_some())
+        && destination.carries_numbers(&transport).map_err(error)?;
+    let changes = compare(
+        &before_items,
+        &after_items,
+        faces,
+        features.0,
+        features.1,
+        carried_numbers,
+    );
     Ok((
         changes,
         PmiScenes {
@@ -1479,44 +1428,6 @@ mod tests {
         item.on_faces = target;
         item.reference_faces = reference;
         item
-    }
-
-    #[test]
-    fn a_planned_retirement_keeps_its_reason_and_says_why_in_detail() {
-        // With a carried history, an item only the plans remove is retired: its reason stays
-        // the code, and the plans' origin goes in `detail`. Other planned items keep the
-        // explanation as their reason, as before.
-        let mut old = [
-            control("gone", vec![0], "⌖ ⌀0.2 A"),
-            control("edited", vec![1], "⏥ 0.05"),
-        ];
-        old[0].number = Some(7);
-        old[1].number = Some(8);
-        let mut new = [control("edited", vec![11], "⏥ 0.02")];
-        new[0].number = Some(8);
-        let faces = BTreeMap::from([(0, Bind::Orphaned), (1, Bind::To(11))]);
-        let planned = compare(&old, &new, &faces, &[], &[], true);
-        let mut changes = Vec::new();
-        add_planned(&mut changes, planned);
-        let retired = changes.iter().find(|c| c.id == "gone").unwrap();
-        assert_eq!(retired.class, "removed");
-        assert_eq!(retired.reason.as_deref(), Some("retired"));
-        assert_eq!(
-            retired.detail.as_deref(),
-            Some("carried requirement differs from the new file")
-        );
-        let json = serde_json::to_value(retired).unwrap();
-        assert_eq!(json["reason"], "retired");
-        assert_eq!(
-            json["detail"],
-            "carried requirement differs from the new file"
-        );
-        let edited = changes.iter().find(|c| c.id == "edited").unwrap();
-        assert_eq!(
-            edited.reason.as_deref(),
-            Some("carried requirement differs from the new file")
-        );
-        assert_eq!(edited.detail, None);
     }
 
     #[test]
