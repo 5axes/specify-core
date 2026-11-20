@@ -326,6 +326,49 @@ try {
     await context.close();
     server.stop();
   }
+  // An assembly saved with its defaults: the 3D view draws the saved file's PMI for the part
+  // shown, for another part shown next, and again on coming back (specify-ui#14).
+  {
+    const asmDir = join(dir, 'drawn');
+    mkdirSync(asmDir);
+    const asm = join(asmDir, 'asm.step');
+    writeFileSync(asm, gunzipSync(readFileSync('test/fixtures/gramil_assembly_before.step.gz')));
+    const server = await open(asm);
+    const { context, page, requests } = await load(server);
+    const viewPmi = page.getByRole('radiogroup', { name: 'View PMI' });
+    const select = page.locator('.app-part select');
+    await check(select).toBeVisible();
+    /** The PMI drawn for the part shown: its graphics, by the planes they are looked square at. */
+    const drawn = async () => {
+      await check(viewPmi).toBeVisible();
+      await viewPmi.getByRole('radio', { name: 'Graphical' }).check();
+      const squares = page.locator('.pmi-lab-squares button');
+      await check(squares.first()).toBeAttached();
+      return squares.allTextContents();
+    };
+    // Before the save: the scene built on opening, from the answers then.
+    const opening = await drawn();
+    await page.getByRole('button', { name: 'Save with defaults' }).click();
+    const list = page.getByRole('dialog', { name: 'Save with defaults' });
+    await list.getByRole('button', { name: /^Save with these \d+ defaults$/ }).click();
+    await check(page.locator('.app-saved')).toContainText(join(asmDir, 'asm.specified.step'));
+    // After it: the saved file's PMI, as the file states it (its datum features and callouts).
+    await check.poll(async () => JSON.stringify(await drawn())).not.toBe(JSON.stringify(opening));
+    const afterSave = await drawn();
+    assert.ok(afterSave.length > 0, 'the saved PMI is drawn');
+    const shownPart = await select.inputValue();
+    const values = await select.locator('option').evaluateAll(options => options.map(o => o.value));
+    const other = values.find(v => v !== shownPart);
+    await select.selectOption(other);
+    await check(select).toHaveValue(other);
+    assert.ok((await drawn()).length > 0, 'another part shows its saved PMI');
+    await select.selectOption(shownPart);
+    await check(select).toHaveValue(shownPart);
+    assert.deepEqual(await drawn(), afterSave, 'coming back shows the saved PMI again');
+    onlyLocal(requests, server.origin);
+    await context.close();
+    server.stop();
+  }
   // The partial save reopens with what was answered, and the questions left open are still open.
   {
     const server = await open(plainSave);

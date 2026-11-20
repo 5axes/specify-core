@@ -38,14 +38,15 @@ test('in the Part row, process comes before material; the other part questions k
   assert.deepEqual(part.questions.map(x => x.id), ['part.process', 'part.material', 'part.general_tolerance']);
 });
 
-test('specify-ui#14: a row is answered only when none of its questions is open; "none" suggestions read as such', () => {
+test('specify-ui#14: Datums is not answered while the engine lists datum C open; "none" suggestions read as such', () => {
   const q = (id, def) => ({ id, prompt: id, faces: [], default: def, attention: 'routine', kind: 'faces' });
   const [datums] = groupQuestions([q('datum.A', [1]), q('datum.B', [2]), q('datum.C', [])]);
-  assert.equal(rowState(datums, { 'datum.A': [1], 'datum.B': [2] }), 'ok', 'not answered while datum C is open');
-  assert.equal(rowState(datums, { 'datum.A': [1], 'datum.B': [2], 'datum.C': [] }), 'set');
-  // Never-open questions (a full-thread depth, a parts-list row, the process) do not hold a row back.
-  const [hole] = groupQuestions([{ ...q('hole.function:h', 'fit:H7'), feature: 'h' }, { ...q('hole.full_thread:h', 6), feature: 'h' }]);
-  assert.equal(rowState(hole, { 'hole.function:h': 'fit:H7' }), 'set');
+  const given = { 'datum.A': [1], 'datum.B': [2] };
+  assert.equal(rowState(datums, given, ['datum.C']), 'ok', 'not answered while datum C is open');
+  assert.equal(rowState(datums, given, []), 'set', 'answered once the engine lists none of its questions open');
+  // Other rows keep their rule: answered once any of their questions is.
+  const [hole] = groupQuestions([{ ...q('hole.function:h', 'fit:H7'), feature: 'h' }, { ...q('hole.position:h', 0.1), feature: 'h' }]);
+  assert.equal(rowState(hole, { 'hole.function:h': 'fit:H7' }, ['hole.position:h']), 'set');
   for (const value of [[], 'None', 'None (as machined)', 'none']) assert.ok(isNone(value), JSON.stringify(value));
   for (const value of [[3], 'Anodised', 'ISO 2768-m']) assert.ok(!isNone(value), JSON.stringify(value));
   assert.ok(noneSuggested(q('part.notes', []), {}));

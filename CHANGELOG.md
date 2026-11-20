@@ -65,14 +65,16 @@ From the first 0.2.1 trial (#217, pzfreo/specify-ui#14):
   or input hint. The app uses it in its save and agent messages and as the row label for questions
   without one ("Other notes").
 - The app, after a save to a copy, enables the inspection exports (CSV and AS9102) from the file as
-  saved (`GET file?rev=saved`), and its 3D view draws the saved file's PMI; before, the exports
-  stayed disabled and the view kept the PMI the file had when it was opened.
+  saved (`GET file?rev=saved`), and its 3D view draws the saved file's PMI, also for a part of an
+  assembly shown after the save; before, the exports stayed disabled and the view kept the PMI the
+  file had when it was opened.
 - The app's part panel no longer clips its values ("machined", "ISO 2768-m", the "Finish and
   notes" summary): a long name or value wraps within the panel.
-- The app shows a question whose suggestion is none as an ordinary row reading "None (suggested)":
-  coating and heat treatment are rows of their own again, "Other notes" no longer shows a dash,
-  and an unanswered datum shows in the Datums row. A row is marked answered only when none of its
-  questions is still open, so "Datums" is not answered while datum C is.
+- The app shows a question whose suggestion is none as "None (suggested)": in the "Finish and
+  notes" fold and its summary (coating, heat treatment), on "Other notes" (no longer a dash), and
+  for an unanswered datum in the Datums row. "Datums" is not marked answered while the engine
+  lists one of its questions (datum C) as open. Rows and messages name a question by the same
+  label ("Coating", not "Coating or treatment" in one and "Coating" in the other).
 
 ## 0.2.1 (2026-11-20)
 

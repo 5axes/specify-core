@@ -77,9 +77,9 @@ export function chosenForYou(
     else if (q.id.startsWith('hole.function:') || q.id.startsWith('diameter.fit:')) what = `${title}: ${codeOf(q, value)}`;
     else if (q.id.startsWith('hole.position:')) what = `${title}: position ⌀${String(value)}`;
     else if (q.id.startsWith('hole.frame:')) what = `${title}: measured from ${String(value)}`;
-    else what = `${q.prompt} ${String(value)}`;
+    else what = `${q.label ?? q.prompt}: ${String(value)}`;
     const about = letter ? `Datum ${letter}` : q.id in PART ? PART[q.id] as string
-      : q.id.startsWith('hole.position:') ? `${title} position` : title || q.prompt;
+      : q.id.startsWith('hole.position:') ? `${title} position` : title || (q.label ?? q.prompt);
     const why = check && q.reason ? q.reason : q.basis ?? q.why ?? '';
     const field = letter ? `Datum ${letter}` : q.id in PART ? PART[q.id] as string
       : q.id.startsWith('hole.function:') ? 'What for'

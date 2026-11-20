@@ -65,16 +65,14 @@ export function needs(q: PmiQuestion, answers: PmiAnswers): 'required' | 'check'
   return q.attention === 'check' ? 'check' : null;
 }
 
-/** Questions the command never lists as open (a full-thread depth, a parts-list row, the process). */
-const neverOpen = (q: PmiQuestion) => q.id.startsWith('hole.full_thread:') || q.id.startsWith('bom.') || q.id === 'part.process';
-
-/** The row's state, most urgent first. A row is answered only when none of its questions is
- * still open: "Datums" is not answered while datum C is (#14). */
-export function rowState(group: QuestionGroup, answers: PmiAnswers): RowState {
+/** The row's state, most urgent first. ``open``: the engine's open questions; the Datums row is
+ * not answered while one of its own is open (datum C, specify-ui#14). */
+export function rowState(group: QuestionGroup, answers: PmiAnswers, open: readonly string[] = []): RowState {
   const states = group.questions.map((q) => needs(q, answers));
   if (states.includes('required')) return 'required';
   if (states.includes('check')) return 'check';
-  return group.questions.some((q) => q.id in answers) && group.questions.every((q) => q.id in answers || neverOpen(q)) ? 'set' : 'ok';
+  if (group.key === 'datums' && group.questions.some((q) => open.includes(q.id))) return 'ok';
+  return group.questions.some((q) => q.id in answers) ? 'set' : 'ok';
 }
 
 /** Whether ``value`` states nothing: no faces, no notes, or a "None …" choice. */

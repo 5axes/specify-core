@@ -38,11 +38,13 @@ const STATE_TEXT = { required: 'needs an answer', check: 'please check', set: 'a
 /** Short names for the part's own fields; any other part question is shown by its prompt. */
 const PART_FIELD: Record<string, string> = {
   'part.material': 'Material', 'part.process': 'Process', 'part.general_tolerance': 'General tolerance', 'part.locating': 'Holes located by',
-  'part.surface_finish': 'Surface finish', 'part.coating': 'Coating or treatment',
+  'part.surface_finish': 'Surface finish', 'part.coating': 'Coating',
   'part.heat_treatment': 'Heat treatment', 'part.edges': 'Edges',
 };
-/** The part's notes, folded under "Finish and notes". Coating and heat treatment are rows of their own (#14). */
-const NOTE_FIELDS = new Set(['part.surface_finish', 'part.edges']);
+/** One name per question everywhere: the engine's label, else the short name, else its prompt. */
+const labelOf = (q: PmiQuestion) => q.label ?? PART_FIELD[q.id] ?? q.prompt;
+/** The part's notes, folded under "Finish and notes". */
+const NOTE_FIELDS = new Set(['part.surface_finish', 'part.coating', 'part.heat_treatment', 'part.edges']);
 const MODE_TEXT: Record<PickMode, string> = { face: 'Face', feature: 'Hole / feature', coplanar: 'Coplanar faces' };
 
 function asError(error: unknown): PmiLabError {
@@ -98,6 +100,8 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   const picker = useRef<Picker | null>(null);
   const [moreTools, setMoreTools] = useState(false);
   const [questions, setQuestions] = useState<readonly PmiQuestion[]>(session.questions);
+  // The engine's open questions: the Datums row is not answered while one of its own is open (specify-ui#14).
+  const [openIds, setOpenIds] = useState<readonly string[]>(session.open);
   const [answers, setAnswers] = useState<PmiAnswers>(session.answers ?? {});
   const [resumed, setResumed] = useState(false);
   const [current, setCurrent] = useState<string | null>(null);
@@ -155,7 +159,8 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   // Settings the file already states are not asked; they are shown as read.
   const stated = Object.entries(session.analysis.part ?? {});
   const notes = partGroup?.questions.filter((q) => NOTE_FIELDS.has(q.id)) ?? [];
-  const notesSummary = notes.map((q) => String(answerOf(q, answers) ?? ''))
+  // A suggestion that states nothing is said as such, by its question (specify-ui#14).
+  const notesSummary = notes.map((q) => (noneSuggested(q, answers) ? `${labelOf(q)}: ${NONE_SUGGESTED}` : String(answerOf(q, answers) ?? '')))
     .filter((v) => v && !/^(none|no edge note)/i.test(v)).join(' · ');
   const draftQuestion = useMemo<PmiQuestion | null>(() => (draft ? {
     id: draft.key, kind: 'faces', prompt: 'Pick faces', faces: draft.faces ?? [], default: draft.faces ?? [],
@@ -333,6 +338,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     ++previewing.current; // An older preview must not overwrite a host undo/redo.
     setAnswers(externalAnswers);
     setQuestions(externalReview.questions);
+    setOpenIds(externalReview.open);
     setProblems(externalReview.problems);
     setPreview(externalReview.intent);
     setTyped((typed) => Object.fromEntries(Object.entries(typed).filter(([id, read]) => externalAnswers[id] === read.value)));
@@ -390,6 +396,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
       setError(null);
       setAnswers(next);
       setQuestions(asked.questions);
+      setOpenIds(asked.open);
       setProblems(asked.problems ?? []);
       setCurrent(focus(groupQuestions(asked.questions)));
       void relabel(next);
@@ -789,7 +796,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
     g: QuestionGroup, extra?: ReactNode, sum?: string, onHead?: () => void, unfoldedHere = false,
   ) => {
     // A doubted default the editor has recorded as reviewed is not "please check" any more.
-    const own = rowState(g, answers);
+    const own = rowState(g, answers, openIds);
     const state = own === 'check' && toReview && !g.questions.some((q) => toReview.includes(q.id)) ? 'ok' : own;
     const open = g === here;
     const expanded = open || unfoldedHere;
@@ -1072,7 +1079,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
                 }
                 if (c && !readOnly) return card(c);
                 if (onlySuggestions) return null;
-                return <FoldedLine key={q.id} kept={isKept(q)} name={PART_FIELD[q.id] ?? q.label ?? q.prompt} value={partValue(q, answers)} onOpen={() => toggle(q.id)} />;
+                return <FoldedLine key={q.id} kept={isKept(q)} name={labelOf(q)} value={partValue(q, answers)} onOpen={() => toggle(q.id)} />;
               })}
               {notes.length > 0 && (unfolded === 'notes' || unfolded?.startsWith('note:') ? (
                 <div className="pmi-lab-notes">
@@ -1086,7 +1093,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
                     />
                   ) : (
                     <FoldedLine
-                      key={q.id} kept={isKept(q)} name={PART_FIELD[q.id] ?? q.label ?? q.prompt} value={partValue(q, answers)}
+                      key={q.id} kept={isKept(q)} name={labelOf(q)} value={partValue(q, answers)}
                       onOpen={() => setUnfolded(`note:${q.id}`)}
                     />
                   )))}
@@ -1267,7 +1274,7 @@ function PartField({ q, answers, error, onAnswer, locked = false }: {
   q: PmiQuestion; answers: PmiAnswers; error: PmiLabError | null; onAnswer: (value: unknown) => void;
 }) {
   const need = needs(q, answers);
-  const label = PART_FIELD[q.id] ?? q.label ?? q.prompt;
+  const label = labelOf(q);
   const value = answerOf(q, answers);
   const placeholder = need === 'required' ? 'e.g. aluminium 6082-T6' : String(q.default ?? '');
   const name = (

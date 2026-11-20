@@ -106,6 +106,15 @@ async function openPart(worker: WorkerClient, answersSession: AnswersSession, na
   };
 }
 
+/** The PMI the saved file ``bytes`` has for the part shown, as drawn: null when it has no graphics,
+ * undefined when the scene could not be made (the view is then left as it is). */
+async function savedDrawn(worker: WorkerClient, bytes: Uint8Array, at: { part: number; several: boolean }): Promise<DrawnPmi | null | undefined> {
+  const scene = await worker.request('file-scene', { bytes, ...(at.several ? { part: at.part } : {}) }).then(drawnFromScene, () => null);
+  if (!scene) return undefined;
+  const drawn = scene.ok ? withoutNotesBlock(scene.value) : null;
+  return drawn && hasGraphics(drawn) ? drawn : null;
+}
+
 const stem = (name: string) => name.replace(/\.gz$/i, '').replace(/\.(step|stp)$/i, '');
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error));
 const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? '' : 's'}`;
@@ -157,6 +166,8 @@ function App() {
   const [inspectionProblem, setInspectionProblem] = useState<string | null>(null);
   const inspectionLoad = useRef(0);
   const savedRevision = useRef(-1);
+  // The bytes the session's last save wrote: the 3D view draws their PMI, for every part shown since.
+  const savedBytes = useRef<Uint8Array | null>(null);
   const heardSaves = useRef(new Set<string>());
   const captureSaved = useRef<(saved: { path: string; rev: number }) => void>(() => {});
   const [slots, setSlots] = useState<SpecifySlots | null>(null);
@@ -210,15 +221,14 @@ function App() {
           const written = await getFile('saved').then(stepBytes);
           if (ended || load !== inspectionLoad.current) return;
           setInspectionStep({ path: event.path, name: inspectionName(event.path), bytes: written });
+          savedBytes.current = written;
           // The 3D view draws the PMI as the save wrote it: the scene built on opening shows only
           // what the file had then (specify-ui#14). A scene that fails leaves the view as it was.
           const shown = shownRef.current;
           if (!shown || !worker.current) return;
-          const scene = await worker.current.request('file-scene', { bytes: written, ...(shown.several ? { part: shown.part } : {}) })
-            .then(drawnFromScene, () => null);
-          const drawn = scene?.ok ? withoutNotesBlock(scene.value) : null;
-          if (scene && !ended && load === inspectionLoad.current) {
-            setOpened((now) => (now?.store === shown.store ? { ...now, drawn: drawn && hasGraphics(drawn) ? drawn : null } : now));
+          const drawn = await savedDrawn(worker.current, written, shown);
+          if (drawn !== undefined && !ended && load === inspectionLoad.current) {
+            setOpened((now) => (now?.store === shown.store ? { ...now, drawn } : now));
           }
         })().catch((error: unknown) => {
           if (!ended && load === inspectionLoad.current) setInspectionProblem(message(error));
@@ -308,7 +318,11 @@ function App() {
     try {
       // The part left keeps its unsaved answers: in the session, and counted as unsaved.
       await opened.store.settled();
-      const next = await openPart(worker.current, answersSession, config.name, opened.bytes, { part: index, several: true }, config.readOnly, edited, () => partIndexes.current);
+      let next = await openPart(worker.current, answersSession, config.name, opened.bytes, { part: index, several: true }, config.readOnly, edited, () => partIndexes.current);
+      // After a save, the part's PMI is drawn from the saved file, as for the part shown then.
+      const saved = savedBytes.current;
+      const drawn = saved ? await savedDrawn(worker.current, saved, next) : undefined;
+      if (drawn !== undefined) next = { ...next, drawn };
       opened.store.close();
       setOpened(next);
       setOther(null); setAgent(null);
