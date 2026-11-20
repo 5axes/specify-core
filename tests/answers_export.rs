@@ -1,6 +1,6 @@
 //! Complete sidecars are revision-bound answers, not just a successful write invocation.
 use serde_json::{Map, Value, json};
-use specify_core::{api, existing, part, resume, revision, rules, serve::Server};
+use specify_core::{api, existing, part, resume, rules, serve::Server};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
@@ -87,7 +87,7 @@ fn map(v: &Value) -> Map<String, Value> {
 }
 
 #[test]
-fn cli_complete_export_roundtrips_semantic_pmi_and_carries_to_changed_geometry() {
+fn cli_complete_export_roundtrips_semantic_pmi_and_keeps_a_carry_block() {
     let dir = scratch("roundtrip");
     let old = fixture("revisions/plate_split.old.step.gz");
     let new = fixture("revisions/plate_split.new.step.gz");
@@ -185,27 +185,21 @@ fn cli_complete_export_roundtrips_semantic_pmi_and_carries_to_changed_geometry()
         "stale answers",
     );
     assert_eq!(std::fs::read(&stale_output).unwrap(), b"keep");
-    let changes = dir.join("changes");
-    succeeded(run(&[
-        "diff",
-        path(&old),
-        path(&new),
-        "--answers",
-        path(&sidecar),
-        "-o",
-        path(&changes),
-    ]));
-    let carried: Value =
-        serde_json::from_slice(&std::fs::read(changes.join("answers.json")).unwrap()).unwrap();
-    assert_eq!(carried["part.material"], given["part.material"]);
-    assert!(
-        carried["_specify"]["unresolved"]["datum.A"]
-            .as_str()
-            .unwrap()
-            .contains("no match")
+    // An answers file carried to the new geometry with its datum unresolved, as an earlier
+    // `diff` wrote one (diff no longer writes answers: ADR P11).
+    let carried = dir.join("carried.json");
+    let mut block = complete.clone();
+    for datum in ["datum.A", "datum.B", "datum.C"] {
+        block.remove(datum);
+    }
+    block.insert(
+        "_specify".into(),
+        json!({"evidence": resume::evidence(&part::load(&new, None).unwrap()).unwrap(),
+               "unresolved": {"datum.A": "face 4 has no match in the new part"}}),
     );
+    save(&carried, &Value::Object(block));
     // Incomplete is normal: the carry block is kept for the person, its question open.
-    let out = export(&new, &new_analysis, &changes.join("answers.json"));
+    let out = export(&new, &new_analysis, &carried);
     assert!(String::from_utf8_lossy(&out.stderr).contains("datum.A"));
     let kept: Value = serde_json::from_slice(&succeeded(out)).unwrap();
     assert!(
@@ -319,8 +313,16 @@ fn serve_exports_approved_defaults_only_and_keeps_carry_blocks() {
         "analysis":analysis, "answers":given, "accept_defaults": true}));
     assert_eq!(malformed["error"]["code"], "invalid");
     // A carry block no longer refuses the export: it is kept, its question open.
-    let carried = revision::diff(&old, &new, &saved).unwrap();
-    let kept = server.reply(&json!({"op":"export_answers", "step":new.path, "analysis":api::analyse(&new).unwrap(), "answers":carried.answers}));
+    // An answers file carrying a datum that could not be applied to the new geometry, as an
+    // earlier `diff` wrote one (diff no longer writes answers: ADR P11).
+    let mut carried = plain(&saved);
+    carried.remove("datum.A");
+    carried.insert(
+        "_specify".into(),
+        json!({"evidence": resume::evidence(&new).unwrap(),
+               "unresolved": {"datum.A": "face 4 has no match in the new part"}}),
+    );
+    let kept = server.reply(&json!({"op":"export_answers", "step":new.path, "analysis":api::analyse(&new).unwrap(), "answers":carried}));
     assert_eq!(kept["ok"], true, "{kept}");
     assert!(
         kept["result"]["missing"]

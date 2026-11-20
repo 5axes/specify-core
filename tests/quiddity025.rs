@@ -81,7 +81,7 @@ fn v024_boss_answers_and_pmi_resume_after_chamfer_and_round_height_corrections()
             json!(migrated)
         );
         assert!(a["resume"]["unresolved"].is_null());
-        let mut unchanged = revision::diff(&loaded, &loaded, &Map::new()).unwrap();
+        let mut unchanged = revision::diff(&loaded, &loaded).unwrap();
         let numbers = unchanged
             .answers
             .shift_remove(specify_core::characteristics::CARRY)
@@ -307,7 +307,7 @@ fn saved_boss_dimensions_on_a_really_shortened_revision_keep_their_targets() {
         None,
     )
     .unwrap();
-    let r = revision::diff(&old, &new, &Map::new()).unwrap();
+    let r = revision::diff(&old, &new).unwrap();
     assert_eq!(r.pmi.answers_from, "stored");
     assert_eq!(r.answers["datum.A"], json!([0]));
     assert_eq!(

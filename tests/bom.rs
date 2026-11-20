@@ -351,7 +351,7 @@ fn revision_transport_retains_history_without_entity_ids() {
     let first = file(write(&fixture(), &answers()));
     let old = first.load(Some(0)).unwrap();
     let new = fixture().load(Some(0)).unwrap();
-    let carried = revision::diff(&old, &new, &Map::new()).unwrap().answers;
+    let carried = revision::diff(&old, &new).unwrap().answers;
     assert!(carried.contains_key(bom::CARRY));
     let mut a = answers();
     a[0].extend(carried);

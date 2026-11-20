@@ -46,7 +46,7 @@ fn a_fit_answer_changes_with_its_characteristic_number_and_scene_id() {
     let old = write(&bare, &before);
     let after = answers(json!({"hole.function:holes:9":"fit:H8"}));
     let new = write(&old, &after);
-    let report = revision::diff(&old, &new, &Map::new()).unwrap();
+    let report = revision::diff(&old, &new).unwrap();
     assert_scene_ids(&report, &new);
     let change = report
         .pmi
@@ -69,7 +69,7 @@ fn a_moved_holes_general_location_changes_without_a_stored_location_answer() {
         json!({"part.general_tolerance":"ISO 2768-m", "part.locating":"position tolerances"}),
     );
     let old = write(&before, &answers);
-    let report = revision::diff(&old, &new, &Map::new()).unwrap();
+    let report = revision::diff(&old, &new).unwrap();
     let changes: Vec<_> = report
         .pmi
         .items
@@ -88,7 +88,7 @@ fn added_and_removed_requirements_keep_inspection_history() {
     let old = write(&bare, &before);
     let after = answers(json!({"extra.2":{"kind":"flatness", "faces":[5], "value":"0.02"}}));
     let new = write(&old, &after);
-    let report = revision::diff(&old, &new, &Map::new()).unwrap();
+    let report = revision::diff(&old, &new).unwrap();
     assert_scene_ids(&report, &new);
     assert!(
         report.pmi.items.iter().any(|c| c.class == "removed"
@@ -125,7 +125,7 @@ fn a_note_change_and_material_modifier_change_are_visible() {
         )
         .replace("Keep dry", "Keep clean");
     let new = part::load_bytes("changed.step", changed.into_bytes()).unwrap();
-    let report = revision::diff(&old, &new, &Map::new()).unwrap();
+    let report = revision::diff(&old, &new).unwrap();
     assert_scene_ids(&report, &new);
     assert!(
         report.pmi.items.iter().any(|c| c.class == "changed"
@@ -196,7 +196,7 @@ fn changing_one_shared_note_leaves_every_other_requirement_unchanged() {
         .unwrap()
         .replace("Keep dry", "Keep clean");
     let new = part::load_bytes("note-changed.step", changed.into_bytes()).unwrap();
-    let report = revision::diff(&old, &new, &Map::new()).unwrap();
+    let report = revision::diff(&old, &new).unwrap();
     assert_scene_ids(&report, &new);
     assert_eq!(report.pmi.items.len(), 1, "{:?}", report.pmi.items);
     let note = &report.pmi.items[0];
@@ -241,7 +241,7 @@ fn foreign_pmi_changes_even_in_a_file_with_saved_specify_answers() {
     let changed = text.replace("LENGTH_MEASURE(0.2)", "LENGTH_MEASURE(0.07)");
     assert_ne!(text, changed);
     let new = part::load_bytes("foreign-changed.step", changed.into_bytes()).unwrap();
-    let report = revision::diff(&old, &new, &Map::new()).unwrap();
+    let report = revision::diff(&old, &new).unwrap();
     assert!(
         report
             .pmi
@@ -272,7 +272,7 @@ fn unchanged_complex_and_resume_pairs_have_no_pmi_changes() {
         "resume_alpha7/golden_oriented_slots.step.gz",
     ] {
         let part = load(name);
-        let report = revision::diff(&part, &part, &Map::new()).unwrap();
+        let report = revision::diff(&part, &part).unwrap();
         assert!(
             report.pmi.items.is_empty(),
             "{name}: {:?}",
@@ -356,7 +356,7 @@ fn a_face_split_matches_the_foreign_control_through_correspondence() {
     assert!(candidates.len() > 1);
     let old = foreign_flatness(&before, &[split.old], "0.2");
     let new = foreign_flatness(&after, &candidates, "0.1");
-    let report = revision::diff(&old, &new, &Map::new()).unwrap();
+    let report = revision::diff(&old, &new).unwrap();
     assert_eq!(report.pmi.items.len(), 1, "{:?}", report.pmi.items);
     assert_eq!(report.pmi.items[0].class, "changed");
     assert_eq!(report.pmi.items[0].status, "existing");
@@ -393,7 +393,7 @@ fn a_fit_class_hidden_by_equal_stated_limits_is_still_changed() {
     };
     let old = foreign_model(&bare, model("7"));
     let new = foreign_model(&bare, model("8"));
-    let report = revision::diff(&old, &new, &Map::new()).unwrap();
+    let report = revision::diff(&old, &new).unwrap();
     assert_eq!(report.pmi.items.len(), 1, "{:?}", report.pmi.items);
     let change = &report.pmi.items[0];
     assert_eq!(change.class, "changed");
@@ -423,7 +423,7 @@ fn moving_a_hole_recomputes_default_basic_locations() {
         .map(|row| row["id"].as_str().unwrap())
         .collect();
     assert!(!basic.is_empty());
-    let report = revision::diff(&old, &new, &Map::new()).unwrap();
+    let report = revision::diff(&old, &new).unwrap();
     assert!(
         report.pmi.items.iter().all(|c| c.kind == "dimension"),
         "{:?}",
@@ -435,7 +435,7 @@ fn moving_a_hole_recomputes_default_basic_locations() {
         "only the moved hole changes; planner frame metadata and rounding noise are not inspection changes (#75)"
     );
     let written_new = write(&new, &report.answers);
-    let saved_report = revision::diff(&old, &written_new, &Map::new()).unwrap();
+    let saved_report = revision::diff(&old, &written_new).unwrap();
     assert_scene_ids(&saved_report, &written_new);
     assert!(
         saved_report
@@ -680,7 +680,7 @@ fn lm10uu_independent_lands_keep_numbers_through_compositions_resaves_and_a_valu
     );
     let edited = part::load_bytes("edited-lm10uu.step", bytes).unwrap();
     assert_eq!(lands(&edited), before);
-    let report = revision::diff(&old, &edited, &Map::new()).unwrap();
+    let report = revision::diff(&old, &edited).unwrap();
     assert_scene_ids(&report, &edited);
     assert_eq!(report.pmi.items.len(), 1, "{:?}", report.pmi.items);
     let change = &report.pmi.items[0];
@@ -772,7 +772,6 @@ fn semantic_only_attributes_have_both_sides_mesh_face_anchors() {
     let report = revision::diff_with_options(
         &old,
         &new,
-        &Map::new(),
         revision::DiffOptions { scenes: true },
     )
     .unwrap();
@@ -813,7 +812,7 @@ fn picture_draws_changed_added_and_removed_presentation_inside_the_frame() {
             "extra.3":{"kind":"flatness","faces":[0],"value":"0.03"}
         })),
     );
-    let report = revision::diff(&old, &new, &Map::new()).unwrap();
+    let report = revision::diff(&old, &new).unwrap();
     for class in ["changed", "added", "removed"] {
         assert!(report.pmi.items.iter().any(|c| c.class == class), "{class}");
     }
@@ -898,7 +897,7 @@ fn thread_manufacturing_changes_show_drawing_wording_on_both_sides() {
     let text = String::from_utf8(old.bytes.to_vec()).unwrap();
     assert!(text.contains("6H"));
     let new = part::load_bytes("thread-class.step", text.replace("6H", "6G").into_bytes()).unwrap();
-    let report = revision::diff(&old, &new, &Map::new()).unwrap();
+    let report = revision::diff(&old, &new).unwrap();
     assert_eq!(report.pmi.items.len(), 1, "{:?}", report.pmi.items);
     assert_eq!(report.pmi.items[0].kind, "thread");
     assert!(
@@ -924,7 +923,7 @@ fn thread_manufacturing_changes_show_drawing_wording_on_both_sides() {
             json!({"hole.function:holes:14.15":"tapped:M2", "hole.full_thread:holes:14.15":"1.8"}),
         ),
     );
-    let report = revision::diff(&old, &new, &Map::new()).unwrap();
+    let report = revision::diff(&old, &new).unwrap();
     // Depth lives in the manufacturing attribute, so the folded thread must still
     // report it even though its AP242 thread record did not change.
     assert_eq!(report.pmi.items.len(), 1, "{:?}", report.pmi.items);
@@ -980,7 +979,7 @@ fn gramil_end_chamfer_does_not_swap_fresh_dimensions() {
     // Independently written destination histories must not masquerade as carry.
     let written_old = write(&old, &supplied);
     let written_new = write(&new, &report.answers);
-    let independent = revision::diff(&written_old, &written_new, &Map::new()).unwrap();
+    let independent = revision::diff(&written_old, &written_new).unwrap();
     assert!(
         independent
             .pmi
@@ -992,7 +991,7 @@ fn gramil_end_chamfer_does_not_swap_fresh_dimensions() {
     );
     // Carried lengths retain their numbers. An unmapped compound support can
     // still retire its number; that remains a genuine #96 renumbering.
-    let carried = revision::diff(&written_old, &new, &Map::new()).unwrap();
+    let carried = revision::diff(&written_old, &new).unwrap();
     assert!(
         carried.pmi.items.iter().all(|c| c.class == "renumbered"
             && c.old == c.new
@@ -1115,7 +1114,7 @@ fn a_semantic_only_knurl_change_has_its_own_wording() {
         &answers(json!({question.id.clone():"knurl:straight"})),
     );
     let new = write(&old, &answers(json!({question.id:"knurl:diamond"})));
-    let report = revision::diff(&old, &new, &Map::new()).unwrap();
+    let report = revision::diff(&old, &new).unwrap();
     let knurl = report
         .pmi
         .items

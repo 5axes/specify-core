@@ -24,7 +24,7 @@ fn the_browser_s_diff_is_the_command_line_s_with_what_a_viewer_draws() {
         part::load_bytes("old.step", old.clone()).unwrap(),
         part::load_bytes("new.step", new.clone()).unwrap(),
     );
-    let revised = revision::diff(&before, &after, &Map::new()).unwrap();
+    let revised = revision::diff(&before, &after).unwrap();
     assert_eq!(got["report"], serde_json::to_value(&revised).unwrap());
     assert_eq!(got["markdown"], revised.markdown("flange", None));
     let view = &got["view"];

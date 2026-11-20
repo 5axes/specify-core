@@ -266,20 +266,21 @@ fn what_was_typed_is_interpreted() {
 
 #[test]
 fn accept_defaults_cannot_replace_a_dropped_carried_datum() {
-    let old = common::fixtures().join("revisions/plate_split.old.step.gz");
     let new = common::fixtures().join("revisions/plate_split.new.step.gz");
-    let before = specify_core::part::load(&old, None).unwrap();
     let after = specify_core::part::load(&new, None).unwrap();
-    let given = json!({"part.material":"6061-T6", "datum.A":[4]});
-    let revised =
-        specify_core::revision::diff(&before, &after, given.as_object().unwrap()).unwrap();
+    // An answers file whose datum could not be applied to this geometry, as one carried by an
+    // earlier `diff` was (diff no longer writes answers: ADR P11).
+    let carried = json!({"part.material":"6061-T6", "_specify": {
+        "evidence": specify_core::resume::evidence(&after).unwrap(),
+        "unresolved": {"datum.A": "face 4 has no match in the new part"},
+    }});
     let analysis = specify_core::api::analyse(&after).unwrap();
     let output =
         std::env::temp_dir().join(format!("serve-dropped-datum-{}.step", std::process::id()));
     let _ = std::fs::remove_file(&output);
     let mut server = Server::default();
     let mut request = json!({"id":1, "op":"write", "step":new, "output":output,
-        "analysis":analysis, "answers":revised.answers, "accept_defaults":true});
+        "analysis":analysis, "answers":carried, "accept_defaults":true});
     let asked = server
         .reply(&json!({"id":2,"op":"questions","analysis":analysis,"answers":request["answers"]}));
     assert_eq!(asked["ok"], true, "{asked}");
@@ -328,10 +329,11 @@ fn serve_write_refuses_saved_answers_on_changed_geometry() {
     .unwrap();
     let new_path = common::fixtures().join("revisions/plate_split.new.step.gz");
     let new = specify_core::part::load(&new_path, None).unwrap();
-    let given = json!({"part.material":"6061-T6", "datum.A":[4]});
-    let saved = specify_core::revision::diff(&old, &old, given.as_object().unwrap())
-        .unwrap()
-        .answers;
+    // Answers saved with the old geometry's evidence.
+    let saved = json!({"part.material":"6061-T6", "datum.A":[4], "_specify": {
+        "evidence": specify_core::resume::evidence(&old).unwrap(),
+        "unresolved": {},
+    }});
     let analysis = specify_core::api::analyse(&new).unwrap();
     let output =
         std::env::temp_dir().join(format!("serve-stale-evidence-{}.step", std::process::id()));

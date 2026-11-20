@@ -242,7 +242,7 @@ fn release_016_debug_history_upgrades_every_number_to_schema_2() {
         upgraded.bytes,
         write(&upgraded, &rebind(&i, &upgraded)).bytes
     );
-    let report = revision::diff(&old, &upgraded, &Map::new()).unwrap();
+    let report = revision::diff(&old, &upgraded).unwrap();
     assert!(
         report.pmi.items.iter().all(|c| c.class != "renumbered"),
         "{:?}",
@@ -537,7 +537,7 @@ fn revised_part_correspondence_carries_numbers_and_retirement_with_the_answers()
     let old = back(writer::write_bytes(&old, &i, Some(&answers)).unwrap().0);
     let ns = numbers(&old);
     assert_eq!(ns.len(), 4);
-    let revised = revision::diff(&old, &new, &Map::new()).unwrap();
+    let revised = revision::diff(&old, &new).unwrap();
     assert!(revised.answers.contains_key(characteristics::CARRY));
     let i = api::preview(&api::analyse(&new).unwrap(), &revised.answers).unwrap();
     let written = back(
@@ -775,7 +775,7 @@ fn stale_revision_transport_cannot_reuse_numbers_retired_in_the_destination_file
         .clone();
     let i = api::preview(&api::analyse(&old).unwrap(), &answers).unwrap();
     let old = back(writer::write_bytes(&old, &i, Some(&answers)).unwrap().0);
-    let r = revision::diff(&old, &new, &Map::new()).unwrap();
+    let r = revision::diff(&old, &new).unwrap();
     let mut i = api::preview(&api::analyse(&new).unwrap(), &r.answers).unwrap();
     let new = back(writer::write_bytes(&new, &i, Some(&r.answers)).unwrap().0);
     i = rebind(&i, &new);

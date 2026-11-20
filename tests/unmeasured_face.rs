@@ -236,7 +236,7 @@ fn a_diff_reads_the_faces_after_the_unmeasured_one_by_their_own_index() {
     // other face is carried, so nothing is reported changed or lost.
     let old = part::load(&wall_first("diff"), Some(0)).unwrap();
     let new = part::load(&fixture("unmeasured_face_closed.step"), Some(0)).unwrap();
-    let revised = specify_core::revision::diff(&old, &new, &Map::new()).unwrap();
+    let revised = specify_core::revision::diff(&old, &new).unwrap();
     assert!(revised.other_faces.is_empty(), "{:?}", revised.other_faces);
     assert!(revised.unchanged_faces >= 6, "{}", revised.unchanged_faces);
 
@@ -252,7 +252,7 @@ fn a_diff_reads_the_faces_after_the_unmeasured_one_by_their_own_index() {
     )
     .unwrap();
     let new = part::load(&longer, Some(0)).unwrap();
-    let revised = specify_core::revision::diff(&old, &new, &Map::new()).unwrap();
+    let revised = specify_core::revision::diff(&old, &new).unwrap();
     let moved: Vec<_> = revised
         .other_faces
         .iter()

@@ -73,7 +73,7 @@ fn body_and_face_grooves_are_listed_without_duplicate_questions_or_intent() {
             .load(None)
             .unwrap();
         assert_eq!(resume::answers_for(&back).unwrap(), Some(answers));
-        let diff = revision::diff(&loaded, &loaded, &Map::new()).unwrap();
+        let diff = revision::diff(&loaded, &loaded).unwrap();
         assert!(diff.features.is_empty(), "{name}: {:?}", diff.features);
     }
 }

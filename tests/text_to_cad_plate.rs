@@ -304,7 +304,7 @@ fn specified_answers_resume_per_name_and_refuse_cadgens_added_hole_renames() {
     );
     assert!(resumed2.migrated.is_empty());
     assert_eq!(resumed2.answers.len(), answers.len());
-    let diff2 = revision::diff(&written1, &rev2, &Map::new()).unwrap();
+    let diff2 = revision::diff(&written1, &rev2).unwrap();
     assert!(diff2.unresolved.is_empty(), "{:?}", diff2.unresolved);
     for (id, value) in &answers {
         assert_eq!(resumed2.answers.get(id), Some(value), "rev2 resume: {id}");
