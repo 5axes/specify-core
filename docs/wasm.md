@@ -138,7 +138,10 @@ additional `max_deviation_mm` and `achieved_deviation_mm` keys only when request
 readers should ignore unknown keys. The reported value is sampled on emitted
 triangles, not a continuous error certificate; see [mesh tolerance](mesh-tolerance.md).
 
-Questions use `to_presented_dict()` with `diameter` and `depth` added when present; a question
+Questions use `to_presented_dict()` with `diameter` and `depth` added when present. Each has a
+`label`: a short name fit for a row or a message ("Other notes", "Coating", "Datum C", "6× Ø6.6
+holes position"), with no question mark or input hint; show `prompt` where the question is
+asked. A question
 with a default has `source` beside `basis`, the rule behind the default
 ([rule-sources.md](rule-sources.md#rule-ids)). `open`
 is the list of ids returned by `rules::open_questions`. `intent` is `api::preview(...).to_dict()`;

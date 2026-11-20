@@ -80,6 +80,8 @@ export type PmiAttention = 'required' | 'check' | 'routine' | 'refine';
 
 export interface PmiQuestion {
   readonly title?: string;
+  /** A short name for rows and messages ("Other notes", "Datum C"): no question mark or input hint. */
+  readonly label?: string;
   readonly characteristic?: 'flatness' | 'perpendicularity' | 'parallelism' | 'position' | 'runout';
   readonly diameter?: number;
   readonly depth?: number;

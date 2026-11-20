@@ -89,11 +89,12 @@ try {
     await check(page.locator('.pmi-lab-panel')).toContainText('6082');
     await check(page.locator('.app-dirty')).toBeVisible();
     await check(page.locator('.pmi-lab-resumed')).toHaveCount(0);
-    // An answer the agent gives now lands in the open page: said (by the question it asks), its
-    // question opened and lit. The note and the light stay until dismissed or the next change.
+    // An answer the agent gives now lands in the open page: said (by the question's short label,
+    // #217), its question opened and lit. The note and the light stay until dismissed or the next change.
     await agent.call('answer', { doc, set: { 'part.general_tolerance': 'ISO 2768-f' } });
     await check(page.locator('.app-agent')).toContainText('Updated by your agent');
-    await check(page.locator('.app-agent')).toContainText('Which general tolerance applies');
+    await check(page.locator('.app-agent')).toContainText('General tolerance');
+    await check(page.locator('.app-agent')).not.toContainText('Which general tolerance applies');
     await check(question(page, 'part.general_tolerance')).toBeVisible();
     await check(question(page, 'part.general_tolerance')).toHaveClass(/app-agent-lit/);
     await check(question(page, 'part.general_tolerance')).toContainText('2768-f');
@@ -118,35 +119,41 @@ try {
     assert.equal(byAgent.complete, false);
     assert.ok(byAgent.missing.includes('part.surface_finish'), `missing: ${byAgent.missing}`);
     assert.ok(!byAgent.missing.includes('part.material'));
+    const agentStored = given(stored(byAgent.path));
     // The page hears of it, whoever saved, and says what is still unanswered.
     await check(page.locator('.app-saved')).toContainText('Your agent saved');
     await check(page.locator('.app-saved')).toContainText(byAgent.path);
     await check(page.locator('.app-saved')).toContainText('still unanswered');
-    await check(page.locator('.app-saved')).toContainText('What surface finish applies');
+    // By the question's short label, not its prompt (#217).
+    await check(page.locator('.app-saved')).toContainText('Surface finish');
+    await check(page.locator('.app-saved')).not.toContainText('What surface finish applies');
     await check(page.locator('.app-dirty')).toHaveCount(0);
-    await check(page.locator('.app-target')).toHaveText(join(dir, 'part.specified-2.step'));
-    // The page's Save writes the next name, from the same answers, and says what is still open.
+    // The session's copy: later saves update it (#217).
+    await check(page.locator('.app-target')).toHaveText(byAgent.path);
+    // The page's Save updates it, from the same answers, and says what is still open.
     await page.getByRole('button', { name: 'Save', exact: true }).click();
-    await check(page.locator('.app-saved')).toContainText(join(dir, 'part.specified-2.step'));
+    await check(page.locator('.app-saved')).not.toContainText('Your agent saved');
+    await check(page.locator('.app-saved')).toContainText(byAgent.path);
     await check(page.locator('.app-saved')).toContainText('still open');
-    await check(page.locator('.app-saved')).toContainText('What surface finish applies');
+    await check(page.locator('.app-saved')).toContainText('Surface finish');
     if (shots) await page.screenshot({ path: join(shots, 'save-partial.png') });
     const want = { 'part.material': 'Aluminium 6061-T6', 'part.general_tolerance': 'ISO 2768-f' };
-    assert.deepEqual(given(stored(byAgent.path)), want, 'the agent\'s save stores the session\'s answers');
-    assert.deepEqual(given(stored(join(dir, 'part.specified-2.step'))), want, 'the page\'s save stores the same');
+    assert.deepEqual(agentStored, want, 'the agent\'s save stores the session\'s answers');
+    assert.deepEqual(given(stored(byAgent.path)), want, 'the page\'s save stores the same');
+    assert.ok(!existsSync(join(dir, 'part.specified-2.step')), 'no numbered copy');
     // A save of a revision the page has not seen is refused, with the current one.
     const origin = new URL(shown.url).origin;
     const stale = await fetch(`${shown.url}save`, { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: origin }, body: JSON.stringify({ rev: 0, acceptDefaults: {} }) });
     assert.equal(stale.status, 409);
     assert.equal(typeof (await stale.json()).rev, 'number');
-    assert.ok(!existsSync(join(dir, 'part.specified-3.step')), 'nothing written for a stale save');
+    assert.ok(!existsSync(join(dir, 'part.specified-2.step')), 'nothing written for a stale save');
     // Killing the MCP command drops SSE. The page briefly retries, then keeps the review and
     // identifies the last file actually saved rather than the next target.
     const beforeStop = problems.length;
     agent.stop();
     await check(page.locator('.app-offline')).toContainText('reconnecting', { timeout: 10_000 });
     const stopped = page.locator('.app-stopped');
-    await check(stopped).toHaveText(`Specify has stopped. Run specify-core open … again (or ask your agent to show it). Your saved file is at ${join(dir, 'part.specified-2.step')}.`, { timeout: 30_000 });
+    await check(stopped).toHaveText(`Specify has stopped. Run specify-core open … again (or ask your agent to show it). Your saved file is at ${byAgent.path}.`, { timeout: 30_000 });
     await check(page.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
     await check(page.getByRole('button', { name: 'Save with defaults', exact: true })).toBeDisabled();
     await check(page.getByRole('button', { name: 'Answers (JSON)', exact: true })).toBeEnabled();
@@ -209,7 +216,8 @@ try {
       const { doc } = await second.call('open', { path: written.path, part });
       const { questions } = await second.call('questions', { doc, state: 'open' });
       assert.ok(questions.length, `${name} has open questions`);
-      expected.push(...questions.map(q => `${name} — ${q.prompt}`));
+      // By the short label the command gives each question (#217), as MCP returns it.
+      expected.push(...questions.map(q => `${name} — ${q.label}`));
     }
     await check(stillOpen.locator('li')).toHaveText(expected);
     await check(page.locator('.app-dirty')).toHaveCount(0);

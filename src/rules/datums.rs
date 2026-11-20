@@ -636,8 +636,9 @@ pub(crate) fn datum_questions(
     let mut out = Vec::new();
     for letter in LETTERS {
         let known = defaults.iter().find(|(x, _)| *x == letter);
+        let given = answers.contains_key(&format!("datum.{letter}"));
         if ctx.file_datum(letter).is_some()
-            || (known.is_none() && !answers.contains_key(&format!("datum.{letter}")))
+            || (!given && (known.is_none() || after_none(ctx, answers, letter)))
         {
             continue;
         }
@@ -677,6 +678,18 @@ pub(crate) fn datum_questions(
         });
     }
     Ok(out)
+}
+
+/// Whether an earlier datum the file lacks was decided none (#217): a datum without the one
+/// before it makes no sense, so C is not proposed once B is none, nor B once A is. A letter
+/// the person has given stays asked, so its answer is still shown and can be removed.
+fn after_none(ctx: &Ctx<'_>, answers: &Map<String, Value>, letter: char) -> bool {
+    LETTERS.iter().take_while(|&&l| l != letter).any(|&l| {
+        ctx.file_datum(l).is_none()
+            && answers
+                .get(&format!("datum.{l}"))
+                .is_some_and(|v| !py::truthy(v))
+    })
 }
 
 /// `_datums`: each datum in letter order, the file's own first (one whose faces cannot be read

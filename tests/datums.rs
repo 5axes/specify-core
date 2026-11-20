@@ -507,3 +507,25 @@ fn a_datum_given_or_removed_is_always_asked() {
     assert!(!positions.is_empty());
     assert!(positions.iter().all(|q| q.frame.as_deref() == Some("A|B")));
 }
+
+// #217: a datum without the one before it makes no sense, so C is not asked once B is
+// decided none, nor B (or C) once A is. A letter the person gave stays asked.
+#[test]
+fn a_later_datum_is_not_asked_once_the_one_before_is_none() {
+    let plate = analysis("parts/plate");
+    let fresh = questions(&plate, &Map::new()).unwrap();
+    assert!(ids(&fresh).contains(&"datum.B"));
+    assert!(ids(&fresh).contains(&"datum.C"));
+    let no_b = questions(&plate, &answers(json!({"datum.B": []}))).unwrap();
+    assert!(ids(&no_b).contains(&"datum.B"));
+    assert!(!ids(&no_b).contains(&"datum.C"));
+    let no_a = questions(&plate, &answers(json!({"datum.A": []}))).unwrap();
+    assert!(ids(&no_a).contains(&"datum.A"));
+    assert!(
+        !ids(&no_a)
+            .iter()
+            .any(|id| *id == "datum.B" || *id == "datum.C")
+    );
+    let given = questions(&plate, &answers(json!({"datum.B": [], "datum.C": []}))).unwrap();
+    assert!(ids(&given).contains(&"datum.C"));
+}

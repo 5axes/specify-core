@@ -283,10 +283,63 @@ impl Question {
         }
     }
 
+    /// A short name for the question, fit for a row or a message ("Other notes", "Coating",
+    /// "Datum C", "6× Ø6.6 holes position"): no question mark and no input hint (#217).
+    pub fn label(&self) -> String {
+        let (kind, _) = self.id.split_once(':').unwrap_or((&self.id, ""));
+        let title = self.title.as_deref().unwrap_or(&self.prompt);
+        let named = |what: &str| format!("{title} {what}");
+        match kind {
+            "part.material" => "Material".into(),
+            "part.process" => "Process".into(),
+            "part.general_tolerance" => "General tolerance".into(),
+            "part.locating" => "Holes located by".into(),
+            "part.surface_finish" => "Surface finish".into(),
+            "part.coating" => "Coating".into(),
+            "part.heat_treatment" => "Heat treatment".into(),
+            "part.edges" => "Edges".into(),
+            "part.notes" => "Other notes".into(),
+            "bom.make_buy" => "Made or bought".into(),
+            "bom.optional" => "Optional item".into(),
+            "hole.function" | "diameter.fit" => title.to_string(),
+            "hole.position" => named("position"),
+            "hole.location" => named("location"),
+            "hole.frame" => named("datum frame"),
+            "hole.full_thread" => named("full thread depth"),
+            "diameter.runout" => named("runout"),
+            _ => {
+                if let Some(rest) = kind.strip_prefix("datum.") {
+                    let (letter, control) = rest.split_once('.').unwrap_or((rest, ""));
+                    return match (control, self.characteristic) {
+                        ("", _) => format!("Datum {letter}"),
+                        (_, Some(c)) => format!(
+                            "Datum {letter} {}",
+                            serde_json::to_value(c)
+                                .ok()
+                                .and_then(|v| v.as_str().map(str::to_string))
+                                .unwrap_or_else(|| control.to_string())
+                        ),
+                        _ => format!("Datum {letter} {control}"),
+                    };
+                }
+                if let Some(key) = kind.strip_prefix("part.").or(kind.strip_prefix("bom.")) {
+                    let words = key.replace('_', " ");
+                    let mut chars = words.chars();
+                    return chars
+                        .next()
+                        .map(|c| c.to_uppercase().chain(chars).collect())
+                        .unwrap_or_default();
+                }
+                title.to_string()
+            }
+        }
+    }
+
     /// Additive presentation record for clients that must not parse the prompt.
     /// `to_dict` retains the Python-compatible document for existing callers.
     pub fn to_presented_dict(&self) -> Value {
         let mut out = self.to_traced_dict();
+        out["label"] = Value::from(self.label());
         if let Some(title) = &self.title {
             // to_dict() constructs an object; Value writes add string keys without bounds checks.
             out["title"] = Value::from(title.as_str());
