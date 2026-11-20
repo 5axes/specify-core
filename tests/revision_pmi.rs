@@ -904,17 +904,15 @@ fn gramil_end_chamfer_does_not_swap_fresh_dimensions() {
     );
     let scenes = report.pmi.scenes.as_ref().unwrap();
     // The overall length keeps its own value on both sides.
-    for text in ["37.6"] {
-        let notation = |scene: &Value| {
-            scene["presentation"]["items"]
-                .as_object()
-                .unwrap()
-                .values()
-                .flat_map(|g| g.as_array().unwrap())
-                .any(|g| g["name"] == text)
-        };
-        assert!(notation(&scenes.old) && notation(&scenes.new), "{text}");
-    }
+    let notation = |scene: &Value| {
+        scene["presentation"]["items"]
+            .as_object()
+            .unwrap()
+            .values()
+            .flat_map(|g| g.as_array().unwrap())
+            .any(|g| g["name"] == "37.6")
+    };
+    assert!(notation(&scenes.old) && notation(&scenes.new));
 }
 
 #[test]
@@ -1126,6 +1124,7 @@ fn without_stored_answers(part: &part::LoadedPart) -> part::LoadedPart {
     let text = String::from_utf8(part.bytes.to_vec()).unwrap();
     let entity = regex::Regex::new(r"^#(\d+)\s*=").unwrap();
     let id = |line: &str| entity.captures(line).map(|c| c[1].to_string());
+    let reference = regex::Regex::new(r"#(\d+)").unwrap();
     let mut gone: std::collections::BTreeSet<String> = text
         .lines()
         .filter(|l| l.contains("'pmi-assist answers'"))
@@ -1138,8 +1137,7 @@ fn without_stored_answers(part: &part::LoadedPart) -> part::LoadedPart {
             .filter_map(|l| id(l).map(|i| (i, l)))
             .filter(|(i, l)| {
                 !gone.contains(i)
-                    && regex::Regex::new(r"#(\d+)")
-                        .unwrap()
+                    && reference
                         .captures_iter(&l[l.find('=').unwrap()..])
                         .any(|c| gone.contains(&c[1]))
             })
