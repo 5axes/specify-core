@@ -72,7 +72,7 @@ interface Compared { old: { name: string; bytes: Uint8Array }; next: { name: str
 async function openPart(worker: WorkerClient, answersSession: AnswersSession, name: string, bytes: Uint8Array, at: { part: number; several: boolean }, readOnly: boolean, edited: () => void, indexes: () => readonly number[]): Promise<Opened> {
   const file = fileOf(name, bytes, at.part, at.several);
   const { sourceId } = file;
-  const snapshot = await worker.request<{ analysis: PmiLabSession['analysis']; mesh: PmiLabSession['mesh'] }>('open', file);
+  const snapshot = await worker.request<{ analysis: PmiLabSession['analysis']; mesh: PmiLabSession['mesh']; provenance?: PmiLabSession['provenance'] }>('open', file);
   const answers = answersSession.answers(at.part);
   const reviewOf = (given: PmiAnswers) => worker.request<IntentReview>(readOnly ? 'review-given' : 'review', { ...file, answers: given });
   const review = await reviewOf(answers);
@@ -95,6 +95,7 @@ async function openPart(worker: WorkerClient, answersSession: AnswersSession, na
   };
   const session: PmiLabSession = {
     sessionId: sourceId, filename: name, analysis: snapshot.analysis, mesh: snapshot.mesh, answers,
+    ...(snapshot.provenance ? { provenance: snapshot.provenance } : {}),
     questions: review.questions, open: review.open, problems: review.problems,
   };
   const scene = drawnFromScene(await worker.request('scene', { ...file, state: { answers } }));

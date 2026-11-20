@@ -17,6 +17,7 @@ import { inspectionAnswers } from './inspection';
 import { CharacteristicsTable, ExtraEditor, PurposeChoice, SpecBox, SuggestBox, SuggestionCard, TOLERANCE_PICKS, type ExtraDraft } from './inputs';
 import type { PmiLabel } from './labels';
 import type { Picker } from './picker';
+import type { HostView } from './host-view';
 import { createReviewView } from './review-view';
 import { answerOf, confirmRow, display, groupQuestions, NONE_SUGGESTED, needs, nextNeeding, noneSuggested, questionForFace, rowState, summary, type QuestionGroup } from './review';
 import { MODES, type PickMode } from './selection';
@@ -52,7 +53,7 @@ function asError(error: unknown): PmiLabError {
   return { code: 'failed', message: String(error) };
 }
 
-export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, onExport, inspectionIntent, inspectionExports = true, gated, after, onPick, showFaces, tints, externalAnswers, externalReview, disabled, focusRequest, toReview, onKeep, kept, drawn: drawnPmi = null, datums = true, readOnly = false }: {
+export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, onExport, inspectionIntent, inspectionExports = true, gated, after, onPick, showFaces, tints, externalAnswers, externalReview, disabled, focusRequest, toReview, onKeep, kept, drawn: drawnPmi = null, datums = true, readOnly = false, view: hostView = null }: {
   engine: SpecifyEngine; session: PmiLabSession; slots: SpecifySlots;
   /** The question the queue's selected row is about: what the question slot shows. */
   slotQuestion?: string | null;
@@ -92,6 +93,8 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
    * ``engine.preview`` supplies labels. Default false.
    */
   readOnly?: boolean;
+  /** The host's own 3D view to draw the part in (docs/host-view.md); by default the package's. */
+  view?: HostView | null;
 }) {
   const host = engine;
   const readOnlyHost = useMemo(() => readOnlyEngine(host), [host]);
@@ -223,8 +226,10 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
   const handlers = useRef({ face: (_face: number) => {}, label: (_label: PmiLabel) => {} });
   useEffect(() => {
     if (!stage.current) return undefined;
+    const entities = session.provenance?.face_entities;
     const created = createReviewView(stage.current, {
-      mesh: session.mesh, analysis: session.analysis,
+      mesh: session.mesh, analysis: session.analysis, view: hostView, part: session.provenance?.part ?? 0,
+      ...(entities ? { entities } : {}),
     });
     created.on('change', setSelection);
     created.on('face', (face) => handlers.current.face(face));
@@ -240,7 +245,7 @@ export function SpecifyReview({ engine, session, slots, slotQuestion, onSaved, o
       created.dispose();
       picker.current = null;
     };
-  }, [session, faces]);
+  }, [session, faces, hostView]);
 
   useEffect(() => { picker.current?.tint(tints ?? new Map()); }, [tints, session, faces]);
   // The view's tree lists the rows by feature, as the panel does.
