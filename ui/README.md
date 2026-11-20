@@ -29,7 +29,7 @@ A host that implements only the original three engine methods keeps its 0.1 disp
 `SpecifyEngine.inspection` is optional.
 
 New in 0.2.0: the local app (`specify-core open` / an agent's `show`), with its `specify-ui-app.json` manifest (see
-"The local app"). From 0.2.2 it is built into the specify-core command rather than released as an archive.
+"The local app"). From 0.3.0 it is built into the specify-core command rather than released as an archive.
 
 ## Install
 
@@ -191,7 +191,7 @@ workbook as downloads; it has no account, AI chat or analytics, stores nothing i
 but its own origin; IBM Plex Mono is bundled.
 
 `npm run build:app` builds it into `dist-app/` (relative URLs, no inline scripts; the engine is not included: the
-command serves its own at `config.wasmUrl`). From 0.2.2 specify-core builds `dist-app/` and the WASM into the command
+command serves its own at `config.wasmUrl`). From 0.3.0 specify-core builds `dist-app/` and the WASM into the command
 itself (its release binaries, Python wheels and crate; [docs/open.md](../docs/open.md#where-the-app-and-the-engine-come-from)),
 so `specify-core open` and MCP `show` download nothing; no app archive is attached to the release. (Apps up to 0.2.0
 were released from pzfreo/specify-ui, which 0.2.1 downloads.) To try a local build: `specify-core open --app dist-app

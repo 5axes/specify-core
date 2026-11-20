@@ -39,7 +39,7 @@ Read first:
   The command line (cli.yml), the wheels and sdist (python.yml) and the crate (crates.yml) each
   build the app and WASM first (bundle.yml) and carry them; each binary and wheel is checked to
   serve its built-in app with no network (tools/open_smoke.py), the crate takes them while it
-  stays under crates.io's 10 MB (about 6.8 MB for 0.2.2), and release.yml tests the app against the
+  stays under crates.io's 10 MB (about 6.8 MB for 0.3.0), and release.yml tests the app against the
   command with the app built in. No app archive is attached to the release; the command-line
   archives carry a build provenance attestation instead. release.yml publishes
   `@draftwright/specify-ui` (environment `npm`) after its engine.
