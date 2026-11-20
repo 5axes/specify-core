@@ -122,8 +122,8 @@ are named `max_deviation_mm`. See [mesh tolerance](docs/mesh-tolerance.md).
 command itself on 127.0.0.1. Your STEP file stays on your computer. The command
 holds the answers given in the page; Specify's Save writes them (what is answered, even with
 questions still open; the defaults only when you choose "with defaults") into
-`plate.specified.step` next to the input (then `plate.specified-2.step`, …; nothing is
-overwritten); `--in-place` saves over the input (through a link, over its target) and keeps the
+`plate.specified.step` next to the input (then `plate.specified-2.step`, …; later saves
+update the copy the run wrote, and nothing else is overwritten); `--in-place` saves over the input (through a link, over its target) and keeps the
 original once as `plate.step.bak`, and `--read-only` refuses answer changes and saves.
 `specify-core open --diff old.step new.step` shows what changed and starts from the answers
 `specify-core diff` carries to the new revision (`--answers FILE` for the old answers); Save

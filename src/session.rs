@@ -5,8 +5,9 @@
 //! set of answers; `specify-core open` holds one with no agent.
 //!
 //! Save writes the session's answers with the same writer as `specify-core write` (the answers
-//! stored in the file), beside the file under the first free `<stem>.specified.step`, or over it
-//! when opened in place (the original kept once as `.bak`). An incomplete save is written: what
+//! stored in the file), beside the file under the first free `<stem>.specified.step` (later saves
+//! update that copy while it is as the session left it), or over it when opened in place (the
+//! original kept once as `.bak`). An incomplete save is written: what
 //! is answered, and the answer says what is still open.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -480,17 +481,29 @@ impl Session {
             .retain(|s| s.try_send(text.to_string()).is_ok());
     }
 
-    /// Where the next save goes: the input (in place), or the first free
-    /// `<stem>.specified.step` beside it.
+    /// Where the next save goes: the input (in place), the copy this session's last save wrote
+    /// while it is as that save left it, or the first free `<stem>.specified.step` beside it.
     pub fn save_target(&self) -> Option<PathBuf> {
         if self.in_place {
             return Some(self.file.path.clone());
+        }
+        if let Some(copy) = self.own_copy() {
+            return Some(copy.to_path_buf());
         }
         let dir = self.file.path.parent()?;
         let stem = stem(&self.file.name);
         (1..=MAX_CANDIDATES)
             .map(|n| candidate(dir, stem, n))
             .find(|p| fs::symlink_metadata(p).is_err())
+    }
+
+    /// Not in place: the copy this session's last save wrote, while it is still a plain file
+    /// holding exactly what that save stored (#217). A later save updates it; a copy removed,
+    /// replaced or changed by anyone else is never written over (the save takes a new name).
+    fn own_copy(&self) -> Option<&Path> {
+        let (path, sha) = self.last_saved.as_ref().filter(|_| !self.in_place)?;
+        let plain = fs::symlink_metadata(path).is_ok_and(|m| m.is_file());
+        (plain && fs::read(path).is_ok_and(|b| sha256(&b) == *sha)).then_some(path.as_path())
     }
 
     /// The file the last successful save in this session wrote and SHA-256 of the bytes it
@@ -634,7 +647,7 @@ pub fn save(
     if let Some(hook) = hook {
         hook(shared);
     }
-    let (reported, parts, rev, answers, step, file, in_place, gz, mut backup, before) = {
+    let (reported, parts, rev, answers, step, file, in_place, gz, mut backup, before, copy) = {
         let mut s = lock(shared);
         if rev.is_some_and(|r| r != s.rev) {
             return Err(SaveError::Stale(s.rev));
@@ -687,6 +700,7 @@ pub fn save(
             s.gz,
             s.backup.clone(),
             before,
+            s.own_copy().map(Path::to_path_buf),
         )
     };
     let written = (|| {
@@ -735,7 +749,11 @@ pub fn save(
         } else {
             let bytes = text.len();
             let sha = sha256(&text);
-            (write_new(&file, &text).map_err(cannot)?, bytes, None, sha)
+            let path = match copy {
+                Some(copy) => update_copy(&copy, &text).map(|_| copy),
+                None => write_new(&file, &text),
+            };
+            (path.map_err(cannot)?, bytes, None, sha)
         };
         Ok((path, bytes, stored, sha, report, missing))
     })();
@@ -778,6 +796,18 @@ pub fn save(
                       "source": source});
     s.publish(&event("saved", None, &data));
     Ok(saved)
+}
+
+/// A later save of the session's own copy (see [`Session::own_copy`]): a written temporary
+/// file renamed onto it.
+fn update_copy(copy: &Path, body: &[u8]) -> io::Result<()> {
+    let dir = copy
+        .parent()
+        .ok_or_else(|| io::Error::other("the copy has no directory"))?;
+    let temp = temp_file(dir, body)?;
+    fs::rename(&temp, copy).inspect_err(|_| {
+        let _ = fs::remove_file(&temp);
+    })
 }
 
 /// A save beside the input under the first free candidate name, taken with `create_new`

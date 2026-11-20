@@ -57,6 +57,9 @@ From the first 0.2.1 trial (#217, pzfreo/specify-ui#14):
 - Datum C is no longer asked once datum B is answered none, nor B (or C) once A is: a datum
   without the one before it makes no sense. A letter already given stays asked, so its answer can
   still be seen and removed.
+- Later saves of an `open` (or MCP) session update the copy that session's last save wrote,
+  instead of writing a new numbered copy each time. A file the session did not write, or its copy
+  once changed or removed by anyone else, is never overwritten: the save takes the next free name.
 
 ## 0.2.1 (2026-11-20)
 

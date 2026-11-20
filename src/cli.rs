@@ -209,7 +209,8 @@ wasm-pack pkg/; a build made without the app needs SPECIFY_APP_DIR. See docs/mcp
     #[command(long_about = "\
 Open a STEP file in Specify in your browser, served by this command on 127.0.0.1: nothing
 is uploaded. Specify's Save writes the specified file, from the answers given in the page,
-next to the input as <name>.specified.step (then -2, -3, ...; nothing is overwritten), or with
+next to the input as <name>.specified.step (then -2, -3, ...; later saves update the copy
+this run wrote, and no other file is overwritten), or with
 --in-place over the input (through a link, to its target), the original kept once as .bak.
 With --diff OLD NEW the page shows what changed from OLD and starts from the answers carried
 to NEW (as `specify-core diff` carries them); Save writes NEW. Stops 90 seconds after the last
