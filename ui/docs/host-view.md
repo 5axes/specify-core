@@ -159,7 +159,10 @@ interface HostView {
 ```
 
 Optional members the package uses when present: `roll(quarters)`, `dolly(factor)` (toolbar buttons), and
-`flash(faces)` (a brief highlight the host animates its own way).
+`flash(faces)` (a brief highlight the host animates its own way). For the check on load: `partFaces` (the
+package sends each part's STEP entity list), `checkFaces` (the host answers the sample check),
+`HostViewInfo.stepEntities` (the host can match by STEP entity) and `useFaceIds` (the package switches the
+host to STEP entities after a mismatch).
 
 ## How the components change
 
