@@ -580,6 +580,9 @@ fn analyse_reconciling(
         if !r.file_answered.is_empty() {
             resume.insert("file".into(), json!(r.file_answered));
         }
+        if !r.foreign_file.is_empty() {
+            resume.insert("foreign".into(), json!(r.foreign_file));
+        }
         if !r.present.is_empty() {
             resume.insert("present".into(), Value::Object(r.present.clone()));
         }
