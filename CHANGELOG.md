@@ -50,6 +50,14 @@ Read first:
   not touch `ui/` or a shared file skips the UI jobs. Main and releases run everything. `ci-ok` is
   the one check to require.
 
+### Fixed
+
+From the first 0.2.1 trial (#217, pzfreo/specify-ui#14):
+
+- Datum C is no longer asked once datum B is answered none, nor B (or C) once A is: a datum
+  without the one before it makes no sense. A letter already given stays asked, so its answer can
+  still be seen and removed.
+
 ## 0.2.1 (2026-11-20)
 
 Read first:
