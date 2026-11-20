@@ -66,6 +66,9 @@ pub(crate) struct Reconciled {
     /// Questions no stored answer states that the file answers with its own (Specify-marked)
     /// requirements, otherwise than their defaults would (`resume.file`).
     pub file_answered: Vec<String>,
+    /// Questions of `file_answered` another tool's (unmarked, never kept) requirement holds
+    /// (`resume.foreign`): as for a foreign conflict, no answer replaces it.
+    pub foreign_file: BTreeSet<String>,
     /// Questions not stored as answers whose defaults the file states, with those defaults:
     /// present in the file, so answered by it (`resume.present`).
     pub present: Map<String, Value>,
@@ -585,6 +588,11 @@ pub(crate) fn reconcile(
     for (question, items) in file_answered {
         for (id, _) in &items {
             if let Some(at) = item(id) {
+                // Another tool's requirement among the question's items (a foreign conflict
+                // kept by a save, beside Specify's own location dimensions): keep-only.
+                if unmarked.contains(&at) && !kept_earlier.contains(question.as_str()) {
+                    out.foreign_file.insert(question.clone());
+                }
                 out.contested.insert(at, question.clone());
             }
         }
@@ -774,19 +782,32 @@ struct ConflictIn {
     foreign: bool,
 }
 
-/// Every conflict question of `analysis`, decided or not.
-/// The conflicts whose file requirement is another tool's (`foreign`): their question is not
-/// asked, answered or not, and the file's requirement stands.
+/// The questions another tool's requirement holds: the conflicts whose file requirement is
+/// another tool's (`foreign`) and the file's own answers that include one (`resume.foreign`).
+/// Their question is not asked, answered or not, and the file's requirement stands.
 pub(crate) fn foreign_ids(analysis: &Value) -> BTreeSet<&str> {
-    analysis["resume"]["conflicts"]
+    foreign_in(&analysis["resume"])
+}
+
+/// [`foreign_ids`] of an analysis's `resume`.
+pub(crate) fn foreign_in(resume: &Value) -> BTreeSet<&str> {
+    resume["conflicts"]
         .as_array()
         .into_iter()
         .flatten()
         .filter(|c| c["foreign"] == Value::Bool(true))
         .filter_map(|c| c["id"].as_str())
+        .chain(
+            resume["foreign"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str),
+        )
         .collect()
 }
 
+/// Every conflict question of `analysis`, decided or not.
 pub(crate) fn conflict_ids(analysis: &Value) -> BTreeSet<&str> {
     analysis["resume"]["conflicts"]
         .as_array()
@@ -1281,11 +1302,12 @@ impl Reconciled {
     }
 
     /// Whether `question` is a conflict whose file requirement is another tool's.
-    fn is_foreign(&self, question: &str) -> bool {
+    pub(crate) fn is_foreign(&self, question: &str) -> bool {
         if question == crate::process::QUESTION {
             self.foreign_process
         } else {
             self.conflicts.iter().any(|c| c.id == question && c.foreign)
+                || self.foreign_file.contains(question)
         }
     }
 }

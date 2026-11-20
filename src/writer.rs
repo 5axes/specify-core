@@ -888,6 +888,9 @@ fn write_verified(
                     for c in r.conflicts.iter().filter(|c| c.foreign) {
                         saved.remove(&c.id);
                     }
+                    for id in &r.foreign_file {
+                        saved.remove(id);
+                    }
                 }
                 if foreign_process {
                     saved.remove(crate::process::QUESTION);
@@ -902,11 +905,13 @@ fn write_verified(
                 // ADR P9: conflicts kept are stored beside the answers (a kept requirement is
                 // also written unmarked, as the file's own), so a later answer to the question
                 // still finds the file's requirement it replaces. Answering clears the keep.
-                // A foreign process doesn't acquire that permission when its conflict is kept.
+                // Another tool's requirement (a foreign process or PMI) doesn't acquire that
+                // permission when its conflict is kept: it stays keep-only.
                 let kept: Vec<Json> = resume::truth::kept(answers)
                     .into_iter()
                     .filter(|id| !answers.contains_key(*id))
                     .filter(|id| !foreign_process || *id != crate::process::QUESTION)
+                    .filter(|id| !reconciliation.is_some_and(|r| r.is_foreign(id)))
                     .map(Json::from)
                     .collect();
                 if kept.iter().any(|id| id == crate::process::QUESTION)

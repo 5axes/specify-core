@@ -214,9 +214,17 @@ use the file's value in `part` when the file answers the question or the setting
 When the file's requirement in conflict is another tool's (not marked as Specify's, and not
 one the person kept), the conflict says so (`foreign: true`): no answer replaces it, not even
 answers saved before the edit that still hold the old value; its question is not asked and
-the file's requirement is written as it is. Keeping is its only choice. Writing also leaves
-the contradicted answer out of the stored answers, so once the file is saved, reopening reads
-the file's requirement as the truth, with no conflict.
+the file's requirement is written as it is. Keeping is its only choice, and a Keep is not
+stored as permission to replace it later. Writing also leaves the contradicted answer out of
+the stored answers, so once the file is saved, reopening reads the file's requirement as the
+truth, with no conflict. When that question's requirements also include Specify's own (a
+hole's basic location dimensions beside the other tool's position tolerance), reopening lists
+it in `resume.file` and in `resume.foreign`: it is still keep-only. An answer to it is not
+written or stored, and the report's `not_written` says "another tool's requirement holds this
+question; keep it, or change it in that tool", as it does for any answer another tool's PMI
+keeps from being asked. A file saved by 0.2.0, or by a preview of 0.2.1, with a Keep of
+another tool's conflict still lists the question in `_specify.keep`, which cannot be told
+apart from a Keep of Specify's own requirement, so an answer there can still replace it.
 
 Otherwise a conflict is **decided** when the current answers answer its question, or list it
 in `_specify.keep`:
