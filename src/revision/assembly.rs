@@ -91,7 +91,7 @@ pub struct Assembly {
     pub parts: Vec<PartChange>,
 }
 
-/// Whether a part's comparison finds nothing: no feature, face, answer, question, problem or
+/// Whether a part's comparison finds nothing: no feature, face, requirement to check or
 /// PMI changed, and its volume, area, box and face count are the same. Not whether the
 /// alignment found a move: [`placed`] weighs that.
 fn unchanged(r: &Revised) -> bool {
