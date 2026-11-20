@@ -18,11 +18,27 @@ All notable changes to specify-core-rust. The format follows
 
 ### Fixed
 
+- Reopening can resume a no-PMI face answer when each file item on its target faces has
+  an exact match in the stored answers' plan or the available plan with remaining
+  defaults accepted. Datum questions check both versions of the same datum. Part settings
+  compare every file entry, including each note, regardless of authorship. Withheld
+  answers follow ordinary file-PMI handling and stay in the file for reevaluation.
+  `write --accept-defaults` stores the defaults it takes that write no PMI.
+- Saves preserve edited printed general-tolerance notes and marked tolerances hidden by
+  imported tolerances. If comparison fails, reopening withholds the saved answers while
+  protecting the file's readable PMI (with an analysis warning from the CLI, serve, MCP and
+  Python; not yet from WASM or the page's session).
 - Reopening a STEP file detects manufacturing-process edits and removals against saved
   answers even after the STEP provenance markers have been stripped. CLI and editor
   rewrites preserve unmarked foreign process attributes, including text outside Specify's
   options. A Keep of Specify's process permits later replacement of the UDA with the
   recorded property-set name and items.
+
+### WASM API
+
+- `IntentEngine.review` can withhold no-PMI answers where the file states PMI with no
+  exact match in either comparison plan.
+  `IntentEngine.writePmi` retains those file requirements on save.
 
 ### Known limits
 

@@ -15,7 +15,7 @@ fn lm10uu() -> (LoadedPart, Intent, Map<String, Json>) {
 fn upstream_reader_keeps_three_independent_lands_on_a_multi_face_datum() {
     let (loaded, intent, _) = lm10uu();
     let source = Source::of(&loaded.bytes).unwrap();
-    let (model, _) = part_pmi(&loaded, &intent, &source.read.parts[0], Mode::Replace).unwrap();
+    let (model, _) = part_pmi(&loaded, &intent, &source.read.parts[0], Mode::Replace, &[]).unwrap();
     // Exercise haecceity directly, without Specify's write/annotation pipeline.
     let (edit, _) = pmi::write(
         &source.doc,

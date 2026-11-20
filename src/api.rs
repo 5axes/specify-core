@@ -448,92 +448,149 @@ fn analyse_reconciling(
     let mut reconciled = None;
     // A file written before Specify marked its requirements (#22), by replace, keeps its
     // behaviour: all its PMI is its answers', rewritten from them.
-    let can_reconcile = || -> bool {
+    let marked = || -> (bool, bool) {
         let Ok(doc) = haecceity::p21::Document::parse(loaded.bytes.as_ref().clone()) else {
-            return false;
+            return (false, false);
         };
+        let part = loaded.binding.part;
+        if resume::scoped(&doc, part) {
+            return (true, false);
+        }
         let Ok(defs) = haecceity::step::read_part_definitions(&loaded.bytes) else {
-            return false;
+            return (false, false);
         };
+        let Ok(read) = haecceity::pmi::read(&doc, &defs) else {
+            return (false, false);
+        };
+        // The process question postdates marking, so a saved process answer or a process
+        // attribute is evidence even when the markers were stripped. A legacy file with
+        // marks on part attributes alone keeps its old view.
         let saved_process = analysis
             .get("resume")
             .is_some_and(|resume| resume["answers"].get(crate::process::QUESTION).is_some());
-        resume::scoped(&doc, loaded.binding.part)
-            || haecceity::pmi::read(&doc, &defs).is_ok_and(|read| {
-                crate::provenance::can_reconcile(&doc, &read, loaded.binding.part, saved_process)
-            })
+        (
+            crate::provenance::can_reconcile(&doc, &read, part, saved_process),
+            crate::provenance::any_marked(&doc, &read, part)
+                && !crate::provenance::marked_outside_attributes(&doc, &read, part),
+        )
     };
-    if analysis.contains_key("resume") && can_reconcile() {
+    if analysis.contains_key("resume")
+        && let (true, attributes_only) = marked()
+    {
         let base = Value::Object(analysis.clone());
-        match resume::truth::reconcile(loaded, &base, &features) {
-            Ok(r) => {
-                let doc = haecceity::p21::Document::parse(loaded.bytes.as_ref().clone())
-                    .map_err(|e| refused(&e))?;
-                let defs = haecceity::step::read_part_definitions(&loaded.bytes)
-                    .map_err(|e| refused(&e))?;
-                let reading = existing::read_parsed(loaded, doc, &defs).map_err(|e| refused(&e))?;
-                // Specify's own (marked) requirements the answers do not explain, and that no
-                // question accounts for, are Specify's to state: the rewrite states the part from
-                // the answers. The rest is another tool's PMI, or the file's answer to a
-                // question (tagged), shown and kept.
-                let mut existing = reading
-                    .existing_except(loaded, &r.selection())
-                    .map_err(|e| refused(&e))?;
-                existing.retain(|e| e.provenance.is_none() || e.question.is_some());
-                analysis.insert(
-                    "existing".into(),
-                    serde_json::to_value(existing).map_err(|e| refused(&e))?,
-                );
-                let mut settings = reading.settings(loaded);
-                let marked = reading.settings_provenance(loaded);
-                let tagged = |key: &str| {
-                    let question = format!("part.{key}");
-                    r.conflicts.iter().any(|c| c.id == question)
-                        || r.file_answered.contains(&question)
-                };
-                settings.retain(|key, _| {
-                    !r.settings.contains(key) && (!marked.contains_key(key) || tagged(key))
-                });
-                analysis.insert("part".into(), Value::Object(settings));
-                crate::process::stated_entries(r.process.clone(), Some(&r.answers), &mut analysis);
-                let resume = analysis
-                    .get_mut("resume")
-                    .and_then(Value::as_object_mut)
-                    .ok_or_else(|| refused(&"the resumed answers are not an object"))?;
-                resume.insert("answers".into(), Value::Object(r.answers.clone()));
-                if !r.file_answered.is_empty() {
-                    resume.insert("file".into(), json!(r.file_answered));
-                }
-                if !r.present.is_empty() {
-                    resume.insert("present".into(), Value::Object(r.present.clone()));
-                }
-                if !r.conflicts.is_empty() {
-                    resume.insert(
-                        "conflicts".into(),
-                        serde_json::to_value(&r.conflicts).map_err(|e| refused(&e))?,
-                    );
-                }
-                for conflict in &r.conflicts {
-                    warnings.push(match &conflict.file {
-                        Some(file) => format!(
-                            "saved answer {} ({}) differs from the file's PMI ({file}); the \
-                             file's is kept until decided",
-                            conflict.id, conflict.stored
-                        ),
-                        None => format!(
-                            "saved answer {} ({}) was removed in the file; left removed until \
-                             decided",
-                            conflict.id, conflict.stored
-                        ),
-                    });
-                }
-                reconciled = Some(r);
+        let doc = haecceity::p21::Document::parse(loaded.bytes.as_ref().clone())
+            .map_err(|e| refused(&e))?;
+        let defs =
+            haecceity::step::read_part_definitions(&loaded.bytes).map_err(|e| refused(&e))?;
+        let reading = existing::read_parsed(loaded, doc, &defs).map_err(|e| refused(&e))?;
+        let mut settings = reading.settings(loaded);
+        let r = match resume::truth::reconcile(loaded, &base, &features, &reading) {
+            Ok(r) => r,
+            Err(why) => {
+                warnings.push(format!(
+                    "saved answers could not be compared with the file's PMI: {why}; saved \
+                     answers are withheld and the file's PMI is kept"
+                ));
+                resume::truth::Reconciled::uncompared(&base, reading.model())
             }
-            Err(why) => warnings.push(format!(
-                "saved answers could not be compared with the file's PMI: {why}; they are \
-                 resumed as stored"
-            )),
+        };
+        // Specify's own (marked) requirements the answers do not explain, and that no
+        // question accounts for, are Specify's to state: the rewrite states the part from
+        // the answers. The rest is another tool's PMI, or the file's answer to a
+        // question (tagged), shown and kept.
+        let mut existing = reading
+            .existing_except(loaded, &r.selection())
+            .map_err(|e| refused(&e))?;
+        // A legacy Replace file with marks on part attributes alone keeps the
+        // interview's old face-PMI view. Still reconcile its settings and preserve
+        // every unmarked requirement on writing, including face PMI.
+        let visible = |e: &existing::ExistingPmi| {
+            e.question.is_some() || (!attributes_only && e.provenance.is_none())
+        };
+        if r.retained.is_empty() {
+            existing.retain(visible);
+        } else {
+            let mut ordinary = r.selection();
+            ordinary.skip.extend(r.retained.iter().cloned());
+            let hidden: Vec<_> = reading
+                .existing_except(loaded, &ordinary)
+                .map_err(|e| refused(&e))?
+                .into_iter()
+                .filter(|e| !visible(e))
+                .collect();
+            existing.retain(|e| !hidden.contains(e));
         }
+        let retained_dimensions = crate::dimensioning::stated_where(reading.model(), |i| {
+            r.retained.contains(&("dimensions".into(), i))
+        });
+        if r.uncompared {
+            if !retained_dimensions.is_empty() {
+                analysis.insert("dimensioning_stated".into(), json!(retained_dimensions));
+            }
+        } else if !retained_dimensions.is_empty() {
+            let stated = analysis
+                .entry("dimensioning_stated")
+                .or_insert_with(|| json!([]));
+            stated
+                .as_array_mut()
+                .expect("stated dimensions are a list")
+                .extend(retained_dimensions.into_iter().map(Value::Object));
+        }
+        analysis.insert(
+            "existing".into(),
+            serde_json::to_value(existing).map_err(|e| refused(&e))?,
+        );
+        let marked = reading.settings_provenance(loaded);
+        let tagged = |key: &str| {
+            let question = format!("part.{key}");
+            r.conflicts.iter().any(|c| c.id == question) || r.file_answered.contains(&question)
+        };
+        settings.retain(|key, _| {
+            let all_marked = marked.get(key).is_some_and(|value| {
+                value
+                    .as_array()
+                    .is_none_or(|entries| entries.iter().all(|v| !v.is_null()))
+            });
+            r.uncompared || (!r.settings.contains(key) && (!all_marked || tagged(key)))
+        });
+        analysis.insert("part".into(), Value::Object(settings));
+        crate::process::stated_entries(
+            r.process.clone().or_else(|| reading.process()),
+            Some(&r.answers),
+            &mut analysis,
+        );
+        let resume = analysis
+            .get_mut("resume")
+            .and_then(Value::as_object_mut)
+            .ok_or_else(|| refused(&"the resumed answers are not an object"))?;
+        resume.insert("answers".into(), Value::Object(r.answers.clone()));
+        if !r.file_answered.is_empty() {
+            resume.insert("file".into(), json!(r.file_answered));
+        }
+        if !r.present.is_empty() {
+            resume.insert("present".into(), Value::Object(r.present.clone()));
+        }
+        if !r.conflicts.is_empty() {
+            resume.insert(
+                "conflicts".into(),
+                serde_json::to_value(&r.conflicts).map_err(|e| refused(&e))?,
+            );
+        }
+        for conflict in &r.conflicts {
+            warnings.push(match &conflict.file {
+                Some(file) => format!(
+                    "saved answer {} ({}) differs from the file's PMI ({file}); the \
+                             file's is kept until decided",
+                    conflict.id, conflict.stored
+                ),
+                None => format!(
+                    "saved answer {} ({}) was removed in the file; left removed until \
+                             decided",
+                    conflict.id, conflict.stored
+                ),
+            });
+        }
+        reconciled = Some(r);
     }
     if analysis.contains_key("resume") {
         resume::truth::remember(loaded, reconciled.as_ref());
@@ -614,6 +671,56 @@ pub fn apply(
         answers,
         accept_defaults,
     )?)
+}
+
+/// The answers to store when `answers` are written with every default taken (`write
+/// --accept-defaults`, the person's "accept all", ADR P9): `answers`, and each default taken
+/// whose answer writes no PMI, found by planning the answers as the writer does. The file
+/// cannot state those, so reopening can resume them when the file agrees with the writer's plan.
+/// A default that writes PMI is not stored: the file states it (`resume.present`), and it keeps
+/// following the rules. What is written is unchanged.
+pub fn stored_with_defaults(
+    loaded: &LoadedPart,
+    analysis: &Value,
+    answers: &Map<String, Value>,
+) -> Result<Map<String, Value>> {
+    // An analysis of another file, part or face numbering: the writer refuses it, saying so.
+    let binding = &analysis["binding"];
+    if binding["source_sha256"] != json!(loaded.binding.source_sha256)
+        || binding["face_count"] != json!(loaded.binding.face_count)
+        || binding["loader_version"] != json!(loaded.binding.loader_version)
+        || binding["part"].as_u64().unwrap_or(0) != loaded.binding.part as u64
+    {
+        return Ok(answers.clone());
+    }
+    let all = rules::with_all_defaults(analysis, answers)?;
+    let taken: Vec<(&String, &Value)> = all
+        .iter()
+        .filter(|(id, _)| {
+            !answers.contains_key(*id)
+                && !id.starts_with('_')
+                && !id.starts_with("bom.")
+                // The process stays a suggestion when taken (`process::read`).
+                && id.as_str() != crate::process::QUESTION
+        })
+        .collect();
+    if taken.is_empty() {
+        return Ok(answers.clone());
+    }
+    // A part the scene cannot plan stores what was given; the write says what is wrong.
+    let Ok(plan) = crate::pmi_scene::Scene::new(loaded)
+        .and_then(|scene| scene.comparison(loaded, analysis, Some(&all)))
+    else {
+        return Ok(answers.clone());
+    };
+    let writes = resume::truth::writing(&plan);
+    let mut out = answers.clone();
+    for (id, value) in taken {
+        if !writes.contains(id) {
+            out.insert(id.clone(), value.clone());
+        }
+    }
+    Ok(out)
 }
 
 /// Approved defaults by part (ADR P9): each question id with the default value the person saw.

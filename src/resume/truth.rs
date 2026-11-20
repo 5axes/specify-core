@@ -19,7 +19,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use serde::Serialize;
-use serde_json::{Map, Value, json};
+use serde_json::{Map, Value};
 
 use crate::part::LoadedPart;
 use crate::pmi_scene::Scene;
@@ -48,9 +48,17 @@ pub struct Conflict {
 pub(crate) struct Reconciled {
     /// The stored answers the file agrees with.
     pub answers: Map<String, Value>,
+    /// Stored answers withheld while the file has unexplained PMI in their scope.
+    pub withheld: Map<String, Value>,
+    /// File items in that scope which the ordinary reconciliation does not manage.
+    pub retained: BTreeSet<(String, usize)>,
+    /// The writer's plan could not be compared with the file.
+    pub uncompared: bool,
     pub conflicts: Vec<Conflict>,
     /// The file's items the resumed answers explain, by haecceity collection and index.
     pub explained: BTreeSet<(String, usize)>,
+    /// Explained tolerances whose questions may be suppressed by imported PMI.
+    masked_tolerances: BTreeMap<usize, String>,
     /// The file's items each conflict's question stands for.
     pub contested: BTreeMap<(String, usize), String>,
     /// Part settings (`part` keys) the resumed answers explain.
@@ -70,12 +78,51 @@ pub(crate) struct Reconciled {
 }
 
 impl Reconciled {
+    /// Without a usable plan, there is no safe basis for resuming answers or
+    /// replacing any of the file's requirements.
+    pub(crate) fn uncompared(analysis: &Value, pmi: &haecceity::pmi::PartPmi) -> Self {
+        let withheld = analysis["resume"]["answers"]
+            .as_object()
+            .into_iter()
+            .flatten()
+            .filter(|(id, _)| !id.starts_with('_'))
+            .map(|(id, answer)| (id.clone(), answer.clone()))
+            .collect();
+        let mut retained: BTreeSet<_> = [
+            ("features", pmi.features.len()),
+            ("datums", pmi.datums.len()),
+            ("datum_targets", pmi.datum_targets.len()),
+            ("dimensions", pmi.dimensions.len()),
+            ("tolerances", pmi.tolerances.len()),
+            ("general", pmi.general.len()),
+            ("threads", pmi.threads.len()),
+            ("knurls", pmi.knurls.len()),
+            ("notes", pmi.notes.len()),
+            ("surface_textures", pmi.surface_textures.len()),
+            ("material", usize::from(pmi.material.is_some())),
+        ]
+        .into_iter()
+        .flat_map(|(collection, len)| (0..len).map(move |i| (collection.to_string(), i)))
+        .collect();
+        retained.extend(pmi.attributes.iter().enumerate().filter_map(|(i, set)| {
+            (!super::is_answers(set) && set.name != crate::characteristics::PROPERTY)
+                .then_some(("attributes".into(), i))
+        }));
+        Self {
+            withheld,
+            retained,
+            uncompared: true,
+            ..Self::default()
+        }
+    }
+
     /// The [`crate::existing::Selection`] that leaves the explained items out of `existing`
     /// and tags the contested ones with their question.
     pub(crate) fn selection(&self) -> crate::existing::Selection {
         crate::existing::Selection {
             skip: self.explained.clone(),
             questions: self.contested.clone(),
+            retained: self.retained.clone(),
         }
     }
 }
@@ -110,14 +157,36 @@ pub(crate) fn reconcile(
     loaded: &LoadedPart,
     analysis: &Value,
     features: &[crate::features::Feature],
+    reading: &crate::existing::Reading,
 ) -> Result<Reconciled, String> {
-    let stored = analysis["resume"]["answers"]
+    let mut stored = analysis["resume"]["answers"]
         .as_object()
         .cloned()
         .unwrap_or_default();
-    let kept_earlier = kept(&stored);
+    let mut occupied_settings = BTreeSet::new();
+    reading.each_setting(false, |key, actual| {
+        let id = format!("part.{key}");
+        if !blank(&actual)
+            && stored
+                .get(&id)
+                .is_some_and(|saved| !contains(saved, &actual))
+        {
+            occupied_settings.insert(id);
+        }
+    });
+    let mut withheld = Map::new();
+    // A competing list cannot be planned in Add mode. Its entries have already
+    // been compared to the full stored list, so withhold it before planning.
+    for id in &occupied_settings {
+        if stored[id].is_array() && !kept(&stored).contains(id.as_str()) {
+            withheld.insert(
+                id.clone(),
+                stored.shift_remove(id).expect("occupied stored answer"),
+            );
+        }
+    }
     let scene = Scene::for_resume(loaded, features)?;
-    let (file, index) = scene.file_comparison(loaded, analysis)?;
+    let ((file, index), mut plan) = scene.reopening_comparison(loaded, analysis, &stored)?;
     let faces = loaded.binding.face_count;
     // What the answers write: their preview (defaults left as suggestions), as the editor
     // writes it; and with every default taken, as `apply` with defaults writes it. Defaults
@@ -148,72 +217,118 @@ pub(crate) fn reconcile(
     };
     // Which of the file's requirements are not marked as Specify's: another tool's, or one the
     // person kept (written unmarked).
-    let (unmarked, process, kept_process) = {
-        let doc =
-            haecceity::p21::Document::parse(loaded.bytes.to_vec()).map_err(|e| e.to_string())?;
-        let defs =
-            haecceity::step::read_part_definitions(&loaded.bytes).map_err(|e| e.to_string())?;
-        let read = haecceity::pmi::read(&doc, &defs).map_err(|e| e.to_string())?;
-        let part = loaded.binding.part;
-        let mut unmarked: BTreeSet<(String, usize)> =
-            crate::provenance::unmarked(&doc, &read, part)
-                .into_iter()
-                .collect();
-        let pmi = &read.parts[part];
-        // Process answers and attributes also identify files whose property links carry
-        // provenance when authored by Specify.
-        let marked_attributes = super::scoped(&doc, part)
-            || stored.contains_key(crate::process::QUESTION)
-            || pmi.attributes.iter().any(crate::process::is_process_set);
-        for (i, ids) in read.provenance.parts[part]
-            .attributes
-            .iter()
-            .enumerate()
-            .filter(|_| marked_attributes)
+    // Process answers and attributes also identify files whose property links carry
+    // provenance when authored by Specify.
+    let (part_pmi, unmarked) = scene.file_pmi(stored.contains_key(crate::process::QUESTION));
+    let compare = |plan: &Value, stored: &Map<String, Value>| {
+        crate::revision::against_plan(plan, &file, faces, stored, &drift)
+    };
+    let preview =
+        |answers: &Map<String, Value>| scene.comparison_with_file(loaded, analysis, answers, &file);
+    let defaults = |answers: &Map<String, Value>| -> Result<_, String> {
+        let mut unkept = answers.clone();
+        if let Some(meta) = unkept
+            .get_mut(crate::answer_file::META)
+            .and_then(Value::as_object_mut)
         {
-            if !super::is_answers(&pmi.attributes[i])
-                && !crate::provenance::marked(&doc, ids, "attribute")
-            {
-                unmarked.insert(("attributes".to_string(), i));
+            meta.remove(KEEP);
+        }
+        match crate::rules::with_all_defaults(analysis, &unkept) {
+            Ok(all) if all.len() > answers.len() => {
+                let planned = preview(&all)?;
+                Ok(Some((all, planned)))
+            }
+            _ => Ok(None),
+        }
+    };
+    let rows = crate::revision::scene_items(&file);
+    let mut occupied = occupied_answers(
+        analysis,
+        &occupied_settings,
+        &stored,
+        &rows,
+        &index,
+        part_pmi,
+    )?;
+    let mut blocked: BTreeMap<_, Vec<_>> = withheld
+        .keys()
+        .filter_map(|id| {
+            let key = setting(id)?;
+            Some((
+                id.clone(),
+                rows.keys()
+                    .filter(|row| setting(row) == Some(key))
+                    .cloned()
+                    .collect(),
+            ))
+        })
+        .collect();
+    let mut all_planned = defaults(&stored)?;
+    let mut truth = compare(&plan, &stored);
+    let mut other = all_planned.as_ref().map(|(_, plan)| compare(plan, &stored));
+    let mut writes = writing(&plan);
+    if let Some((_, defaults)) = &all_planned {
+        writes.extend(writing(defaults));
+    }
+    // A full-thread answer supplies depth to its hole function's thread PMI.
+    // Printed hole functions write semantic notes. Neither has a standalone
+    // scene row tagged with the question.
+    writes.extend(
+        stored
+            .iter()
+            .filter(|(id, value)| {
+                id.starts_with("hole.full_thread:")
+                    || (id.starts_with("hole.function:")
+                        && value
+                            .as_str()
+                            .is_some_and(|value| crate::choices::PRINTED_HOLES.contains(&value)))
+            })
+            .map(|(id, _)| id.clone()),
+    );
+    let exact = crate::revision::exactly_restated(
+        &file,
+        std::iter::once(&plan).chain(all_planned.iter().map(|(_, plan)| plan)),
+    );
+    occupied.retain(|id, items| {
+        if setting(id).is_none() {
+            items.retain(|item| !exact.contains(item));
+            if items.is_empty() {
+                return false;
             }
         }
-        let kept_process = if kept_earlier.contains(crate::process::QUESTION) {
-            super::stored_in(&doc)
-                .remove(&part)
-                .and_then(|mut payload| payload.remove(super::KEPT_PROCESS))
-        } else {
-            None
-        };
-        let process =
-            crate::process::file_pmi(&doc, pmi, &read.provenance.parts[part]).map(|(i, field)| {
-                let set = &pmi.attributes[i];
-                let identity = json!({"name": set.name, "items": set.items});
-                (i, field, identity)
-            });
-        (unmarked, process, kept_process)
-    };
-    let plan = scene.comparison(loaded, analysis, Some(&stored))?;
-    let mut truth = crate::revision::against_plan(&plan, &file, faces, &stored, &drift);
+        !kept(&stored).contains(id.as_str())
+            && (!writes.contains(id) || setting(id).is_some())
+            && !(truth.conflicts.contains_key(id)
+                && other.as_ref().is_none_or(|t| t.conflicts.contains_key(id)))
+    });
+    for id in occupied.keys() {
+        if let Some(value) = stored.shift_remove(id) {
+            withheld.insert(id.clone(), value);
+        }
+    }
+    // Apply #204 with the withheld answers absent, so the file can answer the question
+    // exactly as it would if no answer had been stored for it.
+    if !occupied.is_empty() {
+        plan = preview(&stored)?;
+        all_planned = defaults(&stored)?;
+        truth = compare(&plan, &stored);
+        other = all_planned.as_ref().map(|(_, plan)| compare(plan, &stored));
+    }
+    blocked.extend(occupied);
+    let kept_earlier = kept(&stored);
+    let kept_process = kept_earlier
+        .contains(crate::process::QUESTION)
+        .then(|| scene.kept_process())
+        .flatten();
+    let process = scene.file_process();
     let mut present = Map::new();
     let mut file_answered: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
-    // The defaults plan asks every question, those kept earlier too (`_specify.keep` would
-    // leave them unasked), so their requirements can be found in the file.
-    let mut unkept = stored.clone();
-    if let Some(meta) = unkept
-        .get_mut(crate::answer_file::META)
-        .and_then(Value::as_object_mut)
-    {
-        meta.remove(KEEP);
-    }
-    if let Ok(all) = crate::rules::with_all_defaults(analysis, &unkept)
-        && all.len() > stored.len()
-    {
-        let planned = scene.comparison(loaded, analysis, Some(&all))?;
-        let other = crate::revision::against_plan(&planned, &file, faces, &stored, &drift);
+    if let (Some((all, _)), Some(other)) = (all_planned, other) {
         truth
             .conflicts
             .retain(|question, _| other.conflicts.contains_key(question));
         truth.explained.extend(other.explained);
+        truth.explained_by.extend(other.explained_by);
         // A question both plans contradict keeps the file's items either names.
         for (question, items) in other.conflicts {
             if let Some(mine) = truth.conflicts.get_mut(&question) {
@@ -228,12 +343,17 @@ pub(crate) fn reconcile(
         // answers its question (`resume.present`), which stays answerable, not a suggestion.
         // Only Specify's own (marked) requirements are its defaults: one written unmarked is
         // another tool's, or one the person kept, and is simply the file's (`existing`).
+        // A legacy Replace file predates attribute marks, so an exact default match still
+        // explains its part attribute.
+        let legacy_attributes = scene.legacy_part_attributes();
         for (question, (unchanged, ids)) in other.defaults {
             // The process is read from the file with its own source (an accepted suggestion
             // stays one, `process::read`), so it is not taken as an answer here.
-            let own = ids
-                .iter()
-                .all(|id| index.get(id).is_none_or(|at| !unmarked.contains(at)));
+            let own = ids.iter().all(|id| {
+                index.get(id).is_none_or(|at| {
+                    !unmarked.contains(at) || (at.0 == "attributes" && legacy_attributes)
+                })
+            });
             if unchanged
                 && own
                 && !ids.is_empty()
@@ -268,8 +388,78 @@ pub(crate) fn reconcile(
             .collect();
         truth.explained.retain(|id| !contested.contains(id));
     }
+    // A marked part setting also answers its question when there is no writing default
+    // to match it to (for example, general notes).
+    for (id, (_, text)) in &rows {
+        if let Some(key) = setting(id) {
+            let question = format!("part.{key}");
+            if !stored.contains_key(&question)
+                && !present.contains_key(&question)
+                && !truth.explained.contains(id)
+                && index.get(id).is_some_and(|at| !unmarked.contains(at))
+            {
+                file_answered
+                    .entry(question)
+                    .or_default()
+                    .push((id.clone(), text.clone()));
+            }
+        }
+    }
+    let managed: BTreeSet<&String> = truth
+        .conflicts
+        .values()
+        .chain(file_answered.values())
+        .flatten()
+        .map(|(id, _)| id)
+        .collect();
+    let mut retained = BTreeSet::new();
+    for (question, items) in &blocked {
+        for id in items.iter().filter(|id| !managed.contains(*id)) {
+            // #204 can explain a requirement through recognition drift. It still
+            // needs preserving when the full plan did not restate it exactly.
+            if setting(question).is_none() {
+                truth.explained.remove(id);
+            }
+            if !truth.explained.contains(id)
+                && let Some(at) = index.get(id).filter(|at| !unmarked.contains(*at))
+            {
+                retained.insert(at.clone());
+            }
+        }
+    }
     let item = |id: &str| index.get(id).cloned();
+    // Rules can omit a tolerance question when imported PMI already controls
+    // its faces. An explained, marked tolerance still needs keeping if the
+    // actual save does not write it again.
+    let imported_tolerance_faces: BTreeSet<_> = rows
+        .iter()
+        .filter(|(id, _)| {
+            index
+                .get(*id)
+                .is_some_and(|at| at.0 == "tolerances" && unmarked.contains(at))
+        })
+        .flat_map(|(_, (faces, _))| faces.iter().copied())
+        .collect();
+    let masked_tolerances = truth
+        .explained
+        .iter()
+        .filter_map(|id| {
+            let at = index.get(id)?;
+            let question = truth.explained_by.get(id)?;
+            (at.0 == "tolerances"
+                && !unmarked.contains(at)
+                && rows.get(id).is_some_and(|row| {
+                    row.0
+                        .iter()
+                        .any(|face| imported_tolerance_faces.contains(face))
+                }))
+            .then(|| (at.1, question.clone()))
+        })
+        .collect();
     let mut out = Reconciled {
+        withheld,
+        retained,
+        masked_tolerances,
         explained: truth.explained.iter().filter_map(|id| item(id)).collect(),
         ..Reconciled::default()
     };
@@ -404,6 +594,106 @@ pub(crate) fn reconcile(
     Ok(out)
 }
 
+/// The questions whose answers `plan`, a comparison scene of answers, states PMI for: a
+/// requirement or part setting tagged with the question, or the material.
+pub(crate) fn writing(plan: &Value) -> BTreeSet<String> {
+    let mut out: BTreeSet<String> = plan["specify"]
+        .as_object()
+        .into_iter()
+        .flatten()
+        .filter(|(_, meta)| meta["status"] != "existing")
+        .filter_map(|(_, meta)| meta["question"].as_str().map(str::to_owned))
+        .collect();
+    if !plan["pmi"]["pmi"]["material"].is_null() {
+        out.insert("part.material".into());
+    }
+    out
+}
+
+/// Whether a part setting's value states nothing: absent, empty text or an empty list.
+fn blank(value: &Value) -> bool {
+    match value {
+        Value::Null => true,
+        Value::String(s) => s.trim().is_empty(),
+        Value::Array(items) => items.is_empty(),
+        _ => false,
+    }
+}
+
+/// Every file entry must match a saved entry. Each saved list entry can explain
+/// one file entry, in the order the writer would state it.
+fn contains(saved: &Value, actual: &Value) -> bool {
+    if let (Some(saved), Some(actual)) = (saved.as_array(), actual.as_array()) {
+        let mut saved = saved.iter();
+        actual.iter().all(|entry| saved.any(|value| value == entry))
+    } else {
+        saved == actual
+    }
+}
+
+/// Find file PMI in a stored answer's scope, regardless of authorship or whether a
+/// plan also states it. For a datum question, either version of the datum may be its target.
+fn occupied_answers(
+    analysis: &Value,
+    occupied_settings: &BTreeSet<String>,
+    stored: &Map<String, Value>,
+    rows: &BTreeMap<String, (Vec<usize>, String)>,
+    index: &BTreeMap<String, (String, usize)>,
+    pmi: &haecceity::pmi::PartPmi,
+) -> Result<BTreeMap<String, Vec<String>>, String> {
+    let mut bare = analysis.clone();
+    bare["existing"] = Value::Array(Vec::new());
+    bare["part"] = Value::Object(Map::new());
+    let questions = crate::rules::questions(&bare, stored).map_err(|e| e.to_string())?;
+    let mut out = BTreeMap::new();
+    for id in stored.keys() {
+        if id.starts_with('_') || id == crate::process::QUESTION {
+            continue;
+        }
+        if let Some(key) = setting(id) {
+            if occupied_settings.contains(id) {
+                out.insert(
+                    id.clone(),
+                    rows.keys()
+                        .filter(|row| setting(row) == Some(key))
+                        .cloned()
+                        .collect(),
+                );
+            }
+            continue;
+        }
+        let mut faces: BTreeSet<usize> = questions
+            .iter()
+            .filter(|q| q.id == *id)
+            .flat_map(|q| &q.faces)
+            .filter_map(|&f| usize::try_from(f).ok())
+            .collect();
+        if let Some(letter) = id
+            .strip_prefix("datum.")
+            .and_then(|suffix| suffix.split('.').next())
+        {
+            faces.extend(
+                rows.iter()
+                    .filter(|(row, _)| {
+                        index.get(*row).is_some_and(|(collection, i)| {
+                            collection == "datums" && pmi.datums[*i].label().as_str() == letter
+                        })
+                    })
+                    .flat_map(|(_, (faces, _))| faces.iter().copied()),
+            );
+        }
+        let items: Vec<_> = rows
+            .iter()
+            .filter(|(_, (on, _))| on.iter().any(|f| faces.contains(f)))
+            .map(|(id, _)| id.clone())
+            .collect();
+        if !items.is_empty() {
+            out.insert(id.clone(), items);
+        }
+    }
+    Ok(out)
+}
+
 /// The question a conflict is presented as (`kind: "conflict"`), for review and MCP.
 pub fn question(conflict: &Conflict) -> Value {
     let stored = short(&conflict.stored);
@@ -534,8 +824,25 @@ pub fn answered<'a>(
     if !foreign_process && present.is_none_or(|p| p.keys().all(|id| answers.contains_key(id))) {
         return std::borrow::Cow::Borrowed(answers);
     }
+    // A foreign process the file keeps is the one the rules see, so the answer changes nothing.
+    let process_changed = !foreign_process
+        && answers.get(process).is_some_and(|process| {
+            analysis["process"]
+                .get("value")
+                .is_some_and(|old| old != process)
+        });
     let mut out = answers.clone();
     for (id, value) in present.into_iter().flatten() {
+        // A printed tolerance read back as a default belongs to the file's
+        // process. Let an explicitly changed process supply its own default.
+        if process_changed
+            && id == "part.general_tolerance"
+            && value
+                .as_str()
+                .is_some_and(|text| crate::general::plus_minus(text).is_some())
+        {
+            continue;
+        }
         if !out.contains_key(id) {
             out.insert(id.clone(), value.clone());
         }
@@ -596,17 +903,28 @@ impl Reconciled {
         restated: &BTreeSet<(String, usize)>,
     ) -> BTreeSet<(String, usize)> {
         use haecceity::pmi::NoteOwner;
+        if self.uncompared {
+            return self.retained.clone();
+        }
         // Only the file's items of an undecided conflict or of a question the file answers
         // need keeping here: the rewrite replaces Specify's own (marked) requirements and
         // protects every other one, which is another tool's.
         let keeps = |collection: &str, i: usize| {
             let at = (collection.to_string(), i);
-            !self.explained.contains(&at)
-                && !restated.contains(&at)
-                && self
-                    .contested
-                    .get(&at)
-                    .is_some_and(|question| !self.replaces(question, answers, writes_process))
+            self.retained.contains(&at)
+                || (collection == "tolerances"
+                    && self.masked_tolerances.get(&i).is_some_and(|question| {
+                        self.answers
+                            .get(question)
+                            .is_some_and(|value| answers.get(question) == Some(value))
+                    })
+                    && !restated.contains(&at))
+                || (!self.explained.contains(&at)
+                    && !restated.contains(&at)
+                    && self
+                        .contested
+                        .get(&at)
+                        .is_some_and(|question| !self.replaces(question, answers, writes_process)))
         };
         let mut out = BTreeSet::new();
         let lengths = [
@@ -640,21 +958,20 @@ impl Reconciled {
                 .collect()
         };
         for (i, tolerance) in pmi.tolerances.iter().enumerate() {
-            if cites(tolerance)
-                .iter()
-                .any(|d| restated.contains(&("datum letters".to_string(), *d)))
+            if !self.retained.contains(&("tolerances".into(), i))
+                && cites(tolerance)
+                    .iter()
+                    .any(|d| restated.contains(&("datum letters".to_string(), *d)))
             {
                 out.remove(&("tolerances".to_string(), i));
             }
         }
         for (i, set) in pmi.attributes.iter().enumerate() {
             if super::is_answers(set)
-                || [
-                    crate::characteristics::PROPERTY,
-                    crate::pmi_origin::PROPERTY,
-                    "specify dimension plan",
-                ]
-                .contains(&set.name.as_str())
+                || set.name == crate::characteristics::PROPERTY
+                || ([crate::pmi_origin::PROPERTY, "specify dimension plan"]
+                    .contains(&set.name.as_str())
+                    && !matches!(set.on, Some(NoteOwner::Dimension(d)) if self.retained.contains(&("dimensions".into(), d.0))))
             {
                 continue;
             }

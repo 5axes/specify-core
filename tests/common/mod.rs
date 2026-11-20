@@ -31,6 +31,7 @@
 // Each test crate uses a different part of this module.
 #![allow(dead_code)]
 
+pub mod accept_all;
 pub(crate) mod corpus;
 pub mod numbering;
 
