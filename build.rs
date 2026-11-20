@@ -64,20 +64,20 @@ fn main() {
 
     if feature("BUNDLED_APP") && (app.is_none() || wasm.is_none()) {
         let missing = match (&app, &wasm) {
-            (None, None) => "the Specify app and engine",
-            (None, Some(_)) => "the Specify app",
-            _ => "the Specify engine",
+            (None, None) => "the Specify app and engine are",
+            (None, Some(_)) => "the Specify app is",
+            _ => "the Specify engine is",
         };
         if require {
             panic!(
-                "SPECIFY_REQUIRE_BUNDLE=1, but {missing} for {version} is not built: build the WASM \
+                "SPECIFY_REQUIRE_BUNDLE=1, but {missing} not built for {version}: build the WASM \
                  (wasm-pack build crates/specify-core-wasm --target web --profile wasm-release) and \
                  the app (npm run build:app in ui/) first"
             );
         }
         if !feature("BUNDLE_TEST_FIXTURE") {
             println!(
-                "cargo:warning=no {missing} to build in: `open` and MCP `show` will need --app/--wasm (see docs/open.md)"
+                "cargo:warning={missing} not built (ui/dist-app, crates/specify-core-wasm/pkg): `open` and MCP `show` will need --app/--wasm (see docs/open.md)"
             );
         }
     }
