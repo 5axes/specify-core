@@ -44,7 +44,9 @@ jobs:
             case "$file" in
               '') ;;
               ui/*) ui=true ;;
-              .github/*|Cargo.toml|Cargo.lock|build.rs|tools/open_smoke.py|tests/fixtures/bundle/*|rust-toolchain.toml|docs/open.md|docs/session.md|src/open.rs|src/open/*|src/session.rs|src/session/*|src/mcp.rs|src/mcp/*|crates/specify-core-wasm/*)
+              # The engine (src/) is compiled into the WASM the UI and the app run, so an engine
+              # change is tested by the ui and app jobs too. Only a ui-only change skips Rust.
+              .github/*|Cargo.toml|Cargo.lock|build.rs|tools/open_smoke.py|tests/fixtures/bundle/*|rust-toolchain.toml|docs/open.md|docs/session.md|src/*|crates/specify-core-wasm/*)
                 rust=true; ui=true ;;
               *) rust=true ;;
             esac
