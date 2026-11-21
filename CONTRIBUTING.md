@@ -4,7 +4,7 @@ Contributions are welcome: bug reports, fixes, features and documentation.
 
 Before review, run `tools/verify.sh`. It runs what CI runs on a pull request (the Rust suite, the WASM
 checks, the UI and app jobs against this checkout's build, the wheel's pytest and the crate package) and
-ends with `VERIFY: PASS` or `VERIFY: FAIL (<steps>)`; paste that output in the pull request.
+ends with `VERIFY: PASS` or `VERIFY: FAIL (<steps>)`; paste that output in the pull request. Commit first: its crate-package step refuses uncommitted changes, as CI's does.
 `tools/verify.sh --dry-run` lists the steps. The corpus is
 [pzfreo/quiddity-corpus](https://github.com/pzfreo/quiddity-corpus) at the revision `.github/workflows/ci.yml`
 pins; point `SPECIFY_CORPUS` at its checkout (default `../quiddity/tests/corpus`).
