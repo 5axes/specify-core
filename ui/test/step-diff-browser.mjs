@@ -319,6 +319,14 @@ try {
   // thread's note it was is reported with the thread (specify-core 0.1.9).
   await check(page.locator('.diff-pmi-on', { hasText: 'no callout' })).toHaveCount(0);
   assert.deepEqual(await page.evaluate(() => window.__events.includes('diff_failed')), false);
+  // The shaft's two revisions as they are, with no PMI: the added end chamfer has nothing stated,
+  // a line of information in the report that leaves the verdict as it was.
+  const bare = JSON.parse(diff('gramil_shaft_before.step', shaft('before'), 'gramil_shaft_after.step', shaft('after'), '{}', 'gramil_shaft_after.step', false)).report;
+  assert.deepEqual(bare.new_unstated.map(u => u.what), ['1.5 × 45° chamfer'], 'the new chamfer, nothing stated');
+  assert.equal(bare.verdict, 'ok');
+  await compareWith('test/fixtures/gramil_shaft_before.step.gz', 'test/fixtures/gramil_shaft_after.step.gz');
+  await check(page.locator('.diff-report')).toContainText('New in this revision with nothing stated: 1.5 × 45° chamfer.');
+  await check(page.locator('.diff-summary')).toContainText('✅');
 
   // A part's comparison, apart from an assembly's whole view.
   await page.goto(url);

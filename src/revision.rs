@@ -66,6 +66,10 @@ pub struct Revised {
     /// symmetric part): the tie is broken by the file's frame, and the report says so.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub frame_tie: Option<FrameTie>,
+    /// Information only: the features new in this revision (no counterpart in the old part) that
+    /// the new file's PMI states nothing on. It never changes the verdict or `check`.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub new_unstated: Vec<Unstated>,
     /// Each new face's class (`changed` or `new`; faces carried unchanged are left out), and the
     /// old faces that are gone or moved, for [`picture`].
     #[serde(skip)]
@@ -95,6 +99,16 @@ pub struct FrameTie {
     pub alternative: Option<String>,
     /// The report's sentence.
     pub note: String,
+}
+
+/// A feature new in this revision that the new file's PMI states nothing on (see
+/// [`Revised::new_unstated`]).
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct Unstated {
+    /// Its id on the new part, as in `features`.
+    pub feature: String,
+    /// The feature in words, as a drawing names it (`Ø8 × 4 through hole`).
+    pub what: String,
 }
 
 /// One face's change that no feature of the report explains (see [`Revised::other_faces`]).
@@ -1697,6 +1711,19 @@ pub fn diff_with_options(
         }
     }
     let mut check = pmi::checks(&changed_features, &new_features, &new_file);
+    // Information only: the new features the new file states nothing on.
+    let stated = pmi::stated_faces(&new_file);
+    let new_unstated: Vec<Unstated> = feature_changes
+        .iter()
+        .filter(|c| c.class == "new")
+        .filter(|c| !c.new_faces.iter().any(|f| stated.contains(f)))
+        .filter_map(|c| {
+            Some(Unstated {
+                feature: c.new.clone()?,
+                what: c.what.clone(),
+            })
+        })
+        .collect();
     for c in &mut check {
         if let Some(id) = new_ids.get(&c.id) {
             c.id = id.clone();
@@ -1821,6 +1848,7 @@ pub fn diff_with_options(
             new: new_size,
         },
         frame_tie: None,
+        new_unstated,
         faces: face_class,
         gone,
         correspondence: Some(corr),
@@ -2672,6 +2700,14 @@ impl Revised {
                 let _ = writeln!(s, "- {line}");
             }
             s += "\n";
+        }
+        if !self.new_unstated.is_empty() {
+            let what: Vec<&str> = self.new_unstated.iter().map(|u| u.what.as_str()).collect();
+            let _ = writeln!(
+                s,
+                "New in this revision with nothing stated: {}.\n",
+                what.join("; ")
+            );
         }
         if !self.other_faces.is_empty() {
             let _ = writeln!(

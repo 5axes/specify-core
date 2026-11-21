@@ -33,6 +33,10 @@ Read first:
   (MapShapes order only for solid-only parts), with a check on load. Labels and drawn PMI stay on the
   default view for now. StepDiff now reports the nearest face under the pointer, since a host reports
   only that; known gap: StepDiff runs no load check yet.
+- `diff` lists, for information, the features new in this revision that the new file's PMI states
+  nothing on: "New in this revision with nothing stated: Ø7 × 10 through hole." in the Markdown
+  report (and so on the diff page and in MCP's `markdown`), and `new_unstated: [{feature, what}]`
+  in `report.json` (left out when empty). It never changes the verdict or `check`.
 
 ### Changed
 

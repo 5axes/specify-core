@@ -980,6 +980,65 @@ fn a_cut_or_a_resize_is_not_a_move() {
 }
 
 #[test]
+fn a_new_feature_with_nothing_stated_is_listed_as_information() {
+    // The old revision written with its requirements, the new one with none: the added Ø7 hole
+    // has nothing stated, so it is listed, for information only. The verdict is unchanged.
+    let (old, new) = pair("hole_added");
+    let old = annotated(&old, json!({ "part.material": "6061-T6" }));
+    let r = diff(&old, &new).unwrap();
+    let added: Vec<_> = r.features.iter().filter(|f| f.class == "new").collect();
+    assert_eq!(added.len(), 1, "{:?}", r.features);
+    assert_eq!(r.new_unstated.len(), 1, "{:?}", r.new_unstated);
+    let entry = &r.new_unstated[0];
+    assert_eq!(Some(&entry.feature), added[0].new.as_ref());
+    assert_eq!(entry.what, added[0].what);
+    assert!(
+        entry.what.starts_with("Ø7 ") && entry.what.contains("hole"),
+        "{entry:?}"
+    );
+    assert_eq!(r.verdict, "ok", "{}", r.summary);
+    assert!(r.check.is_empty(), "{:?}", r.check);
+    assert!(!r.summary.contains("nothing stated"), "{}", r.summary);
+    let json = serde_json::to_value(&r).unwrap();
+    assert_eq!(json["new_unstated"][0]["feature"], json!(entry.feature));
+    assert_eq!(json["new_unstated"][0]["what"], json!(entry.what));
+    let md = r.markdown("Plate", None);
+    assert!(
+        md.contains(&format!(
+            "New in this revision with nothing stated: {}.",
+            entry.what
+        )),
+        "{md}"
+    );
+}
+
+#[test]
+fn a_new_feature_the_new_file_states_something_on_is_not_listed() {
+    // The enclosure's new Ø8 entry hole has ⌀8 and its two locations in the new file's PMI
+    // (added items #22-#24), so it is not listed; the verdict and the requirements to check are
+    // the resized holes', as without the list.
+    let (old, new) = pair("enclosure_pmi");
+    let r = diff(&old, &new).unwrap();
+    let added: Vec<_> = r.features.iter().filter(|f| f.class == "new").collect();
+    assert_eq!(added.len(), 1, "{:?}", r.features);
+    assert!(added[0].what.starts_with("Ø8 "), "{:?}", added[0]);
+    assert!(
+        r.pmi
+            .items
+            .iter()
+            .any(|i| i.class == "added" && i.new.as_deref() == Some("⌀8")),
+        "{:?}",
+        r.pmi.items
+    );
+    assert!(r.new_unstated.is_empty(), "{:?}", r.new_unstated);
+    assert_eq!(r.verdict, "decide", "{}", r.summary);
+    assert_eq!(r.check.len(), 2, "{:?}", r.check);
+    let json = serde_json::to_value(&r).unwrap();
+    assert!(json.get("new_unstated").is_none(), "{json}");
+    assert!(!r.markdown("Enclosure", None).contains("nothing stated"));
+}
+
+#[test]
 fn small_and_unaligned_moves_are_reported() {
     // A 0.1 mm hole move is a move; a pocket or slot moved where no alignment is found is
     // compared in the parts' own frames (tests/fixtures/revisions/small_moves.py).

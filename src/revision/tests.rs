@@ -25,6 +25,7 @@ fn report() -> Revised {
         pmi_graphics: vec![],
         check_lines: vec![],
         frame_tie: None,
+        new_unstated: Vec::new(),
         faces: BTreeMap::new(),
         gone: vec![],
         correspondence: Some(Correspondence {
