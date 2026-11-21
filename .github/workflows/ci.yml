@@ -11,7 +11,8 @@ permissions:
 
 # Path filters on pull requests (the `changes` job): a PR that changes only ui/ skips the Rust
 # jobs, and one that changes nothing in ui/ or the shared files skips the UI jobs. Shared files
-# run both: the workflows, the root manifests, the session contract (docs/open.md, src/open*) and
+# run both: the workflows, the root manifests, the engine (all of src/, compiled into the WASM the
+# UI and the app run), the session contract (docs/open.md, docs/session.md), the app job's fixture and
 # the WASM crate. Pushes to main and manual runs run everything; releases run release.yml. A
 # skipped job is not a failure: `ci-ok` is the one check branch protection requires.
 jobs:
@@ -44,7 +45,9 @@ jobs:
             case "$file" in
               '') ;;
               ui/*) ui=true ;;
-              .github/*|Cargo.toml|Cargo.lock|build.rs|tools/open_smoke.py|tests/fixtures/bundle/*|rust-toolchain.toml|docs/open.md|docs/session.md|src/open.rs|src/open/*|src/session.rs|src/session/*|src/mcp.rs|src/mcp/*|crates/specify-core-wasm/*)
+              # The engine (src/) is compiled into the WASM the UI and the app run, so an engine
+              # change is tested by the ui and app jobs too. Only a ui-only change skips Rust.
+              .github/*|Cargo.toml|Cargo.lock|build.rs|tools/open_smoke.py|tests/fixtures/bundle/*|rust-toolchain.toml|docs/open.md|docs/session.md|src/*|tests/fixtures/thread-depth-alpha7.step.gz|crates/specify-core-wasm/*)
                 rust=true; ui=true ;;
               *) rust=true ;;
             esac
