@@ -183,6 +183,16 @@ pub(super) fn checks(
     checks
 }
 
+/// The faces *scene*'s requirements state something on: each requirement's faces, its own and
+/// those it is measured from (datum references aside, as for pairing). A part-level requirement
+/// (a general tolerance) holds no face.
+pub(super) fn stated_faces(scene: &Value) -> BTreeSet<usize> {
+    items(scene)
+        .into_iter()
+        .flat_map(|i| i.faces.into_iter().chain(i.on_faces))
+        .collect()
+}
+
 // One line per feature and change: `… diameter 3 → 3.4, so its ⌀3.4 H11 and ⌖ ⌀0.2Ⓜ A B C
 // requirements may no longer fit`.
 pub(super) fn check_lines(checks: &[super::Check], features: &[Feature]) -> Vec<String> {

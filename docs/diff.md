@@ -85,6 +85,14 @@ remain alike after the motion is chosen are still `ambiguous`, as above.
   it is not reported (the cut hole and the resized holes are). Where no alignment was found,
   an unchanged feature whose faces are displaced in the parts' own frames is reported moved, its offset
   including any rigid motion of the part, as for faces below.
+- **New in this revision with nothing stated** is a line of information: the features new in
+  the new part (no counterpart in the old one) that the new file's PMI states nothing on, as
+  "What changed" names them ("New in this revision with nothing stated: 1.5 × 45° chamfer.").
+  A feature has something stated when any requirement in the new file is on one of its faces or
+  is measured from one (a datum reference aside); a part-level requirement, such as a general
+  tolerance, states nothing on a feature. It never changes the verdict or "Requirements to
+  check". `report.json` gives each as `new_unstated`: `{feature, what}`, the feature's id on the
+  new part (as in `features`) and its words; the field is left out when there are none.
 - **Other faces** lists the changes to faces that no feature above explains: a block face or
   a sharp-cornered pocket wall pushed 5 mm, say, which no hole, fillet or other recognised
   feature holds. Each is a face the matching found changed (`adapted`), gone (`orphaned`),

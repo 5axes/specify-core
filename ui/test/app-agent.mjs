@@ -610,6 +610,11 @@ try {
     // ADR P11 a third decision asked the new Ø8 entry hole's question; diff asks no questions.)
     assert.deepEqual(opened.report.check.map(c => c.requirement), ['⌀3.4 H11', '⌖ ⌀0.2Ⓜ A B C']);
     await check(page.locator('.app-decision')).toHaveText(['Check: ⌀3.4 H11', 'Check: ⌖ ⌀0.2Ⓜ A B C']);
+    // The new Ø8 entry hole has ⌀8 and its locations stated in the new file, so no feature is
+    // listed as new with nothing stated.
+    assert.equal(opened.report.new_unstated, undefined, 'the Ø8 hole has requirements stated');
+    await check(page.locator('.diff-report')).toContainText('Ø8 × 3 through hole');
+    await check(page.locator('.diff-report')).not.toContainText('nothing stated');
     // Drawn from GET diff (the session's comparison): no engine diff call.
     const ops = await page.evaluate(() => window.__engineOps);
     assert.ok(ops.includes('open') && !ops.includes('diff'), `no engine diff call in diff mode: ${ops}`);

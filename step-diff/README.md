@@ -60,6 +60,8 @@ checks its checksum.
 - **What changed** names each feature as a drawing would ("2× Ø10 × 11 through holes") and
   places it so it can be found ("on the −Z side, at X 10.9, Y 28.4 from the −X, −Y corner"),
   then says what changed: "depth 11 → 13; diameter 10 → 9", "moved Z +2", "removed".
+  A line of information follows when a new feature has no requirement in the new file: "New in
+  this revision with nothing stated: 1.5 × 45° chamfer." It changes nothing else.
 - **PMI** lists the requirements (dimensions, tolerances, datums, notes) the two STEP files
   state that were added, removed or changed, each with its characteristic number.
 - **Requirements to check** are the new file's requirements on a feature that moved or changed
