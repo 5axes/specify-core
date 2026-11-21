@@ -5,15 +5,6 @@ use specify_core::input;
 use specify_core::{api, choices};
 pub mod session;
 
-/// Decode diff answers before dispatching a single part or an assembly.
-pub fn diff_answers(text: &str) -> Result<Map<String, Value>, String> {
-    input::size("Answers", text.len(), input::JSON_LIMIT).map_err(|e| e.to_string())?;
-    let answers = serde_json::from_str(text).map_err(|e| format!("Invalid answers: {e}"))?;
-    // Part names are valid keys here. Validate each answer map after dispatch,
-    // when the part owning an invalid question id is known.
-    Ok(answers)
-}
-
 /// Accept every unanswered default to the same fixed point as CLI/serve apply.
 pub fn accept_defaults(
     analysis: &Value,
@@ -460,26 +451,24 @@ export interface PmiScene {
         console_error_panic_hook::set_once();
     }
 
-    /// Two revisions of a part compared (`session::diff`): `{report, markdown, view}` JSON; of
-    /// an assembly, `{report, markdown, parts}`, each changed part with its own `markdown` and
-    /// `view`. `answers` is a JSON object (by part name for an assembly), `{}` to carry the old
-    /// file's stored answers.
+    /// Two revisions of a part compared (`session::diff`), from the two files' geometry and PMI
+    /// only: `{report, markdown, view}` JSON; of an assembly, `{report, markdown, parts}`, each
+    /// changed part with its own `markdown` and `view`. `_answers` is not read (ADR P11: the
+    /// report never depends on answers); it keeps its place so callers need not change.
     #[wasm_bindgen(js_name = diff)]
     pub fn diff_json(
         old_name: &str,
         old: &[u8],
         new_name: &str,
         new: &[u8],
-        answers: &str,
+        _answers: &str,
         title: &str,
         scenes: Option<bool>,
     ) -> Result<String, JsValue> {
         limit("Title", title, input::TEXT_LIMIT)?;
-        let answers = crate::diff_answers(answers).map_err(js_error)?;
         session::diff_with_options(
             (old_name, old),
             (new_name, new),
-            &answers,
             title,
             specify_core::revision::DiffOptions {
                 scenes: scenes.unwrap_or(false),

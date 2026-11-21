@@ -185,7 +185,6 @@ def pmi_scene(
 def diff(
     old: str | Path | LoadedPart,
     new: str | Path | LoadedPart,
-    answers: dict[str, Any] | None = None,
     *,
     title: str = "Revision",
     part: int | None = None,
@@ -195,7 +194,7 @@ def diff(
     """Compare revisions of a selected part: ``{report, markdown}``.
 
     ``report["pmi"]["items"]`` uses pmi_scene identities, numbers and statuses.
-    Omitted answers carry the old file's saved answers. Paths accept a part index;
+    It reads only the two files' geometry and PMI. Paths accept a part index;
     loaded handles already select their part. ``scenes=True`` includes the exact
     compared pmi_scene documents in ``report["pmi"]["scenes"]``.
 
@@ -209,7 +208,7 @@ def diff(
     if image_width is not None and not 1 <= image_width <= 4096:
         raise ValueError(f"image_width must be 1 to 4096 pixels, not {image_width}")
     text, image = _native.diff(
-        _step(old), _step(new), json.dumps(answers or {}), title, part, scenes, image_width
+        _step(old), _step(new), title, part, scenes, image_width
     )
     result = json.loads(text)
     if image is not None:

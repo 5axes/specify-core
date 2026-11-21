@@ -43,8 +43,14 @@ try {
   refuses(() => next.exportAnswers(text), /stale answers/);
   refuses(() => next.writePmi(text), /stale answers/);
   assert.deepEqual(bare(JSON.parse(old.exportAnswers('{}'))), {});
-  const carried = JSON.parse(diff('v1.step', oldBytes, 'v2.step', newBytes, text, 'Split')).report.answers;
-  assert.equal(carried['part.material'], given['part.material']);
+  // Diff reads the files' PMI only and returns no answers (ADR P11). An answers file carried
+  // to the new revision with its datum dropped, as an earlier diff returned one:
+  assert.equal(JSON.parse(diff('v1.step', oldBytes, 'v2.step', newBytes, text, 'Split')).report.answers, undefined);
+  const carried = {
+    'part.material': given['part.material'],
+    _specify: { evidence: JSON.parse(next.evidence()), unresolved: {
+      'datum.A': 'face 4 has no match in the new part', 'datum.A.flatness': 'its datum datum.A is unresolved' } },
+  };
   // Incomplete is normal: carry blocks are kept, their questions left open.
   assert.deepEqual(Object.keys(carried._specify.unresolved).sort(), ['datum.A', 'datum.A.flatness']);
   assert.deepEqual(Object.keys(JSON.parse(next.exportAnswers(JSON.stringify(carried)))._specify.unresolved).sort(), ['datum.A', 'datum.A.flatness']);

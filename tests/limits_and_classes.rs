@@ -111,7 +111,7 @@ fn answered_size_and_plate_thickness_round_trip_as_limits() {
     }
     // Changing the representation alone is a real drawing change.
     let pm = write(&written, &given("±0.2", "±0.2"));
-    let report = revision::diff(&written, &pm, &Map::new()).unwrap();
+    let report = revision::diff(&written, &pm).unwrap();
     let changes: Vec<_> = report
         .pmi
         .items
@@ -243,7 +243,7 @@ fn combined_classes_are_choices_and_round_trip_without_changing_defaults() {
     assert_eq!(model(&write(&written, &answers)).general, read.general);
     let plain_answers = json!({"part.general_tolerance":"ISO 2768-m"});
     let before = write(&p, plain_answers.as_object().unwrap());
-    let report = revision::diff(&before, &written, &Map::new()).unwrap();
+    let report = revision::diff(&before, &written).unwrap();
     let changed: Vec<_> = report
         .pmi
         .items

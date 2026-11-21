@@ -42,8 +42,7 @@ PATH="$RUNNER_TEMP/$name:$PATH"
 # exact rename is one: STEP files are alike enough as text for git to pair unrelated parts.
 BASE=$(git rev-parse HEAD^1)
 is_step() { case "${1,,}" in *.step | *.stp) return 0 ;; esac; return 1; }
-kinds=() olds=() news=() answered=()
-declare -A listed
+kinds=() olds=() news=()
 git -c core.quotePath=false diff -z --name-status -M100% "$BASE" HEAD > "$RUNNER_TEMP/changes"
 while IFS= read -r -d '' status; do
   IFS= read -r -d '' old
@@ -56,20 +55,8 @@ while IFS= read -r -d '' status; do
       *) kinds+=(changed) ;;
     esac
     olds+=("$old") news+=("$new")
-    listed[$new]=1
-  elif [[ $new == *.answers.json ]]; then
-    answered+=("${new%.answers.json}")
   fi
 done < "$RUNNER_TEMP/changes"
-# A part whose answers changed but not its STEP file is compared too.
-for stem in ${answered[@]+"${answered[@]}"}; do
-  for f in "$stem".{step,stp,STEP,STP}; do
-    if [ -f "$f" ] && [ -z "${listed[$f]:-}" ] && git cat-file -e "$BASE:$f" 2> /dev/null; then
-      kinds+=(changed) olds+=("$f") news+=("$f")
-      listed[$f]=1
-    fi
-  done
-done
 
 uri() { jq -rn --arg s "$1" '$s | @uri'; }
 links=()
@@ -83,12 +70,6 @@ for i in "${!kinds[@]}"; do
   title=$new
   [ "$old" = "$new" ] || title="$new (was $old)"
   git show "$BASE:$old" > "$out/old.step"
-  # The answers as they were on the base branch are the ones to carry.
-  answers=()
-  if git cat-file -e "$BASE:${old%.*}.answers.json" 2> /dev/null; then
-    git show "$BASE:${old%.*}.answers.json" > "$out/answers.old.json"
-    answers=(--answers "$out/answers.old.json")
-  fi
   # A public repository's revisions can be compared live in the browser, at draftwright.io: the
   # picture links there, and an assembly's changed parts link there each with &part=.
   viewer=()
@@ -98,7 +79,7 @@ for i in "${!kinds[@]}"; do
     links[i]=$link
     viewer=(--viewer "$link")
   fi
-  if ! specify-core diff "$out/old.step" "./$new" ${answers[@]+"${answers[@]}"} ${viewer[@]+"${viewer[@]}"} --title "$title" -o "$out" 2> "$out/error"; then
+  if ! specify-core diff "$out/old.step" "./$new" ${viewer[@]+"${viewer[@]}"} --title "$title" -o "$out" 2> "$out/error"; then
     cat "$out/error" >&2
     kinds[$i]=failed
   fi
@@ -168,16 +149,7 @@ body="$RUNNER_TEMP/comment.md"
         printf '%s\n' "$report"
         what="the part"
         if [ $assembly = yes ]; then what="the assembly"; fi
-        sidecar="${new%.*}.answers.json"
-        stale=no
-        if [ -f "$sidecar" ] && ! jq -e -s '.[0] == .[1]' "$out/answers.json" "$sidecar" > /dev/null; then
-          stale=yes
-        fi
-        if [ "$stale" = yes ]; then
-          printf '\n`%s` is stale: its requirements differ from this comparison.' "$sidecar"
-          if [ -n "$viewer" ]; then printf ' [Review in 3D](%s).' "$viewer"; fi
-          printf '\n'
-        elif [ -n "$viewer" ]; then
+        if [ -n "$viewer" ]; then
           printf '\n[Turn %s round in 3D](%s), compared live in the browser.\n' "$what" "$viewer"
         fi
         echo

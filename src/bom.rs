@@ -7,7 +7,7 @@ use quiddity::correspondence::{self as qc, Fingerprints};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
-use crate::part::{File, LoadedPart};
+use crate::part::File;
 use crate::rules::Question;
 
 pub const PROPERTY: &str = "specify bom";
@@ -953,25 +953,6 @@ fn refingerprint(
     }
 }
 
-/// [`refingerprint`] `h`, read from `part`'s file, reading and recognising its parts only when an
-/// entry is [`stale`]. A file whose parts cannot be read leaves `h` unchanged: its stale entries
-/// match nothing, as they did before, and the caller's work is not refused for it.
-fn refingerprint_in(h: &mut History, part: &LoadedPart) {
-    if !h.entries.iter().any(stale) {
-        return;
-    }
-    let Ok(file) = File::of_shared(&part.path, std::sync::Arc::clone(&part.bytes)) else {
-        return;
-    };
-    let (Ok(parts), Ok(rows)) = (file.load_all(), read(&file)) else {
-        return;
-    };
-    let names: Vec<_> = parts.iter().map(|p| p.name.clone()).collect();
-    refingerprint(h, &rows, &names, |i| {
-        parts[i].recognition().fingerprints.clone()
-    });
-}
-
 fn uda(edit: &mut Edit, owner: u64, name: &str, values: &Map<String, Value>) {
     let s = |v: &str| A::String(v.into());
     // Keep string tokens below OpenCascade's STEP scanner limit. Geometry history
@@ -1409,18 +1390,6 @@ fn allocate(
     Ok(numbers)
 }
 
-pub(crate) fn carry(old: &LoadedPart, answers: &mut Map<String, Value>) -> Result<(), String> {
-    let doc = Document::parse(old.bytes.as_ref().clone()).map_err(|e| e.to_string())?;
-    if let Some(mut h) = history(&doc)? {
-        refingerprint_in(&mut h, old);
-        answers.insert(
-            CARRY.into(),
-            serde_json::to_value(h).map_err(|e| e.to_string())?,
-        );
-    }
-    Ok(())
-}
-
 /// The PMI reader deliberately reports assembly UDAs as out of scope. Only our own
 /// independently verified general-property links are handled by the BOM reader.
 pub(crate) fn handles_finding(doc: &Document, f: &haecceity::pmi::Finding) -> bool {
@@ -1477,64 +1446,6 @@ fn shape_metadata(
         }
     }
     doc.apply(&edit).map(|w| w.bytes).map_err(|e| e.to_string())
-}
-
-/// Restore BOM answers through geometric assembly correspondence, including added/name-
-/// unpaired parts. Material remains an ordinary `part.material` answer for the existing writer.
-pub(crate) fn assembly_answers(
-    old: &[LoadedPart],
-    new: &[LoadedPart],
-) -> Result<Vec<Map<String, Value>>, String> {
-    let mut out = vec![Map::new(); new.len()];
-    let Some(first) = old.first() else {
-        return Ok(out);
-    };
-    let doc = Document::parse(first.bytes.as_ref().clone()).map_err(|e| e.to_string())?;
-    let Some(mut h) = history(&doc)? else {
-        return Ok(out);
-    };
-    refingerprint_in(&mut h, first);
-    let source = serde_json::to_value(&h).map_err(|e| e.to_string())?;
-    let geometry: Vec<_> = new
-        .iter()
-        .map(|p| p.recognition().fingerprints.clone())
-        .collect();
-    allocate(
-        &mut h,
-        &new.iter().map(|p| p.name.clone()).collect::<Vec<_>>(),
-        &geometry,
-        &vec![None; new.len()],
-    )?;
-    let new_material = if let Some(first) = new.first() {
-        let file = File::of_shared(&first.path, std::sync::Arc::clone(&first.bytes))
-            .map_err(|e| e.to_string())?;
-        read(&file)?
-            .into_iter()
-            .map(|r| r.material.value)
-            .collect::<Vec<_>>()
-    } else {
-        vec![]
-    };
-    for (i, e) in h.entries.iter().enumerate() {
-        out[i].insert(CARRY.into(), source.clone());
-        for (key, value) in &e.fields {
-            if key == "item_number" || key == "item_number_source" {
-                continue;
-            }
-            let value = if key == "optional" {
-                json!(if value == true { "yes" } else { "no" })
-            } else {
-                value.clone()
-            };
-            out[i].insert(format!("bom.{key}"), value);
-        }
-        if new_material[i].is_null()
-            && let Some(material) = &e.material
-        {
-            out[i].insert("part.material".into(), json!(material));
-        }
-    }
-    Ok(out)
 }
 
 #[cfg(test)]

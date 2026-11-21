@@ -81,24 +81,9 @@ fn v024_boss_answers_and_pmi_resume_after_chamfer_and_round_height_corrections()
             json!(migrated)
         );
         assert!(a["resume"]["unresolved"].is_null());
-        let mut unchanged = revision::diff(&loaded, &loaded, &Map::new()).unwrap();
-        let numbers = unchanged
-            .answers
-            .shift_remove(specify_core::characteristics::CARRY)
-            .unwrap();
-        // For #95, revision carry migrates legacy value signatures to structural history.
-        assert_eq!(numbers["schema"], 2);
-        assert_eq!(numbers["faces"], base["evidence"]["faces"]);
-        // Sidecars now add the same face evidence as the in-STEP interview.
-        let metadata = unchanged.answers.shift_remove("_specify").unwrap();
-        assert_eq!(
-            metadata,
-            json!({
-                "evidence": resume::evidence(&loaded).unwrap(), "unresolved": {},
-            })
-        );
-        assert_eq!(&unchanged.answers, answers);
-        assert!(unchanged.unresolved.is_empty());
+        // The file against itself: nothing changed, nothing to check.
+        let unchanged = revision::diff(&loaded, &loaded).unwrap();
+        assert!(unchanged.pmi.items.is_empty(), "{:?}", unchanged.pmi.items);
         assert!(unchanged.check.is_empty());
         assert!(
             api::review(&a, answers).unwrap()["open"]
@@ -307,28 +292,15 @@ fn saved_boss_dimensions_on_a_really_shortened_revision_keep_their_targets() {
         None,
     )
     .unwrap();
-    let r = revision::diff(&old, &new, &Map::new()).unwrap();
-    assert_eq!(r.pmi.answers_from, "stored");
-    assert_eq!(r.answers["datum.A"], json!([0]));
-    assert_eq!(
-        r.answers["extra.boss-fit"],
-        json!({"faces":[0],"kind":"fit","value":"h6"})
-    );
+    let r = revision::diff(&old, &new).unwrap();
     let boss = r.features.iter().find(|f| f.family == "bosses").unwrap();
     assert_eq!(boss.changes["sizes.height"].old, 37.6);
     assert_eq!(boss.changes["sizes.height"].new, 35.6);
     assert!(r.markdown("Shaft", None).contains("height 37.6 → 35.6"));
-    let intent = api::preview(&api::analyse(&new).unwrap(), &r.answers).unwrap();
-    let height = intent
-        .requirements
-        .iter()
-        .find(|r| r["question"] == "extra.boss-height")
-        .unwrap();
-    assert_eq!(height["faces"], json!([13]));
-    assert_eq!(height["reference"], json!([7, 11]));
-    assert_eq!(height["distance"], 35.6);
-    assert_eq!(height["upper"], 0.05);
-    assert_eq!(height["lower"], -0.05);
+    // The new file states no requirement, so the old file's are listed removed; carrying them
+    // to the new revision is not diff's (ADR P11).
+    assert!(!r.pmi.items.is_empty());
+    assert!(r.pmi.items.iter().all(|i| i.class == "removed"));
 }
 
 #[test]

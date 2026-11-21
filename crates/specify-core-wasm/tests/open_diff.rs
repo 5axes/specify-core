@@ -2,7 +2,7 @@
 //! browser's `diff()` gives for the same two files: one comparison, made natively.
 #![cfg(not(target_arch = "wasm32"))]
 
-use serde_json::{Map, Value};
+use serde_json::Value;
 use specify_core::open::{self, App, Options};
 use specify_core::part;
 use specify_core::session::{Opened, Session};
@@ -52,7 +52,6 @@ fn same_as_the_browser(case: &str, old_name: &str, new_name: &str) {
         Opened::read(&old_path).unwrap(),
         Opened::read(&new_path).unwrap(),
         None,
-        &Map::new(),
         false,
     )
     .unwrap();
@@ -68,7 +67,6 @@ fn same_as_the_browser(case: &str, old_name: &str, new_name: &str) {
     let browser = session::diff_with_options(
         ("old.step", &old),
         ("new.step", &new),
-        &Map::new(),
         "new.step",
         specify_core::revision::DiffOptions { scenes: true },
     )

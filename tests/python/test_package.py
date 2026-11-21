@@ -317,14 +317,13 @@ def test_bom_write_requires_explicit_acceptance(assembly, tmp_path):
     assert api.analyse(out, part=0)["resume"]["answers"] == STEEL
 
 
-def test_diff_scenes_are_optional_and_match_pmi_scene(plate):
-    given = {"part.notes": ["Keep dry"]}
-    default = api.diff(plate, plate, given)
-    included = api.diff(plate, plate, given, scenes=True)
+def test_diff_scenes_are_optional(plate):
+    default = api.diff(plate, plate)
+    included = api.diff(plate, plate, scenes=True)
     scenes = included["report"]["pmi"].pop("scenes")
     assert included == default
-    assert scenes["old"] == api.pmi_scene(plate, given)
-    assert scenes["new"] == api.pmi_scene(plate, included["report"]["answers"])
+    assert "answers" not in default["report"]
+    assert "specify" in scenes["old"] and "specify" in scenes["new"]
 
 
 def test_limits_and_combined_iso_class_round_trip(plate, tmp_path):
@@ -354,22 +353,7 @@ def test_spindle_diff_scenes_obey_editor_links():
     fixtures = Path(__file__).resolve().parents[1] / "fixtures" / "revisions"
     old = fixtures / "spindle_pmi.old.step.gz"
     new = fixtures / "spindle_pmi.new.step.gz"
-    analysis = api.analyse(old)
-    answers = dict(STEEL)
-    while True:
-        defaults = {
-            q.id: q.default for q in api.questions(analysis, answers)
-            if q.id not in answers and q.default is not None
-        }
-        if not defaults:
-            break
-        answers.update(defaults)
-    report = api.diff(old, new, answers, scenes=True)["report"]
-    thread = [item for item in report["pmi"]["items"] if "thread:holes:14" in item["id"]]
-    assert len(thread) == 1
-    assert thread[0]["id"] == "thread:holes:14"
-    assert thread[0]["class"] == "removed"
-    assert thread[0]["old"] == "M4×0.7-6H THRU"
+    report = api.diff(old, new, scenes=True)["report"]
     for side in ("old", "new"):
         scene = report["pmi"]["scenes"][side]
         ids = {
@@ -415,8 +399,11 @@ def test_dropped_carry_cannot_default_and_saved_evidence_rejects_changed_geometr
     old = revisions / "plate_split.old.step.gz"
     new = revisions / "plate_split.new.step.gz"
     given = {"part.material": "6061-T6", "datum.A": [4]}
-    carried = api.diff(old, new, given)["report"]["answers"]
     analysis = api.analyse(new)
+    # An answers file carried with its datum dropped, as an earlier diff returned one (diff no
+    # longer returns answers: ADR P11).
+    carried = api.export_answers(new, analysis, {"part.material": "6061-T6"})
+    carried["_specify"]["unresolved"] = {"datum.A": "face 4 has no match in the new part"}
     blocked = next(q for q in api.questions(analysis, carried) if q.id == "datum.A")
     assert blocked.default is None and blocked.attention == "required"
     assert blocked.reason == "carried answer could not be applied: " + carried["_specify"]["unresolved"]["datum.A"]
@@ -425,9 +412,9 @@ def test_dropped_carry_cannot_default_and_saved_evidence_rejects_changed_geometr
     carried["datum.A"] = [4, 8]
     intent = api.apply(analysis, carried, accept_defaults=True)
     api.write(new, intent, tmp_path / "resolved.step", answers=carried)
-    saved = api.diff(old, old, given)["report"]["answers"]
+    saved = api.export_answers(old, api.analyse(old), given)
     api.write(old, api.apply(api.analyse(old), saved, accept_defaults=True),
               tmp_path / "unchanged.step", answers=saved)
-    with pytest.raises(ValueError, match="stale answers.*diff"):
+    with pytest.raises(ValueError, match="stale answers.*another revision"):
         api.write(new, intent, tmp_path / "stale.step", answers=saved)
     assert not (tmp_path / "stale.step").exists()

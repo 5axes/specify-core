@@ -6,16 +6,13 @@
 //! part), and not by its geometry: a renamed part is one removed and another added. Parts of the
 //! same name pair in file order.
 
-use std::collections::BTreeMap;
 use std::fmt::Write;
 
 use serde::Serialize;
-use serde_json::{Map, Value};
 
 use super::{Revised, Size, edges, mark, triangles};
-use crate::api::{self, Result};
+use crate::api::Result;
 use crate::part::{File, LoadedPart};
-use crate::rules;
 
 /// Whether a file is to be compared as an assembly: it has several parts, or a part placed
 /// other than once.
@@ -79,10 +76,6 @@ pub struct PartChange {
     /// The part's own comparison, for a part in both files.
     #[serde(rename = "report", skip_serializing_if = "Option::is_none")]
     pub revised: Option<Revised>,
-    /// BOM answers carried geometrically even when a renamed part is unpaired for PMI;
-    /// added parts also keep their answer-file geometry evidence here.
-    #[serde(skip_serializing_if = "Map::is_empty")]
-    pub bom_answers: Map<String, Value>,
     /// The old placements no new one is at, of a part placed a different number of times or
     /// moved, for [`Assembly::picture`].
     #[serde(skip)]
@@ -96,12 +89,9 @@ pub struct Assembly {
     pub summary: String,
     /// Every part of either file, as [`matched`] orders them.
     pub parts: Vec<PartChange>,
-    /// Opaque BOM allocation/answer transport, also included by `answers()` for added parts.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub bom_history: Option<Value>,
 }
 
-/// Whether a part's comparison finds nothing: no feature, face, answer, question, problem or
+/// Whether a part's comparison finds nothing: no feature, face, requirement to check or
 /// PMI changed, and its volume, area, box and face count are the same. Not whether the
 /// alignment found a move: [`placed`] weighs that.
 fn unchanged(r: &Revised) -> bool {
@@ -113,10 +103,7 @@ fn unchanged(r: &Revised) -> bool {
     r.features.is_empty()
         && r.faces.is_empty()
         && r.gone.is_empty()
-        && r.unresolved.is_empty()
         && r.check.is_empty()
-        && r.questions.is_empty()
-        && r.problems.added.is_empty()
         && r.pmi.items.is_empty()
         && (0..3)
             .all(|k| (o.min[k] - n.min[k]).abs() < 0.005 && (o.max[k] - n.max[k]).abs() < 0.005)
@@ -176,80 +163,30 @@ fn names_of(parts: &[LoadedPart]) -> Vec<String> {
     )
 }
 
-/// Compares every part of two revisions of an assembly. *given* is the old parts' answers by
-/// name, `{part name: {question id: value}}`, or, when the old file is a single part, a part's
-/// `{question id: value}`; a part with none carries its own stored answers.
-pub fn diff(
-    old: &[LoadedPart],
-    new: &[LoadedPart],
-    given: &Map<String, Value>,
-) -> Result<Assembly> {
-    diff_with_options(old, new, given, super::DiffOptions::default())
+/// Compares every part of two revisions of an assembly, each part as [`super::diff`] compares
+/// it: from the PMI in the two files only.
+pub fn diff(old: &[LoadedPart], new: &[LoadedPart]) -> Result<Assembly> {
+    diff_with_options(old, new, super::DiffOptions::default())
 }
 
 /// Apply the report options to every matched part.
 pub fn diff_with_options(
     old: &[LoadedPart],
     new: &[LoadedPart],
-    given: &Map<String, Value>,
     options: super::DiffOptions,
 ) -> Result<Assembly> {
     let (old_names, new_names) = (names_of(old), names_of(new));
-    let wrapped;
-    let given = match old_names.as_slice() {
-        [only]
-            if given.values().any(|a| !a.is_object())
-                || given.get(crate::answer_file::META).is_some_and(|m| {
-                    m.get("evidence").is_some() || m.get("unresolved").is_some()
-                }) =>
-        {
-            wrapped = Map::from_iter([(only.clone(), Value::Object(given.clone()))]);
-            &wrapped
-        }
-        _ => given,
-    };
-    let invalid = |m: String| api::Error::Rules(rules::Error::Invalid(m));
-    for (name, answers) in given {
-        if !answers.is_object() {
-            return Err(invalid(
-                "assembly requirements use {part name: {question id: value}}".into(),
-            ));
-        }
-        crate::input::answers_shape(answers.as_object().expect("checked above"))
-            .map_err(|e| invalid(format!("part {name:?}: {e}")))?;
-        if !old_names.contains(name) {
-            let path = old.first().map(|p| p.path.display().to_string());
-            return Err(invalid(format!(
-                "{} has no part named {name:?}",
-                path.unwrap_or_default()
-            )));
-        }
-    }
     let count = |parts: &[LoadedPart], k: Option<usize>| {
         k.map(|k| Placed {
             part: k,
             instances: parts[k].placements.len(),
         })
     };
-    let bom_answers = crate::bom::assembly_answers(old, new).map_err(api::Error::Analysis)?;
     let mut rows = Vec::new();
     for (name, o, n) in matched(&old_names, &new_names) {
         let (status, gone, revised) = match (o, n) {
             (Some(i), Some(j)) => {
-                let answers = given
-                    .get(&name)
-                    .and_then(Value::as_object)
-                    .cloned()
-                    .unwrap_or_default();
-                let r =
-                    super::diff_with_options(&old[i], &new[j], &answers, options).map_err(|e| {
-                        match e {
-                            api::Error::Rules(rules::Error::Invalid(message)) => {
-                                invalid(format!("part {name:?}: {message}"))
-                            }
-                            other => other,
-                        }
-                    })?;
+                let r = super::diff_with_options(&old[i], &new[j], options)?;
                 let (status, gone) = if unchanged(&r) {
                     placed(&old[i].placements, &placing_old(&new[j].placements, &r))
                 } else {
@@ -260,20 +197,12 @@ pub fn diff_with_options(
             (Some(_), None) => ("removed", Vec::new(), None),
             _ => ("added", Vec::new(), None),
         };
-        let mut carried_bom = n.map(|i| bom_answers[i].clone()).unwrap_or_default();
-        if revised.is_none()
-            && let Some(j) = n
-        {
-            crate::answer_file::attach(&new[j], &mut carried_bom, &Map::new(), [])
-                .map_err(api::Error::Analysis)?;
-        }
         rows.push(PartChange {
             name,
             status,
             old: count(old, o),
             new: count(new, n),
             revised,
-            bom_answers: carried_bom,
             gone,
         });
     }
@@ -286,12 +215,7 @@ pub fn diff_with_options(
         .into_iter()
         .find(|v| verdicts.contains(v))
         .unwrap_or("ok");
-    let mut transport = Map::new();
-    if let Some(first) = old.first() {
-        crate::bom::carry(first, &mut transport).map_err(api::Error::Analysis)?;
-    }
     Ok(Assembly {
-        bom_history: transport.remove(crate::bom::CARRY),
         verdict: verdict.into(),
         summary: summary(&rows),
         parts: rows,
@@ -358,38 +282,6 @@ fn uri(text: &str) -> String {
 }
 
 impl Assembly {
-    /// The answers carried to the new revision, by part: `{part name: answers}` for each part
-    /// that has some.
-    pub fn answers(&self) -> Map<String, Value> {
-        self.carried()
-            .map(|(p, a)| (p.name.clone(), Value::Object(a)))
-            .collect()
-    }
-
-    /// [`Assembly::answers`] by the new file's part index instead of the part's name.
-    pub fn answers_by_part(&self) -> BTreeMap<usize, Map<String, Value>> {
-        self.carried()
-            .filter_map(|(p, a)| p.new.as_ref().map(|n| (n.part, a)))
-            .collect()
-    }
-
-    /// Each part of the new revision that has answers carried to it, with them.
-    fn carried(&self) -> impl Iterator<Item = (&PartChange, Map<String, Value>)> {
-        self.parts
-            .iter()
-            .filter(|p| p.new.is_some())
-            .filter_map(|p| {
-                let mut a = p.bom_answers.clone();
-                if let Some(r) = &p.revised {
-                    a.extend(r.answers.clone());
-                }
-                if let Some(history) = &self.bom_history {
-                    a.insert(crate::bom::CARRY.into(), history.clone());
-                }
-                (!a.is_empty()).then_some((p, a))
-            })
-    }
-
     /// The report as Markdown, for a pull request comment: the summary, *image* (the picture's
     /// link), the parts that differ, and a section for each changed part. *viewer*, the page
     /// that shows these revisions in 3D, links each changed part there with `&part=NAME`.

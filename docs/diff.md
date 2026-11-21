@@ -1,14 +1,21 @@
 # Comparing revisions: `specify-core diff`
 
 ```bash
-specify-core diff old.step new.step [--answers old.answers.json] [--title TITLE] [--part N] [--pmi-scenes]
-                  [--viewer URL] -o DIR
+specify-core diff old.step new.step [--title TITLE] [--part N] [--pmi-scenes] [--viewer URL] -o DIR
 ```
 
 `diff` compares two revisions of a part, or of an assembly part by part (see
 [Assemblies](#assemblies)). It reports what changed in words a person can check
-against the model, draws the change, and applies the part's requirements to the new revision.
+against the model, draws the change, and lists the requirements added, removed and changed
+between the two files, per feature, with their characteristic numbers. It is how a requirement
+change is reviewed in a pull request: between the old and new annotated files.
 The [STEP diff action](../step-diff/README.md) runs it on pull requests.
+
+**It reads only the PMI in the two files** ([ADR P11](https://github.com/pzfreo/draftwright-project/blob/main/adr/P11-the-file-is-the-only-copy.md)):
+each file's requirements are read as any file's are, whoever wrote them. Answers a file
+stores are never read to compare, so the same requirements pair the same way with or without
+them (only the items' labels, each file's `pmiScene` ids and statuses, follow the editor);
+`diff` takes no answers and writes none. (Carrying requirements to a new revision is not `diff`'s.)
 
 ## What it writes
 
@@ -16,22 +23,13 @@ The [STEP diff action](../step-diff/README.md) runs it on pull requests.
 | --- | --- |
 | `report.md` | The review in Markdown, headed `TITLE` (by default the new file's name), written to be posted as a pull request comment. |
 | `model.png` | The new part, drawn isometrically. |
-| `answers.json` | The requirements applied to the new revision, plus `_specify` geometry evidence and unresolved carry blocks; see [answer files](answers.md). |
-| `report.json` | All of it as data: the verdict, summary, applied requirements, changed features, measures, PMI changes, unresolved requirements, requirements to check and requirements to specify. |
+| `report.json` | All of it as data: the verdict, summary, changed features, measures, PMI changes and requirements to check. |
 
-It also prints `{"verdict", "summary"}` to stdout. The `summary` field is retained in
-both outputs, including each assembly part's report, with requirements wording:
-"All 17 requirements still apply to the changed part." Review summaries name the
-feature and its requirement notation, for example "1 requirement needs checking:
-Ø6 × 10 through hole moved X −15, so its ⌀6 requirement may no longer fit."
-The verdicts, JSON field names and machine-readable keys remain unchanged.
+It also prints `{"verdict", "summary"}` to stdout. The summary names each feature and its
+requirement notation, for example "1 requirement needs checking: Ø6 × 10 through hole moved
+X −15, so its ⌀6 requirement may no longer fit."
 
-The STEP diff action includes the prose report, never a JSON payload or a carried
-requirements `<details>` block. When a committed `<part>.answers.json` sidecar
-differs from the generated `answers.json` as JSON data (including Specify metadata),
-it adds one stale-sidecar line with a 3D link for public repositories; private
-repositories get the same notice without a link. Missing or equal sidecars get no
-notice. The generated `answers.json` remains available for other callers to commit.
+The STEP diff action includes the prose report, never a JSON payload.
 
 ## How the parts are matched
 
@@ -62,10 +60,9 @@ remain alike after the motion is chosen are still `ambiguous`, as above.
 ## What the report says
 
 - **The verdict:**
-  - ✅ `ok`: every requirement applies and there are no new requirements to specify.
-  - ⚠️ `decide`: a requirement could not be applied, or there are new requirements to specify.
-  - ❌ `problems`: Specify's review finds problems in the new part that it didn't find in the
-    old one.
+  - ✅ `ok`: no requirement needs checking.
+  - ⚠️ `decide`: a requirement the new file states is on a feature that moved or changed size
+    (see "Requirements to check").
 - **The summary** counts the changes by family ("2 holes changed, 8 rounds and surfaces with
   them"). Fillets, blends, chamfers and freeform surfaces that change along with another
   feature are counted after it.
@@ -112,64 +109,49 @@ remain alike after the motion is chosen are still `ambiguous`, as above.
   - "are now one": several features merged into one;
   - "is now split in N": one feature split into several;
   - "still there, but alike…": the features remain, but which is which can't be told.
-- **Requirements not applied** keep their value and give the reason:
-  - **orphaned:** the feature was removed;
-  - **ambiguous:** it now matches several features;
-  - **unmatched:** its faces carried, but no single feature of its family holds them;
-  - **stale:** the old part had no such feature either;
-  - **unresolved:** its faces carried, but the new part refuses it as answered (the reason
-    says why): a size on two holes, one since resized, is no longer one diameter. The report
-    is still returned; one answer that no longer fits never costs the rest. A refusal is
-    pinned on an answer only when it names one, or removing that answer alone clears it
-    (or leaves a refusal naming another carried answer). Otherwise nothing is guessed: the
-    answers stay carried, the report adds a `carry_refused` problem with the new part's
-    refusal, and write refuses the answers until they are reviewed.
-- **Requirements to check** belong to a feature that changed. They're applied, but a fit or a
-  clearance chosen for the old size may be wrong for the new one. One line names a feature's
-  change once, with each of its requirements as the PMI list names it (a position tolerance by
-  its frame, not the planned dimensions that locate it).
-- **Requirements to specify** are decisions needed for new features.
-- **PMI** compares requirements from both revisions as `haecceity.pmi/1`, using
-  the same ids, characteristic numbers and `answered` / `default` / `general` /
-  `existing` statuses as `pmiScene`. This includes CAD PMI in Specify-written files,
-  general-tolerance dimensions and geometry-derived basic locations.
-  A new file without saved requirements shows what writing the applied requirements would
-  produce alongside its own PMI; a new file with saved requirements supplies its actual
-  requirements. The two requirement plans are also compared for geometry-derived
-  requirements; actual file edits take precedence, and planned changes absent from
-  that comparison carry a reason. Explicit `--answers` override the old interview.
+- **Requirements to check** are the new file's requirements on a feature that moved or changed
+  size: a fit or a clearance chosen for the old size may be wrong for the new one. One line
+  names a feature's change once, with each of its requirements as the PMI list names it. A
+  location is listed when its feature moved, not when it only changed size. `report.json`'s
+  `check` gives each as `{number, id, requirement, feature, changes}`.
+- **PMI** compares the requirements the two files state as `haecceity.pmi/1`: each old
+  requirement is paired with a new one through the face matching and its kind, and listed
+  `added`, `removed`, `changed` or `renumbered`, with its characteristic number. Each file is
+  read alone and paired without reading stored answers; the items then take each file's
+  `pmiScene` ids and statuses, as the editor shows them. Pairing by kind alone, the last
+  resort for requirements whose faces cannot be followed, never pairs requirements whose faces
+  or references are found elsewhere on the new part. A datum is its faces: one relettered on
+  them is `changed`.
+  - **A change of limits** on the same feature and kind (H7 → H8, ⏥ 0.05 → 0.02) is `changed`,
+    with both values and the same number.
+  - **A different measurement** (a hole located from another face) is the old requirement
+    `removed` with its number and a new one `added` with a new number.
 
 ### PMI requirements
 
-Characteristic numbers drive pairing only when the destination uses the old revision's
-number history. Diff transports that schema-2 structural history before planning the new
-scene, just as the writer does. A destination's own history takes precedence; it must
-continue the source's mapped structural snapshot and high-water mark to use number identity.
-Values, thread classes and notation are outside that identity (For #96). Carried numbers
-match first, then ids, corresponding faces and unique remaining kind; differently numbered
-items stay distinct at the weaker stages, as before.
+Characteristic numbers drive pairing when the new file continues the old file's number history:
+the old file's numbered supports are read on the new part through the face matching, and the
+new file's own history must continue that structural snapshot and high-water mark. Values,
+thread classes and notation are outside that identity (For #96). Carried numbers match first,
+then ids, corresponding faces and unique remaining kind; differently numbered items stay
+distinct at the weaker stages. A removal is then `retired`: its number is never reused.
 
-With freshly allocated numbers (including two plans made from answers), items match by
-requirement id, then corresponding faces with kind resolving multiple items on one support,
-then unique remaining kind. A same-id match must not contradict known face correspondence:
-recognition can reuse a face-derived id for another feature. When some of the old item's faces
-are gone, its surviving faces must map into the new item's, and none of the new item's faces
-may be another old face's image: a removed hole's location does not pair with the hole that
-took its face numbers. Fresh numbers neither reserve
-matches nor prevent face/kind matching. `renumbered` records the actual number difference
-on the resulting pair; equal wording may therefore have a renumbering line without a value
-change. A split can map one old face to several new faces. Ambiguous item matches stay
+Two files numbered independently (each written afresh) reserve nothing: items match by id,
+then corresponding faces with kind resolving multiple items on one support, then unique
+remaining kind. A same-id match must not contradict known face correspondence. When some of
+the old item's faces are gone, its surviving faces must map into the new item's, and none of
+the new item's faces may be another old face's image: a removed hole's location does not pair
+with the hole that took its face numbers. `renumbered` records the number difference on the
+resulting pair. A split can map one old face to several new faces. Ambiguous item matches stay
 added/removed rather than choosing arbitrarily.
 
-After exact faces and before unique remaining kind, planned dimensions can match
-through support growth. Every mapped old face must remain in the new support;
-the dimension type and stated source measurement role must agree. Location targets
-and references are checked separately, preserving pitch endpoints and measuring
-planes. The match must be unique in both directions among unmatched items. This
-keeps a pattern's existing pitches, bore diameter and locations when counterbores
-add supporting faces, without letting a new counterbore diameter consume the bore
-requirement. These pairs can report `changed` with reason `support changed`, plus
-any genuine fresh-number difference. Carried-number exclusions still apply.
+After exact faces and before unique remaining kind, dimensions can match through support
+growth. Every mapped old face must remain in the new support; the dimension type and stated
+source measurement role must agree. Location targets and references are checked separately,
+preserving pitch endpoints and measuring planes. The match must be unique in both directions
+among unmatched items. This keeps a pattern's existing pitches, bore diameter and locations
+when counterbores add supporting faces, without letting a new counterbore diameter consume the
+bore requirement. These pairs report `changed` with reason `support changed`.
 
 Comparison uses haecceity's full semantic notation and frame cells, including
 material and datum modifiers, diameter zones, fits, qualifiers and note text.
@@ -208,13 +190,10 @@ Each item has `class` (`added`, `removed`, `changed`, or `renumbered`), optional
 and `reason`. A numbered removal from a carried number history has
 `reason: "retired"`; those numbers are never reused. Fresh numbers (no carried history, or two
 independent histories) reserve nothing: a removal there is `removed` with its old number and no
-`retired` reason, since the new plan may give that number to another item. A retired item found
-only by comparing the two plans keeps `reason: "retired"` and says why in `detail`
-(`carried requirement differs from the new file`). Renumbering is reported if detected, though ordinary editing preserves
+`retired` reason, since the new file may give that number to another item. Renumbering is reported if detected, though ordinary editing preserves
 numbers. A renumbering alone is not a change to the requirement: the summary counts it apart ("2
 characteristic numbers changed (requirements unchanged)"), and Markdown lists it after the changes as `#25 ⏥ 0.05: unchanged; characteristic number
-#22 → #25`. A new file written from `diff`'s `answers.json` keeps the old file's numbers; one
-written without it numbers afresh, and its renumberings show here. Value and material-modifier edits keep the number and produce one `changed`
+#22 → #25`. A new file written afresh numbers afresh, and its renumberings show here. Value and material-modifier edits keep the number and produce one `changed`
 item per edited requirement, including direct STEP edits (For #95). Changes sort by
 characteristic number, then unnumbered id. Markdown prints one line per change, for example:
 
@@ -237,20 +216,17 @@ Datum-system references do not add the datum's faces to the controlled feature.
 
 Opt in to `report.pmi.scenes: {"old": PmiScene, "new": PmiScene}` using:
 
-- Rust: `revision::diff_with_options(old, new, answers, DiffOptions { scenes: true })`
+- Rust: `revision::diff_with_options(old, new, DiffOptions { scenes: true })`
   (also `revision::assembly::diff_with_options`). `revision::diff` keeps its default.
 - CLI: `specify-core diff old.step new.step -o result --pmi-scenes`.
-- WASM: `diff(oldName, oldBytes, newName, newBytes, answersJson, title, true)`.
-- Python: `api.diff(old, new, answers, scenes=True)`.
+- WASM: `diff(oldName, oldBytes, newName, newBytes, "{}", title, true)` (the fifth argument is
+  not read).
+- Python: `api.diff(old, new, scenes=True)`.
 
 Both documents have the `pmiScene` shape (`pmi`, `presentation`, `specify`). They
-are the exact primary scenes already built by the comparison: old with explicit
-given requirements, or its actual file PMI with saved interview metadata when none
-are given; new with applied requirements unless the new file has Specify PMI, when
-its actual semantic requirements win. Comparison presentations use current
-semantic notation, not potentially stale saved As Drawn ink. Supplemental
-carried-plan differences retain their existing `reason`; the new scene remains
-the actual destination. No additional scene derivation is performed. Assembly
+are each file's `pmiScene` comparison scene (its PMI with the editor's ids and statuses), in
+current semantic notation, not potentially stale saved As Drawn ink. No additional scene
+derivation is performed. Assembly
 reports include the pair in each matched part's `report.pmi.scenes`.
 
 Scenes are omitted by default because they can dominate report size. Opting in
@@ -269,38 +245,14 @@ shared block green. Geometry keeps its existing change colours; a PMI-only part
 is grey. The camera bounds include every selected stroke and triangle, on both
 sides. Callouts overlay the part so their leaders remain visible.
 
-`pmi.stored`, `pmi.existing` and `pmi.existing_count` retain their legacy meanings
-for one release; **`stored` and `existing` are deprecated**. They omit requirements
-and notation details covered by `items`; new clients should use `items`.
+The deprecated `pmi.stored`, `pmi.existing` and `pmi.existing_count` are gone (0.3.0): use
+`items`.
 
 WASM `diff` returns these items in `report.pmi.items` (and in each assembly part's
 report), with ids and numbers suitable for highlighting `pmiScene` characteristics
-in `/diff`. The Python package exposes `specify_core.api.diff(old, new, answers=None,
+in `/diff`. The Python package exposes `specify_core.api.diff(old, new,
 *, title="Revision", part=None, scenes=False)`, returning `{report, markdown}` for the selected
 part. It accepts paths or loaded part handles; paths accept a part index.
-
-## How requirements apply
-
-Each requirement's faces are mapped to the new part, and the requirement moves to the new
-feature of the same family that holds them. Its id is renamed when the faces renumbered.
-A datum's faces and an added requirement's (`extra.*`) `faces` and `reference` are mapped
-the same way, by authored name or by correspondence, so an added requirement stays on its
-feature when another feature takes lower face numbers (For #125).
-A requirement is never guessed onto a feature: when there's no single place for it, it's left unresolved with its
-value and reason, for a person to place.
-
-The requirements used are, in order of preference:
-
-1. those given with `--answers`;
-2. without `--answers`, or with an empty file, those Specify stored in the old STEP file when it
-   wrote its PMI;
-3. none, in which case the report still says what changed.
-
-Carried maps include `_specify.evidence` for the new part and `_specify.unresolved`
-with every dropped datum, part, BOM or added (`extra.*`) answer's reason. Keep this metadata: bulk defaults cannot replace
-a dropped answer, and write refuses evidence from different geometry. Explicit answers
-clear their carry blocks. Plain maps remain accepted but cannot detect stale in-range
-indices. See [answer files and changed geometry](answers.md).
 
 ## The picture
 
@@ -335,14 +287,7 @@ A file of several parts, or of a part placed more than once, is compared as an a
   moved parts orange, added parts green, the rest grey, and in translucent red, where no part
   now lies over them, the removed parts and the placements that went (a moved part's old place,
   a re-counted part's missing copy).
-- **Requirements are by part name**: `--answers` takes `{part name: {question id: value}}`, and
-  `answers.json` holds the requirements applied, by part. A part with no entry uses the
-  requirements Specify stored in it. When the old file is a single part, `{question id: value}` is taken as
-  that part's requirements. Each nested map may be the complete result of that part's
-  `acceptDefaults`; do not wrap it in an `answers` or `parts` object. For example:
-  `{"GRM-02 shaft":{"part.general_tolerance":"ISO 2768-m","hole.function:holes:14":"tapped:M2"}}`.
-  Invalid nested answers name both the part and question id in the error. WASM `diff`
-  accepts this same shape and validates after selecting the part.
+- **Requirements** are each part's own, read from its PMI as a single part's are.
 - **`report.json`** is `{verdict, summary, parts}`, each part `{name, status, old, new}` (which
   part of each file and how many times it is placed) and its `report` when it is in both.
 

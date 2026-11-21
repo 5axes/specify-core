@@ -496,9 +496,9 @@ try {
     await context.close();
     server.stop();
   }
-  // Diff: what changed from OLD to NEW, what needs a decision, and Save writes NEW with the carried answers.
+  // Diff: what changed from OLD to NEW, what needs checking, and Save writes NEW with its own answers.
   {
-    // The enclosure: one new requirement to specify, two carried ones to check (test/fixtures/README.md).
+    // The enclosure: NEW's requirements on the resized holes to check (test/fixtures/README.md).
     const oldFile = join(dir, 'enclosure.step');
     const newFile = join(dir, 'enclosure-rev2.step');
     writeFileSync(oldFile, gunzipSync(readFileSync('test/fixtures/enclosure_base_pmi_before.step.gz')));
@@ -511,9 +511,11 @@ try {
     assert.deepEqual(Object.keys(body).sort(), ['markdown', 'report', 'view']);
     assert.ok(body.report.pmi?.scenes && 'old' in body.report.pmi.scenes && 'new' in body.report.pmi.scenes, 'GET diff carries the PMI scenes');
     const report = body.report;
+    // Diff reads the two files' PMI only (ADR P11): nothing is carried; the session is NEW's own.
+    assert.equal(report.answers, undefined);
     const { parts } = await (await fetch(`${server.url}answers`)).json();
-    const carried = given(parts['0']);
-    assert.ok(Object.keys(carried).length > 5, `the old revision's answers are carried: ${Object.keys(carried)}`);
+    const own = given(parts['0'] ?? {});
+    assert.deepEqual(own, given(analyse(newFile).resume?.answers ?? {}), 'the session starts from NEW\'s own answers');
     // It opens on what changed; the requirements are behind their tab.
     const { context, page, requests } = await load(server, '.diff-summary');
     await check(page.locator('.pmi-lab-panel')).toBeAttached();
@@ -528,24 +530,21 @@ try {
     assert.ok(ops.length > 0 && ops.includes('open'), `the engine was used: ${ops}`);
     assert.ok(!ops.includes('diff'), `no engine diff call in diff mode: ${ops}`);
     assert.ok(requests.some(({ url, method }) => method === 'GET' && url === `${server.url}diff`), 'the comparison came from GET diff');
-    // What needs a decision, from the command's report: each one a button that opens its question.
-    const decide = [...report.unresolved ?? [], ...report.check ?? [], ...report.questions ?? []];
-    assert.deepEqual([(report.unresolved ?? []).length, (report.check ?? []).length, (report.questions ?? []).length], [0, 2, 1], 'two to check, one new');
-    await check(page.locator('.app-decision')).toHaveCount(3);
+    // What needs checking, from the command's report: NEW's requirements on the resized holes.
+    assert.equal(report.unresolved, undefined);
+    assert.equal(report.questions, undefined);
+    assert.ok((report.check ?? []).length > 0, 'requirements to check');
+    await check(page.locator('.app-decision')).toHaveCount(report.check.length);
     if (shots) await page.screenshot({ path: join(shots, 'diff.png') });
-    await page.locator('.app-decision').last().click();
-    await check(page.getByRole('tab', { name: /^Requirements for/ })).toHaveAttribute('aria-selected', 'true');
-    await check(page.locator(`[data-question="${decide.at(-1).id}"]`).first()).toBeVisible();
+    await page.getByRole('tab', { name: /^Requirements for/ }).click();
     // NEW carries PMI (its own, or Specify's): View PMI opens in Graphical.
     await check(page.getByRole('radio', { name: 'Graphical' })).toBeChecked();
     if (shots) await page.screenshot({ path: join(shots, 'diff-decide.png') });
-    // NEW is not specified yet: the carried answers are unsaved until Save.
-    await check(page.locator('.app-dirty')).toBeVisible();
     await page.getByRole('button', { name: 'Save', exact: true }).click();
     const target = join(dir, `${basename(newFile).replace(/\.gz$/, '').replace(/\.(step|stp)$/, '')}.specified.step`);
     await check(page.locator('.app-saved')).toContainText(target);
     await check(page.locator('.app-dirty')).toHaveCount(0);
-    assert.deepEqual(given(analyse(target).resume?.answers), carried, 'Save writes NEW with the session\'s (carried) answers');
+    assert.deepEqual(given(analyse(target).resume?.answers ?? {}), own, 'Save writes NEW with the session\'s answers');
     onlyLocal(requests, server.origin);
     await context.close();
     server.stop();

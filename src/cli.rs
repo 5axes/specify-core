@@ -10,17 +10,16 @@
 //!                        [--resolve-defaults --step STEP [--accept-defaults FILE]]
 //! specify-core write STEP ANALYSIS ANSWERS [ANALYSIS ANSWERS ...] -o OUT
 //!                    [--accept-defaults] [--bom] [--intent INTENT]
-//! specify-core diff OLD NEW -o DIR [--answers ANSWERS] [--part K] [--title TITLE]
-//!                    [--viewer URL] [--pmi-scenes]
-//!                    what changed between two revisions of a part, its answers carried
-//!                    to the new one (revision.rs), or of an assembly, part by part
+//! specify-core diff OLD NEW -o DIR [--part K] [--title TITLE] [--viewer URL] [--pmi-scenes]
+//!                    what changed between two revisions of a part and the requirements
+//!                    their PMI states (revision.rs), or of an assembly, part by part
 //!                    (revision/assembly.rs)
 //! specify-core serve                             JSON-line requests on stdin (serve.rs)
 //! specify-core mcp [--http [--port N]] [--allow DIR]...
 //!                    a Model Context Protocol server on stdio or local HTTP (mcp.rs)
 //! specify-core open STEP [--read-only | --in-place] [--port N] [--no-browser]
 //!                    [--app DIR] [--wasm DIR]
-//! specify-core open --diff OLD NEW [--answers FILE] [--in-place] [--port N] [--no-browser]
+//! specify-core open --diff OLD NEW [--in-place] [--port N] [--no-browser]
 //!                    [--app DIR] [--wasm DIR]
 //!                    the file (or NEW, compared with OLD) opened in the Specify app, served
 //!                    on 127.0.0.1, its answers held by this command (session.rs) and saved
@@ -183,14 +182,9 @@ wasm-pack pkg/; a build made without the app needs SPECIFY_APP_DIR. See docs/mcp
         old: PathBuf,
         /// the STEP file as it is now
         new: PathBuf,
-        /// a directory: answers.json, report.json, report.md, model.png; an assembly's
-        /// answers.json is by part
+        /// a directory: report.json, report.md, model.png
         #[arg(short, long)]
         output: PathBuf,
-        /// answers JSON for the old part: {question id: value}; for an assembly, {part name:
-        /// {question id: value}}
-        #[arg(long)]
-        answers: Option<PathBuf>,
         /// compare one part of an assembly (see parts)
         #[arg(long, value_parser = part_number)]
         part: Option<i64>,
@@ -212,8 +206,8 @@ is uploaded. Specify's Save writes the specified file, from the answers given in
 next to the input as <name>.specified.step (then -2, -3, ...; later saves update the copy
 this run wrote, and no other file is overwritten), or with
 --in-place over the input (through a link, to its target), the original kept once as .bak.
-With --diff OLD NEW the page shows what changed from OLD and starts from the answers carried
-to NEW (as `specify-core diff` carries them); Save writes NEW. Stops 90 seconds after the last
+With --diff OLD NEW the page shows what changed from OLD (as `specify-core diff` reports it)
+and opens NEW as `open NEW` would; Save writes NEW. Stops 90 seconds after the last
 page is closed, or after 30 minutes without a request.
 
 The app and its engine are built into this command: nothing is downloaded. Use --app DIR (or
@@ -227,9 +221,6 @@ app needs --app.")]
         /// compare OLD to NEW, and specify NEW
         #[arg(long, num_args = 2, value_names = ["OLD", "NEW"])]
         diff: Option<Vec<PathBuf>>,
-        /// with --diff: the old answers (default: those stored in OLD)
-        #[arg(long, value_name = "FILE", requires = "diff")]
-        answers: Option<PathBuf>,
         /// refuse answer changes and saves
         #[arg(long, conflicts_with_all = ["in_place", "diff"])]
         read_only: bool,
@@ -499,7 +490,6 @@ fn run(cmd: Cmd, out: &mut impl Write) -> Result<(), Exit> {
             old,
             new,
             output,
-            answers,
             part,
             title,
             viewer,
@@ -509,7 +499,6 @@ fn run(cmd: Cmd, out: &mut impl Write) -> Result<(), Exit> {
             &new,
             &Compared {
                 output,
-                answers,
                 part,
                 title,
                 viewer,
@@ -520,7 +509,6 @@ fn run(cmd: Cmd, out: &mut impl Write) -> Result<(), Exit> {
         Cmd::Open {
             step,
             diff,
-            answers,
             read_only,
             in_place,
             port,
@@ -533,18 +521,11 @@ fn run(cmd: Cmd, out: &mut impl Write) -> Result<(), Exit> {
                 port: port.unwrap_or(0),
                 part: None,
             };
-            if answers.is_some() && diff.is_none() {
-                return Err(Exit::new(
-                    2,
-                    "cannot open: --answers gives the old answers of --diff OLD NEW",
-                ));
-            }
             let opening = match (step, diff.as_deref()) {
                 (Some(step), _) => Opening::File(step),
                 (None, Some([old, new])) => Opening::Diff {
                     old: old.clone(),
                     new: new.clone(),
-                    answers,
                 },
                 _ => return Err(Exit::new(2, "open FILE, or open --diff OLD NEW")),
             };
@@ -685,11 +666,7 @@ fn part_arg(step: &Path, part: Option<i64>) -> Result<Option<usize>, Exit> {
 /// What `open` opens.
 enum Opening {
     File(PathBuf),
-    Diff {
-        old: PathBuf,
-        new: PathBuf,
-        answers: Option<PathBuf>,
-    },
+    Diff { old: PathBuf, new: PathBuf },
 }
 
 /// `open`: a session of the file (or of the pair, compared as `diff` compares them), the
@@ -734,16 +711,15 @@ fn open(
             named(step)?;
             Session::open(Opened::read(step).map_err(Exit::error)?, in_place)
         }
-        Opening::Diff { old, new, answers } => {
+        Opening::Diff { old, new } => {
             named(old)?;
             named(new)?;
-            let given = match answers {
-                Some(path) => answers_of(read_json(path)?)?,
-                None => Map::new(),
-            };
             let old = Opened::read(old).map_err(Exit::error)?;
             let new = Opened::read(new).map_err(Exit::error)?;
-            Session::diff(old, new, None, &given, in_place)
+            Session::diff(old, new, None, in_place).and_then(|mut session| {
+                session.resume()?;
+                Ok(session)
+            })
         }
     }
     .map_err(refused)?;
@@ -800,14 +776,14 @@ fn mcp(http: bool, port: Option<u16>, allow: &[PathBuf], out: &mut impl Write) -
 /// `diff`'s options.
 struct Compared {
     output: PathBuf,
-    answers: Option<PathBuf>,
     part: Option<i64>,
     title: Option<String>,
     viewer: Option<String>,
     scenes: bool,
 }
 
-/// `diff`: what changed from OLD to NEW, the answers carried to NEW, and NEW's picture.
+/// `diff`: what changed from OLD to NEW, read from the two files' geometry and PMI only, and
+/// NEW's picture.
 fn diff(old: &Path, new: &Path, args: &Compared, out: &mut impl Write) -> Result<(), Exit> {
     let part = part_arg(new, args.part)?;
     // The part is chosen in both files: say which file lacks it before either is loaded.
@@ -822,10 +798,6 @@ fn diff(old: &Path, new: &Path, args: &Compared, out: &mut impl Write) -> Result
             }
         }
     }
-    let answers = match &args.answers {
-        Some(path) => answers_of(read_json(path)?)?,
-        None => Map::new(),
-    };
     // With no part chosen, a file of several parts, or of a part placed other than once, is
     // compared as an assembly.
     let read = |path: &Path| part::File::read(path).map_err(Exit::error);
@@ -833,7 +805,6 @@ fn diff(old: &Path, new: &Path, args: &Compared, out: &mut impl Write) -> Result
         &read(old)?,
         &read(new)?,
         part,
-        &answers,
         crate::revision::DiffOptions {
             scenes: args.scenes,
         },
@@ -842,10 +813,6 @@ fn diff(old: &Path, new: &Path, args: &Compared, out: &mut impl Write) -> Result
     let dir = &args.output;
     std::fs::create_dir_all(dir).map_err(|e| Exit::error(format!("{}: {e}", dir.display())))?;
     let pretty = |v: &Value| indent1_keeping_non_ascii(v);
-    save(
-        &dir.join("answers.json"),
-        &pretty(&Value::Object(compared.answers())),
-    )?;
     save(&dir.join("report.json"), &pretty(&compared.report()))?;
     let (markdown, png) = match &compared {
         crate::revision::Comparison::Part {

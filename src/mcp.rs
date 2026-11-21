@@ -781,15 +781,6 @@ impl Server {
             Some(raw) => Some(self.given_path(raw)?),
             None => None,
         };
-        let old_answers = match optional_string(args, "old_answers")? {
-            Some(_) if old.is_none() => {
-                return Err(ToolError::invalid(
-                    "old_answers are the answers of `old`: give old too",
-                ));
-            }
-            Some(raw) => Some(read_answers(&self.given_path(raw)?.0)?),
-            None => None,
-        };
         let (answers_file, from_file) = match optional_string(args, "answers_file")? {
             Some(raw) => {
                 let (target, kept) = self.answers_path(raw, &path, flag(args, "overwrite")?)?;
@@ -801,8 +792,8 @@ impl Server {
             .map_err(|e| ToolError::invalid(format!("{raw}: {e}", raw = path.display())))?;
         let file_sha = sha256(&bytes);
         // The session: this file's (compared with the same `old`), as already open (or as its
-        // own in-place save left it), else a new one, which for `old` starts from the answers
-        // `diff` carries and otherwise from those every part stores.
+        // own in-place save left it), else a new one, which starts from those every part stores
+        // (with `old`, the comparison is shown beside it).
         let old_given = old.as_ref().map(|(_, g)| g);
         let known = self
             .sessions
@@ -851,7 +842,6 @@ impl Server {
                             Opened::of(old_given.clone(), old_bytes),
                             opened,
                             part,
-                            &old_answers.clone().unwrap_or_default(),
                             in_place.unwrap_or(false),
                         )?
                     }
@@ -859,14 +849,12 @@ impl Server {
                 };
                 new.keep_analysis(index, Arc::clone(&analysis));
                 new.set_allowed(self.allow.clone());
-                if new.old().is_none() {
-                    new.resume()?;
-                }
+                new.resume()?;
                 Arc::new(Mutex::new(new))
             }
         };
-        // Answers: the file named, else those the session holds for the part (for `old`, the
-        // carried ones), else (not comparing) those held for this handle in another session,
+        // Answers: the file named, else those the session holds for the part, else (not
+        // comparing) those held for this handle in another session,
         // else those a file Specify wrote stores (resumed by the analysis).
         let held_elsewhere = self
             .docs
@@ -1311,20 +1299,6 @@ impl Server {
         let old = self.existing_path(string(args, "old")?)?;
         let new = self.existing_path(string(args, "new")?)?;
         let part = optional_index(args, "part")?;
-        let answers = match optional_string(args, "doc")? {
-            Some(_) => {
-                let (_, doc) = self.doc(args)?;
-                let bytes = std::fs::read(&old)
-                    .map_err(|e| ToolError::invalid(format!("{}: {e}", old.display())))?;
-                if sha256(&bytes) != doc.file_sha {
-                    return Err(ToolError::invalid(
-                        "doc is not a document of OLD: its answers belong to another file",
-                    ));
-                }
-                doc.answers()
-            }
-            None => Map::new(),
-        };
         let title = new
             .file_name()
             .map_or("part".into(), |n| n.to_string_lossy().into_owned());
@@ -1344,7 +1318,6 @@ impl Server {
             &read(&old)?,
             &read(&new)?,
             part,
-            &answers,
             revision::DiffOptions::default(),
         )?;
         let (kind, markdown) = match &compared {
@@ -1357,7 +1330,6 @@ impl Server {
             "kind": kind,
             "verdict": compared.verdict(),
             "summary": compared.summary(),
-            "answers": compared.answers(),
             "report": compared.report(),
             "markdown": markdown,
         }))
@@ -1660,8 +1632,7 @@ fn fresh(doc: &Doc) -> Result<(), ToolError> {
         return Err(ToolError::new(
             "stale",
             format!(
-                "{} has changed (or gone) since it was opened: open it again, or use diff to carry \
-                 the answers to the new revision",
+                "{} has changed (or gone) since it was opened: open it again",
                 doc.path.display()
             ),
         ));
@@ -2001,12 +1972,11 @@ pub fn tools() -> Vec<Value> {
         json!({
             "name": "open",
             "title": "Open a part to specify",
-            "description": format!("Analyse one part of a STEP file (recognise its features, read its existing PMI) and return a document handle `doc` for the other tools, with the open questions and the session's rev. An assembly opened without `part` returns its parts and needs_part: true; call again with `part`. A file Specify wrote resumes its stored answers where its PMI agrees. {CONFLICT_RULE} With old (the previous revision of the file), the two are compared as the diff tool compares them and the session starts from the answers carried to this revision; the result adds verdict, summary and report. Opening the same file again returns the same session with its answers. {MEMORY_RULE} With answers_file, answers are read from that JSON file if it exists and every change is saved to it."),
+            "description": format!("Analyse one part of a STEP file (recognise its features, read its existing PMI) and return a document handle `doc` for the other tools, with the open questions and the session's rev. An assembly opened without `part` returns its parts and needs_part: true; call again with `part`. A file Specify wrote resumes its stored answers where its PMI agrees. {CONFLICT_RULE} With old (the previous revision of the file), the two are compared as the diff tool compares them (from the two files' PMI only); the session is this file's as without old, and the result adds verdict, summary and report. Opening the same file again returns the same session with its answers. {MEMORY_RULE} With answers_file, answers are read from that JSON file if it exists and every change is saved to it."),
             "inputSchema": input(json!({
                 "path": {"type": "string", "description": "A .step/.stp file (or gzipped) inside the server's allowed directories."},
                 "part": {"type": "integer", "minimum": 0, "description": "Which part of an assembly (see list_parts)."},
-                "old": {"type": "string", "description": "The previous revision of this file, to compare with and carry answers from."},
-                "old_answers": {"type": "string", "description": "With old: the old revision's answers file (default: the answers stored in old, if Specify wrote it)."},
+                "old": {"type": "string", "description": "The previous revision of this file, to compare with."},
                 "in_place": {"type": "boolean", "description": "save writes over this file (keeping the original once as .bak) instead of beside it."},
                 "answers_file": {"type": "string", "description": "Optional .json file to load answers from (if it exists) and to keep the answers in. An existing file that is not an answers map is refused unless overwrite is true."},
                 "overwrite": {"type": "boolean", "description": "Replace an existing answers_file that is not an answers map."}
@@ -2166,18 +2136,16 @@ pub fn tools() -> Vec<Value> {
         json!({
             "name": "diff",
             "title": "Compare two revisions",
-            "description": "What changed between two revisions of a part (or of an assembly, part by part): verdict (ok, decide, problems), summary, the answers carried to the new revision, and the full report with a Markdown rendering. Give doc (an open document of OLD) to carry its answers. Writes nothing.",
+            "description": "What changed between two revisions of a part (or of an assembly, part by part), read from the two files' geometry and PMI only: verdict (ok, decide), summary, and the full report (requirements added, removed and changed, with characteristic numbers, and those on moved or resized features to check) with a Markdown rendering. Writes nothing.",
             "inputSchema": input(json!({
                 "old": {"type": "string", "description": "The STEP file as it was."},
                 "new": {"type": "string", "description": "The STEP file as it is now."},
-                "part": {"type": "integer", "minimum": 0, "description": "Compare one part of an assembly."},
-                "doc": {"type": "string", "description": "Optional open document of OLD whose answers to carry."}
+                "part": {"type": "integer", "minimum": 0, "description": "Compare one part of an assembly."}
             }), &["old", "new"]),
             "outputSchema": output(json!({
                 "kind": {"type": "string", "enum": ["part", "assembly"]},
                 "verdict": {"type": "string"},
                 "summary": {"type": "string"},
-                "answers": {"type": "object"},
                 "report": {"type": "object"},
                 "markdown": {"type": "string"}
             }), &["kind", "verdict", "summary", "report"]),

@@ -2,7 +2,7 @@
 //! See fixtures/text-to-cad/pmi_plate/PROVENANCE.md and docs/face-names.md.
 use haecceity::{p21::Document, pmi};
 use serde_json::{Map, Value, json};
-use specify_core::{api, characteristics, features, part, resume, revision, rules};
+use specify_core::{api, features, part, resume, rules};
 use std::path::Path;
 
 const TOP: &str = "f:pmi_plate.body_make_box1.6;M:pmi_plate.body";
@@ -304,11 +304,8 @@ fn specified_answers_resume_per_name_and_refuse_cadgens_added_hole_renames() {
     );
     assert!(resumed2.migrated.is_empty());
     assert_eq!(resumed2.answers.len(), answers.len());
-    let diff2 = revision::diff(&written1, &rev2, &Map::new()).unwrap();
-    assert!(diff2.unresolved.is_empty(), "{:?}", diff2.unresolved);
     for (id, value) in &answers {
         assert_eq!(resumed2.answers.get(id), Some(value), "rev2 resume: {id}");
-        assert_eq!(diff2.answers.get(id), Some(value), "rev2 stored diff: {id}");
         assert_eq!(
             answer_supports(&rev1, &answers, id),
             answer_supports(&rev2, &resumed2.answers, id),
@@ -339,23 +336,16 @@ fn specified_answers_resume_per_name_and_refuse_cadgens_added_hole_renames() {
             None,
         )
         .unwrap();
-        let diff = revision::diff(old, &rev3, &Map::new()).unwrap();
         // Flip this to all-attached once cadgen keeps names stable (text-to-cad
         // PR #692). The exact expected refusal list must then change as well.
         assert_eq!(resumed.answers.len(), 12);
         assert_eq!(resumed.unresolved.len(), expected_unresolved.len());
-        assert_eq!(diff.unresolved.len(), expected_unresolved.len());
         assert!(resumed.unverified.is_none() && resumed.migrated.is_empty());
         for (id, reason) in &expected_unresolved {
             let unresolved = resumed.unresolved.iter().find(|u| u.id == *id).unwrap();
             assert_eq!(&unresolved.reason, reason, "rev3 resume: {id}");
             assert_eq!(unresolved.answer, answers[*id]);
-            let unresolved = diff.unresolved.iter().find(|u| u.id == *id).unwrap();
-            assert_eq!(&unresolved.reason, reason, "rev3 diff: {id}");
-            assert_eq!(unresolved.answer, answers[*id]);
-            assert_eq!(unresolved.class, "unresolved");
-            assert!(unresolved.candidates.is_empty());
-            assert!(!resumed.answers.contains_key(*id) && !diff.answers.contains_key(*id));
+            assert!(!resumed.answers.contains_key(*id));
         }
         for (id, value) in &answers {
             if expected_unresolved
@@ -365,7 +355,6 @@ fn specified_answers_resume_per_name_and_refuse_cadgens_added_hole_renames() {
                 continue;
             }
             assert_eq!(resumed.answers.get(id), Some(value), "rev3 resume: {id}");
-            assert_eq!(diff.answers.get(id), Some(value), "rev3 stored diff: {id}");
             assert_eq!(
                 answer_supports(old, &answers, id),
                 answer_supports(&rev3, &resumed.answers, id),
@@ -373,21 +362,6 @@ fn specified_answers_resume_per_name_and_refuse_cadgens_added_hole_renames() {
             );
         }
         assert!(resumed.answers.keys().all(|id| answers.contains_key(id)));
-        assert!(diff.answers.keys().all(|id| answers.contains_key(id)
-            || id == characteristics::CARRY
-            || id == specify_core::answer_file::META));
-        // Only revision-stable datum questions may block defaults. Missing feature supports
-        // remain reported above; their old IDs must never shadow the new revision's bores.
-        assert_eq!(
-            diff.answers[specify_core::answer_file::META],
-            json!({
-                "evidence": resume::evidence(&rev3).unwrap(),
-                "unresolved": {
-                    "datum.A": expected_unresolved[2].1,
-                    "datum.A.flatness": expected_unresolved[3].1,
-                },
-            })
-        );
         // Both bores are still recognisable, and the old hole even has the same
         // face index; neither that fact nor geometry may bypass the missing name.
         assert_eq!(

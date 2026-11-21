@@ -1,27 +1,17 @@
-//! Revisions: a part's answers carried from one revision of its STEP file to the next, and what
-//! changed.
+//! Revisions: what changed from one revision of a part's STEP file to the next, and how the
+//! requirements each file's PMI states changed with it.
 //!
-//! Answers bind exact authored STEP names where present, sharing resume's name matcher.
-//! Unnamed faces use quiddity's correspondence (`quiddity::correspondence::correspond`),
-//! which aligns the two parts and classifies each recognised feature and face as carried,
-//! adapted, ambiguous, orphaned or new. Existing CAD PMI keeps its geometric comparison.
+//! quiddity's correspondence (`quiddity::correspondence::correspond`) aligns the two parts and
+//! classifies each recognised feature and face as carried, adapted, ambiguous, orphaned or new.
 //!
-//! An answer names its feature by family and defining faces (`hole.function:holes:12.13`) or,
-//! for a datum or an added requirement, lists faces (`datum.A: [4]`, an `extra.*`'s `faces` and
-//! `reference`). Each face is mapped by name or unnamed correspondence;
-//! the answer is then carried to the new part's feature of that family holding the mapped faces.
-//! An answer is never guessed: when a face is gone (*orphaned*), matches several faces
-//! (*ambiguous*), or no single feature holds the mapped faces, it is left unresolved with its
-//! value and the reason, as resuming does. An answer carried to a feature that quiddity reports
-//! changed (a resized hole keeping its fit) is carried and listed for a person to check.
+//! The requirements are read only from the PMI in the two files (ADR P11: the file's PMI is the
+//! only copy), whoever wrote it; stored answers are never read. Each old requirement is paired
+//! with a new one through the face matching and its kind, by characteristic number where the new
+//! file continues the old file's number history: a change of limits keeps its number and reads
+//! `changed`; a different measurement is one removed and another added. A requirement the new
+//! file states on a feature that moved or changed size is listed for a person to check.
 //!
-//! The answers are those given or, when none are, the ones Specify wrote as PMI in the old
-//! file. The PMI is compared too: Specify's in the new file against the answers carried, and the
-//! files' own (from CAD), each item read on the new part through the face matching.
-//!
-//! The report also lists the questions the new part opens that the old one did not (a new hole
-//! needs its function), the problems review finds that it did not before, and the features that
-//! changed; [`picture`] draws the new part coloured by what changed.
+//! [`picture`] draws the new part coloured by what changed.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -46,23 +36,15 @@ enum Bind {
     To(usize),
     Orphaned,
     Ambiguous(Vec<usize>),
-    NamedRefusal { reason: String, ambiguous: bool },
 }
 
 #[derive(Clone, Debug, Serialize)]
 pub struct Revised {
-    /// `ok`: every answer carried and no new question or problem; `decide`: an answer is
-    /// unresolved or the new part asks something new (a feature matched ambiguously decides
-    /// nothing by itself: an answer on it is unresolved); `problems`: review finds problems it
-    /// did not on the old part.
+    /// `ok`: no requirement needs checking; `decide`: a requirement the new file states is on a
+    /// feature that moved or changed size.
     pub verdict: String,
     pub summary: String,
-    /// The answers on the new part: carried, renamed where the feature's ID changed.
-    pub answers: Map<String, Value>,
-    /// Each answer whose ID changed, `[old, new]`.
-    pub migrated: Vec<(String, String)>,
-    pub unresolved: Vec<Unresolved>,
-    /// Answers carried to a feature quiddity reports changed: still applied, to be checked.
+    /// The new file's requirements on a feature that moved or changed size, to be checked.
     pub check: Vec<Check>,
     pub features: Vec<FeatureChange>,
     /// Face-level changes no entry of `features` explains: each changed, removed, new or
@@ -80,13 +62,10 @@ pub struct Revised {
     pub measures: Measures,
     /// Requirement changes on pmiScene identities, plus deprecated legacy comparisons.
     pub pmi: Pmi,
-    /// Questions open on the new part that were not open on the old one.
-    pub questions: Vec<OpenQuestion>,
     /// Another rigid motion fits the old part onto the new one as well as the one taken (a
     /// symmetric part): the tie is broken by the file's frame, and the report says so.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub frame_tie: Option<FrameTie>,
-    pub problems: Problems,
     /// Each new face's class (`changed` or `new`; faces carried unchanged are left out), and the
     /// old faces that are gone or moved, for [`picture`].
     #[serde(skip)]
@@ -175,31 +154,20 @@ pub struct FaceChange {
     pub at: [f64; 3],
 }
 
-#[derive(Clone, Debug, Serialize)]
-pub struct Unresolved {
-    pub id: String,
-    pub answer: Value,
-    /// `orphaned`, `ambiguous`, `unmatched` (the faces carried, but no single feature of the
-    /// family holds them), `stale` (the old part had no such feature either) or `unresolved`
-    /// (refused by name, or carried but refused by the new part, with the refusal).
-    pub class: String,
-    pub reason: String,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub candidates: Vec<String>,
-    /// The question it answers, in words, where the old part asks it.
-    #[serde(skip_serializing_if = "String::is_empty")]
-    pub question: String,
-}
-
+/// A requirement the new file states on a feature that moved or changed size: it still
+/// applies, but a fit or clearance chosen for the old feature may not suit the new one.
 #[derive(Clone, Debug, Serialize)]
 pub struct Check {
+    /// The requirement's characteristic number in the new file, if it has one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub number: Option<u64>,
+    /// Its id, as in `pmi.items` and the new file's `pmiScene`.
     pub id: String,
-    pub answer: Value,
+    /// The requirement as the PMI list names it (`⌀6.6 H7`).
+    pub requirement: String,
+    /// The changed feature on the new part.
     pub feature: String,
     pub changes: BTreeMap<String, qc::Change>,
-    /// The question it answers, in words.
-    #[serde(skip_serializing_if = "String::is_empty")]
-    pub question: String,
     /// The part's axis its feature lies along, as for [`FeatureChange::axis`].
     #[serde(skip)]
     pub axis: Option<usize>,
@@ -265,21 +233,6 @@ pub struct Place {
 /// The PMI in the two files.
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct Pmi {
-    /// Where the old part's answers came from: `given` (passed in), `stored` (the PMI Specify
-    /// wrote in the old file) or `none`.
-    pub answers_from: String,
-    /// Whether the new file holds PMI Specify wrote.
-    pub new_stored: bool,
-    /// The new file's Specify PMI against the answers carried to it, where it has some: an
-    /// answer `added`, `removed` or `changed` there.
-    /// Deprecated for one release: use `items` for semantic requirements.
-    pub stored: Vec<PmiChange>,
-    /// The files' own PMI (dimensions, tolerances, datums and notes from CAD), matched by the
-    /// faces it is on: `added`, `removed` or `changed`.
-    /// Deprecated for one release: use `items` for complete notation and semantics.
-    pub existing: Vec<PmiChange>,
-    /// How many items of their own PMI the old and new files state.
-    pub existing_count: [usize; 2],
     /// Requirement changes, using pmiScene identities, numbers and review statuses.
     pub items: Vec<PmiItemChange>,
     /// Exact comparison documents, included only with `DiffOptions::scenes`.
@@ -337,101 +290,6 @@ pub struct PmiItemChange {
     pub detail: Option<String>,
 }
 
-#[derive(Clone, Debug, Serialize)]
-pub struct PmiChange {
-    pub class: String,
-    /// What it is on, in words: a feature (`Ø7 × 10 through hole`), an answer's question, or
-    /// faces.
-    pub on: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub old: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub new: Option<String>,
-    /// The answer's ID, for Specify's PMI.
-    #[serde(skip_serializing_if = "String::is_empty")]
-    pub id: String,
-}
-
-/// An item of a file's own PMI in words: `Ø7 +0.1/0`, `position 0.1 to A|B|C`, `datum A`.
-fn pmi_words(p: &Value) -> String {
-    let n = |k: &str| p.get(k).and_then(Value::as_f64);
-    let kind = p["kind"].as_str().unwrap_or_default();
-    let ty = p["type"].as_str().unwrap_or_default();
-    let words = ty.replace('_', " ").to_lowercase();
-    let limits = match (n("upper"), n("lower")) {
-        (Some(u), Some(l)) if (u + l).abs() < 1e-9 => format!(" ±{}", num(u)),
-        (Some(u), Some(l)) => format!(
-            " {}/{}",
-            signed(u).replace('−', "-"),
-            signed(l).replace('−', "-")
-        ),
-        _ => String::new(),
-    };
-    match kind {
-        "dimension" => {
-            let absolute =
-                p.get("limits")
-                    .and_then(Value::as_array)
-                    .and_then(|bounds| match bounds.as_slice() {
-                        [lower, upper] => {
-                            Some(format!("{}/{}", num(lower.as_f64()?), num(upper.as_f64()?)))
-                        }
-                        _ => None,
-                    });
-            let limits = if absolute.is_some() {
-                String::new()
-            } else {
-                limits
-            };
-            let value = absolute.unwrap_or_else(|| n("value").map(num).unwrap_or_default());
-            let size = match ty {
-                "Size_Diameter" => format!("Ø{value}"),
-                "Size_Radius" => format!("R{value}"),
-                "Size_SphericalRadius" => format!("SR{value}"),
-                _ => format!("{words} {value}"),
-            };
-            // A basic dimension is drawn framed; in words it says so.
-            let basic = if p["basic"] == true { " (basic)" } else { "" };
-            format!("{size}{limits}{basic}")
-        }
-        "geometric_tolerance" => {
-            let datums: Vec<&str> = p["datums"]
-                .as_array()
-                .map(|d| d.iter().filter_map(Value::as_str).collect())
-                .unwrap_or_default();
-            let value = n("value")
-                .map(|v| format!(" {}", num(v)))
-                .unwrap_or_default();
-            if datums.is_empty() {
-                format!("{words}{value}")
-            } else {
-                format!("{words}{value} to {}", datums.join("|"))
-            }
-        }
-        "datum" => format!("datum {ty}"),
-        _ => {
-            if words.is_empty() {
-                kind.replace('_', " ")
-            } else {
-                format!("{} ({words})", kind.replace('_', " "))
-            }
-        }
-    }
-}
-
-/// The faces of a PMI item.
-fn pmi_faces(p: &Value, key: &str) -> Vec<usize> {
-    p[key]
-        .as_array()
-        .map(|f| {
-            f.iter()
-                .filter_map(Value::as_u64)
-                .map(|i| i as usize)
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
 /// What a PMI item is on, in words: the smallest feature holding its faces, else its faces.
 fn pmi_on(faces: &[usize], features: &[Feature]) -> String {
     if faces.is_empty() {
@@ -452,87 +310,6 @@ fn pmi_on(faces: &[usize], features: &[Feature]) -> String {
                 list.join(", ")
             )
         })
-}
-
-/// The files' own PMI compared: each old item read on the new part through the face matching
-/// (*faces*), matched to a new item of the same kind and type on the same faces.
-fn compare_existing(
-    old: &[Value],
-    new: &[Value],
-    faces: &BTreeMap<usize, Bind>,
-    old_features: &[Feature],
-    new_features: &[Feature],
-) -> Vec<PmiChange> {
-    let key = |p: &Value, faces: Vec<usize>, faces2: Vec<usize>| {
-        (
-            p["kind"].as_str().unwrap_or_default().to_string(),
-            p["type"].as_str().unwrap_or_default().to_string(),
-            faces,
-            faces2,
-        )
-    };
-    let carry = |list: Vec<usize>| -> Option<Vec<usize>> {
-        let mut out: Vec<usize> = list
-            .iter()
-            .map(|i| match faces.get(i) {
-                Some(Bind::To(n)) => Some(*n),
-                _ => None,
-            })
-            .collect::<Option<_>>()?;
-        out.sort_unstable();
-        Some(out)
-    };
-    let mut unused: Vec<bool> = vec![true; new.len()];
-    let mut out = Vec::new();
-    for p in old {
-        let (f, f2) = (pmi_faces(p, "faces"), pmi_faces(p, "faces2"));
-        let found = match (carry(f.clone()), carry(f2)) {
-            (Some(now), Some(now2)) => {
-                let want = key(p, now, now2);
-                (0..new.len()).find(|&j| {
-                    unused[j]
-                        && key(
-                            &new[j],
-                            pmi_faces(&new[j], "faces"),
-                            pmi_faces(&new[j], "faces2"),
-                        ) == want
-                })
-            }
-            _ => None,
-        };
-        match found {
-            Some(j) => {
-                unused[j] = false;
-                let (was, now) = (pmi_words(p), pmi_words(&new[j]));
-                if was != now {
-                    out.push(PmiChange {
-                        class: "changed".into(),
-                        on: pmi_on(&pmi_faces(&new[j], "faces"), new_features),
-                        old: Some(was),
-                        new: Some(now),
-                        id: String::new(),
-                    });
-                }
-            }
-            None => out.push(PmiChange {
-                class: "removed".into(),
-                on: pmi_on(&f, old_features),
-                old: Some(pmi_words(p)),
-                new: None,
-                id: String::new(),
-            }),
-        }
-    }
-    for (_, p) in new.iter().enumerate().filter(|(j, _)| unused[*j]) {
-        out.push(PmiChange {
-            class: "added".into(),
-            on: pmi_on(&pmi_faces(p, "faces"), new_features),
-            old: None,
-            new: Some(pmi_words(p)),
-            id: String::new(),
-        });
-    }
-    out
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -649,18 +426,6 @@ fn amount(x: f64) -> String {
         out.push(c);
     }
     if x < 0.0 { format!("-{out}") } else { out }
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub struct OpenQuestion {
-    pub id: String,
-    pub title: String,
-}
-
-#[derive(Clone, Debug, Default, Serialize)]
-pub struct Problems {
-    pub added: Vec<Value>,
-    pub resolved: Vec<Value>,
 }
 
 /// Families that are facts about faces, not features a person answers for: they follow every
@@ -1471,236 +1236,6 @@ fn describe(f: &Feature) -> (String, Option<[f64; 3]>) {
     (what, at)
 }
 
-/// The question and feature of an answer on one feature (`hole.function:holes:12.13`), as
-/// resuming reads them.
-fn feature_answer(id: &str) -> Option<(&str, &str, Vec<usize>)> {
-    let (question, feature) = id.split_once(':')?;
-    if !matches!(
-        question,
-        "hole.function"
-            | "hole.full_thread"
-            | "hole.frame"
-            | "hole.position"
-            | "hole.location"
-            | "diameter.fit"
-            | "diameter.runout"
-    ) {
-        return None;
-    }
-    let (family, support) = feature.split_once(':')?;
-    let faces = support
-        .split('.')
-        .map(|s| s.parse().ok())
-        .collect::<Option<Vec<usize>>>()?;
-    Some((question, family, faces))
-}
-
-struct Matching<'a> {
-    faces: BTreeMap<usize, Bind>,
-    old_features: &'a [Feature],
-    new_features: &'a [Feature],
-}
-
-impl Matching<'_> {
-    /// The old faces in the new part, or the first that does not carry.
-    fn faces(&self, old: &[usize]) -> std::result::Result<Vec<usize>, (usize, Bind)> {
-        old.iter()
-            .map(|i| match self.faces.get(i) {
-                Some(Bind::To(n)) => Ok(*n),
-                Some(other) => Err((*i, other.clone())),
-                None => Err((*i, Bind::Orphaned)),
-            })
-            .collect()
-    }
-
-    /// The new feature of *family* holding *faces*, or every candidate.
-    fn feature(&self, family: &str, faces: &[usize]) -> std::result::Result<&Feature, Vec<String>> {
-        let found: Vec<&Feature> = self
-            .new_features
-            .iter()
-            .filter(|f| {
-                f.id.split_once(':').map(|(fam, _)| fam) == Some(family)
-                    && faces.iter().all(|i| f.faces.contains(i))
-            })
-            .collect();
-        match found.as_slice() {
-            [one] => Ok(one),
-            many => Err(many.iter().map(|f| f.id.clone()).collect()),
-        }
-    }
-
-    /// *id*'s answer on the new part: its new ID, or why it does not carry.
-    fn answer(
-        &self,
-        id: &str,
-        answer: &Value,
-    ) -> std::result::Result<(String, Value), Box<Unresolved>> {
-        let unresolved = |class: &str, reason: String, candidates: Vec<String>| {
-            Box::new(Unresolved {
-                id: id.into(),
-                answer: answer.clone(),
-                class: class.into(),
-                reason,
-                candidates,
-                question: String::new(),
-            })
-        };
-        let gone = |(face, bind): (usize, Bind)| match bind {
-            Bind::NamedRefusal { reason, ambiguous } => unresolved(
-                if ambiguous { "ambiguous" } else { "unresolved" },
-                reason,
-                Vec::new(),
-            ),
-            Bind::Ambiguous(c) => unresolved(
-                "ambiguous",
-                format!("face {face} matches more than one face of the new part"),
-                c.iter().map(|n| format!("face {n}")).collect(),
-            ),
-            _ => unresolved(
-                "orphaned",
-                format!("face {face} has no match in the new part"),
-                Vec::new(),
-            ),
-        };
-        if let Some((question, family, faces)) = feature_answer(id) {
-            let feature = &id[question.len() + 1..];
-            if !self.old_features.iter().any(|f| f.id == feature) {
-                return Err(unresolved(
-                    "stale",
-                    format!("the old part has no {feature} either"),
-                    Vec::new(),
-                ));
-            }
-            let now = self.faces(&faces).map_err(gone)?;
-            return match self.feature(family, &now) {
-                Ok(f) => Ok((format!("{question}:{}", f.id), answer.clone())),
-                Err(candidates) if candidates.is_empty() => Err(unresolved(
-                    "unmatched",
-                    format!("no {family} feature of the new part holds its faces"),
-                    candidates,
-                )),
-                Err(candidates) => Err(unresolved(
-                    "ambiguous",
-                    format!("several {family} features of the new part hold its faces"),
-                    candidates,
-                )),
-            };
-        }
-        if id.starts_with("datum.")
-            && let Some(list) = answer.as_array()
-            && list.iter().all(Value::is_u64)
-        {
-            let old: Vec<usize> = list
-                .iter()
-                .filter_map(Value::as_u64)
-                .map(|i| i as usize)
-                .collect();
-            let now = self.faces(&old).map_err(gone)?;
-            return Ok((
-                id.into(),
-                Value::Array(now.into_iter().map(Value::from).collect()),
-            ));
-        }
-        // Every other face list (an added requirement's `faces` and `reference`) is mapped the
-        // same way, named or not: an index kept unchanged may now be another feature's face.
-        let mut failure = None;
-        let value = crate::resume::names::map_value(id, answer, |i| {
-            self.faces(&[i]).map(|v| v[0]).map_err(|error| {
-                let refusal = gone(error);
-                let reason = refusal.reason.clone();
-                failure = Some(refusal);
-                reason
-            })
-        })
-        .map_err(|reason| {
-            failure.unwrap_or_else(|| unresolved("unresolved", reason, Vec::new()))
-        })?;
-        Ok((id.into(), value))
-    }
-}
-
-/// The new part's review of *answers*: the review, or the rules' refusal (`Err`, as the
-/// rules' error). Any other failure is the diff's own.
-fn review_of(
-    analysis: &Value,
-    answers: &Map<String, Value>,
-) -> Result<std::result::Result<Value, crate::rules::Error>> {
-    match api::review(analysis, answers) {
-        Ok(review) => Ok(Ok(review)),
-        Err(api::Error::Rules(refusal)) => Ok(Err(refusal)),
-        Err(other) => Err(other),
-    }
-}
-
-/// Whether *message* is a refusal of the answer *id* (`extra.x: …`, `datum A: …`).
-fn names(message: &str, id: &str) -> bool {
-    message.starts_with(&format!("{id}: "))
-        || id
-            .strip_prefix("datum.")
-            .is_some_and(|letter| message.starts_with(&format!("datum {letter}: ")))
-}
-
-/// Move each carried answer the new part refuses to *unresolved* (class `unresolved`, with
-/// the refusal), until *review* accepts the rest; that review is returned. An answer whose
-/// faces mapped can still not fit the new part: a size on two holes, one since resized, or a
-/// datum's faces that are no longer coplanar.
-///
-/// The answer a refusal names is the one refused. One it names no answer for is pinned on an
-/// answer only when removing that answer alone clears it, or leaves a refusal naming another
-/// carried answer (which the next round then refuses). Removing a sound answer can change
-/// the refusal too (a required answer now missing), so that is no evidence. When no answer
-/// qualifies, nothing is guessed: the answers stay carried and the refusal is returned
-/// (`Err`), for the report to state; writing them is then refused by write's own checks.
-fn refuse_unfit(
-    carried: &mut Map<String, Value>,
-    given_as: &BTreeMap<String, (String, Value)>,
-    unresolved: &mut Vec<Unresolved>,
-    review: impl Fn(&Map<String, Value>) -> Result<std::result::Result<Value, crate::rules::Error>>,
-) -> Result<std::result::Result<Value, String>> {
-    loop {
-        let message = match review(carried)? {
-            Ok(review) => return Ok(Ok(review)),
-            Err(crate::rules::Error::Invalid(message)) => message,
-            // Not a refusal of one answer (questions left open): stated, never pinned.
-            Err(other) => return Ok(Err(other.to_string())),
-        };
-        let mut refused = carried.keys().find(|id| names(&message, id)).cloned();
-        if refused.is_none() {
-            for id in carried.keys() {
-                let mut without = carried.clone();
-                without.remove(id);
-                let narrower = match review(&without)? {
-                    Ok(_) => true,
-                    Err(crate::rules::Error::Invalid(m)) => {
-                        without.keys().any(|other| names(&m, other))
-                    }
-                    Err(_) => false,
-                };
-                if narrower {
-                    refused = Some(id.clone());
-                    break;
-                }
-            }
-        }
-        let Some(id) = refused else {
-            return Ok(Err(message));
-        };
-        let value = carried
-            .remove(&id)
-            .expect("listed from the carried answers");
-        let (was, answer) = given_as.get(&id).cloned().unwrap_or((id.clone(), value));
-        let why = message.strip_prefix(&format!("{id}: ")).unwrap_or(&message);
-        unresolved.push(Unresolved {
-            id: was,
-            answer,
-            class: "unresolved".into(),
-            reason: format!("the new part refuses it: {why}"),
-            candidates: Vec::new(),
-            question: String::new(),
-        });
-    }
-}
-
 /// What `specify-core diff OLD NEW [--part K]` compares, with the parts it loaded (for its
 /// picture): one part of each file, or, with no part chosen and a file of several parts (or of a
 /// part placed other than once), the two assemblies part by part. The command line's `diff`,
@@ -1743,14 +1278,6 @@ impl Comparison {
         .expect("a revision report serialises")
     }
 
-    /// `diff`'s `answers.json`: a part's answers, or an assembly's by part name.
-    pub fn answers(&self) -> Map<String, Value> {
-        match self {
-            Comparison::Part { revised, .. } => revised.answers.clone(),
-            Comparison::Assembly { compared, .. } => compared.answers(),
-        }
-    }
-
     /// What a viewer needs to show the comparison without comparing again, as WASM `diff()`
     /// returns it: [`part_diff`] or [`assembly_diff`], the Markdown headed `title`.
     pub fn diff_json(&self, title: &str) -> Value {
@@ -1765,16 +1292,6 @@ impl Comparison {
                 after,
                 compared,
             } => assembly_diff(before, after, compared, title),
-        }
-    }
-
-    /// The carried answers by the new file's part index.
-    pub fn answers_by_part(&self) -> BTreeMap<usize, Map<String, Value>> {
-        match self {
-            Comparison::Part { after, revised, .. } => {
-                BTreeMap::from([(after.binding.part, revised.answers.clone())])
-            }
-            Comparison::Assembly { compared, .. } => compared.answers_by_part(),
         }
     }
 }
@@ -1826,18 +1343,17 @@ pub fn assembly_diff(
 }
 
 /// `diff OLD NEW`: part `part` of each file, or with none, the files' only parts, or their
-/// assemblies part by part (see [`Comparison`]). The old answers are `given`, or else those
-/// stored in OLD. The caller checks that both files have part `part`.
+/// assemblies part by part (see [`Comparison`]). It reads only the PMI in the two files. The
+/// caller checks that both files have part `part`.
 pub fn compare(
     old: &crate::part::File,
     new: &crate::part::File,
     part: Option<usize>,
-    given: &Map<String, Value>,
     options: DiffOptions,
 ) -> Result<Comparison> {
     if part.is_none() && (assembly::is_assembly(old) || assembly::is_assembly(new)) {
         let (before, after) = (old.load_all()?, new.load_all()?);
-        let compared = assembly::diff_with_options(&before, &after, given, options)?;
+        let compared = assembly::diff_with_options(&before, &after, options)?;
         return Ok(Comparison::Assembly {
             before,
             after,
@@ -1845,7 +1361,7 @@ pub fn compare(
         });
     }
     let (before, after) = (old.load(part)?, new.load(part)?);
-    let revised = diff_with_options(&before, &after, given, options)?;
+    let revised = diff_with_options(&before, &after, options)?;
     Ok(Comparison::Part {
         before: Box::new(before),
         after: Box::new(after),
@@ -1853,20 +1369,18 @@ pub fn compare(
     })
 }
 
-/// Carry *answers* (and *automatic*, the IDs the default path answered) from *old* to *new*.
-pub fn diff(old: &LoadedPart, new: &LoadedPart, given: &Map<String, Value>) -> Result<Revised> {
-    diff_with_options(old, new, given, DiffOptions::default())
+/// What changed from *old* to *new*: the geometry, matched face by face, and the requirements
+/// each file's PMI states (ADR P11: the file's PMI is the only copy; no stored answers are read).
+pub fn diff(old: &LoadedPart, new: &LoadedPart) -> Result<Revised> {
+    diff_with_options(old, new, DiffOptions::default())
 }
 
 /// Compare once, optionally retaining the exact scenes in the report JSON.
 pub fn diff_with_options(
     old: &LoadedPart,
     new: &LoadedPart,
-    given: &Map<String, Value>,
     options: DiffOptions,
 ) -> Result<Revised> {
-    crate::answer_file::check_for_diff(old, given)
-        .map_err(|why| api::Error::Rules(crate::rules::Error::Invalid(why)))?;
     // One recognition of each part, for both its analysis and its fingerprints.
     let old_q = old.recognition();
     let new_q = new.recognition();
@@ -1874,16 +1388,6 @@ pub fn diff_with_options(
         api::analyse_recognised(old, old_q)?,
         api::analyse_recognised(new, new_q)?,
     );
-    // The PMI Specify wrote in a file: its answers.
-    let stored = |a: &Value| a["resume"]["answers"].as_object().cloned();
-    let (old_stored, new_stored) = (stored(&old_analysis), stored(&new_analysis));
-    // Answers given win; else the old file's own.
-    let (answers, answers_from) = match (&old_stored, given.is_empty()) {
-        (_, false) => (given.clone(), "given"),
-        (Some(a), true) => (a.clone(), "stored"),
-        (None, true) => (Map::new(), "none"),
-    };
-    let answers = &answers;
     let features = |a: &Value| -> Result<Vec<Feature>> {
         serde_json::from_value(a["features"].clone())
             .map_err(|e| api::Error::Analysis(format!("the analysis's features: {e}")))
@@ -1903,31 +1407,6 @@ pub fn diff_with_options(
             (e.old, bind)
         })
         .collect();
-    // Stored answers bind authored names. Existing CAD PMI keeps its independent
-    // geometric comparison: generic duplicate CAD labels are not saved answer anchors.
-    let mut faces = geometric_faces.clone();
-    let identities = crate::resume::names::identities(&old.face_names);
-    for (i, binding) in crate::resume::names::match_names(&identities, &new.face_names) {
-        use crate::resume::names::NameMatch;
-        let bind = match binding {
-            NameMatch::To(i) => Bind::To(i),
-            NameMatch::Missing(reason) => Bind::NamedRefusal {
-                reason,
-                ambiguous: false,
-            },
-            NameMatch::Ambiguous(reason) => Bind::NamedRefusal {
-                reason,
-                ambiguous: true,
-            },
-        };
-        faces.insert(i, bind);
-    }
-    let matching = Matching {
-        faces,
-        old_features: &old_features,
-        new_features: &new_features,
-    };
-
     let (old_size, new_size) = (size(&old.part), size(&new.part));
 
     // Features, by specify-core's IDs.
@@ -2102,229 +1581,6 @@ pub fn diff_with_options(
             .collect();
     }
 
-    // The answers.
-    let mut carried = Map::new();
-    let (mut migrated, mut unresolved, mut check) = (Vec::new(), Vec::new(), Vec::new());
-    // Each question the old part asks, in words.
-    let prompts: BTreeMap<String, String> = api::questions(&old_analysis, answers)?
-        .into_iter()
-        .map(|q| (q.id, q.prompt))
-        .collect();
-    let asked = |id: &str| prompts.get(id).cloned().unwrap_or_default();
-    let results: Vec<_> = answers
-        .iter()
-        .filter(|(id, _)| id.as_str() != crate::answer_file::META)
-        .map(|(id, answer)| (id, answer, matching.answer(id, answer)))
-        .collect();
-    // Each carried answer's ID and value as given, for one the new part then refuses.
-    let mut given_as: BTreeMap<String, (String, Value)> = BTreeMap::new();
-    let mut reached: BTreeMap<&str, usize> = BTreeMap::new();
-    for (_, _, r) in &results {
-        if let Ok((now, _)) = r {
-            *reached.entry(now.as_str()).or_default() += 1;
-        }
-    }
-    for (id, answer, result) in &results {
-        match result {
-            // Two answers would carry to one: neither is chosen, as resuming does.
-            Ok((now, _)) if reached[now.as_str()] > 1 => unresolved.push(Unresolved {
-                id: (*id).clone(),
-                answer: (*answer).clone(),
-                class: "ambiguous".into(),
-                reason: format!("several requirements map to {now}; review required"),
-                candidates: vec![now.clone()],
-                question: String::new(),
-            }),
-            Ok((now, value)) => {
-                let (id, now, value) = (*id, now.clone(), value.clone());
-                if now != *id {
-                    migrated.push((id.clone(), now.clone()));
-                }
-                // A pattern changes with its members: an answer on two holes is checked when
-                // they are resized.
-                let changes_of = |feature: &str| {
-                    changed.get(feature).cloned().or_else(|| {
-                        new_features
-                            .iter()
-                            .find(|f| f.id == feature)
-                            .and_then(|f| f.members.iter().find_map(|m| changed.get(m).cloned()))
-                    })
-                };
-                if let Some(feature) = now.split_once(':').map(|(_, f)| f.to_string())
-                    && let Some(changes) = changes_of(&feature)
-                {
-                    check.push(Check {
-                        id: now.clone(),
-                        answer: value.clone(),
-                        axis: new_features
-                            .iter()
-                            .find(|f| f.id == feature)
-                            .and_then(|f| along(&f.record))
-                            .map(|(k, _, _)| k),
-                        feature,
-                        changes,
-                        question: asked(id),
-                    });
-                }
-                given_as.insert(now.clone(), (id.clone(), (*answer).clone()));
-                carried.insert(now, value);
-            }
-            Err(u) => unresolved.push((**u).clone()),
-        }
-    }
-    // The new part may refuse an answer its faces carried to (#123): an added size on two
-    // holes, one since resized. Each is left unresolved with the refusal, never raised.
-    let mut new_review = refuse_unfit(&mut carried, &given_as, &mut unresolved, |a| {
-        review_of(&new_analysis, a)
-    })?;
-    migrated.retain(|(_, now)| carried.contains_key(now));
-    check.retain(|c| carried.contains_key(&c.id));
-    // A datum's settings (`datum.A.flatness`) follow it: they stay open with an open datum.
-    let open_datums: Vec<(String, String)> = unresolved
-        .iter()
-        .filter(|u| u.id.starts_with("datum.") && u.id.matches('.').count() == 1)
-        .map(|u| (format!("{}.", u.id), u.class.clone()))
-        .collect();
-    let settings: Vec<(String, String)> = carried
-        .keys()
-        .filter_map(|id| {
-            open_datums
-                .iter()
-                .find(|(datum, _)| id.starts_with(datum.as_str()))
-                .map(|(_, class)| (id.clone(), class.clone()))
-        })
-        .collect();
-    if !settings.is_empty() {
-        for (id, _) in &settings {
-            carried.remove(id);
-        }
-        if new_review.is_ok() {
-            new_review = review_of(&new_analysis, &carried)?.map_err(|e| e.to_string());
-        }
-    }
-    // A refusal pinned on no answer: the answers stay carried, and the new part's questions,
-    // problems and planned PMI are read without them; the report states the refusal.
-    let refused = new_review.as_ref().err().cloned();
-    let none = Map::new();
-    let readable = if refused.is_some() { &none } else { &carried };
-    for (id, class) in settings {
-        let answer = given_as
-            .get(&id)
-            .map(|(_, v)| v.clone())
-            .expect("listed from the carried answers");
-        let datum = &id[..id.rfind('.').expect("a datum setting")];
-        unresolved.push(Unresolved {
-            reason: format!("its datum {datum} is unresolved"),
-            id,
-            answer,
-            class,
-            candidates: Vec::new(),
-            question: String::new(),
-        });
-    }
-    for u in &mut unresolved {
-        u.question = asked(&u.id);
-        // An answer on a removed feature says so, not which face went.
-        if u.class == "orphaned"
-            && let Some((question, _, _)) = feature_answer(&u.id)
-            && let Some(gone) = feature_changes.iter().find(|f| {
-                f.class == "orphaned" && f.old.as_deref() == Some(&u.id[question.len() + 1..])
-            })
-            && !gone.what.is_empty()
-        {
-            u.reason = format!("the {} was removed", gone.what);
-        }
-    }
-
-    // What the new part asks and finds that the old one did not.
-    // An old ID in the new part; one that does not carry names nothing new, so it can't match a
-    // new question or problem even where its old number is reused.
-    let rename = |id: &str| {
-        matching
-            .answer(id, &Value::Null)
-            .map(|(n, _)| n)
-            .unwrap_or_else(|_| format!("\u{0}gone {id}"))
-    };
-    let open = |analysis: &Value, answers: &Map<String, Value>| -> Result<Vec<(String, String)>> {
-        let qs = api::questions(analysis, answers)?;
-        Ok(crate::rules::open_questions(&qs, answers)
-            .iter()
-            .map(|q| {
-                (
-                    q.id.clone(),
-                    q.title
-                        .as_ref()
-                        .filter(|t| !q.prompt.contains(t.as_str()))
-                        .map_or_else(|| q.prompt.clone(), |t| format!("{t}: {}", q.prompt)),
-                )
-            })
-            .collect())
-    };
-    let before: BTreeSet<String> = open(&old_analysis, answers)?
-        .into_iter()
-        .map(|(id, _)| rename(&id))
-        .collect();
-    let questions: Vec<OpenQuestion> = open(&new_analysis, readable)?
-        .into_iter()
-        .filter(|_| refused.is_none())
-        .filter(|(id, _)| !before.contains(id))
-        .map(|(id, title)| OpenQuestion { id, title })
-        .collect();
-    let warnings = |review: &Value| -> Vec<Value> {
-        review["problems"]
-            .as_array()
-            .cloned()
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|p| p["severity"] != "info")
-            .collect()
-    };
-    // A problem is its code, its subject and its message; an old problem's subject (an answer
-    // ID, which its message may quote) is read in the new part first.
-    let key = |p: &Value, old: bool| {
-        let text = |k: &str| p[k].as_str().unwrap_or_default().to_string();
-        let (about, message) = (text("about"), text("message"));
-        if old && !about.is_empty() {
-            let now = rename(&about);
-            let message = message.replace(&about, &now);
-            (text("code"), now, message)
-        } else {
-            (text("code"), about, message)
-        }
-    };
-    let (was, now) = (
-        warnings(&api::review(&old_analysis, answers)?),
-        match &new_review {
-            Ok(review) => warnings(review),
-            Err(message) => vec![serde_json::json!({
-                "severity": "warning",
-                "code": "carry_refused",
-                "message": format!(
-                    "The new part refuses the carried answers, and no one answer can be \
-                     told to be the cause: {message}. Review them before writing."
-                ),
-                "faces": [],
-                "about": "",
-            })],
-        },
-    );
-    let (was_keys, now_keys): (BTreeSet<_>, BTreeSet<_>) = (
-        was.iter().map(|p| key(p, true)).collect(),
-        now.iter().map(|p| key(p, false)).collect(),
-    );
-    let problems = Problems {
-        added: now
-            .iter()
-            .filter(|p| !was_keys.contains(&key(p, false)))
-            .cloned()
-            .collect(),
-        resolved: was
-            .iter()
-            .filter(|p| !now_keys.contains(&key(p, true)))
-            .cloned()
-            .collect(),
-    };
-
     // The picture's faces.
     let mut face_class: BTreeMap<usize, &'static str> = BTreeMap::new();
     for n in &corr.new_faces {
@@ -2413,84 +1669,46 @@ pub fn diff_with_options(
     gone.sort_unstable();
     gone.dedup();
 
-    // The PMI: Specify's in the new file against the answers carried, and the files' own.
-    let new_prompts: BTreeMap<String, String> = api::questions(&new_analysis, readable)?
-        .into_iter()
-        .map(|q| (q.id, q.prompt))
-        .collect();
-    let mut stored_changes = Vec::new();
-    if let Some(now) = &new_stored {
-        let ids: BTreeSet<&String> = carried.keys().chain(now.keys()).collect();
-        let word = |v: &Value| match v {
-            Value::String(s) => s.clone(),
-            other => other.to_string(),
-        };
-        for id in ids {
-            let (was, is) = (carried.get(id), now.get(id));
-            let class = match (was, is) {
-                (Some(a), Some(b)) if a == b => continue,
-                (Some(_), Some(_)) => "changed",
-                (Some(_), None) => "removed",
-                _ => "added",
-            };
-            stored_changes.push(PmiChange {
-                class: class.into(),
-                on: new_prompts.get(id).cloned().unwrap_or_default(),
-                old: was.map(word),
-                new: is.map(word),
-                id: id.clone(),
-            });
-        }
-    }
-    let list = |a: &Value| a["existing"].as_array().cloned().unwrap_or_default();
-    let (old_existing, new_existing) = (list(&old_analysis), list(&new_analysis));
-    // Plan scenes with the same geometry-bound history as the eventual write.
-    // Keep opaque transport out of legacy answer counts and stored-answer diffs.
-    let mut pmi_answers = carried.clone();
-    crate::characteristics::carry_revision(old, new, &corr, &mut pmi_answers)
-        .map_err(api::Error::Analysis)?;
-    let (items, scenes) = pmi::diff(
+    // The PMI: each file's own requirements, compared through the face matching.
+    let pmi::Compared {
+        items,
+        scenes,
+        new_file,
+        new_ids,
+    } = pmi::diff(
         old,
         new,
         (&old_analysis, &new_analysis),
-        (!given.is_empty()).then_some(given),
-        if refused.is_some() {
-            &none
-        } else {
-            &pmi_answers
-        },
+        &corr,
         (
             &geometric_faces,
             corr.alignment.found.then_some(&corr.alignment.rotation),
         ),
         (&old_features, &new_features),
     )?;
-
-    let check_lines = pmi::check_lines(&check, &new_features, &scenes.new);
+    // The new file's requirements on a feature that moved or changed size: a pattern changes
+    // with its members.
+    let mut changed_features: BTreeMap<String, BTreeMap<String, qc::Change>> = changed.clone();
+    for f in &new_features {
+        if !changed_features.contains_key(&f.id)
+            && let Some(changes) = f.members.iter().find_map(|m| changed.get(m))
+        {
+            changed_features.insert(f.id.clone(), changes.clone());
+        }
+    }
+    let mut check = pmi::checks(&changed_features, &new_features, &new_file);
+    for c in &mut check {
+        if let Some(id) = new_ids.get(&c.id) {
+            c.id = id.clone();
+        }
+    }
+    let check_lines = pmi::check_lines(&check, &new_features);
     let pmi_graphics = pmi_picture::graphics(&items, &scenes);
     let pmi = Pmi {
-        answers_from: answers_from.into(),
-        new_stored: new_stored.is_some(),
-        stored: stored_changes,
-        existing: compare_existing(
-            &old_existing,
-            &new_existing,
-            &geometric_faces,
-            &old_features,
-            &new_features,
-        ),
-        existing_count: [old_existing.len(), new_existing.len()],
         items,
         scenes: options.scenes.then_some(scenes),
     };
-    let open_count = unresolved.len() + questions.len();
-    let verdict = if !problems.added.is_empty() {
-        "problems"
-    } else if open_count > 0 {
-        "decide"
-    } else {
-        "ok"
-    };
+    let verdict = if check.is_empty() { "ok" } else { "decide" };
     let plural = |n: usize, one: &str, many: &str| {
         if n == 1 {
             format!("1 {one}")
@@ -2576,41 +1794,7 @@ pub fn diff_with_options(
         part.join(", ")
     };
     part[..1].make_ascii_uppercase();
-    let mut summary = match verdict {
-        "ok" if carried.is_empty() => {
-            format!(
-                "{part}. There are no saved requirements to apply, and no new requirements to specify."
-            )
-        }
-        "ok" => format!(
-            "{part}. {} to the changed part.",
-            if carried.len() == 1 {
-                "The requirement still applies".to_string()
-            } else {
-                format!("All {} requirements still apply", carried.len())
-            }
-        ),
-        "decide" => {
-            let mut parts = Vec::new();
-            if !unresolved.is_empty() {
-                parts.push(format!(
-                    "{} could not be applied",
-                    plural(unresolved.len(), "requirement", "requirements")
-                ));
-            }
-            if !questions.is_empty() {
-                parts.push(format!(
-                    "{} to specify",
-                    plural(questions.len(), "new requirement", "new requirements")
-                ));
-            }
-            format!("{part}. A decision is needed: {}.", parts.join(", "))
-        }
-        _ => format!(
-            "{part}. Review finds {} on the new part it did not before.",
-            plural(problems.added.len(), "problem", "problems")
-        ),
-    };
+    let mut summary = format!("{part}.");
     if !check_lines.is_empty() {
         summary.push_str(&format!(
             " {} need{} checking: {}",
@@ -2620,15 +1804,6 @@ pub fn diff_with_options(
         ));
         summary.push('.');
     }
-    carried = pmi_answers;
-    crate::bom::carry(old, &mut carried).map_err(api::Error::Analysis)?;
-    crate::answer_file::attach(
-        new,
-        &mut carried,
-        answers,
-        unresolved.iter().map(|u| (u.id.clone(), u.reason.clone())),
-    )
-    .map_err(api::Error::Analysis)?;
     let alignment = corr.alignment.clone();
     let mut revised = Revised {
         pmi_graphics,
@@ -2636,9 +1811,6 @@ pub fn diff_with_options(
         pmi,
         verdict: verdict.into(),
         summary,
-        answers: carried,
-        migrated,
-        unresolved,
         check,
         features: feature_changes,
         other_faces,
@@ -2648,8 +1820,6 @@ pub fn diff_with_options(
             old: old_size,
             new: new_size,
         },
-        questions,
-        problems,
         frame_tie: None,
         faces: face_class,
         gone,
@@ -3517,20 +2687,6 @@ impl Revised {
         {
             let p = &self.pmi;
             let mut lines = Vec::new();
-            if p.answers_from == "stored" {
-                lines.push(
-                    "The comparison uses the requirements stored in the old file's Specify PMI."
-                        .into(),
-                );
-            }
-            // Only where the old file held them: answers kept beside the files stay there.
-            if p.answers_from == "stored" && !p.new_stored && !self.answers.is_empty() {
-                lines.push(
-                    "The new file has no Specify PMI yet: write the applicable requirements \
-                     (`answers.json`) to it with `specify-core write`."
-                        .into(),
-                );
-            }
             // A requirement only numbered differently has not changed: it follows the changes.
             let (renumbered, edits): (Vec<_>, Vec<_>) =
                 p.items.iter().partition(|c| c.class == "renumbered");
@@ -3569,55 +2725,12 @@ impl Revised {
                 s += "\n";
             }
         }
-        if !self.unresolved.is_empty() {
-            s += "**Requirements not applied**\n\n";
-            for u in &self.unresolved {
-                let _ = writeln!(
-                    s,
-                    "- **{}** (`{}`): {}{}",
-                    fmt(&u.answer),
-                    u.id,
-                    u.reason,
-                    if u.candidates.is_empty() {
-                        String::new()
-                    } else {
-                        format!(" ({})", u.candidates.join(", "))
-                    }
-                );
-            }
-            s += "\n";
-        }
         if !self.check.is_empty() {
             s += "**Requirements to check**\n\n";
             for line in &self.check_lines {
                 let _ = writeln!(s, "- {line}.");
             }
             s += "\n";
-        }
-        if !self.questions.is_empty() {
-            s += "**Requirements to specify**\n\n";
-            for q in &self.questions {
-                let _ = writeln!(s, "- {} (`{}`)", q.title, q.id);
-            }
-            s += "\n";
-        }
-        if !self.problems.added.is_empty() {
-            s += "**New problems**\n\n";
-            for p in &self.problems.added {
-                let _ = writeln!(s, "- {}", p["message"].as_str().unwrap_or_default());
-            }
-            s += "\n";
-        }
-        if !self.migrated.is_empty() {
-            let _ = writeln!(
-                s,
-                "{} carried to renumbered faces.\n",
-                if self.migrated.len() == 1 {
-                    "1 requirement was".to_string()
-                } else {
-                    format!("{} requirements were", self.migrated.len())
-                }
-            );
         }
         s
     }

@@ -41,12 +41,10 @@ try {
   assert.deepEqual(rematched.answers, expected);
   assert.equal(rematched.unresolved, undefined);
   assert.deepEqual(rematched.automatic, Object.keys(expected));
-  const report = JSON.parse(diff('old.step', oldBytes, 'new.step', newBytes, JSON.stringify(given), 'Named rebuild')).report;
-  // Diff answer maps now transport the destination evidence beside the same requirements.
-  assert.deepEqual(report.answers, {
-    ...expected, _specify: { evidence: JSON.parse(next.evidence()), unresolved: {} },
-  });
-  assert.deepEqual(report.unresolved, []);
+  // Diff reads the files' PMI only and carries no answers (ADR P11).
+  const report = JSON.parse(diff('old.step', oldBytes, 'new.step', newBytes, '{}', 'Named rebuild')).report;
+  assert.equal(report.answers, undefined);
+  assert.equal(report.unresolved, undefined);
   for (const [changed, reason] of [
     [renamed(oldBytes, hole, ''), /not in this revision/],
     [renamed(oldBytes, name('body_make_cylinder2', 1), hole), /ambiguous face name/],
@@ -107,7 +105,9 @@ const before = new IntentEngine('plate_v1.step', beforeBytes);
 const after = new IntentEngine('plate_v2.step', afterBytes);
 try {
   const given = { 'part.material': '6061-T6', 'datum.A': [4], 'datum.B': [1], 'datum.C': [0] };
-  const carried = JSON.parse(diff('old.step', beforeBytes, 'new.step', afterBytes, JSON.stringify(given), 'Split')).report.answers;
+  // An answers file carried with its datum dropped, as an earlier diff returned one.
+  const carried = { 'part.material': given['part.material'],
+    _specify: { evidence: JSON.parse(after.evidence()), unresolved: { 'datum.A': 'face 4 has no match in the new part' } } };
   const blocked = JSON.stringify(carried);
   const question = JSON.parse(after.review(blocked)).questions.find(q => q.id === 'datum.A');
   assert.equal(question.default, null);
@@ -127,9 +127,10 @@ try {
     assert.deepEqual(resumed['datum.A'], [4, 8]);
     assert.equal(resumed._specify, undefined, 'transport is consumed before storing answers');
   } finally { back.free(); }
-  const saved = JSON.parse(diff('old.step', beforeBytes, 'old.step', beforeBytes, JSON.stringify(given), 'Unchanged')).report.answers;
+  // Answers saved with the old geometry's evidence.
+  const saved = { ...given, _specify: { evidence: JSON.parse(before.evidence()), unresolved: {} } };
   before.writePmi(JSON.stringify(saved));
-  assert.throws(() => after.writePmi(JSON.stringify(saved)), e => typeof e === 'string' && /stale answers.*diff/.test(e));
+  assert.throws(() => after.writePmi(JSON.stringify(saved)), e => typeof e === 'string' && /stale answers.*another revision/.test(e));
   const rematched = JSON.parse(after.rematchAnswers(JSON.stringify(saved))).answers;
   assert.throws(() => after.acceptDefaults(JSON.stringify(rematched)), e => typeof e === 'string' && /carried answer could not be applied/.test(e));
 } finally { before.free(); after.free(); }

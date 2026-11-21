@@ -1,6 +1,7 @@
 // What a revision report (`GET diff`, `specify-core diff`'s report.json, docs/diff.md) leaves to
-// the person: requirements that could not be carried (`unresolved`), carried ones to check
-// (`check`) and new questions to specify (`questions`). Each opens its question in the answers.
+// the person: the new file's requirements on a feature that moved or changed size (`check`).
+// Diff reads the two files' PMI only (ADR P11): it carries no answers and asks no questions, so a
+// check names no question. (`unresolved` and `questions` are read too, from older reports.)
 
 export interface Decision {
   kind: 'unresolved' | 'check' | 'specify';
@@ -25,9 +26,9 @@ export function decisions(report: unknown): Decision[] {
       why: text(row.reason) || 'This requirement could not be applied to the new revision.',
     })),
     ...rows(r.check).map((row): Decision => ({
-      kind: 'check', question: id(row),
-      what: `Check: ${text(row.question) || text(row.id)}`,
-      why: `Carried as ${JSON.stringify(row.answer)}; its feature changed, so it may no longer fit.`,
+      kind: 'check', question: null,
+      what: `Check: ${text(row.requirement) || text(row.id)}`,
+      why: 'Its feature moved or changed size, so it may no longer fit.',
     })),
     ...rows(r.questions).map((row): Decision => ({
       kind: 'specify', question: id(row),

@@ -37,6 +37,8 @@ pub struct Scene {
     stored: Option<Map<String, Value>>,
     foreign: Option<(Document, pmi::PmiRead)>,
     reconciling: bool,
+    /// Read for `diff`: the file's PMI only, whoever wrote it.
+    of_file: bool,
 }
 
 impl Scene {
@@ -72,7 +74,30 @@ impl Scene {
             stored,
             foreign,
             reconciling: false,
+            of_file: false,
         })
+    }
+
+    /// The file's PMI only, read as any file's is: no stored answers are read, so nothing
+    /// depends on which tool wrote an item (ADR P11). For `diff`.
+    pub(crate) fn of_file(loaded: &LoadedPart) -> Result<Self, String> {
+        let doc = Document::parse(loaded.bytes.to_vec()).map_err(|e| e.to_string())?;
+        let defs = step::read_part_definitions(&loaded.bytes).map_err(|e| e.to_string())?;
+        let read = pmi::read(&doc, &defs).map_err(|e| e.to_string())?;
+        Ok(Self {
+            doc,
+            read,
+            index: loaded.binding.part,
+            stored: None,
+            foreign: None,
+            reconciling: false,
+            of_file: true,
+        })
+    }
+
+    /// The file's requirements in current semantic notation, for a revision comparison.
+    pub(crate) fn file_comparison(&self, loaded: &LoadedPart) -> Result<Value, String> {
+        self.file(loaded, None, true)
     }
 
     /// Compare saved answers even when an unmarked process would prevent writing them.
@@ -666,6 +691,13 @@ impl Scene {
             let ids: std::collections::BTreeSet<_> = semantic.ids.values().flatten().collect();
             metadata.retain(|id, _| ids.contains(id));
         }
+        if self.of_file {
+            // A requirement's notes are named by their owner, as for a file Specify wrote, so a
+            // thread's manufacturing note is compared with its thread.
+            attribute_ids(&mut semantic, &mut metadata)?;
+            let ids: std::collections::BTreeSet<_> = semantic.ids.values().flatten().collect();
+            metadata.retain(|id, _| ids.contains(id));
+        }
         let mut graphics = if comparison {
             presentation::generated(&semantic, &loaded.part)
         } else {
@@ -676,6 +708,28 @@ impl Scene {
             notes::file(doc, read, self.index, &semantic, loaded, &mut graphics)?;
         }
         let mut result = encode(&semantic, graphics, metadata)?;
+        if self.of_file {
+            // Stored answers are no PMI: the scene is the same with or without them (ADR P11).
+            let answers: Vec<String> = semantic.ids["attributes"]
+                .iter()
+                .zip(&semantic.pmi.attributes)
+                .filter(|(_, a)| resume::is_answers(a))
+                .map(|(id, _)| id.clone())
+                .collect();
+            if let Some(rows) = result["pmi"]["pmi"]["attributes"].as_array_mut() {
+                rows.retain(|row| {
+                    row["id"]
+                        .as_str()
+                        .is_none_or(|id| !answers.iter().any(|a| a == id))
+                });
+            }
+            if let Some(ids) = result["presentation"]["semantic_ids"].as_array_mut() {
+                ids.retain(|id| {
+                    id.as_str()
+                        .is_none_or(|id| !answers.iter().any(|a| a == id))
+                });
+            }
+        }
         // Append keeps the original callout records. Reopening must still draw
         // just one block, including the requirements from both generations.
         if notes::multiple_blocks(&result) {

@@ -1,7 +1,7 @@
 //! For #79: STEP is the assembly BOM authority; no entity-number identities.
 use haecceity::p21::{self, Attribute as A, Document, Edit, RawEntity};
 use serde_json::{Map, Value, json};
-use specify_core::{api, bom, part, resume, revision, rules, writer};
+use specify_core::{api, bom, part, resume, rules, writer};
 use std::path::{Path, PathBuf};
 
 fn fixture() -> part::File {
@@ -213,114 +213,6 @@ fn added(source: &part::File) -> part::File {
     ));
     file(doc.apply(&edit).unwrap().bytes)
 }
-fn removed(source: &part::File, part: usize) -> part::File {
-    let doc = Document::parse(source.bytes().as_ref().clone()).unwrap();
-    let shape = source.definitions()[part].shape;
-    let mut edit = Edit::new();
-    for id in doc.ids() {
-        if attrs(&doc, id, "SHAPE_DEFINITION_REPRESENTATION")
-            .is_some_and(|a| a[0] == A::EntityRef(shape))
-        {
-            edit.remove(id);
-        }
-    }
-    file(doc.apply(&edit).unwrap().bytes)
-}
-#[test]
-fn adding_removing_and_readding_retires_numbers_with_geometric_identity() {
-    let first = file(write(&fixture(), &answers()));
-    let fresh = fixture();
-    let expanded = added(&fresh);
-    assert_eq!(expanded.definitions().len(), 3);
-    let mut given = answers();
-    given[0].extend(
-        revision::diff(
-            &first.load(Some(0)).unwrap(),
-            &expanded.load(Some(0)).unwrap(),
-            &Map::new(),
-        )
-        .unwrap()
-        .answers,
-    );
-    given.push(json!({"bom.make_buy":"made"}).as_object().unwrap().clone());
-    let grown = file(write(&expanded, &given));
-    let rows = bom::read(&grown).unwrap();
-    assert_eq!(
-        rows.iter()
-            .map(|r| r.item_number.value.clone())
-            .collect::<Vec<_>>(),
-        vec![json!(1), json!(2), json!(3)]
-    );
-    let shrunk = removed(&expanded, 0);
-    assert_eq!(shrunk.definitions().len(), 2);
-    // Stripping an old leaf's shape changes which indexes are loaded, not identities.
-    let mut surviving = given[1..].to_vec();
-    surviving[0].extend(
-        revision::diff(
-            &grown.load(Some(1)).unwrap(),
-            &shrunk.load(Some(0)).unwrap(),
-            &Map::new(),
-        )
-        .unwrap()
-        .answers,
-    );
-    let shrunk_written = file(write(&shrunk, &surviving));
-    assert_eq!(
-        bom::read(&shrunk_written)
-            .unwrap()
-            .iter()
-            .map(|r| r.item_number.value.clone())
-            .collect::<Vec<_>>(),
-        vec![json!(2), json!(3)]
-    );
-    let restored = added(&shrunk);
-    let mut a = surviving;
-    a[0].extend(
-        revision::diff(
-            &shrunk_written.load(Some(0)).unwrap(),
-            &restored.load(Some(0)).unwrap(),
-            &Map::new(),
-        )
-        .unwrap()
-        .answers,
-    );
-    // added() clones the first surviving shape: this new part is a pin, not the removed
-    // plate. A real user's old plate sidecar must be refused; explicitly diff the matching
-    // old plate onto the new part before reusing its BOM answers. Keep the evidence.
-    let old_plate = grown.load(Some(0)).unwrap();
-    let new_pin = restored.load(Some(2)).unwrap();
-    assert_ne!(old_plate.binding.face_count, new_pin.binding.face_count);
-    assert_eq!(
-        resume::fingerprint(&new_pin).unwrap(),
-        resume::fingerprint(&restored.load(Some(0)).unwrap()).unwrap()
-    );
-    let stale = writer::write_bytes(
-        &new_pin,
-        &rules::Intent::new(serde_json::to_value(&new_pin.binding).unwrap()),
-        Some(&given[0]),
-    )
-    .unwrap_err();
-    assert!(stale.to_string().contains("stale answers"), "{stale}");
-    let mut restored_answers = revision::diff(&old_plate, &new_pin, &given[0])
-        .unwrap()
-        .answers;
-    assert_eq!(
-        restored_answers["_specify"]["evidence"],
-        resume::evidence(&new_pin).unwrap()
-    );
-    restored_answers.remove(bom::CARRY);
-    a.push(restored_answers);
-    let restored = file(write(&restored, &a));
-    assert_eq!(
-        bom::read(&restored)
-            .unwrap()
-            .iter()
-            .map(|r| r.item_number.value.clone())
-            .collect::<Vec<_>>(),
-        vec![json!(2), json!(3), json!(4)]
-    );
-}
-
 #[test]
 fn exported_description_and_revision_are_file_data_and_overrides_append() {
     let f = fixture();
@@ -343,23 +235,6 @@ fn exported_description_and_revision_are_file_data_and_overrides_append() {
     assert_eq!(
         bom::read(&back).unwrap()[0].description,
         rows[0].description
-    );
-}
-
-#[test]
-fn revision_transport_retains_history_without_entity_ids() {
-    let first = file(write(&fixture(), &answers()));
-    let old = first.load(Some(0)).unwrap();
-    let new = fixture().load(Some(0)).unwrap();
-    let carried = revision::diff(&old, &new, &Map::new()).unwrap().answers;
-    assert!(carried.contains_key(bom::CARRY));
-    let mut a = answers();
-    a[0].extend(carried);
-    assert_eq!(
-        bom::read_bytes(write(&fixture(), &a)).unwrap()[0]
-            .item_number
-            .value,
-        1
     );
 }
 
@@ -470,47 +345,6 @@ fn gramil_acceptance() {
     std::fs::write(
         dir.join("gramil.json"),
         serde_json::to_vec_pretty(&rows).unwrap(),
-    )
-    .unwrap();
-    // A real 1 x 3.6 x 23 mm channel shim, matching gramil's Box construction.
-    let variant = part::File::read(
-        &PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/bom/gramil-spacer.step.gz"),
-    )
-    .unwrap();
-    let mut variant_answers = a.clone();
-    variant_answers[0].extend(
-        revision::diff(
-            &file(std::fs::read(dir.join("gramil.step")).unwrap())
-                .load(Some(0))
-                .unwrap(),
-            &variant.load(Some(0)).unwrap(),
-            &Map::new(),
-        )
-        .unwrap()
-        .answers,
-    );
-    variant_answers.push(json!({"bom.make_buy":"made","bom.description":"Channel-width shim, 1 mm","bom.optional":"yes","bom.stock":"from stock","part.material":"Brass"}).as_object().unwrap().clone());
-    let variant_bytes = write(&variant, &variant_answers);
-    let variant_rows = bom::read_bytes(variant_bytes.clone()).unwrap();
-    assert_eq!(variant_rows.len(), rows.len() + 1);
-    assert_eq!(
-        variant_rows[..rows.len()]
-            .iter()
-            .map(|r| r.item_number.value.clone())
-            .collect::<Vec<_>>(),
-        rows.iter()
-            .map(|r| r.item_number.value.clone())
-            .collect::<Vec<_>>()
-    );
-    let spacer = variant_rows.last().unwrap();
-    assert_eq!(spacer.name.value, "channel spacer");
-    assert_eq!(spacer.item_number.value, 13);
-    assert_eq!(spacer.optional.value, true);
-    assert_eq!(spacer.quantity.value, 1);
-    std::fs::write(dir.join("gramil-spacer.step"), variant_bytes).unwrap();
-    std::fs::write(
-        dir.join("gramil-spacer.json"),
-        serde_json::to_vec_pretty(&variant_rows).unwrap(),
     )
     .unwrap();
     println!("gramil artifacts: {}", dir.display());
@@ -650,43 +484,6 @@ fn invalid_optional_and_transport_are_refused_and_destination_history_wins() {
 }
 
 #[test]
-fn entity_renumbering_and_part_reordering_do_not_establish_identity() {
-    let original = fixture();
-    let numbered = file(write(&original, &answers()));
-    let doc = Document::parse(original.bytes().as_ref().clone()).unwrap();
-    let source = String::from_utf8(original.bytes().as_ref().clone()).unwrap();
-    let renumbered = regex::Regex::new(r"#(\d+)")
-        .unwrap()
-        .replace_all(&source, |c: &regex::Captures| {
-            format!("#{}", doc.max_id() + 1 - c[1].parse::<u64>().unwrap())
-        });
-    let reordered = file(renumbered.as_bytes().to_vec());
-    let new_parts = reordered.load_all().unwrap();
-    let mut a: Vec<_> = new_parts
-        .iter()
-        .map(|p| {
-            let k = if p.name == "plate" { 0 } else { 1 };
-            answers()[k].clone()
-        })
-        .collect();
-    let old = numbered.load(Some(0)).unwrap();
-    let new = new_parts.iter().find(|p| p.name == "plate").unwrap();
-    a[0].extend(
-        revision::diff(&old, new, &Map::new())
-            .unwrap()
-            .answers
-            .into_iter()
-            .filter(|(k, _)| k == bom::CARRY),
-    );
-    for row in bom::read_bytes(write(&reordered, &a)).unwrap() {
-        assert_eq!(
-            row.item_number.value,
-            if row.name.value == "plate" { 1 } else { 2 }
-        );
-    }
-}
-
-#[test]
 fn pmi_and_bom_share_one_verified_write_and_partial_edits_keep_other_rows() {
     let source = fixture();
     let loaded = source.load(Some(0)).unwrap();
@@ -731,59 +528,6 @@ fn pmi_and_bom_share_one_verified_write_and_partial_edits_keep_other_rows() {
     let rows = bom::read_bytes(bytes).unwrap();
     assert_eq!(rows[0].description.value, "Plate with datum A");
     assert_eq!(rows[1].stock.value, "from stock");
-}
-
-#[test]
-fn an_assembly_with_every_part_renamed_keeps_bom_answers_and_numbers() {
-    let source = fixture();
-    let old = file(write(&source, &answers()));
-    let new = renamed(&source);
-    let compared = revision::assembly::diff(
-        &old.load_all().unwrap(),
-        &new.load_all().unwrap(),
-        &Map::new(),
-    )
-    .unwrap();
-    let transport = compared.answers();
-    assert_eq!(transport.len(), 2);
-    let a: Vec<_> = new
-        .parts()
-        .iter()
-        .map(|p| {
-            let mut a = transport[&p.name].as_object().unwrap().clone();
-            a.insert("bom.stock".into(), json!("from stock"));
-            a
-        })
-        .collect();
-    let rows = bom::read_bytes(write(&new, &a)).unwrap();
-    assert_eq!(rows[0].item_number.value, 1);
-    assert_eq!(rows[1].item_number.value, 2);
-    assert_eq!(rows[0].description.value, "Mounting plate");
-    assert_eq!(rows[1].description.value, "Locating pin");
-    assert_eq!(rows[0].material.value, "brass");
-}
-
-/// `source` with the plate and the pin renamed.
-fn renamed(source: &part::File) -> part::File {
-    let doc = Document::parse(source.bytes().as_ref().clone()).unwrap();
-    let mut edit = Edit::new();
-    for id in doc.ids() {
-        if let Some(mut a) = attrs(&doc, id, "PRODUCT")
-            && matches!(a.get(1),Some(A::String(s)) if s=="plate" || s=="pin")
-        {
-            let A::String(name) = &a[1] else { panic!() };
-            a[1] = A::String(format!("renamed {name}"));
-            edit.replace(id, p21::simple("PRODUCT", a));
-        }
-        if let Some(mut a) = attrs(&doc, id, "NEXT_ASSEMBLY_USAGE_OCCURRENCE")
-            && matches!(a.get(1),Some(A::String(s)) if s=="plate" || s=="pin")
-        {
-            let A::String(name) = &a[1] else { panic!() };
-            a[1] = A::String(format!("renamed {name}"));
-            edit.replace(id, p21::simple("NEXT_ASSEMBLY_USAGE_OCCURRENCE", a));
-        }
-    }
-    file(doc.apply(&edit).unwrap().bytes)
 }
 
 #[test]
@@ -1132,14 +876,6 @@ fn aged(bytes: Vec<u8>, entries: usize) -> part::File {
             .into_bytes(),
     )
 }
-fn item_numbers(bytes: Vec<u8>) -> Vec<Value> {
-    bom::read_bytes(bytes)
-        .unwrap()
-        .into_iter()
-        .map(|r| r.item_number.value)
-        .collect()
-}
-
 #[test]
 fn a_history_fingerprinted_before_quiddity_0_5_keeps_its_numbers() {
     let old = aged(write(&fixture(), &answers()), 2);
@@ -1150,81 +886,385 @@ fn a_history_fingerprinted_before_quiddity_0_5_keeps_its_numbers() {
     assert_eq!(rows[1].description.value, "Locating pin");
 }
 
+// Carried by `diff` before ADR P11; `carry` (piece 4) is to carry it again. The body needs the
+// answers `diff` returned, so it is kept as written, commented, for the carry branch to restore.
 #[test]
-fn a_part_removed_from_an_old_history_keeps_its_number_retired() {
-    let first = file(write(&fixture(), &answers()));
-    let expanded = added(&fixture());
-    let mut given = answers();
-    given[0].extend(
-        revision::diff(
-            &first.load(Some(0)).unwrap(),
-            &expanded.load(Some(0)).unwrap(),
-            &Map::new(),
-        )
-        .unwrap()
-        .answers,
-    );
-    given.push(json!({"bom.make_buy":"made"}).as_object().unwrap().clone());
-    let grown = aged(write(&expanded, &given), 3);
-    assert_eq!(
-        item_numbers(grown.bytes().as_ref().clone()),
-        [json!(1), json!(2), json!(3)]
-    );
-    let shrunk = removed(&expanded, 0);
-    let mut surviving = given[1..].to_vec();
-    surviving[0].extend(
-        revision::diff(
-            &grown.load(Some(1)).unwrap(),
-            &shrunk.load(Some(0)).unwrap(),
-            &Map::new(),
-        )
-        .unwrap()
-        .answers,
-    );
-    let shrunk_written = file(write(&shrunk, &surviving));
-    assert_eq!(
-        item_numbers(shrunk_written.bytes().as_ref().clone()),
-        [json!(2), json!(3)]
-    );
-    // The removed plate's number stays retired: a part added now takes the next one.
-    let restored = added(&shrunk);
-    let mut a = surviving;
-    a.push(json!({"bom.make_buy":"made"}).as_object().unwrap().clone());
-    a[0].extend(
-        revision::diff(
-            &shrunk_written.load(Some(0)).unwrap(),
-            &restored.load(Some(0)).unwrap(),
-            &Map::new(),
-        )
-        .unwrap()
-        .answers,
-    );
-    assert_eq!(
-        item_numbers(write(&restored, &a)),
-        [json!(2), json!(3), json!(4)]
-    );
+#[ignore = "0.3.0: moves to carry (piece 4)"]
+fn adding_removing_and_readding_retires_numbers_with_geometric_identity() {
+    // fn adding_removing_and_readding_retires_numbers_with_geometric_identity() {
+    //     let first = file(write(&fixture(), &answers()));
+    //     let fresh = fixture();
+    //     let expanded = added(&fresh);
+    //     assert_eq!(expanded.definitions().len(), 3);
+    //     let mut given = answers();
+    //     given[0].extend(
+    //         revision::diff(
+    //             &first.load(Some(0)).unwrap(),
+    //             &expanded.load(Some(0)).unwrap(),
+    //             &Map::new(),
+    //         )
+    //         .unwrap()
+    //         .answers,
+    //     );
+    //     given.push(json!({"bom.make_buy":"made"}).as_object().unwrap().clone());
+    //     let grown = file(write(&expanded, &given));
+    //     let rows = bom::read(&grown).unwrap();
+    //     assert_eq!(
+    //         rows.iter()
+    //             .map(|r| r.item_number.value.clone())
+    //             .collect::<Vec<_>>(),
+    //         vec![json!(1), json!(2), json!(3)]
+    //     );
+    //     let shrunk = removed(&expanded, 0);
+    //     assert_eq!(shrunk.definitions().len(), 2);
+    //     // Stripping an old leaf's shape changes which indexes are loaded, not identities.
+    //     let mut surviving = given[1..].to_vec();
+    //     surviving[0].extend(
+    //         revision::diff(
+    //             &grown.load(Some(1)).unwrap(),
+    //             &shrunk.load(Some(0)).unwrap(),
+    //             &Map::new(),
+    //         )
+    //         .unwrap()
+    //         .answers,
+    //     );
+    //     let shrunk_written = file(write(&shrunk, &surviving));
+    //     assert_eq!(
+    //         bom::read(&shrunk_written)
+    //             .unwrap()
+    //             .iter()
+    //             .map(|r| r.item_number.value.clone())
+    //             .collect::<Vec<_>>(),
+    //         vec![json!(2), json!(3)]
+    //     );
+    //     let restored = added(&shrunk);
+    //     let mut a = surviving;
+    //     a[0].extend(
+    //         revision::diff(
+    //             &shrunk_written.load(Some(0)).unwrap(),
+    //             &restored.load(Some(0)).unwrap(),
+    //             &Map::new(),
+    //         )
+    //         .unwrap()
+    //         .answers,
+    //     );
+    //     // added() clones the first surviving shape: this new part is a pin, not the removed
+    //     // plate. A real user's old plate sidecar must be refused; explicitly diff the matching
+    //     // old plate onto the new part before reusing its BOM answers. Keep the evidence.
+    //     let old_plate = grown.load(Some(0)).unwrap();
+    //     let new_pin = restored.load(Some(2)).unwrap();
+    //     assert_ne!(old_plate.binding.face_count, new_pin.binding.face_count);
+    //     assert_eq!(
+    //         resume::fingerprint(&new_pin).unwrap(),
+    //         resume::fingerprint(&restored.load(Some(0)).unwrap()).unwrap()
+    //     );
+    //     let stale = writer::write_bytes(
+    //         &new_pin,
+    //         &rules::Intent::new(serde_json::to_value(&new_pin.binding).unwrap()),
+    //         Some(&given[0]),
+    //     )
+    //     .unwrap_err();
+    //     assert!(stale.to_string().contains("stale answers"), "{stale}");
+    //     let mut restored_answers = revision::diff(&old_plate, &new_pin, &given[0])
+    //         .unwrap()
+    //         .answers;
+    //     assert_eq!(
+    //         restored_answers["_specify"]["evidence"],
+    //         resume::evidence(&new_pin).unwrap()
+    //     );
+    //     restored_answers.remove(bom::CARRY);
+    //     a.push(restored_answers);
+    //     let restored = file(write(&restored, &a));
+    //     assert_eq!(
+    //         bom::read(&restored)
+    //             .unwrap()
+    //             .iter()
+    //             .map(|r| r.item_number.value.clone())
+    //             .collect::<Vec<_>>(),
+    //         vec![json!(2), json!(3), json!(4)]
+    //     );
+    // }
 }
 
+// Carried by `diff` before ADR P11; `carry` (piece 4) is to carry it again. The body needs the
+// answers `diff` returned, so it is kept as written, commented, for the carry branch to restore.
 #[test]
+#[ignore = "0.3.0: moves to carry (piece 4)"]
+fn revision_transport_retains_history_without_entity_ids() {
+    // fn revision_transport_retains_history_without_entity_ids() {
+    //     let first = file(write(&fixture(), &answers()));
+    //     let old = first.load(Some(0)).unwrap();
+    //     let new = fixture().load(Some(0)).unwrap();
+    //     let carried = revision::diff(&old, &new, &Map::new()).unwrap().answers;
+    //     assert!(carried.contains_key(bom::CARRY));
+    //     let mut a = answers();
+    //     a[0].extend(carried);
+    //     assert_eq!(
+    //         bom::read_bytes(write(&fixture(), &a)).unwrap()[0]
+    //             .item_number
+    //             .value,
+    //         1
+    //     );
+    // }
+}
+
+// Carried by `diff` before ADR P11; `carry` (piece 4) is to carry it again. The body needs the
+// answers `diff` returned, so it is kept as written, commented, for the carry branch to restore.
+#[test]
+#[ignore = "0.3.0: moves to carry (piece 4)"]
+fn entity_renumbering_and_part_reordering_do_not_establish_identity() {
+    // fn entity_renumbering_and_part_reordering_do_not_establish_identity() {
+    //     let original = fixture();
+    //     let numbered = file(write(&original, &answers()));
+    //     let doc = Document::parse(original.bytes().as_ref().clone()).unwrap();
+    //     let source = String::from_utf8(original.bytes().as_ref().clone()).unwrap();
+    //     let renumbered = regex::Regex::new(r"#(\d+)")
+    //         .unwrap()
+    //         .replace_all(&source, |c: &regex::Captures| {
+    //             format!("#{}", doc.max_id() + 1 - c[1].parse::<u64>().unwrap())
+    //         });
+    //     let reordered = file(renumbered.as_bytes().to_vec());
+    //     let new_parts = reordered.load_all().unwrap();
+    //     let mut a: Vec<_> = new_parts
+    //         .iter()
+    //         .map(|p| {
+    //             let k = if p.name == "plate" { 0 } else { 1 };
+    //             answers()[k].clone()
+    //         })
+    //         .collect();
+    //     let old = numbered.load(Some(0)).unwrap();
+    //     let new = new_parts.iter().find(|p| p.name == "plate").unwrap();
+    //     a[0].extend(
+    //         revision::diff(&old, new, &Map::new())
+    //             .unwrap()
+    //             .answers
+    //             .into_iter()
+    //             .filter(|(k, _)| k == bom::CARRY),
+    //     );
+    //     for row in bom::read_bytes(write(&reordered, &a)).unwrap() {
+    //         assert_eq!(
+    //             row.item_number.value,
+    //             if row.name.value == "plate" { 1 } else { 2 }
+    //         );
+    //     }
+    // }
+}
+
+// Carried by `diff` before ADR P11; `carry` (piece 4) is to carry it again. The body needs the
+// answers `diff` returned, so it is kept as written, commented, for the carry branch to restore.
+#[test]
+#[ignore = "0.3.0: moves to carry (piece 4)"]
+fn an_assembly_with_every_part_renamed_keeps_bom_answers_and_numbers() {
+    // fn an_assembly_with_every_part_renamed_keeps_bom_answers_and_numbers() {
+    //     let source = fixture();
+    //     let old = file(write(&source, &answers()));
+    //     let new = renamed(&source);
+    //     let compared = revision::assembly::diff(
+    //         &old.load_all().unwrap(),
+    //         &new.load_all().unwrap(),
+    //         &Map::new(),
+    //     )
+    //     .unwrap();
+    //     let transport = compared.answers();
+    //     assert_eq!(transport.len(), 2);
+    //     let a: Vec<_> = new
+    //         .parts()
+    //         .iter()
+    //         .map(|p| {
+    //             let mut a = transport[&p.name].as_object().unwrap().clone();
+    //             a.insert("bom.stock".into(), json!("from stock"));
+    //             a
+    //         })
+    //         .collect();
+    //     let rows = bom::read_bytes(write(&new, &a)).unwrap();
+    //     assert_eq!(rows[0].item_number.value, 1);
+    //     assert_eq!(rows[1].item_number.value, 2);
+    //     assert_eq!(rows[0].description.value, "Mounting plate");
+    //     assert_eq!(rows[1].description.value, "Locating pin");
+    //     assert_eq!(rows[0].material.value, "brass");
+    // }
+}
+
+// Carried by `diff` before ADR P11; `carry` (piece 4) is to carry it again. The body needs the
+// answers `diff` returned, so it is kept as written, commented, for the carry branch to restore.
+#[test]
+#[ignore = "0.3.0: moves to carry (piece 4)"]
+fn a_part_removed_from_an_old_history_keeps_its_number_retired() {
+    // fn a_part_removed_from_an_old_history_keeps_its_number_retired() {
+    //     let first = file(write(&fixture(), &answers()));
+    //     let expanded = added(&fixture());
+    //     let mut given = answers();
+    //     given[0].extend(
+    //         revision::diff(
+    //             &first.load(Some(0)).unwrap(),
+    //             &expanded.load(Some(0)).unwrap(),
+    //             &Map::new(),
+    //         )
+    //         .unwrap()
+    //         .answers,
+    //     );
+    //     given.push(json!({"bom.make_buy":"made"}).as_object().unwrap().clone());
+    //     let grown = aged(write(&expanded, &given), 3);
+    //     assert_eq!(
+    //         item_numbers(grown.bytes().as_ref().clone()),
+    //         [json!(1), json!(2), json!(3)]
+    //     );
+    //     let shrunk = removed(&expanded, 0);
+    //     let mut surviving = given[1..].to_vec();
+    //     surviving[0].extend(
+    //         revision::diff(
+    //             &grown.load(Some(1)).unwrap(),
+    //             &shrunk.load(Some(0)).unwrap(),
+    //             &Map::new(),
+    //         )
+    //         .unwrap()
+    //         .answers,
+    //     );
+    //     let shrunk_written = file(write(&shrunk, &surviving));
+    //     assert_eq!(
+    //         item_numbers(shrunk_written.bytes().as_ref().clone()),
+    //         [json!(2), json!(3)]
+    //     );
+    //     // The removed plate's number stays retired: a part added now takes the next one.
+    //     let restored = added(&shrunk);
+    //     let mut a = surviving;
+    //     a.push(json!({"bom.make_buy":"made"}).as_object().unwrap().clone());
+    //     a[0].extend(
+    //         revision::diff(
+    //             &shrunk_written.load(Some(0)).unwrap(),
+    //             &restored.load(Some(0)).unwrap(),
+    //             &Map::new(),
+    //         )
+    //         .unwrap()
+    //         .answers,
+    //     );
+    //     assert_eq!(
+    //         item_numbers(write(&restored, &a)),
+    //         [json!(2), json!(3), json!(4)]
+    //     );
+    // }
+}
+
+// Carried by `diff` before ADR P11; `carry` (piece 4) is to carry it again. The body needs the
+// answers `diff` returned, so it is kept as written, commented, for the carry branch to restore.
+#[test]
+#[ignore = "0.3.0: moves to carry (piece 4)"]
 fn renamed_parts_of_an_old_history_keep_their_numbers() {
-    let source = fixture();
-    let old = aged(write(&source, &answers()), 2);
-    let new = renamed(&source);
-    let compared = revision::assembly::diff(
-        &old.load_all().unwrap(),
-        &new.load_all().unwrap(),
-        &Map::new(),
-    )
-    .unwrap();
-    let transport = compared.answers();
-    let a: Vec<_> = new
-        .parts()
-        .iter()
-        .map(|p| transport[&p.name].as_object().unwrap().clone())
-        .collect();
-    let rows = bom::read_bytes(write(&new, &a)).unwrap();
-    assert_eq!(rows[0].item_number.value, 1);
-    assert_eq!(rows[1].item_number.value, 2);
-    assert_eq!(rows[0].description.value, "Mounting plate");
-    assert_eq!(rows[1].description.value, "Locating pin");
+    // fn renamed_parts_of_an_old_history_keep_their_numbers() {
+    //     let source = fixture();
+    //     let old = aged(write(&source, &answers()), 2);
+    //     let new = renamed(&source);
+    //     let compared = revision::assembly::diff(
+    //         &old.load_all().unwrap(),
+    //         &new.load_all().unwrap(),
+    //         &Map::new(),
+    //     )
+    //     .unwrap();
+    //     let transport = compared.answers();
+    //     let a: Vec<_> = new
+    //         .parts()
+    //         .iter()
+    //         .map(|p| transport[&p.name].as_object().unwrap().clone())
+    //         .collect();
+    //     let rows = bom::read_bytes(write(&new, &a)).unwrap();
+    //     assert_eq!(rows[0].item_number.value, 1);
+    //     assert_eq!(rows[1].item_number.value, 2);
+    //     assert_eq!(rows[0].description.value, "Mounting plate");
+    //     assert_eq!(rows[1].description.value, "Locating pin");
+    // }
+}
+
+// Helpers of the tests above, kept for the carry branch with them.
+// fn removed(source: &part::File, part: usize) -> part::File {
+//     let doc = Document::parse(source.bytes().as_ref().clone()).unwrap();
+//     let shape = source.definitions()[part].shape;
+//     let mut edit = Edit::new();
+//     for id in doc.ids() {
+//         if attrs(&doc, id, "SHAPE_DEFINITION_REPRESENTATION")
+//             .is_some_and(|a| a[0] == A::EntityRef(shape))
+//         {
+//             edit.remove(id);
+//         }
+//     }
+//     file(doc.apply(&edit).unwrap().bytes)
+// }
+//
+// /// `source` with the plate and the pin renamed.
+// fn renamed(source: &part::File) -> part::File {
+//     let doc = Document::parse(source.bytes().as_ref().clone()).unwrap();
+//     let mut edit = Edit::new();
+//     for id in doc.ids() {
+//         if let Some(mut a) = attrs(&doc, id, "PRODUCT")
+//             && matches!(a.get(1),Some(A::String(s)) if s=="plate" || s=="pin")
+//         {
+//             let A::String(name) = &a[1] else { panic!() };
+//             a[1] = A::String(format!("renamed {name}"));
+//             edit.replace(id, p21::simple("PRODUCT", a));
+//         }
+//         if let Some(mut a) = attrs(&doc, id, "NEXT_ASSEMBLY_USAGE_OCCURRENCE")
+//             && matches!(a.get(1),Some(A::String(s)) if s=="plate" || s=="pin")
+//         {
+//             let A::String(name) = &a[1] else { panic!() };
+//             a[1] = A::String(format!("renamed {name}"));
+//             edit.replace(id, p21::simple("NEXT_ASSEMBLY_USAGE_OCCURRENCE", a));
+//         }
+//     }
+//     file(doc.apply(&edit).unwrap().bytes)
+// }
+//
+// fn item_numbers(bytes: Vec<u8>) -> Vec<Value> {
+//     bom::read_bytes(bytes)
+//         .unwrap()
+//         .into_iter()
+//         .map(|r| r.item_number.value)
+//         .collect()
+// }
+
+// The spacer section of `gramil_acceptance`: a variant revision keeps the existing item
+// numbers through the BOM history `diff` carried. It continues `gramil_acceptance` (its `a`,
+// `rows` and `dir`), so it is kept as written, commented, for the carry branch to restore there.
+#[test]
+#[ignore = "0.3.0: moves to carry (piece 4)"]
+fn gramil_acceptance_spacer_variant_keeps_item_numbers() {
+    // // A real 1 x 3.6 x 23 mm channel shim, matching gramil's Box construction.
+    // let variant = part::File::read(
+    //     &PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/bom/gramil-spacer.step.gz"),
+    // )
+    // .unwrap();
+    // let mut variant_answers = a.clone();
+    // variant_answers[0].extend(
+    //     revision::diff(
+    //         &file(std::fs::read(dir.join("gramil.step")).unwrap())
+    //             .load(Some(0))
+    //             .unwrap(),
+    //         &variant.load(Some(0)).unwrap(),
+    //         &Map::new(),
+    //     )
+    //     .unwrap()
+    //     .answers,
+    // );
+    // variant_answers.push(json!({"bom.make_buy":"made","bom.description":"Channel-width shim, 1 mm","bom.optional":"yes","bom.stock":"from stock","part.material":"Brass"}).as_object().unwrap().clone());
+    // let variant_bytes = write(&variant, &variant_answers);
+    // let variant_rows = bom::read_bytes(variant_bytes.clone()).unwrap();
+    // assert_eq!(variant_rows.len(), rows.len() + 1);
+    // assert_eq!(
+    //     variant_rows[..rows.len()]
+    //         .iter()
+    //         .map(|r| r.item_number.value.clone())
+    //         .collect::<Vec<_>>(),
+    //     rows.iter()
+    //         .map(|r| r.item_number.value.clone())
+    //         .collect::<Vec<_>>()
+    // );
+    // let spacer = variant_rows.last().unwrap();
+    // assert_eq!(spacer.name.value, "channel spacer");
+    // assert_eq!(spacer.item_number.value, 13);
+    // assert_eq!(spacer.optional.value, true);
+    // assert_eq!(spacer.quantity.value, 1);
+    // std::fs::write(dir.join("gramil-spacer.step"), variant_bytes).unwrap();
+    // std::fs::write(
+    //     dir.join("gramil-spacer.json"),
+    //     serde_json::to_vec_pretty(&variant_rows).unwrap(),
+    // )
+    // .unwrap();
 }

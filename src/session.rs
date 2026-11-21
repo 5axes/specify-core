@@ -266,13 +266,12 @@ impl Session {
 
     /// `specify-core open --diff OLD NEW` (and MCP's `open` with `old`): `diff OLD NEW` compared
     /// as `specify-core diff` compares them (part `part`, or the files' only parts, or their
-    /// assemblies), with the old answers `given` (else those stored in OLD); the session starts
-    /// from the answers it carried to NEW.
+    /// assemblies), from the PMI in the two files only. The session is NEW's, as `open` starts
+    /// it: the caller resumes it.
     pub fn diff(
         old: Opened,
         new: Opened,
         part: Option<usize>,
-        given: &Map<String, Value>,
         in_place: bool,
     ) -> Result<Session, Error> {
         let mut session = Session::new(new, in_place)?;
@@ -281,13 +280,11 @@ impl Session {
             &old_file,
             &session.step,
             part,
-            given,
             // With the PMI scenes, as WASM `diff(..., scenes: true)`: the page draws PMI
             // changes from them without comparing again.
             crate::revision::DiffOptions { scenes: true },
         )?;
         session.compared = Some(compared.diff_json(&session.file.name));
-        session.answers = compared.answers_by_part();
         session.old = Some(old);
         Ok(session)
     }

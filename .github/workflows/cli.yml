@@ -70,18 +70,16 @@ jobs:
           test -n "$highest"
           test "$(printf '%s\n' "$highest" GLIBC_2.28 | sort -V | tail -n 1)" = GLIBC_2.28
       - name: Try it on a revision
-        # The hole_removed pair: one entry renumbers with its hole, one is set aside with the
-        # removed hole.
+        # The spindle pair: the two files' PMI compared, by characteristic number, no answers.
         run: |
           bin="target/${{ matrix.target }}/release/specify-core${{ matrix.exe }}"
           fixtures=tests/fixtures/revisions
-          echo '{"hole.function:holes:7": "fit:H7", "hole.function:holes:9": "general"}' > given.json
-          printed=$("$bin" diff $fixtures/hole_removed.old.step.gz $fixtures/hole_removed.new.step.gz --answers given.json -o smoke)
+          printed=$("$bin" diff $fixtures/spindle_pmi.old.step.gz $fixtures/spindle_pmi.new.step.gz -o smoke)
           echo "$printed"
-          echo "$printed" | grep -q '"verdict": *"decide"'
-          cat smoke/answers.json
-          # The ⌀6 hole's answer follows it from faces 9 to 8.
-          grep -q '"hole.function:holes:8": *"general"' smoke/answers.json && ! grep -q 'holes:9' smoke/answers.json
+          echo "$printed" | grep -q '"verdict": *"ok"'
+          cat smoke/report.md
+          grep -q '^- #13 ' smoke/report.md && grep -q '^- #16 added' smoke/report.md
+          test ! -e smoke/answers.json
       # Its own app and engine, served with no download (no --app, an empty HOME, no proxy).
       - name: Open serves the built-in app and engine
         run: |
@@ -96,13 +94,11 @@ jobs:
           bin=target/x86_64-unknown-linux-gnu/release/specify-core
           "$bin" --help
           fixtures=tests/fixtures/revisions
-          echo '{"hole.function:holes:7": "fit:H7", "hole.function:holes:9": "general"}' > /tmp/given.json
-          printed=$("$bin" diff "$fixtures/hole_removed.old.step.gz" "$fixtures/hole_removed.new.step.gz" --answers /tmp/given.json -o /tmp/smoke)
+          printed=$("$bin" diff "$fixtures/spindle_pmi.old.step.gz" "$fixtures/spindle_pmi.new.step.gz" -o /tmp/smoke)
           echo "$printed"
-          echo "$printed" | grep -q '"verdict": *"decide"'
-          cat /tmp/smoke/answers.json
-          grep -q '"hole.function:holes:8": *"general"' /tmp/smoke/answers.json
-          ! grep -q holes:9 /tmp/smoke/answers.json
+          echo "$printed" | grep -q '"verdict": *"ok"'
+          grep -q '^- #13 ' /tmp/smoke/report.md
+          test ! -e /tmp/smoke/answers.json
           SMOKE
           done
       - name: Package and checksum

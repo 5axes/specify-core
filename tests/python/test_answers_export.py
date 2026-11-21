@@ -46,7 +46,12 @@ def test_export_answers_roundtrip_approvals_and_carry_blocks(tmp_path):
         api.export_answers(new, changed, saved)
     with pytest.raises(ValueError, match='different file'):
         api.export_answers(new, analysis, given)
-    carried = api.diff(old, new, saved)['report']['answers']
+    # Diff reads the files' PMI only and returns no answers (ADR P11). An answers file carried to
+    # the new revision with its datum dropped, as an earlier diff returned one:
+    assert 'answers' not in api.diff(old, new)['report']
+    carried = api.export_answers(new, changed, {'part.material': saved['part.material']})
+    carried['_specify']['unresolved'] = {'datum.A': 'face 4 has no match in the new part',
+                                         'datum.A.flatness': 'its datum datum.A is unresolved'}
     # Incomplete is normal: carry blocks are kept, their questions left open.
     assert set(carried['_specify']['unresolved']) == {'datum.A', 'datum.A.flatness'}
     kept = api.export_answers(new, changed, carried)

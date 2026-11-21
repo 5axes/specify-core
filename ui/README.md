@@ -183,10 +183,9 @@ specified STEP (beside it as `part.specified.step`), the same file the agent's `
 questions still open (many AP242 files have no complete answer to everything): it writes the answers given and says
 which questions are still open. Specify's defaults are written only when approved (ADR P9): Save with defaults first lists every default it would write, by question and value, and saves only once the person confirms that list; Keep all likewise lists what it will keep first.
 
-Read only (`--read-only`) shows the part's PMI. In diff mode the page shows what changed (StepDiff), lists what the
-command's comparison leaves to decide (requirements not carried, carried ones to check, new questions), each
-opening its question in the new revision's requirements, and Save writes the new revision with the carried
-answers. An assembly is shown a part at a time. It offers the answers JSON, inspection list (CSV) and AS9102
+Read only (`--read-only`) shows the part's PMI. In diff mode the page shows what changed (StepDiff) and lists the new revision's requirements
+on features that moved or changed size, to check; the session is the new revision's own (nothing is carried:
+ADR P11), and Save writes the new revision. An assembly is shown a part at a time. It offers the answers JSON, inspection list (CSV) and AS9102
 workbook as downloads; it has no account, AI chat or analytics, stores nothing in the browser, and requests nothing
 but its own origin; IBM Plex Mono is bundled.
 

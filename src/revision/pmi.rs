@@ -140,18 +140,52 @@ fn supports(
     }
 }
 
-// Reuse scene notation and feature labels; no new requirement classification.
-pub(super) fn check_lines(
-    checks: &[super::Check],
+/// The requirements *scene* states on a feature of *changed* (new feature id → its changes):
+/// those whose controlled faces (a location's target, not its reference) are the feature's. A
+/// location is listed only when its feature moved.
+pub(super) fn checks(
+    changed: &BTreeMap<String, BTreeMap<String, quiddity::correspondence::Change>>,
     features: &[Feature],
     scene: &Value,
-) -> Vec<String> {
-    if checks.is_empty() {
-        return Vec::new();
+) -> Vec<super::Check> {
+    let mut checks = Vec::new();
+    for item in items(scene) {
+        let on = if item.on_faces.is_empty() {
+            &item.faces
+        } else {
+            &item.on_faces
+        };
+        if on.is_empty() || item.kind == "datum" {
+            continue;
+        }
+        // A location is checked when its feature moved, not when it only changed size.
+        let location = item.match_kind.starts_with("dimension:location");
+        let Some(f) = features.iter().find(|f| {
+            changed
+                .get(&f.id)
+                .is_some_and(|c| !location || c.contains_key("position"))
+                && on.iter().all(|face| f.faces.contains(face))
+        }) else {
+            continue;
+        };
+        checks.push(super::Check {
+            number: item.number,
+            id: item.id.clone(),
+            requirement: item.text.clone(),
+            feature: f.id.clone(),
+            changes: changed[&f.id].clone(),
+            axis: super::along(&f.record).map(|(k, _, _)| k),
+        });
     }
-    let requirements = items(scene);
-    // One line per feature and change: `… diameter 3 → 3.4, so its ⌀3.4 H11 and ⌖ ⌀0.2Ⓜ A B C
-    // requirements may no longer fit`.
+    checks.sort_by(|a, b| {
+        (a.number.is_none(), a.number, &a.id).cmp(&(b.number.is_none(), b.number, &b.id))
+    });
+    checks
+}
+
+// One line per feature and change: `… diameter 3 → 3.4, so its ⌀3.4 H11 and ⌖ ⌀0.2Ⓜ A B C
+// requirements may no longer fit`.
+pub(super) fn check_lines(checks: &[super::Check], features: &[Feature]) -> Vec<String> {
     let mut lines: Vec<(String, String, Vec<String>)> = Vec::new();
     for c in checks {
         let feature = features
@@ -159,28 +193,7 @@ pub(super) fn check_lines(
             .find(|f| f.id == c.feature)
             .map(|f| super::describe(f).0)
             .unwrap_or_else(|| c.feature.clone());
-        let asked: Vec<&Item> = requirements
-            .iter()
-            .filter(|r| scene["specify"][&r.id]["question"] == c.id)
-            .filter(|r| !r.text.is_empty())
-            .collect();
-        // The requirement itself, not the planned dimensions that locate it: a position
-        // tolerance is named by its frame, as the PMI list names it.
-        let own: Vec<&&Item> = asked
-            .iter()
-            .filter(|r| !r.id.starts_with("planner:"))
-            .collect();
-        let notation = if own.is_empty() {
-            asked.iter().map(|r| r.text.as_str()).collect::<Vec<_>>()
-        } else {
-            own.iter().map(|r| r.text.as_str()).collect()
-        }
-        .join("; ");
-        let notation = if notation.is_empty() {
-            super::fmt(&c.answer)
-        } else {
-            notation
-        };
+        let notation = c.requirement.clone();
         let changes = [
             super::sizes(&c.changes),
             super::moved(&c.changes, c.axis)
@@ -434,6 +447,30 @@ fn items(scene: &Value) -> Vec<Item> {
         .collect()
 }
 
+// Whether two requirements of one kind measure different things: the old one's controlled
+// faces or reference, each face found on the new part, are not the new one's. The last-resort
+// pairing by kind is for requirements whose faces cannot be followed, never for these.
+fn measures_elsewhere(was: &Item, now: &Item, faces: &BTreeMap<usize, Bind>) -> bool {
+    let exactly = |support: &[usize]| -> Option<Vec<usize>> {
+        let mut result = support
+            .iter()
+            .map(|f| match faces.get(f) {
+                Some(Bind::To(n)) => Some(*n),
+                _ => None,
+            })
+            .collect::<Option<Vec<_>>>()?;
+        result.sort_unstable();
+        result.dedup();
+        Some(result)
+    };
+    [
+        (&was.on_faces, &now.on_faces),
+        (&was.reference_faces, &now.reference_faces),
+    ]
+    .into_iter()
+    .any(|(a, b)| !a.is_empty() && exactly(a).is_some_and(|m| m != *b))
+}
+
 fn mapped(support: &[usize], faces: &BTreeMap<usize, Bind>) -> Option<Vec<usize>> {
     let mut result = Vec::new();
     for face in support {
@@ -609,11 +646,14 @@ fn pair(
                                         })
                             }
                             2 => {
+                                // A datum is its faces: one relettered on them is that datum
+                                // changed, though the writer numbered it afresh.
                                 mapped.as_ref().is_some_and(|f| *f == now.faces)
-                                    && !(carried_numbers
-                                        && was.number.is_some()
-                                        && now.number.is_some()
-                                        && was.number != now.number)
+                                    && (was.kind == "datum"
+                                        || !(carried_numbers
+                                            && was.number.is_some()
+                                            && now.number.is_some()
+                                            && was.number != now.number))
                             }
                             3 => {
                                 support_growth(was, now, faces)
@@ -624,6 +664,7 @@ fn pair(
                             }
                             _ => {
                                 was.match_kind == now.match_kind
+                                    && !measures_elsewhere(was, now, faces)
                                     && !(carried_numbers
                                         && was.number.is_some()
                                         && now.number.is_some()
@@ -1109,118 +1150,189 @@ fn classify(
     truth
 }
 
-/// The plans' changes that the files' comparison lacks (by id or number), each saying it comes
-/// from the plans: a `retired` item keeps its reason, a code, with the words in `detail`.
-fn add_planned(changes: &mut Vec<PmiItemChange>, planned: Vec<PmiItemChange>) {
-    for mut change in planned {
-        if !changes.iter().any(|actual| {
-            actual.id == change.id || (actual.number.is_some() && actual.number == change.number)
-        }) {
-            let differs = "carried requirement differs from the new file";
-            if change.reason.as_deref() == Some("retired") {
-                change.detail = Some(differs.into());
-            } else {
-                change.reason = Some(differs.into());
-            }
-            changes.push(change);
-        }
-    }
+/// The comparison of the two files' requirements (see [`diff`]).
+pub(super) struct Compared {
+    pub items: Vec<PmiItemChange>,
+    /// Each file's `pmiScene`, whose ids the items use.
+    pub scenes: PmiScenes,
+    /// The new file's requirements as compared (its own PMI, its own ids).
+    pub new_file: Value,
+    /// The new file's scene ids by its own ids.
+    pub new_ids: BTreeMap<String, String>,
 }
 
+/// Each row's `pmiScene` id by its id in the file's own scene: the two read the same PMI
+/// rows in the same order (the file scene leaves out the stored answers' row). Rows are matched
+/// by position only while both scenes hold the same collections, the same number of rows in
+/// each and rows of the same kind; otherwise none is renamed and the file's own ids stand.
+fn scene_ids(file: &Value, scene: &Value) -> BTreeMap<String, String> {
+    let answers = |row: &&Value| row["value"]["name"] == crate::resume::NAME;
+    let rows = |s: &Value| -> BTreeMap<String, Vec<Value>> {
+        s["pmi"]["pmi"]
+            .as_object()
+            .into_iter()
+            .flatten()
+            .map(|(collection, rows)| {
+                let kept = rows
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter(|r| !answers(r))
+                    .cloned()
+                    .collect();
+                (collection.clone(), kept)
+            })
+            .filter(|(_, rows): &(String, Vec<Value>)| !rows.is_empty())
+            .collect()
+    };
+    let (mine, theirs) = (rows(file), rows(scene));
+    let alike = mine.len() == theirs.len()
+        && mine.iter().all(|(collection, rows)| {
+            theirs.get(collection).is_some_and(|other| {
+                other.len() == rows.len()
+                    && rows
+                        .iter()
+                        .zip(other)
+                        .all(|(a, b)| a["value"]["kind"] == b["value"]["kind"])
+            })
+        });
+    if !alike {
+        return BTreeMap::new();
+    }
+    let mut ids = BTreeMap::new();
+    for (collection, rows) in &mine {
+        for (a, b) in rows.iter().zip(&theirs[collection]) {
+            if let (Some(a), Some(b)) = (a["id"].as_str(), b["id"].as_str()) {
+                ids.insert(a.to_owned(), b.to_owned());
+            }
+        }
+    }
+    ids
+}
+
+/// Each file's own requirements, compared through the face matching: the files' PMI and nothing
+/// else (ADR P11), read the same whoever wrote it. Characteristic numbers pair requirements only
+/// where the new file continues the old file's number history. The pairing never reads stored
+/// answers; the items then take each file's `pmiScene` ids and statuses, as the editor shows them.
 pub(super) fn diff(
     old: &LoadedPart,
     new: &LoadedPart,
     analyses: (&Value, &Value),
-    given: Option<&Map<String, Value>>,
-    carried: &Map<String, Value>,
+    corr: &quiddity::correspondence::Correspondence,
     correspondence: (&BTreeMap<usize, Bind>, Option<&[[f64; 3]; 3]>),
     features: (&[Feature], &[Feature]),
-) -> api::Result<(Vec<PmiItemChange>, PmiScenes)> {
+) -> api::Result<Compared> {
     let (faces, rotation) = correspondence;
-    let old_items = |scene: &Value| {
-        let mut items = items(scene);
-        if let Some(rotation) = rotation {
-            rotate_roles(&mut items, rotation);
-        }
-        items
+    let error = |e: String| api::Error::Analysis(e);
+    let before = Scene::of_file(old)
+        .map_err(error)?
+        .file_comparison(old)
+        .map_err(error)?;
+    let destination = Scene::of_file(new).map_err(error)?;
+    let after = destination.file_comparison(new).map_err(error)?;
+    let mut before_items = items(&before);
+    if let Some(rotation) = rotation {
+        rotate_roles(&mut before_items, rotation);
+    }
+    let after_items = items(&after);
+    // The old file's number history, read on the new part through the face matching.
+    let mut transport = Map::new();
+    crate::characteristics::carry_revision(old, new, corr, &mut transport).map_err(error)?;
+    let carried_numbers = after_items.iter().any(|i| i.number.is_some())
+        && destination.carries_numbers(&transport).map_err(error)?;
+    let mut changes = compare(
+        &before_items,
+        &after_items,
+        faces,
+        features.0,
+        features.1,
+        carried_numbers,
+    );
+    // The editor's scenes, for the ids and statuses the report gives.
+    let labelled = |part: &LoadedPart, analysis: &Value, features: &[Feature]| {
+        Scene::with(part, Some(features))
+            .and_then(|scene| scene.comparison(part, analysis, None))
+            .map_err(error)
     };
-    let destination = Scene::with(new, Some(features.1)).map_err(api::Error::Analysis)?;
-    let carried_numbers = destination
-        .carries_numbers(carried)
-        .map_err(api::Error::Analysis)?;
-    let scene = |part: &LoadedPart, analysis: &Value, answers| {
-        if std::ptr::eq(part, new) {
-            destination.comparison(part, analysis, answers)
+    let (old_scene, new_scene) = (
+        labelled(old, analyses.0, features.0)?,
+        labelled(new, analyses.1, features.1)?,
+    );
+    let (old_ids, new_ids) = (
+        scene_ids(&before, &old_scene),
+        scene_ids(&after, &new_scene),
+    );
+    let named =
+        |ids: &BTreeMap<String, String>, id: &str| ids.get(id).cloned().unwrap_or(id.into());
+    for c in &mut changes {
+        let status =
+            |scene: &Value, id: &str| scene["specify"][id]["status"].as_str().map(str::to_owned);
+        if c.class == "removed" {
+            c.id = named(&old_ids, &c.id);
+            if let Some(s) = status(&old_scene, &c.id) {
+                c.status = s;
+            }
+        } else if c.class == "added" {
+            c.id = named(&new_ids, &c.id);
+            if let Some(s) = status(&new_scene, &c.id) {
+                c.status = s;
+            }
         } else {
-            Scene::with(part, std::ptr::eq(part, old).then_some(features.0))
-                .and_then(|scene| scene.comparison(part, analysis, answers))
+            let was = named(&old_ids, c.old_id.as_deref().unwrap_or(&c.id));
+            c.id = named(&new_ids, &c.id);
+            c.old_id = (was != c.id).then_some(was);
+            if let Some(s) = status(&new_scene, &c.id) {
+                c.status = s;
+            }
         }
-        .map_err(api::Error::Analysis)
-    };
-    let (old_analysis, new_analysis) = analyses;
-    let before = scene(old, old_analysis, given)?;
-    let before_items = old_items(&before);
-    let projected = scene(new, new_analysis, (!carried.is_empty()).then_some(carried))?;
-    let (mut changes, after) = if new_analysis["resume"].is_object() {
-        let actual = scene(new, new_analysis, None)?;
-        let mut changes = compare(
-            &before_items,
-            &items(&actual),
-            faces,
-            features.0,
-            features.1,
-            carried_numbers,
-        );
-        // Compare the two plans too: generated requirements can follow geometry
-        // without any answer changing. File edits own the final requirement when
-        // they differ; otherwise retain the geometry-derived change from the plan.
-        let source = given.or_else(|| old_analysis["resume"]["answers"].as_object());
-        if let Some(source) = source {
-            let old_plan = scene(old, old_analysis, Some(source))?;
-            let planned = compare(
-                &old_items(&old_plan),
-                &items(&projected),
-                faces,
-                features.0,
-                features.1,
-                carried_numbers,
-            );
-            add_planned(&mut changes, planned);
-        }
-        (changes, actual)
-    } else {
-        (
-            compare(
-                &before_items,
-                &items(&projected),
-                faces,
-                features.0,
-                features.1,
-                carried_numbers,
-            ),
-            projected,
-        )
-    };
-    changes.sort_by(|a, b| {
-        (a.number.is_none(), a.number, &a.id, &a.class).cmp(&(
-            b.number.is_none(),
-            b.number,
-            &b.id,
-            &b.class,
-        ))
-    });
-    Ok((
-        changes,
-        PmiScenes {
-            old: before,
-            new: after,
+    }
+    Ok(Compared {
+        items: changes,
+        scenes: PmiScenes {
+            old: old_scene,
+            new: new_scene,
         },
-    ))
+        new_file: after,
+        new_ids,
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scene_ids_rename_only_scenes_that_hold_the_same_rows() {
+        let scene = |rows: Value| json!({"pmi": {"pmi": rows}});
+        let file = scene(json!({
+            "dimensions": [{"id": "7", "value": {"kind": {"size": {}}}}],
+            "tolerances": [{"id": "8", "value": {"kind": "flatness"}}],
+        }));
+        let same = scene(json!({
+            "dimensions": [{"id": "size:holes:9", "value": {"kind": {"size": {}}}}],
+            "tolerances": [{"id": "flatness:4", "value": {"kind": "flatness"}}],
+        }));
+        assert_eq!(scene_ids(&file, &same)["7"], "size:holes:9");
+        assert_eq!(scene_ids(&file, &same)["8"], "flatness:4");
+        // A row more, a row of another kind or another collection: the file's own ids stand.
+        for other in [
+            json!({
+                "dimensions": [{"id": "a", "value": {"kind": {"size": {}}}},
+                               {"id": "b", "value": {"kind": {"size": {}}}}],
+                "tolerances": [{"id": "c", "value": {"kind": "flatness"}}],
+            }),
+            json!({
+                "dimensions": [{"id": "a", "value": {"kind": {"size": {}}}}],
+                "tolerances": [{"id": "c", "value": {"kind": "parallelism"}}],
+            }),
+            json!({
+                "dimensions": [{"id": "a", "value": {"kind": {"size": {}}}}],
+                "datums": [{"id": "c", "value": {"kind": null}}],
+            }),
+        ] {
+            assert!(scene_ids(&file, &scene(other)).is_empty());
+        }
+    }
 
     fn thread_scene(text: &str, depth: &str) -> Value {
         json!({
@@ -1479,44 +1591,6 @@ mod tests {
         item.on_faces = target;
         item.reference_faces = reference;
         item
-    }
-
-    #[test]
-    fn a_planned_retirement_keeps_its_reason_and_says_why_in_detail() {
-        // With a carried history, an item only the plans remove is retired: its reason stays
-        // the code, and the plans' origin goes in `detail`. Other planned items keep the
-        // explanation as their reason, as before.
-        let mut old = [
-            control("gone", vec![0], "⌖ ⌀0.2 A"),
-            control("edited", vec![1], "⏥ 0.05"),
-        ];
-        old[0].number = Some(7);
-        old[1].number = Some(8);
-        let mut new = [control("edited", vec![11], "⏥ 0.02")];
-        new[0].number = Some(8);
-        let faces = BTreeMap::from([(0, Bind::Orphaned), (1, Bind::To(11))]);
-        let planned = compare(&old, &new, &faces, &[], &[], true);
-        let mut changes = Vec::new();
-        add_planned(&mut changes, planned);
-        let retired = changes.iter().find(|c| c.id == "gone").unwrap();
-        assert_eq!(retired.class, "removed");
-        assert_eq!(retired.reason.as_deref(), Some("retired"));
-        assert_eq!(
-            retired.detail.as_deref(),
-            Some("carried requirement differs from the new file")
-        );
-        let json = serde_json::to_value(retired).unwrap();
-        assert_eq!(json["reason"], "retired");
-        assert_eq!(
-            json["detail"],
-            "carried requirement differs from the new file"
-        );
-        let edited = changes.iter().find(|c| c.id == "edited").unwrap();
-        assert_eq!(
-            edited.reason.as_deref(),
-            Some("carried requirement differs from the new file")
-        );
-        assert_eq!(edited.detail, None);
     }
 
     #[test]

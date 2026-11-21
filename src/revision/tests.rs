@@ -12,9 +12,6 @@ fn report() -> Revised {
     Revised {
         verdict: "ok".into(),
         summary: String::new(),
-        answers: Map::new(),
-        migrated: vec![],
-        unresolved: vec![],
         check: vec![],
         features: vec![],
         other_faces: vec![],
@@ -27,9 +24,7 @@ fn report() -> Revised {
         pmi: Pmi::default(),
         pmi_graphics: vec![],
         check_lines: vec![],
-        questions: vec![],
         frame_tie: None,
-        problems: Problems::default(),
         faces: BTreeMap::new(),
         gone: vec![],
         correspondence: Some(Correspondence {
@@ -439,16 +434,6 @@ fn radius_pmi_on_inside_rounds_keeps_radius_and_material_side() {
             "R6.35 concave fillet"
         );
     }
-    assert_eq!(
-        pmi_words(
-            &json!({"kind":"dimension","type":"Size_Radius","value":6.35,"upper":0.05,"lower":-0.05})
-        ),
-        "R6.35 ±0.05"
-    );
-    assert_eq!(
-        pmi_words(&json!({"kind":"dimension","type":"Size_SphericalRadius","value":6.35})),
-        "SR6.35"
-    );
 }
 
 #[test]
@@ -520,92 +505,6 @@ fn profile_surfaces_are_not_located_as_rounds_on_a_boss() {
         vec![1],
     );
     assert_eq!(locate(&round, &[boss], &size).on, "round the Ø10 boss");
-}
-
-/// `refuse_unfit` with a review that refuses by these rules, on *carried*.
-fn refusing(
-    carried: Value,
-    rule: impl Fn(&Map<String, Value>) -> std::result::Result<(), crate::rules::Error>,
-) -> (
-    std::result::Result<Value, String>,
-    Map<String, Value>,
-    Vec<String>,
-) {
-    let mut carried = carried.as_object().unwrap().clone();
-    let mut unresolved = Vec::new();
-    let outcome = refuse_unfit(&mut carried, &BTreeMap::new(), &mut unresolved, |a| {
-        Ok(rule(a).map(|()| json!({"problems": []})))
-    })
-    .unwrap();
-    let ids = unresolved.into_iter().map(|u| u.id).collect();
-    (outcome, carried, ids)
-}
-
-fn invalid(message: &str) -> std::result::Result<(), crate::rules::Error> {
-    Err(crate::rules::Error::Invalid(message.into()))
-}
-
-// A refusal that names no answer: removing a sound answer changes it too (a required answer
-// missing, another refusal), which is no evidence against that answer.
-#[test]
-fn an_unnamed_refusal_is_pinned_only_on_the_answer_whose_removal_clears_it() {
-    let (outcome, carried, refused) = refusing(
-        json!({"datum.A": [4], "extra.bad": {"faces": [7]}, "part.material": "6061-T6"}),
-        |a| {
-            if !a.contains_key("part.material") {
-                Err(crate::rules::Error::Incomplete(
-                    crate::rules::IncompleteError::new(vec!["part.material".into()], None),
-                ))
-            } else if !a.contains_key("datum.A") {
-                invalid("the frame has no primary datum")
-            } else if a.contains_key("extra.bad") {
-                invalid("could not convert string to float: 'X'")
-            } else {
-                Ok(())
-            }
-        },
-    );
-    assert!(outcome.is_ok());
-    assert_eq!(refused, ["extra.bad"]);
-    assert_eq!(carried.len(), 2);
-}
-
-// Removing one answer leaves a refusal naming another carried answer: both are refused.
-#[test]
-fn an_unnamed_refusal_narrowed_to_a_named_one_refuses_both() {
-    let (outcome, carried, refused) = refusing(
-        json!({"a.x": 1, "extra.y": {"faces": [7]}, "part.material": "6061-T6"}),
-        |a| {
-            if a.contains_key("a.x") {
-                invalid("could not convert string to float: 'X'")
-            } else if a.contains_key("extra.y") {
-                invalid("extra.y: a face picked does not exist")
-            } else {
-                Ok(())
-            }
-        },
-    );
-    assert!(outcome.is_ok());
-    assert_eq!(refused, ["a.x", "extra.y"]);
-    assert_eq!(carried.keys().collect::<Vec<_>>(), ["part.material"]);
-}
-
-// No single answer explains the refusal: nothing is guessed or moved; it is returned.
-#[test]
-fn an_unnamed_refusal_no_answer_explains_is_returned_not_guessed() {
-    let (outcome, carried, refused) = refusing(
-        json!({"datum.A": [4], "extra.one": {"faces": [7]}, "extra.two": {"faces": [8]}}),
-        |a| {
-            if a.contains_key("extra.one") || a.contains_key("extra.two") {
-                invalid("the pair cannot both apply")
-            } else {
-                Ok(())
-            }
-        },
-    );
-    assert_eq!(outcome.unwrap_err(), "the pair cannot both apply");
-    assert!(refused.is_empty());
-    assert_eq!(carried.len(), 3);
 }
 
 #[test]

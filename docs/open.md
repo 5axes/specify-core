@@ -15,7 +15,7 @@ The page server is started in one of two ways, with the same code and the same c
 ```text
 specify-core open FILE [--read-only | --in-place] [--port N] [--no-browser]
                        [--app DIR] [--wasm DIR]
-specify-core open --diff OLD NEW [--answers FILE] [--in-place] [--port N] [--no-browser]
+specify-core open --diff OLD NEW [--in-place] [--port N] [--no-browser]
                        [--app DIR] [--wasm DIR]
 ```
 
@@ -31,7 +31,7 @@ The run has one of three modes, given to the app as `config.mode`:
 | --- | --- | --- |
 | `specify` | `open FILE` | answers the part's questions and saves the specified STEP |
 | `read-only` | `open FILE --read-only` | shows the part and its PMI; no answers change, no Save |
-| `diff` | `open --diff OLD NEW` | shows what changed and what was carried; answers what needs a decision; Save writes `NEW` specified |
+| `diff` | `open --diff OLD NEW` | shows what changed beside `NEW`, opened as `open NEW` opens it; Save writes `NEW` specified |
 
 In `diff` mode everything below that speaks of "the file" or `FILE` means `NEW`; `OLD` is
 only read.
@@ -225,7 +225,7 @@ every change. At the start it holds:
 
 - `specify` and `read-only`: the answers stored in `FILE`, when Specify wrote it (resume, as
   `analyse` reports them), otherwise none;
-- `diff`: the answers the command's own `diff` carried to `NEW` (its `answers.json`, below).
+- `diff`: the answers stored in `NEW`, as for `specify` (nothing is carried from `OLD`: ADR P11).
 
 `GET <token>/answers` →
 
@@ -286,14 +286,12 @@ toward the 16 connections.
 ## `diff` mode
 
 `specify-core open --diff OLD NEW` runs the same comparison as `specify-core diff OLD NEW`
-when it starts, with the old answers from `--answers FILE`, or else those stored in `OLD`
-(a file Specify wrote), or else none (the report then says what changed, with nothing to
-carry).
+when it starts: from the two files' PMI only (docs/diff.md). Nothing is carried from `OLD`
+(ADR P11); the session is `NEW`'s, as `open NEW` starts it.
 
-**The carried answers come from the command's `diff`, not from the engine in the page.**
-The session needs them before any page or MCP client asks, and the command's comparison is
-the one `specify-core diff` and MCP's `diff` give, so the page, the AI and a CI run cannot
-disagree. The page does not compare the parts again.
+**The comparison comes from the command's `diff`, not from the engine in the page.** The
+command's comparison is the one `specify-core diff` and MCP's `diff` give, so the page, the AI
+and a CI run cannot disagree. The page does not compare the parts again.
 
 `GET <token>/diff` → exactly what WASM `diff()` returns for the two files with `scenes` true
 (docs/wasm.md, the `diff(...)` row), computed natively by the same code when the session
@@ -307,10 +305,9 @@ assembly, each compared part's `parts[i].report.pmi.scenes`. (Contract addition,
 `GET diff` includes the PMI scenes, as `diff()` with `scenes` true.) The page's StepDiff
 draws from it without comparing again. (Contract change, 2026-11-18: `GET diff` was
 report.json; it is now `{report, markdown, view}` (assembly `{report, markdown, parts}`), as
-WASM `diff()`.) The session then starts from `diff`'s `answers.json`. Questions the report leaves to decide are
-open questions in the session; answering them (page or MCP) changes the session, and the
-report is not recomputed. Save writes `NEW` (beside it, or over it with `--in-place`) from the
-session's answers.
+WASM `diff()`.) Answering questions (page or MCP) changes the session, and the report is not
+recomputed. Save writes `NEW` (beside it, or over it with `--in-place`) from the session's
+answers.
 
 ## The agent's side
 

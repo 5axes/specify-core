@@ -25,29 +25,23 @@ fn check_input(name: &str, bytes: &[u8]) -> Result<(), String> {
 }
 
 /// Compares two revisions of a part held in memory, as `specify-core diff` compares two files,
-/// carrying `answers` (the old file's stored answers when empty): `{report, markdown, view}`,
-/// the report as `report.json` holds it, as Markdown headed *title* (with no picture), and what
-/// a viewer needs to draw the change ([`revision::view`]).
+/// from their geometry and PMI only: `{report, markdown, view}`, the report as `report.json`
+/// holds it, as Markdown headed *title* (with no picture), and what a viewer needs to draw the
+/// change ([`revision::view`]).
 ///
 /// Two revisions of an assembly (either file of several parts, or of a part placed other than
-/// once) are compared part by part ([`assembly::diff`]), `answers` then by part name:
-/// `{report, markdown, parts}`, the assembly's report and Markdown, and each part's
-/// `{name, status, old, new}` with its `report` when it is in both files, and its `markdown`
-/// (headed `#### name`) and `view` when it changed: a changed part is shaped as a part's diff.
-pub fn diff(
-    old: (&str, &[u8]),
-    new: (&str, &[u8]),
-    answers: &Map<String, Value>,
-    title: &str,
-) -> Result<Value, String> {
-    diff_with_options(old, new, answers, title, revision::DiffOptions::default())
+/// once) are compared part by part ([`assembly::diff`]): `{report, markdown, parts}`, the
+/// assembly's report and Markdown, and each part's `{name, status, old, new}` with its `report`
+/// when it is in both files, and its `markdown` (headed `#### name`) and `view` when it changed:
+/// a changed part is shaped as a part's diff.
+pub fn diff(old: (&str, &[u8]), new: (&str, &[u8]), title: &str) -> Result<Value, String> {
+    diff_with_options(old, new, title, revision::DiffOptions::default())
 }
 
 /// Include exact comparison scenes when requested, without re-deriving them.
 pub fn diff_with_options(
     old: (&str, &[u8]),
     new: (&str, &[u8]),
-    answers: &Map<String, Value>,
     title: &str,
     options: revision::DiffOptions,
 ) -> Result<Value, String> {
@@ -58,29 +52,27 @@ pub fn diff_with_options(
     };
     let (old_file, new_file) = (read(old)?, read(new)?);
     if assembly::is_assembly(&old_file) || assembly::is_assembly(&new_file) {
-        return diff_assembly(&old_file, &new_file, answers, title, options);
+        return diff_assembly(&old_file, &new_file, title, options);
     }
-    input::answers_shape(answers).map_err(|e| e.to_string())?;
     let load = |file: &part::File, name: &str| -> Result<LoadedPart, String> {
         file.load(None).map_err(|error| format!("{name}: {error}"))
     };
     let (before, after) = (load(&old_file, old.0)?, load(&new_file, new.0)?);
-    let revised = revision::diff_with_options(&before, &after, answers, options)
-        .map_err(|error| error.to_string())?;
+    let revised =
+        revision::diff_with_options(&before, &after, options).map_err(|error| error.to_string())?;
     Ok(revision::part_diff(&before, &after, &revised, title))
 }
 
 fn diff_assembly(
     old: &part::File,
     new: &part::File,
-    answers: &Map<String, Value>,
     title: &str,
     options: revision::DiffOptions,
 ) -> Result<Value, String> {
     let load = |file: &part::File| file.load_all().map_err(|error| error.to_string());
     let (before, after) = (load(old)?, load(new)?);
-    let compared = assembly::diff_with_options(&before, &after, answers, options)
-        .map_err(|error| error.to_string())?;
+    let compared =
+        assembly::diff_with_options(&before, &after, options).map_err(|error| error.to_string())?;
     Ok(revision::assembly_diff(&before, &after, &compared, title))
 }
 

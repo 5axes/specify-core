@@ -82,7 +82,7 @@ JSON-RPC errors.
 | Tool | Arguments | Result |
 | --- | --- | --- |
 | `list_parts` | `path` | `parts`: `[{part, name, product_id, faces, instances, ...}]`, as `serve`'s `parts` |
-| `open` | `path`, `part?`, `old?`, `old_answers?`, `in_place?`, `answers_file?`, `overwrite?` | `doc`, `rev`, `open_questions`, `features` (counts by family), `faces`, `existing_pmi`, `resumed`, `conflicts?`, `warnings?`; with `old`, the comparison's `verdict`, `summary` and `report`. For an assembly opened without `part`, the result is `needs_part: true` with its `parts` |
+| `open` | `path`, `part?`, `old?`, `in_place?`, `answers_file?`, `overwrite?` | `doc`, `rev`, `open_questions`, `features` (counts by family), `faces`, `existing_pmi`, `resumed`, `conflicts?`, `warnings?`; with `old`, the comparison's `verdict`, `summary` and `report`. For an assembly opened without `part`, the result is `needs_part: true` with its `parts` |
 | `questions` | `doc`, `state?` (`open` by default, `answered`, `all`), `compact?` (only the open questions, `{id, prompt, choices or hint, suggested?, rule?}`) | each question as review presents it, with its `state` (`open`, `answered`, `optional`) and its `answer`; a default's `source` names the rule behind it ([rule-sources.md](rule-sources.md#rule-ids)); `rev`; `conflicts?` |
 | `answer` | `doc`, `set?: {id: value or text}`, `clear?: [id]`, `keep?: [conflict id]`, `partial?`, `answers_file?`, `overwrite?` | each answer as stored, with `interpreted_from` when it was typed, and its `state`; `kept`; the `open` ids; the new `rev`; with `partial`, `outcomes`: `{id: {stored, interpreted_from?, state}}` or `{id: {refused: reason}}` |
 | `review` | `doc` | `open`, `problems`, `writable`/`missing` as answered, `writable_with_defaults`/`missing_with_defaults`; `rev` |
@@ -90,7 +90,7 @@ JSON-RPC errors.
 | `read_pmi` | `doc` | `existing` (the file's PMI by face), `part_settings`, `resumed`, `saved_answers?`; `rev` |
 | `write_pmi` | `doc`, `output`, `accept_defaults?` (`{"<id>": <value>}`, the defaults the person approved for the doc's part), `overwrite?` | `report`, as `serve`'s `write`; `complete`, `missing`, `rev`. What is answered plus only the defaults approved; open questions never refuse it |
 | `export_answers` | `doc`, `accept_defaults?` (as `write_pmi`), `output?`, `overwrite?` | `answers`: the answer map (docs/answers.md) of what is answered plus only the defaults approved, with face evidence; `complete`, `missing`, `rev` |
-| `diff` | `old`, `new`, `part?`, `doc?` | `verdict`, `summary`, carried `answers`, `report`, `markdown`, as `specify-core diff` (nothing is written) |
+| `diff` | `old`, `new`, `part?` | `verdict`, `summary`, `report`, `markdown`, as `specify-core diff`: from the two files' PMI only (nothing is written, no answers carried) |
 | `changes` | `doc`, `since` (a `rev`) | `rev`, and `changes`: `[{rev, part, source, set, cleared}]` after `since`, oldest first (`source` `page` or `mcp`); if `since` is older than the 256 changes kept, `full: true` and `answers`, every part's answers by part index |
 | `show` | `doc`, `browser?` (default `true`), `read_only?` | `url`, `mode`: the Specify page for the document's session on 127.0.0.1 (docs/open.md), started or, if it is running, its address; the browser opened unless `browser: false`. `read_only` makes that page view-only (not for a session opened with `old` or `in_place`). A running page in the other mode is refused (`invalid`, with its `url` and `mode`), never replaced |
 | `save` | `doc`, `accept_defaults` (required: the defaults the person approved with the values they saw, `{"<id>": <value>}` for the doc's part or `{"<part>": {"<id>": <value>}}`; `{}` for none) | `path`, `bytes`, `rev`, `report`, `complete`, `missing`: the session's answers written as the page's Save writes them, beside the file (or over it, opened `in_place`); open questions never refuse it |
@@ -101,18 +101,14 @@ exact option is taken as it is. Answers are applied in order, each checked again
 before it. The call is all-or-nothing: if one answer is refused, nothing changes. With `partial: true`, every
 valid answer is applied in one `rev` and each refused one is reported in `outcomes` with its reason.
 
-`diff` with `doc` carries that document's answers. The document must be of `old`.
-
 `in_place` on a file whose session is already open changes where its Save writes only when the
 call gives it. Under `open` the session keeps the path as given (made absolute, not resolved),
 so Save goes beside a link and its `.bak` is named after the link. The directory a file is
-named in must be inside `--allow` as well as the file itself (for `path`, `old` and
-`old_answers`), and every save, from the agent or the page, is refused (`refused`, 403 from the
+named in must be inside `--allow` as well as the file itself (for `path` and `old`), and every save, from the agent or the page, is refused (`refused`, 403 from the
 page) if it would write outside `--allow`.
 
-`open` with `old` compares the two as `diff` does (the old answers from `old_answers`, else those
-stored in `old`) and the session starts from the answers carried to `path`. `old_answers` needs
-`old`.
+`open` with `old` compares the two as `diff` does (from the two files' PMI only) and the session
+is `path`'s own, as `open` without `old` starts it: nothing is carried (ADR P11).
 
 ## Two ways to work
 
@@ -182,7 +178,7 @@ held **in the server's memory, by handle**, and nothing is written unless you as
   never decide it: restore with `answer` `set: {id: stored}`, keep the file's with `answer`
   `keep: [id]` (recorded in `_specify.keep`). See [answers](answers.md#reopening-a-file-specify-wrote-the-pmi-is-the-truth).
 - **Stale files.** If the file at the recorded path changes after `open`, every call on the
-  document is refused as `stale`. Open the file again, or use `diff` to carry the answers.
+  document is refused as `stale`. Open the file again.
 
 ## Security
 

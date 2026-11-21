@@ -125,9 +125,8 @@ questions still open; the defaults only when you choose "with defaults") into
 `plate.specified.step` next to the input (then `plate.specified-2.step`, …; later saves
 update the copy the run wrote, and nothing else is overwritten); `--in-place` saves over the input (through a link, over its target) and keeps the
 original once as `plate.step.bak`, and `--read-only` refuses answer changes and saves.
-`specify-core open --diff old.step new.step` shows what changed and starts from the answers
-`specify-core diff` carries to the new revision (`--answers FILE` for the old answers); Save
-writes the new one. `--port N` picks the port and `--no-browser` only prints the address. The
+`specify-core open --diff old.step new.step` shows what changed beside the new revision,
+opened as `open new.step` opens it; Save writes the new one. `--port N` picks the port and `--no-browser` only prints the address. The
 command stops 90 seconds after the last page is closed, or after 30 minutes without a request.
 The app (built from [ui/](ui/) in this repository) and its engine are built into the command,
 so nothing is downloaded and the page works offline. Pass `--app DIR` (or set
@@ -242,26 +241,26 @@ as they were.
 ## Review a revision
 
 Given two versions of a part, Specify says what changed in words a person can check against
-the model, draws the change, and carries the answers to the new revision.
+the model, draws the change, and lists the requirements added, removed and changed between the
+two annotated files. It reads only the PMI in the two files.
 
 ```bash
-specify-core diff old.step new.step --answers old.answers.json -o changes
+specify-core diff old.step new.step -o changes
 ```
 
 `changes/` gets:
 - `report.md`: the review, written to post as a pull request comment;
 - `model.png`: the new part, with changed faces orange, new faces green, and gone or moved faces
   in translucent red;
-- `answers.json`: the carried answers, with `_specify` evidence and unresolved carry
-  blocks, to commit; see [answer files and changed geometry](docs/answers.md);
 - `report.json`: all of the above as data.
 
-PMI changes are listed by characteristic number (for example `#7 ⌀6.6 H7 → ⌀6.6 H8`). Without
-`--answers`, the answers stored in the old file are carried.
+PMI changes are listed per feature by characteristic number (for example
+`#7 ⌀6.6 H7 → ⌀6.6 H8`), and requirements on a feature that moved or changed size are listed to
+check.
 
 In Python, `api.diff("old.step", "new.step")` returns the same `{report, markdown}`. To compare
 two revisions without installing anything, use [draftwright.io/diff](https://draftwright.io/diff).
-[docs/diff.md](docs/diff.md) explains how the two parts are matched and what carries.
+[docs/diff.md](docs/diff.md) explains how the two parts and their requirements are matched.
 
 To post the review on every pull request that changes a STEP file, add the
 [STEP diff action](step-diff/README.md):

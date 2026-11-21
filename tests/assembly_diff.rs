@@ -4,7 +4,7 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-use serde_json::{Map, Value, json};
+use serde_json::Value;
 use specify_core::part::load_all;
 use specify_core::revision::assembly;
 
@@ -36,29 +36,13 @@ fn json_file(path: PathBuf) -> Value {
     serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
 }
 
-// Diff now transports numbering evidence even for a part with no answered questions.
-// Keep exact answer-map equality and verify every part's evidence against its loaded faces.
-fn with_evidence(new: &Path, requirements: Value) -> Value {
-    let mut expected = requirements.as_object().unwrap().clone();
-    for part in load_all(new).unwrap() {
-        let answers = expected
-            .entry(part.name.clone())
-            .or_insert_with(|| json!({}));
-        answers["_specify"] = json!({
-            "evidence": specify_core::resume::evidence(&part).unwrap(),
-            "unresolved": {},
-        });
-    }
-    Value::Object(expected)
-}
-
 #[test]
 fn the_parts_pair_by_name_and_only_the_two_changed_parts_are_changed() {
     let (old, new) = (
         load_all(&fixture("old")).unwrap(),
         load_all(&fixture("new")).unwrap(),
     );
-    let a = assembly::diff(&old, &new, &Map::new()).unwrap();
+    let a = assembly::diff(&old, &new).unwrap();
     assert_eq!(a.parts.len(), 12);
     let changed: Vec<&str> = a
         .parts
@@ -135,52 +119,8 @@ fn the_command_line_writes_the_parts_table_each_changed_part_and_the_picture() {
     let report = json_file(out.join("report.json"));
     assert_eq!(report["parts"].as_array().unwrap().len(), 12);
     assert_eq!(report["parts"][1]["report"]["verdict"], "ok");
-    assert_eq!(
-        json_file(out.join("answers.json")),
-        with_evidence(&fixture("new"), json!({}))
-    );
-}
-
-#[test]
-fn an_assembly_s_answers_are_given_and_carried_by_part_name() {
-    let out = dir("answers");
-    std::fs::create_dir_all(&out).unwrap();
-    let given = out.join("in.json");
-    let write = |v: Value| std::fs::write(&given, v.to_string()).unwrap();
-    let path = given.to_str().unwrap();
-
-    write(json!({"GRM-04 drive plate": {"part.material": "6061-T6"}}));
-    let run = diff(&out, &["--answers", path]);
-    assert!(
-        run.status.success(),
-        "{}",
-        String::from_utf8_lossy(&run.stderr)
-    );
-    assert_eq!(
-        json_file(out.join("answers.json")),
-        with_evidence(
-            &fixture("new"),
-            json!({"GRM-04 drive plate": {"part.material": "6061-T6"}})
-        )
-    );
-
-    write(json!({"nope": {}}));
-    let run = diff(&out, &["--answers", path]);
-    assert_eq!(run.status.code(), Some(2));
-    let stderr = String::from_utf8_lossy(&run.stderr);
-    assert!(
-        stderr.contains("invalid answer: ") && stderr.contains("has no part named \"nope\""),
-        "{stderr}"
-    );
-
-    write(json!({"part.material": "6061-T6"}));
-    let run = diff(&out, &["--answers", path]);
-    assert_eq!(run.status.code(), Some(2));
-    assert!(
-        String::from_utf8_lossy(&run.stderr).contains(
-            "invalid answer: assembly requirements use {part name: {question id: value}}"
-        )
-    );
+    // Diff reads the files' PMI only and writes no answers (ADR P11).
+    assert!(!out.join("answers.json").exists());
 }
 
 #[test]
@@ -214,12 +154,7 @@ fn variant(name: &str, edit: impl Fn(&str) -> String) -> PathBuf {
 }
 
 fn compared(old: &Path, new: &Path) -> assembly::Assembly {
-    assembly::diff(
-        &load_all(old).unwrap(),
-        &load_all(new).unwrap(),
-        &Map::new(),
-    )
-    .unwrap()
+    assembly::diff(&load_all(old).unwrap(), &load_all(new).unwrap()).unwrap()
 }
 
 fn statuses(a: &assembly::Assembly) -> Vec<(&str, &str)> {
@@ -332,7 +267,7 @@ fn a_renamed_part_s_ghost_does_not_tint_the_part_in_its_place() {
         )
     });
     let (old, new) = (load_all(&base).unwrap(), load_all(&renamed).unwrap());
-    let a = assembly::diff(&old, &new, &Map::new()).unwrap();
+    let a = assembly::diff(&old, &new).unwrap();
     let png = a.picture(&old, &new, 300);
     let decoder = png::Decoder::new(std::io::Cursor::new(png));
     let mut reader = decoder.read_info().unwrap();
@@ -351,65 +286,4 @@ fn a_renamed_part_s_ghost_does_not_tint_the_part_in_its_place() {
         pixels.len()
     );
     assert_eq!(reddish, 0);
-}
-
-#[test]
-fn a_single_part_s_answers_are_its_part_s_when_it_becomes_an_assembly() {
-    let out = dir("single-answers");
-    std::fs::create_dir_all(&out).unwrap();
-    let text = std::fs::read_to_string(part_fixture("plate.step")).unwrap();
-    let old = out.join("plate.step");
-    std::fs::write(
-        &old,
-        text.replace("PRODUCT('COMPOUND','COMPOUND'", "PRODUCT('plate','plate'"),
-    )
-    .unwrap();
-    let given = out.join("in.json");
-    std::fs::write(&given, json!({"part.material": "6061-T6"}).to_string()).unwrap();
-    let run = Command::new(env!("CARGO_BIN_EXE_specify-core"))
-        .arg("diff")
-        .args([&old, &part_fixture("assembly.step")])
-        .arg("--answers")
-        .arg(&given)
-        .arg("-o")
-        .arg(&out)
-        .output()
-        .unwrap();
-    assert!(
-        run.status.success(),
-        "{}",
-        String::from_utf8_lossy(&run.stderr)
-    );
-    assert_eq!(
-        json_file(out.join("answers.json")),
-        with_evidence(
-            &part_fixture("assembly.step"),
-            json!({"plate": {"part.material": "6061-T6"}})
-        )
-    );
-}
-
-#[test]
-fn per_part_accepted_defaults_are_valid_and_errors_name_the_part_and_id() {
-    let old = load_all(&fixture("old")).unwrap();
-    let new = load_all(&fixture("new")).unwrap();
-    let mut given = Map::new();
-    for part in &old {
-        let analysis = specify_core::api::analyse(part).unwrap();
-        let defaults = specify_core::rules::with_all_defaults(&analysis, &Map::new()).unwrap();
-        given.insert(part.name.clone(), json!(defaults));
-    }
-    assert_eq!(assembly::diff(&old, &new, &given).unwrap().parts.len(), 12);
-    given["GRM-02 shaft"]
-        .as_object_mut()
-        .unwrap()
-        .insert("part.nope".into(), json!("bad"));
-    let error = assembly::diff(&old, &new, &given)
-        .err()
-        .unwrap()
-        .to_string();
-    assert!(
-        error.contains("GRM-02 shaft") && error.contains("part.nope"),
-        "{error}"
-    );
 }

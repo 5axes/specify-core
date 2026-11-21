@@ -465,10 +465,13 @@ fn conversation(era: &'static str) {
     let expected = specify_core::revision::diff(
         &specify_core::part::load(&old, None).unwrap(),
         &specify_core::part::load(&new, None).unwrap(),
-        &Map::new(),
     )
     .unwrap();
     assert_eq!(compared["kind"], json!("part"));
+    assert!(
+        compared.get("answers").is_none(),
+        "diff carries no answers (ADR P11)"
+    );
     assert_eq!(compared["verdict"], json!(expected.verdict));
     assert_eq!(compared["summary"], json!(expected.summary));
     assert_eq!(compared["report"], serde_json::to_value(&expected).unwrap());
@@ -1363,52 +1366,31 @@ fn the_agent_and_the_page_share_one_session() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// `open` with `old`: the revisions compared as `diff` compares them, and the session starting
-/// from the answers carried to the new one.
+/// `open` with `old`: the revisions compared as `diff` compares them, and the session the new
+/// file's own, as `open` without `old` starts it: nothing is carried (ADR P11).
 #[test]
-fn a_diff_session_starts_from_the_carried_answers() {
+fn a_diff_session_opens_the_new_file_beside_the_comparison() {
     let dir = scratch("diff-session");
     let (old, new) = (dir.join("plate.old.step.gz"), dir.join("plate.new.step.gz"));
     std::fs::copy(revision("hole_moved.old.step.gz"), &old).unwrap();
     std::fs::copy(revision("hole_moved.new.step.gz"), &new).unwrap();
-    let old_answers = dir.join("old.answers.json");
-    std::fs::write(&old_answers, r#"{"part.material": "6061-T6"}"#).unwrap();
     let mut server = Server::new(std::slice::from_ref(&dir)).unwrap();
 
-    let opened = call(
-        &mut server,
-        "open",
-        json!({"path": new, "old": old, "old_answers": old_answers}),
-    );
+    let opened = call(&mut server, "open", json!({"path": new, "old": old}));
     let out = &opened["structuredContent"];
     assert_eq!(opened["isError"], json!(false), "{opened}");
-    let given: Map<String, Value> =
-        serde_json::from_str(r#"{"part.material": "6061-T6"}"#).unwrap();
     let expected = specify_core::revision::diff(
         &specify_core::part::load(&old, None).unwrap(),
         &specify_core::part::load(&new, None).unwrap(),
-        &given,
     )
     .unwrap();
     assert_eq!(out["verdict"], json!(expected.verdict));
     assert_eq!(out["summary"], json!(expected.summary));
     assert_eq!(out["report"], serde_json::to_value(&expected).unwrap());
     assert_eq!(out["rev"], json!(0));
-    assert_eq!(out["answered"], json!(expected.answers.len()));
+    // The new file stores no answers, and none are carried to it.
+    assert_eq!(out["answered"], json!(0));
     let doc = out["doc"].as_str().unwrap().to_string();
-    let answered = call(
-        &mut server,
-        "questions",
-        json!({"doc": doc, "state": "answered"}),
-    );
-    let material = answered["structuredContent"]["questions"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|q| q["id"] == "part.material")
-        .cloned()
-        .expect("carried");
-    assert_eq!(material["answer"], json!("6061-T6"));
     // A comparison is not shown view-only, said in the tool's own terms.
     server.set_app(stub_app(&dir));
     let refused = error_of(
@@ -1422,13 +1404,6 @@ fn a_diff_session_starts_from_the_carried_answers() {
         message.contains("old") && !message.contains("--"),
         "{message}"
     );
-    // old_answers belong to old.
-    let refused = error_of(
-        &mut server,
-        "open",
-        json!({"path": new, "old_answers": old_answers}),
-    );
-    assert_eq!(refused["code"], json!("invalid"));
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -1641,24 +1616,25 @@ fn a_linked_file_saves_beside_the_link_and_reopens_to_its_session() {
 }
 
 /// Reviewing a diff in the browser: `show` on a session opened with `old` serves the page in
-/// diff mode, with the report, and Save writes the new revision with the carried answers.
+/// diff mode, with the report, and Save writes the new revision with the answers given in the
+/// session (none are carried: ADR P11).
 #[test]
 fn a_diff_session_is_shown_in_diff_mode_and_saves_new() {
     let dir = scratch("diff-show");
     let (old, new) = (dir.join("plate.old.step.gz"), dir.join("plate.new.step.gz"));
     std::fs::copy(revision("hole_moved.old.step.gz"), &old).unwrap();
     std::fs::copy(revision("hole_moved.new.step.gz"), &new).unwrap();
-    let old_answers = dir.join("old.answers.json");
-    std::fs::write(&old_answers, r#"{"part.material": "6061-T6"}"#).unwrap();
     let mut server = Server::new(std::slice::from_ref(&dir)).unwrap();
     server.set_app(stub_app(&dir));
-    let opened = call(
-        &mut server,
-        "open",
-        json!({"path": new, "old": old, "old_answers": old_answers}),
-    );
+    let opened = call(&mut server, "open", json!({"path": new, "old": old}));
     let out = opened["structuredContent"].clone();
     let doc = out["doc"].clone();
+    let answered = call(
+        &mut server,
+        "answer",
+        json!({"doc": doc, "set": {"part.material": "6061-T6"}}),
+    );
+    assert_eq!(answered["isError"], json!(false), "{answered}");
     let shown = call(&mut server, "show", json!({"doc": doc, "browser": false}));
     assert_eq!(shown["isError"], json!(false), "{shown}");
     assert_eq!(shown["structuredContent"]["mode"], json!("diff"));
@@ -1682,12 +1658,12 @@ fn a_diff_session_is_shown_in_diff_mode_and_saves_new() {
     assert!(report["markdown"].is_string() && report["view"]["faces"].is_object());
     let (_, answers) = page(&url, "GET", "answers", None);
     assert_eq!(answers["parts"]["0"]["part.material"], json!("6061-T6"));
-    // The person saves NEW from the page, with the carried answers.
+    // The person saves NEW from the page.
     let (status, saved) = page(
         &url,
         "POST",
         "save",
-        Some(&json!({"rev": 0, "acceptDefaults": {}})),
+        Some(&json!({"rev": 1, "acceptDefaults": {}})),
     );
     assert_eq!(status, 200, "{saved}");
     let written = dir.join("plate.new.specified.step");
@@ -1714,15 +1690,8 @@ fn nothing_is_saved_outside_the_allowed_directories() {
     std::fs::copy(part("plate"), &inside).unwrap();
     let evil = outside.join("evil.step");
     std::os::unix::fs::symlink(&inside, &evil).unwrap();
-    std::fs::write(allowed.join("a.json"), b"{}").unwrap();
-    let evil_answers = outside.join("old.json");
-    std::os::unix::fs::symlink(allowed.join("a.json"), &evil_answers).unwrap();
     let mut server = Server::new(std::slice::from_ref(&allowed)).unwrap();
-    for arguments in [
-        json!({"path": evil}),
-        json!({"path": inside, "old": evil}),
-        json!({"path": inside, "old": inside, "old_answers": evil_answers}),
-    ] {
+    for arguments in [json!({"path": evil}), json!({"path": inside, "old": evil})] {
         let refused = error_of(&mut server, "open", arguments.clone());
         assert_eq!(refused["code"], json!("refused"), "{arguments}: {refused}");
     }
@@ -1771,11 +1740,7 @@ fn nothing_is_saved_outside_the_allowed_directories() {
         assert_eq!(status, 403, "{body}");
         assert!(body["error"].is_string());
         served.join().unwrap();
-        assert_eq!(
-            names(),
-            ["evil.step", "old.json"],
-            "nothing written outside"
-        );
+        assert_eq!(names(), ["evil.step"], "nothing written outside");
     }
     assert_eq!(
         std::fs::read(&inside).unwrap(),

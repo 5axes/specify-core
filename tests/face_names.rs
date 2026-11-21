@@ -1,7 +1,7 @@
 //! For #87: only names authored into STEP are persistent face identities.
 use haecceity::p21::{Attribute, Document, Edit, RawEntity};
 use serde_json::{Map, Value, json};
-use specify_core::{api, features, part, resume, revision, writer};
+use specify_core::{api, features, part, resume, writer};
 use std::path::Path;
 
 fn load(name: &str) -> part::LoadedPart {
@@ -22,8 +22,8 @@ fn pair() -> (part::LoadedPart, part::LoadedPart) {
 fn object(value: Value) -> Map<String, Value> {
     value.as_object().unwrap().clone()
 }
-// Revision answer maps now include destination numbering evidence, as well as requirements.
-fn diff_answers(p: &part::LoadedPart, mut expected: Map<String, Value>) -> Map<String, Value> {
+// An answers file saved with *p*'s face evidence.
+fn with_evidence(p: &part::LoadedPart, mut expected: Map<String, Value>) -> Map<String, Value> {
     expected.insert(
         "_specify".into(),
         json!({
@@ -145,9 +145,6 @@ fn rebuilt_names_carry_fit_datum_multi_face_tolerance_and_extra() {
     assert!(out.unresolved.is_empty(), "{out:?}");
     assert_eq!(out.answers, answers(&new));
     assert!(!out.migrated.is_empty());
-    let report = revision::diff(&old, &new, &before).unwrap();
-    assert!(report.unresolved.is_empty(), "{:?}", report.unresolved);
-    assert_eq!(report.answers, diff_answers(&new, answers(&new)));
 }
 
 #[test]
@@ -175,9 +172,6 @@ fn missing_and_duplicate_names_refuse_even_when_geometry_is_identical() {
             !out.answers
                 .contains_key(&format!("hole.function:holes:{hole}"))
         );
-        let report = revision::diff(&old, &changed, &a).unwrap();
-        assert_eq!(report.unresolved.len(), 1);
-        assert!(report.unresolved[0].reason.contains(reason));
         let back = embedded(&changed, &resume::payload(&old, &a).unwrap());
         let resumed = api::analyse(&back).unwrap();
         assert!(
@@ -217,10 +211,6 @@ fn mixed_support_uses_names_and_geometric_correspondence_per_face() {
     let out = rematch(&new, &a, &evidence);
     assert!(out.unresolved.is_empty(), "{out:?}");
     assert_eq!(out.answers, expected);
-    assert_eq!(
-        revision::diff(&old, &new, &a).unwrap().answers,
-        diff_answers(&new, expected)
-    );
 }
 
 #[test]
@@ -343,10 +333,6 @@ fn shared_source_names_are_unnamed_and_new_unique_bindings_still_work() {
     let out = rematch(&new, &before, &evidence);
     assert!(out.unresolved.is_empty(), "{out:?}");
     assert_eq!(out.answers, expected);
-    assert_eq!(
-        revision::diff(&old, &new, &before).unwrap().answers,
-        diff_answers(&new, expected)
-    );
     // Writing answers on the shared faces succeeds and resumes by geometry.
     let bytes = writer::write_bytes(
         &old,
@@ -404,7 +390,7 @@ fn shared_or_incidentally_unique_generic_labels_keep_schema_two() {
 fn sidecar_write_refuses_contradictory_names_even_with_the_same_geometric_fingerprint() {
     let (old, _) = pair();
     let given = answers(&old);
-    let saved = revision::diff(&old, &old, &given).unwrap().answers;
+    let saved = with_evidence(&old, given.clone());
     let hole = face(&old, "body_make_cylinder1", 1);
     let changed = renamed(&old, &[(hole, "")]);
     assert_eq!(
